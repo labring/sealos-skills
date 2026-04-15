@@ -10,8 +10,8 @@ const SCHEMA_DIR = path.join(__dirname, '..', 'schemas')
 const SCHEMA_FILES = {
   config: 'config.schema.json',
   analysis: 'analysis.schema.json',
-  'build-result': 'build-result.schema.json',
-  state: 'state.schema.json',
+  'build-request': 'build-request.schema.json',
+  'delivery-manifest': 'delivery-manifest.schema.json',
 }
 
 function isPlainObject(value) {
@@ -242,85 +242,78 @@ function validateAnalysisSemantics(data, errors) {
   }
 }
 
-function validateBuildResultSemantics(data, errors) {
-  const startedAt = Date.parse(data.build.started_at)
-  const finishedAt = Date.parse(data.finished_at)
+function validateBuildRequestSemantics(data, errors) {
+  const { mode, image, build, source } = data
 
-  if (!Number.isNaN(startedAt) && !Number.isNaN(finishedAt) && finishedAt < startedAt) {
-    pushError(errors, '$.finished_at', 'must not be earlier than build.started_at')
+  if (mode === 'reuse-image') {
+    if (typeof image.image_ref !== 'string' || image.image_ref.length === 0) {
+      pushError(errors, '$.image.image_ref', 'must be a non-empty image reference when mode is reuse-image')
+    }
+
+    if (image.target_image !== null) {
+      pushError(errors, '$.image.target_image', 'must be null when mode is reuse-image')
+    }
   }
 
-  if (data.registry === 'ghcr' && !data.push.remote_image.startsWith('ghcr.io/')) {
-    pushError(errors, '$.push.remote_image', 'must be a GHCR image when registry is ghcr')
+  if (mode === 'build-required') {
+    if (typeof image.target_image !== 'string' || image.target_image.length === 0) {
+      pushError(errors, '$.image.target_image', 'must be a non-empty image reference when mode is build-required')
+    }
   }
 
-  if (data.registry === 'dockerhub' && data.push.remote_image.startsWith('ghcr.io/')) {
-    pushError(errors, '$.push.remote_image', 'must not be a GHCR image when registry is dockerhub')
+  for (const [pointer, imageRef] of [
+    ['$.image.image_ref', image.image_ref],
+    ['$.image.target_image', image.target_image],
+  ]) {
+    if (typeof imageRef === 'string' && !imageRef.includes(':')) {
+      pushError(errors, pointer, 'must include an explicit image tag')
+    }
   }
 
-  if (!data.push.remote_image.includes(':')) {
-    pushError(errors, '$.push.remote_image', 'must include an explicit image tag')
+  if (build.context_path !== '.') {
+    pushError(errors, '$.build.context_path', 'must be "." for the current prepare workflow')
+  }
+
+  if (build.dockerfile_path !== 'Dockerfile') {
+    pushError(errors, '$.build.dockerfile_path', 'must be "Dockerfile" for the current prepare workflow')
+  }
+
+  if (source.repo === null && source.github_url !== null) {
+    pushError(errors, '$.source.repo', 'must be set when github_url is known')
+  }
+
+  if (source.ref === 'HEAD') {
+    pushError(errors, '$.source.ref', 'must be resolved to a concrete commit SHA')
   }
 }
 
-function validateStateSemantics(data, errors) {
-  const { last_deploy: lastDeploy, history } = data
+function validateDeliveryManifestSemantics(data, errors) {
+  const artifactSet = new Set(data.artifacts)
 
-  if (history[0]?.action !== 'deploy') {
-    pushError(errors, '$.history[0].action', 'the first history entry must be deploy')
-  }
-
-  if (history[0]?.status !== 'success') {
-    pushError(errors, '$.history[0].status', 'the first history entry must be successful')
-  }
-
-  const deployedAt = Date.parse(lastDeploy.deployed_at)
-  const updatedAt = Date.parse(lastDeploy.last_updated_at)
-  if (!Number.isNaN(deployedAt) && !Number.isNaN(updatedAt) && updatedAt < deployedAt) {
-    pushError(errors, '$.last_deploy.last_updated_at', 'must not be earlier than deployed_at')
-  }
-
-  try {
-    const host = new URL(lastDeploy.url).hostname
-    if (!host.endsWith(`.${lastDeploy.region}`)) {
-      pushError(errors, '$.last_deploy.url', 'hostname must end with .<region>')
-    }
-  } catch {
-    pushError(errors, '$.last_deploy.url', 'must be a valid https URL')
-  }
-
-  let previousAt = null
-  let latestSuccessfulImage = null
-  for (let index = 0; index < history.length; index++) {
-    const entry = history[index]
-    const at = Date.parse(entry.at)
-
-    if (previousAt !== null && !Number.isNaN(at) && at < previousAt) {
-      pushError(errors, `$.history[${index}].at`, 'must be in non-decreasing chronological order')
-    }
-    if (!Number.isNaN(at)) {
-      previousAt = at
-    }
-
-    if (entry.action === 'set-image' && entry.image === entry.previous_image) {
-      pushError(errors, `$.history[${index}].image`, 'must differ from previous_image for set-image actions')
-    }
-
-    if ((entry.action === 'deploy' || entry.action === 'set-image') && entry.status === 'success') {
-      latestSuccessfulImage = entry.image
+  for (const requiredArtifact of [
+    '.sealos/analysis.json',
+    '.sealos/build-request.json',
+    '.sealos/template/index.yaml',
+  ]) {
+    if (!artifactSet.has(requiredArtifact)) {
+      pushError(errors, '$.artifacts', `must include ${requiredArtifact}`)
     }
   }
 
-  if (latestSuccessfulImage && latestSuccessfulImage !== lastDeploy.image) {
-    pushError(errors, '$.last_deploy.image', 'must match the latest successful image-changing history entry')
+  if (!artifactSet.has(data.template_path)) {
+    pushError(errors, '$.template_path', 'must be present in artifacts')
+  }
+
+  if (!artifactSet.has(data.build_request_path)) {
+    pushError(errors, '$.build_request_path', 'must be present in artifacts')
   }
 }
 
 const SEMANTIC_VALIDATORS = {
   config: () => {},
   analysis: validateAnalysisSemantics,
-  'build-result': validateBuildResultSemantics,
-  state: validateStateSemantics,
+  'build-request': validateBuildRequestSemantics,
+  'delivery-manifest': validateDeliveryManifestSemantics,
 }
 
 export function inferArtifactKind(filePath) {
@@ -330,10 +323,10 @@ export function inferArtifactKind(filePath) {
       return 'config'
     case 'analysis.json':
       return 'analysis'
-    case 'build-result.json':
-      return 'build-result'
-    case 'state.json':
-      return 'state'
+    case 'build-request.json':
+      return 'build-request'
+    case 'delivery-manifest.json':
+      return 'delivery-manifest'
     default:
       return null
   }

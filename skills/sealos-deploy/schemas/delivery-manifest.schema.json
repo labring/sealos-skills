@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills.sh/sealos-deploy/schemas/delivery-manifest.schema.json",
+  "title": "Sealos Deploy Delivery Manifest Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "generated_at",
+    "artifacts",
+    "template_path",
+    "build_request_path"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "template_path": {
+      "type": "string",
+      "const": ".sealos/template/index.yaml"
+    },
+    "build_request_path": {
+      "type": "string",
+      "const": ".sealos/build-request.json"
+    }
+  }
+}

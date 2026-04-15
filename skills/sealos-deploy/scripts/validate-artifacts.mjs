@@ -12,8 +12,8 @@ function collectProjectArtifacts(workDir) {
   const candidates = [
     path.join(sealosDir, 'config.json'),
     path.join(sealosDir, 'analysis.json'),
-    path.join(sealosDir, 'build', 'build-result.json'),
-    path.join(sealosDir, 'state.json'),
+    path.join(sealosDir, 'build-request.json'),
+    path.join(sealosDir, 'delivery-manifest.json'),
   ]
 
   return candidates
