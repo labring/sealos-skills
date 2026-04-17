@@ -1,4 +1,4 @@
-# Prepare Pipeline
+# Build And Prepare Pipeline
 
 After preflight passes, execute Phase 1–6 in order.
 
@@ -8,14 +8,15 @@ Use `ENV` from preflight to choose between script mode (Node.js available) and f
 
 ## Artifact Directory
 
-All prepare outputs are written under `.sealos/` in `WORK_DIR`:
+All build-and-prepare outputs are written under `.sealos/` in `WORK_DIR`:
 
 ```text
 <WORK_DIR>/.sealos/
 ├── config.json               ← optional user configuration overrides
 ├── analysis.json             ← project analysis snapshot
-├── build-request.json        ← handoff contract for a future build job
-├── delivery-manifest.json    ← manifest of generated prepare artifacts
+├── build-request.json        ← build execution contract
+├── build-result.json         ← resolved image result from reuse or BuildKit
+├── delivery-manifest.json    ← manifest of generated workflow artifacts
 └── template/
     └── index.yaml            ← Sealos template
 ```
@@ -26,6 +27,7 @@ JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>
 - `analysis.schema.json`
 - `build-request.schema.json`
 - `delivery-manifest.schema.json`
+- `../k8s-buildkit-job/schemas/build-result.schema.json`
 
 Validate them with:
 
@@ -70,6 +72,7 @@ If any of these artifacts already exist:
 - `.sealos/analysis.json`
 - `Dockerfile`
 - `.sealos/build-request.json`
+- `.sealos/build-result.json`
 - `.sealos/template/index.yaml`
 - `.sealos/delivery-manifest.json`
 
@@ -85,6 +88,7 @@ If restart, remove:
 
 - `.sealos/analysis.json`
 - `.sealos/build-request.json`
+- `.sealos/build-result.json`
 - `.sealos/template/index.yaml`
 - `.sealos/delivery-manifest.json`
 
@@ -185,11 +189,9 @@ Phase 3 output:
 - optional `.dockerignore`
 - updated `analysis.json.has_dockerfile`
 
-## Phase 4: Build Handoff
+## Phase 4: Build
 
-This phase replaces local build and push.
-
-Generate `.sealos/build-request.json` for a future build-job skill.
+This phase replaces local build and push with build-request generation plus image resolution.
 
 ### 4.1 Determine target image
 
@@ -244,8 +246,53 @@ If Phase 2 found a reusable image, use:
 Important:
 
 - always write `build-request.json`
-- `mode=reuse-image` means no later build job is needed
-- `mode=build-required` means a later skill must create and monitor a build job
+- `mode=reuse-image` means no Kubernetes Job is needed
+- `mode=build-required` means Phase 4 must now call `k8s-buildkit-job`
+
+### 4.3 Resolve build-result.json
+
+`sealos-deploy` owns the overall chain, but delegates actual build execution to the sibling skill:
+
+```text
+<SKILL_DIR>/../k8s-buildkit-job/
+```
+
+#### Branch A: reuse-image
+
+If `mode=reuse-image`, do not run BuildKit. Write `.sealos/build-result.json` directly via the sibling helper:
+
+```bash
+node "<SKILL_DIR>/../k8s-buildkit-job/scripts/write-result.mjs" \
+  --request "$WORK_DIR/.sealos/build-request.json" \
+  --out "$WORK_DIR/.sealos/build-result.json" \
+  --status skipped \
+  --log-file "$LOG_FILE"
+```
+
+The resulting `build-result.json` is still required, because later phases consume a single resolved-image contract.
+
+#### Branch B: build-required
+
+If `mode=build-required`, require these capabilities at this point:
+
+- `kubectl`
+- `GITHUB_TOKEN`
+- permission to create Jobs, Pods, and Secrets in the active namespace
+
+Then execute the `k8s-buildkit-job` workflow using the just-written `.sealos/build-request.json`:
+
+1. run `../k8s-buildkit-job/modules/preflight.md`
+2. run `../k8s-buildkit-job/modules/build-request.md`
+3. run `../k8s-buildkit-job/modules/registry-auth.md`
+4. run `../k8s-buildkit-job/modules/job-template.md`
+5. run `../k8s-buildkit-job/modules/run-and-watch.md`
+6. run `../k8s-buildkit-job/modules/result.md`
+
+Expected output:
+
+- `.sealos/build-result.json`
+
+Stop the pipeline if `.sealos/build-result.json.status` is `failed`.
 
 ## Phase 5: Generate Sealos Template
 
@@ -254,9 +301,9 @@ Generate `.sealos/template/index.yaml` using the existing `docker-to-sealos` gui
 Key rules:
 
 - emit a valid Sealos application template
-- use `analysis.json`, detected env vars, and selected image information
-- if the image is reused, point the template to that image
-- if `mode=build-required`, point the template to `target_image`
+- use `analysis.json`, detected env vars, and resolved image information from `.sealos/build-result.json`
+- always point the template to `build-result.json.image.image_ref`
+- do not read `build-request.json.image.target_image` directly once `build-result.json` exists
 
 References:
 
@@ -278,11 +325,13 @@ Write `.sealos/delivery-manifest.json`:
   "artifacts": [
     ".sealos/analysis.json",
     ".sealos/build-request.json",
+    ".sealos/build-result.json",
     ".sealos/template/index.yaml",
     "Dockerfile"
   ],
   "template_path": ".sealos/template/index.yaml",
-  "build_request_path": ".sealos/build-request.json"
+  "build_request_path": ".sealos/build-request.json",
+  "build_result_path": ".sealos/build-result.json"
 }
 ```
 
@@ -294,7 +343,8 @@ node "<SKILL_DIR>/scripts/validate-artifacts.mjs" --dir "$WORK_DIR"
 
 At the end, present:
 
-- whether the project needs a build job or can reuse an existing image
+- whether the project reused an existing image or completed a BuildKit job
 - where `build-request.json` is
+- where `build-result.json` is
 - where `index.yaml` is
 - which artifacts were generated under `.sealos/`

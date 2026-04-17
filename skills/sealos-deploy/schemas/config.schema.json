@@ -56,7 +56,7 @@
           "assess",
           "detect-image",
           "dockerfile",
-          "build-handoff",
+          "build",
           "template",
           "finish"
         ]

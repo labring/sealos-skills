@@ -1,8 +1,8 @@
 # Phase 0: Preflight
 
-Detect the sandbox environment, resolve the project, and determine whether the prepare workflow can complete.
+Detect the sandbox environment, resolve the project, and determine whether the build-and-prepare workflow can complete.
 
-This version is prepare-only. Preflight must not require:
+Preflight must not require:
 
 - local Docker daemon
 - `docker buildx`
@@ -43,8 +43,8 @@ Notes:
 - `git` is required when cloning a GitHub URL or when deriving repository metadata.
 - `node` is recommended because helper scripts are written in Node.js.
 - `curl` and `jq` are optional accelerators.
-- `kubectl` may be available in the sandbox for a future build-job skill, but this skill does not execute jobs.
-- `GITHUB_TOKEN` may exist in the sandbox, but this skill does not prompt for or refresh GitHub auth.
+- `kubectl` may be available in the sandbox for a later BuildKit phase, but it is not an entry prerequisite.
+- `GITHUB_TOKEN` may exist in the sandbox for a later BuildKit phase, but this skill does not prompt for or refresh GitHub auth.
 
 ## Step 2: Capability Classification
 
@@ -70,6 +70,8 @@ Report but do not stop:
 - `kubectl` missing
 - `GITHUB_TOKEN` missing
 
+These two are conditional blockers only if Phase 4 resolves to `mode=build-required`.
+
 ### 2.3 Explicit Non-Requirements
 
 Tell the user these are intentionally out of scope for this version:
@@ -78,7 +80,6 @@ Tell the user these are intentionally out of scope for this version:
 - Sealos OAuth auth
 - region switching
 - workspace and namespace switching
-- build job creation and monitoring
 - direct deploy and rollout operations
 
 ## Step 3: Resolve Project Context
@@ -149,6 +150,7 @@ At the end of preflight, present:
 - whether assessment and image detection can run
 - whether sandbox helpers like `kubectl` and `GITHUB_TOKEN` are present
 - which old deploy-time dependencies are intentionally not required
+- whether a later BuildKit phase would be able to run if the project needs a new image
 
 Example:
 
@@ -160,5 +162,6 @@ Preflight summary:
   - Node.js: ready
   - kubectl: available in sandbox
   - GITHUB_TOKEN: injected
-  - Docker / Sealos auth / deploy API: not required in prepare-only mode
+  - Docker / Sealos auth / deploy API: not required at entry
+  - BuildKit readiness: kubectl and GITHUB_TOKEN will only matter if no reusable image is found
 ```

@@ -1,34 +1,34 @@
 ---
 name: sealos-deploy
-description: Prepare any GitHub project for Sealos Cloud inside a sandboxed workflow. Assesses readiness, detects reusable images, reuses or generates Dockerfiles, creates Sealos templates, and writes build handoff artifacts for a follow-up build job. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
-compatibility: git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ is recommended for helper scripts. This prepare-only version does not require Sealos auth, GitHub auth prompts, local Docker daemon access, or direct deploy access.
+description: Prepare and build any GitHub project for Sealos Cloud inside a sandboxed workflow. Assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through k8s-buildkit-job when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
+compatibility: git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ is recommended for helper scripts. kubectl and GITHUB_TOKEN are required only when the pipeline needs a Kubernetes BuildKit Job. This version does not require Sealos auth prompts, local Docker daemon access, or direct deploy access.
 metadata:
   author: labring
 ---
 
 # Sealos Deploy
 
-Prepare any GitHub project for Sealos Cloud without requiring direct Sealos login or local image builds.
+Prepare any GitHub project for Sealos Cloud without requiring direct Sealos login or local Docker builds.
 
-This version of `sealos-deploy` is a prepare-only workflow:
+This version of `sealos-deploy` is a sandbox-first workflow:
 
 1. inspect and score the project
 2. detect reusable container images
 3. reuse, repair, or generate a Dockerfile
-4. generate build handoff artifacts under `.sealos/`
-5. generate `.sealos/template/index.yaml`
+4. write `.sealos/build-request.json`
+5. either reuse an existing image or run `k8s-buildkit-job`
+6. generate `.sealos/template/index.yaml`
 
 It does not:
 
 - perform Sealos auth
 - switch region, workspace, or namespace
 - build or push images locally
-- create or watch build jobs
 - deploy directly to Sealos
 
 ## kubectl Safety Rules
 
-If any future phase or downstream skill uses `kubectl`, it must use the sandbox-provided permissions and kubeconfig. This prepare-only version does not execute cluster mutations itself.
+If any future phase or downstream skill uses `kubectl`, it must use the sandbox-provided permissions and kubeconfig. This version may create one-shot build Jobs, but it still must not mutate Sealos application resources directly.
 
 ## Usage
 
@@ -43,7 +43,7 @@ If any future phase or downstream skill uses `kubectl`, it must use the sandbox-
 Execute the modules in order:
 
 1. `modules/preflight.md` — environment checks and project resolution
-2. `modules/pipeline.md` — prepare pipeline (Phase 1–6)
+2. `modules/pipeline.md` — build-and-prepare pipeline (Phase 1–6)
 
 ## Logging
 
@@ -79,6 +79,7 @@ This skill references co-installed internal skills on demand:
 <SKILL_DIR>/../
 ├── sealos-deploy/           ← this skill (user entry point)
 ├── dockerfile-skill/        ← Phase 3: Dockerfile generation knowledge
+├── k8s-buildkit-job/        ← Phase 4: Kubernetes BuildKit execution
 ├── cloud-native-readiness/  ← Phase 1: assessment criteria
 └── docker-to-sealos/        ← Phase 5: Sealos template rules
 ```
@@ -89,10 +90,10 @@ This skill references co-installed internal skills on demand:
 |-------|--------|-----------|
 | 0 — Preflight | Capability scan, project resolution, sandbox assumptions | Entry blockers resolved |
 | 1 — Assess | Analyze deployability and write `analysis.json` | Score too low → stop |
-| 2 — Detect | Find reusable amd64 image | Found → build can be skipped later |
+| 2 — Detect | Find reusable amd64 image | Found → build job can be skipped later |
 | 3 — Dockerfile | Reuse or generate Dockerfile | Existing valid Dockerfile can be reused |
-| 4 — Build Handoff | Write `build-request.json` for a future build job | Existing image allows `reuse-image` mode |
-| 5 — Template | Generate `.sealos/template/index.yaml` | Existing valid template can be reused |
+| 4 — Build | Write `build-request.json` and resolve `build-result.json` | Existing image writes `status=skipped` without a Job |
+| 5 — Template | Generate `.sealos/template/index.yaml` from the resolved image | Existing valid template can be reused |
 | 6 — Finish | Write `delivery-manifest.json` and present outputs | — |
 
 ## Decision Flow
@@ -115,7 +116,7 @@ Input (GitHub URL / local path / current project)
 [Phase 3] Dockerfile                      │
   │                                       │
   ▼                                       │
-[Phase 4] Build handoff                   │
+[Phase 4] Build / reuse image             │
   ◄───────────────────────────────────────┘
   │
   ▼
@@ -125,7 +126,7 @@ Input (GitHub URL / local path / current project)
 [Phase 6] Finish with .sealos artifacts
   │
   ▼
-Done — prepare artifacts ready for a later build/deploy step
+Done — build artifacts and template ready for a later deploy step
 ```
 
-Execution rule: this version must never require Docker daemon access, Sealos auth, GitHub auth prompts, workspace switching, or direct deploy as entry prerequisites.
+Execution rule: this version must never require Docker daemon access, Sealos auth, GitHub auth prompts, workspace switching, or direct deploy as entry prerequisites. It may require `kubectl` and `GITHUB_TOKEN` later, but only if `mode=build-required`.

@@ -6,11 +6,13 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SCHEMA_DIR = path.join(__dirname, '..', 'schemas')
+const BUILDKIT_SCHEMA_DIR = path.join(__dirname, '..', '..', 'k8s-buildkit-job', 'schemas')
 
 const SCHEMA_FILES = {
   config: 'config.schema.json',
   analysis: 'analysis.schema.json',
   'build-request': 'build-request.schema.json',
+  'build-result': { dir: BUILDKIT_SCHEMA_DIR, file: 'build-result.schema.json' },
   'delivery-manifest': 'delivery-manifest.schema.json',
 }
 
@@ -215,12 +217,16 @@ function validateNumberSchema(schema, value, pointer, errors) {
 }
 
 function loadSchema(kind) {
-  const fileName = SCHEMA_FILES[kind]
-  if (!fileName) {
+  const schemaRef = SCHEMA_FILES[kind]
+  if (!schemaRef) {
     throw new Error(`Unknown artifact kind: ${kind}`)
   }
 
-  return JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, fileName), 'utf-8'))
+  if (typeof schemaRef === 'string') {
+    return JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, schemaRef), 'utf-8'))
+  }
+
+  return JSON.parse(fs.readFileSync(path.join(schemaRef.dir, schemaRef.file), 'utf-8'))
 }
 
 function validateAnalysisSemantics(data, errors) {
@@ -287,12 +293,19 @@ function validateBuildRequestSemantics(data, errors) {
   }
 }
 
+function validateBuildResultSemantics(data, errors) {
+  if (typeof data.image?.image_ref === 'string' && !data.image.image_ref.includes(':')) {
+    pushError(errors, '$.image.image_ref', 'must include an explicit image tag')
+  }
+}
+
 function validateDeliveryManifestSemantics(data, errors) {
   const artifactSet = new Set(data.artifacts)
 
   for (const requiredArtifact of [
     '.sealos/analysis.json',
     '.sealos/build-request.json',
+    '.sealos/build-result.json',
     '.sealos/template/index.yaml',
   ]) {
     if (!artifactSet.has(requiredArtifact)) {
@@ -307,12 +320,17 @@ function validateDeliveryManifestSemantics(data, errors) {
   if (!artifactSet.has(data.build_request_path)) {
     pushError(errors, '$.build_request_path', 'must be present in artifacts')
   }
+
+  if (!artifactSet.has(data.build_result_path)) {
+    pushError(errors, '$.build_result_path', 'must be present in artifacts')
+  }
 }
 
 const SEMANTIC_VALIDATORS = {
   config: () => {},
   analysis: validateAnalysisSemantics,
   'build-request': validateBuildRequestSemantics,
+  'build-result': validateBuildResultSemantics,
   'delivery-manifest': validateDeliveryManifestSemantics,
 }
 
@@ -325,6 +343,8 @@ export function inferArtifactKind(filePath) {
       return 'analysis'
     case 'build-request.json':
       return 'build-request'
+    case 'build-result.json':
+      return 'build-result'
     case 'delivery-manifest.json':
       return 'delivery-manifest'
     default:

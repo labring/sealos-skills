@@ -13,6 +13,7 @@ function collectProjectArtifacts(workDir) {
     path.join(sealosDir, 'config.json'),
     path.join(sealosDir, 'analysis.json'),
     path.join(sealosDir, 'build-request.json'),
+    path.join(sealosDir, 'build-result.json'),
     path.join(sealosDir, 'delivery-manifest.json'),
   ]
 

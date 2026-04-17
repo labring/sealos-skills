@@ -9,7 +9,8 @@
     "generated_at",
     "artifacts",
     "template_path",
-    "build_request_path"
+    "build_request_path",
+    "build_result_path"
   ],
   "properties": {
     "version": {
@@ -36,6 +37,10 @@
     "build_request_path": {
       "type": "string",
       "const": ".sealos/build-request.json"
+    },
+    "build_result_path": {
+      "type": "string",
+      "const": ".sealos/build-result.json"
     }
   }
 }
