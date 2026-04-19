@@ -26,9 +26,8 @@ If `mode` is `reuse-image`:
 
 If `mode` is `build-required`, require:
 
-- `source.github_url`
-- `source.repo`
-- `source.ref`
+- `source.type = "sandbox-context"`
+- `source.work_dir`
 - `image.target_image`
 - `build.context_path`
 - `build.dockerfile_path`
@@ -37,9 +36,11 @@ Stop if any required field is missing.
 
 ## Source Constraint
 
-This MVP only supports GitHub repository sources. The Kubernetes Job clones the GitHub URL and ref from `build-request.json`; it does not use local files.
+This MVP only supports sandbox-local build contexts. The sandbox process runs `buildctl`, so it can read files from `source.work_dir` directly and stream them to the temporary BuildKit daemon.
 
-If generated files such as `Dockerfile` are only present locally, the build will fail or build stale source. Ensure they are committed and available from `source.ref`.
+`source.github_url`, `source.repo`, and `source.ref` may be present for traceability, but the build does not clone from them. Generated files such as `Dockerfile` are expected to be present under `source.work_dir`.
+
+Stop if `source.work_dir` is missing, not absolute, or not readable from the sandbox process.
 
 ## Registry Constraint
 

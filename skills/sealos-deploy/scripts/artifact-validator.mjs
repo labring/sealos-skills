@@ -24,6 +24,17 @@ function isIsoDateTime(value) {
   return typeof value === 'string' && !Number.isNaN(Date.parse(value))
 }
 
+function isCommitSha(value) {
+  return typeof value === 'string' && /^[a-f0-9]{40}$/i.test(value)
+}
+
+function isSafeRelativePath(value) {
+  if (typeof value !== 'string' || value.length === 0) return false
+  if (path.isAbsolute(value)) return false
+  const normalized = path.posix.normalize(value.replaceAll('\\', '/'))
+  return normalized !== '..' && !normalized.startsWith('../')
+}
+
 function formatPath(pointer, suffix = '') {
   return `${pointer}${suffix}`
 }
@@ -276,20 +287,36 @@ function validateBuildRequestSemantics(data, errors) {
     }
   }
 
-  if (build.context_path !== '.') {
-    pushError(errors, '$.build.context_path', 'must be "." for the current prepare workflow')
+  if (!isSafeRelativePath(build.context_path)) {
+    pushError(errors, '$.build.context_path', 'must be a safe relative path inside the repository')
   }
 
-  if (build.dockerfile_path !== 'Dockerfile') {
-    pushError(errors, '$.build.dockerfile_path', 'must be "Dockerfile" for the current prepare workflow')
+  if (!isSafeRelativePath(build.dockerfile_path)) {
+    pushError(errors, '$.build.dockerfile_path', 'must be a safe relative path inside the repository')
   }
 
-  if (source.repo === null && source.github_url !== null) {
-    pushError(errors, '$.source.repo', 'must be set when github_url is known')
+  if (source.type !== 'sandbox-context') {
+    pushError(errors, '$.source.type', 'must be sandbox-context for the current k8s sandbox BuildKit workflow')
+  }
+
+  if (typeof source.github_url !== 'string' || source.github_url.length === 0) {
+    pushError(errors, '$.source.github_url', 'must be set because sealos-deploy only accepts GitHub URL inputs')
+  }
+
+  if (typeof source.repo !== 'string' || source.repo.length === 0) {
+    pushError(errors, '$.source.repo', 'must be set because sealos-deploy only accepts GitHub URL inputs')
   }
 
   if (source.ref === 'HEAD') {
     pushError(errors, '$.source.ref', 'must be resolved to a concrete commit SHA')
+  }
+
+  if (!isCommitSha(source.ref)) {
+    pushError(errors, '$.source.ref', 'must be a full 40-character commit SHA')
+  }
+
+  if (!path.isAbsolute(source.work_dir)) {
+    pushError(errors, '$.source.work_dir', 'must be an absolute sandbox path')
   }
 }
 

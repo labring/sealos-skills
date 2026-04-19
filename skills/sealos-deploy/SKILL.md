@@ -1,14 +1,14 @@
 ---
 name: sealos-deploy
-description: Prepare and build any GitHub project for Sealos Cloud inside a sandboxed workflow. Assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through k8s-buildkit-job when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
-compatibility: git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ is recommended for helper scripts. kubectl and GITHUB_TOKEN are required only when the pipeline needs a Kubernetes BuildKit Job. This version does not require Sealos auth prompts, local Docker daemon access, or direct deploy access.
+description: Prepare and build a GitHub project for Sealos Cloud inside a sandboxed workflow. Requires a GitHub URL, assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox BuildKit daemon when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this GitHub project for sealos", or asks to containerize a GitHub project for Sealos. Also triggers on "/sealos-deploy".
+compatibility: git is required. Node.js 18+ is recommended for helper scripts. buildctl, kubectl, and GITHUB_TOKEN are required only when the pipeline needs a Kubernetes BuildKit build. This version does not require Sealos auth prompts, local Docker daemon access, or direct deploy access.
 metadata:
   author: labring
 ---
 
 # Sealos Deploy
 
-Prepare any GitHub project for Sealos Cloud without requiring direct Sealos login or local Docker builds.
+Prepare a GitHub project for Sealos Cloud without requiring direct Sealos login or local Docker builds.
 
 This version of `sealos-deploy` is a sandbox-first workflow:
 
@@ -16,7 +16,7 @@ This version of `sealos-deploy` is a sandbox-first workflow:
 2. detect reusable container images
 3. reuse, repair, or generate a Dockerfile
 4. write `.sealos/build-request.json`
-5. either reuse an existing image or run `k8s-buildkit-job`
+5. either reuse an existing image or run a sandbox BuildKit build through `k8s-buildkit-job`
 6. generate `.sealos/template/index.yaml`
 
 It does not:
@@ -33,10 +33,10 @@ If any future phase or downstream skill uses `kubectl`, it must use the sandbox-
 ## Usage
 
 ```text
-/sealos-deploy
-/sealos-deploy <local-path>
 /sealos-deploy <github-url>
 ```
+
+The entrypoint only accepts GitHub URLs. Local paths and implicit current-directory runs are intentionally unsupported because the downstream BuildKit executor builds from a GitHub ref, not from local files.
 
 ## Quick Start
 
@@ -79,7 +79,7 @@ This skill references co-installed internal skills on demand:
 <SKILL_DIR>/../
 ├── sealos-deploy/           ← this skill (user entry point)
 ├── dockerfile-skill/        ← Phase 3: Dockerfile generation knowledge
-├── k8s-buildkit-job/        ← Phase 4: Kubernetes BuildKit execution
+├── k8s-buildkit-job/        ← Phase 4: sandbox BuildKit execution
 ├── cloud-native-readiness/  ← Phase 1: assessment criteria
 └── docker-to-sealos/        ← Phase 5: Sealos template rules
 ```
@@ -99,7 +99,7 @@ This skill references co-installed internal skills on demand:
 ## Decision Flow
 
 ```text
-Input (GitHub URL / local path / current project)
+Input (GitHub URL)
   │
   ▼
 [Phase 0] Preflight ── fail → explain blocker and STOP
@@ -129,4 +129,4 @@ Input (GitHub URL / local path / current project)
 Done — build artifacts and template ready for a later deploy step
 ```
 
-Execution rule: this version must never require Docker daemon access, Sealos auth, GitHub auth prompts, workspace switching, or direct deploy as entry prerequisites. It may require `kubectl` and `GITHUB_TOKEN` later, but only if `mode=build-required`.
+Execution rule: this version must never require Docker daemon access, Sealos auth, GitHub auth prompts, workspace switching, or direct deploy as entry prerequisites. It may require `buildctl`, `kubectl`, and `GITHUB_TOKEN` later, but only if `mode=build-required`.

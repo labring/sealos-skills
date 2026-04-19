@@ -6,6 +6,8 @@ After preflight passes, execute Phase 1–6 in order.
 
 Use `ENV` from preflight to choose between script mode (Node.js available) and fallback mode (AI-native).
 
+This workflow only accepts GitHub URL inputs. `WORK_DIR` is always a shallow clone created by preflight.
+
 ## Artifact Directory
 
 All build-and-prepare outputs are written under `.sealos/` in `WORK_DIR`:
@@ -155,12 +157,6 @@ If Node.js is available:
 node "<SKILL_DIR>/scripts/detect-image.mjs" "$GITHUB_URL" "$WORK_DIR"
 ```
 
-For a local project without GitHub URL:
-
-```bash
-node "<SKILL_DIR>/scripts/detect-image.mjs" "$WORK_DIR"
-```
-
 Goal:
 
 - detect a reusable amd64 image from Docker Hub, GHCR, compose files, workflows, or README
@@ -189,9 +185,56 @@ Phase 3 output:
 - optional `.dockerignore`
 - updated `analysis.json.has_dockerfile`
 
+## Phase 3.5: Confirm Sandbox Build Context
+
+The Kubernetes BuildKit executor runs a temporary `buildkitd` Job and Service. The sandbox process runs `buildctl` and sends the local build context from `WORK_DIR`.
+
+Before any `mode=build-required` handoff, ensure Phase 3 build inputs are present under `WORK_DIR` and can be read by the sandbox process.
+
+### 3.5.1 Resolve build paths
+
+Determine:
+
+```text
+build.context_path      # usually "." or a subdirectory such as "site"
+build.dockerfile_path   # Dockerfile path relative to WORK_DIR, such as "Dockerfile" or "site/Dockerfile"
+```
+
+These paths must be relative and must not escape the repository.
+
+For the current repository layout, prefer the actual application directory. Do not force root `Dockerfile` when the project uses a subdirectory Dockerfile.
+
+### 3.5.2 Verify local build inputs
+
+Before invoking `k8s-buildkit-job`, verify:
+
+```bash
+test -d "$WORK_DIR/<context_path>"
+test -f "$WORK_DIR/<dockerfile_path>"
+buildctl --version
+```
+
+If any check fails, stop before invoking `k8s-buildkit-job`.
+
+### 3.5.3 Source contract
+
+Write build requests with:
+
+```json
+"source": {
+  "type": "sandbox-context",
+  "github_url": "<GITHUB_URL>",
+  "repo": "owner/repo",
+  "ref": "<original cloned commit sha>",
+  "work_dir": "<WORK_DIR>"
+}
+```
+
+`source.ref` is retained for traceability. It is not the build source for `k8s-buildkit-job`; the build source is the sandbox-local `source.work_dir` plus `build.context_path` and `build.dockerfile_path`.
+
 ## Phase 4: Build
 
-This phase replaces local build and push with build-request generation plus image resolution.
+This phase replaces local image build and push with build-request generation plus image resolution.
 
 ### 4.1 Determine target image
 
@@ -210,9 +253,10 @@ Write `.sealos/build-request.json`:
   "version": "1.0",
   "generated_at": "<ISO timestamp>",
   "source": {
+    "type": "sandbox-context",
     "github_url": "<GITHUB_URL>",
     "repo": "owner/repo",
-    "ref": "<commit sha>",
+    "ref": "<original cloned commit sha>",
     "work_dir": "<WORK_DIR>"
   },
   "mode": "build-required",
@@ -221,8 +265,8 @@ Write `.sealos/build-request.json`:
     "target_image": "ghcr.io/owner/repo:prepare-<tag>"
   },
   "build": {
-    "context_path": ".",
-    "dockerfile_path": "Dockerfile",
+    "context_path": "<context path, e.g. . or site>",
+    "dockerfile_path": "<Dockerfile path, e.g. Dockerfile or site/Dockerfile>",
     "build_args": {}
   },
   "runtime": {
@@ -231,14 +275,33 @@ Write `.sealos/build-request.json`:
 }
 ```
 
+For a subdirectory app, use the real relative paths, for example `context_path="site"` and `dockerfile_path="site/Dockerfile"`.
+
 If Phase 2 found a reusable image, use:
 
 ```json
 {
+  "version": "1.0",
+  "generated_at": "<ISO timestamp>",
+  "source": {
+    "type": "sandbox-context",
+    "github_url": "<GITHUB_URL>",
+    "repo": "owner/repo",
+    "ref": "<original cloned commit sha>",
+    "work_dir": "<WORK_DIR>"
+  },
   "mode": "reuse-image",
   "image": {
     "image_ref": "ghcr.io/owner/repo:v1.2.3",
     "target_image": null
+  },
+  "build": {
+    "context_path": "<context path, e.g. . or site>",
+    "dockerfile_path": "<Dockerfile path, e.g. Dockerfile or site/Dockerfile>",
+    "build_args": {}
+  },
+  "runtime": {
+    "port": 3000
   }
 }
 ```
@@ -248,6 +311,7 @@ Important:
 - always write `build-request.json`
 - `mode=reuse-image` means no Kubernetes Job is needed
 - `mode=build-required` means Phase 4 must now call `k8s-buildkit-job`
+- when `mode=build-required`, `source.work_dir`, `build.context_path`, and `build.dockerfile_path` must point to readable sandbox-local build inputs
 
 ### 4.3 Resolve build-result.json
 
@@ -276,8 +340,9 @@ The resulting `build-result.json` is still required, because later phases consum
 If `mode=build-required`, require these capabilities at this point:
 
 - `kubectl`
+- `buildctl`
 - `GITHUB_TOKEN`
-- permission to create Jobs, Pods, and Secrets in the active namespace
+- permission to create Jobs, Services, Pods, and Secrets in the active namespace
 
 Then execute the `k8s-buildkit-job` workflow using the just-written `.sealos/build-request.json`:
 

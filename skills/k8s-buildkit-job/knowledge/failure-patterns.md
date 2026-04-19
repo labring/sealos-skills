@@ -9,7 +9,9 @@ Signals:
 - `kubectl: command not found`
 - `You must be logged in to the server`
 - `cannot create resource "jobs"`
+- `cannot create resource "services"`
 - `cannot create resource "secrets"`
+- `buildctl: command not found`
 
 Action:
 
@@ -26,23 +28,23 @@ Signals:
 
 Action:
 
-- Provide a token with repo read access and GHCR package write access.
+- Provide a token with GHCR package write access.
 - Do not paste the token into logs or generated YAML.
 
-## clone
+## context
 
 Signals:
 
-- `Authentication failed`
-- `Repository not found`
-- `couldn't find remote ref`
-- `pathspec ... did not match`
+- `source.work_dir` is not readable
+- `Dockerfile not found`
+- `failed to walk`
+- `no such file or directory`
 
 Action:
 
-- Confirm `source.github_url` and `source.ref`.
-- Confirm the token can read the repository.
-- Confirm generated Dockerfile changes are committed to that ref.
+- Confirm the sandbox process can read `source.work_dir`.
+- Confirm `build.context_path` and `build.dockerfile_path` are relative to `source.work_dir`.
+- Confirm Phase 3 generated files are still present in the sandbox workspace.
 
 ## dockerfile
 
@@ -54,7 +56,7 @@ Signals:
 
 Action:
 
-- Confirm `build.dockerfile_path` points to a file in the GitHub ref.
+- Confirm `build.dockerfile_path` points to a file under `source.work_dir`.
 - Confirm `build.context_path` contains all files referenced by the Dockerfile.
 
 ## buildkit
@@ -99,7 +101,7 @@ Signals:
 Action:
 
 - For privileged denial, the sandbox policy must allow privileged BuildKit Jobs.
-- For image pull issues, confirm the cluster can pull `moby/buildkit:master` and `alpine/git`.
+- For image pull issues, confirm the cluster can pull `moby/buildkit:master`.
 
 ## timeout
 

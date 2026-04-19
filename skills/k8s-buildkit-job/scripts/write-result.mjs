@@ -8,7 +8,7 @@ const ERROR_PHASES = new Set([
   'preflight',
   'build-request',
   'auth',
-  'clone',
+  'context',
   'dockerfile',
   'buildkit',
   'push',

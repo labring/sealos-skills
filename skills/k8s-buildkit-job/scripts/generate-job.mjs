@@ -6,7 +6,7 @@ import path from 'path'
 function usage() {
   console.error([
     'Usage:',
-    '  node generate-job.mjs --request <file> --namespace <namespace> --job-name <name> --github-secret <name> --registry-secret <name>',
+    '  node generate-job.mjs --request <file> --namespace <namespace> --job-name <name> --service-name <name> --registry-secret <name>',
   ].join('\n'))
 }
 
@@ -47,19 +47,21 @@ function assertSafeRelativePath(value, field) {
   if (normalized === '..' || normalized.startsWith('../')) {
     throw new Error(`${field} must not escape the repository, got ${value}`)
   }
-  return normalized === '.' ? '' : normalized
+  return normalized
 }
 
-function parseGithubUrl(url) {
-  if (typeof url !== 'string') return null
-
-  const ssh = url.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/)
-  if (ssh) return { owner: ssh[1], repo: ssh[2] }
-
-  const https = url.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/)
-  if (https) return { owner: https[1], repo: https[2] }
-
-  return null
+function assertSafeAbsolutePath(value, field) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${field} must be a non-empty string`)
+  }
+  const normalized = path.posix.normalize(value.replaceAll('\\', '/'))
+  if (!normalized.startsWith('/')) {
+    throw new Error(`${field} must be an absolute sandbox path, got ${value}`)
+  }
+  if (normalized.includes('\n') || normalized.includes('\r')) {
+    throw new Error(`${field} must not contain line breaks`)
+  }
+  return normalized
 }
 
 function validateDnsName(value, field, maxLength = 253) {
@@ -68,21 +70,8 @@ function validateDnsName(value, field, maxLength = 253) {
   }
 }
 
-function shellSingleQuote(value) {
-  return `'${String(value).replaceAll("'", "'\"'\"'")}'`
-}
-
 function yamlSingleQuote(value) {
   return `'${String(value).replaceAll("'", "''")}'`
-}
-
-function indent(text, spaces) {
-  const prefix = ' '.repeat(spaces)
-  return text.split('\n').map((line) => (line ? `${prefix}${line}` : line)).join('\n')
-}
-
-function renderList(items, spaces) {
-  return items.map((item) => `${' '.repeat(spaces)}- ${yamlSingleQuote(item)}`).join('\n')
 }
 
 function validateBuildRequest(request) {
@@ -90,35 +79,30 @@ function validateBuildRequest(request) {
     throw new Error(`generate-job only supports mode=build-required, got ${request.mode}`)
   }
 
-  const githubUrl = request.source?.github_url
-  const ref = request.source?.ref
+  const sourceType = request.source?.type
+  const workDir = request.source?.work_dir
   const targetImage = request.image?.target_image
   const contextPath = request.build?.context_path
   const dockerfilePath = request.build?.dockerfile_path
 
-  if (!githubUrl) throw new Error('source.github_url is required')
-  if (!ref) throw new Error('source.ref is required')
+  if (sourceType !== 'sandbox-context') {
+    throw new Error(`Only source.type=sandbox-context is supported, got ${sourceType}`)
+  }
   if (!targetImage) throw new Error('image.target_image is required')
   if (!String(targetImage).startsWith('ghcr.io/')) {
     throw new Error(`Only ghcr.io target images are supported, got ${targetImage}`)
   }
 
-  const parsed = parseGithubUrl(githubUrl)
-  if (!parsed) throw new Error(`Only GitHub URLs are supported, got ${githubUrl}`)
-
-  const normalizedContext = assertSafeRelativePath(contextPath, 'build.context_path') || '.'
+  const normalizedWorkDir = assertSafeAbsolutePath(workDir, 'source.work_dir')
+  const normalizedContext = assertSafeRelativePath(contextPath, 'build.context_path')
   const normalizedDockerfile = assertSafeRelativePath(dockerfilePath, 'build.dockerfile_path')
   const dockerfileDir = path.posix.dirname(normalizedDockerfile)
-  const dockerfileLocal = dockerfileDir === '.' ? '/workspace' : `/workspace/${dockerfileDir}`
-  const contextLocal = normalizedContext === '.' ? '/workspace' : `/workspace/${normalizedContext}`
-  const dockerfileFile = `/workspace/${normalizedDockerfile}`
+  const contextLocal = normalizedContext === '.' ? normalizedWorkDir : path.posix.join(normalizedWorkDir, normalizedContext)
+  const dockerfileLocal = dockerfileDir === '.' ? normalizedWorkDir : path.posix.join(normalizedWorkDir, dockerfileDir)
+  const dockerfileFile = path.posix.join(normalizedWorkDir, normalizedDockerfile)
 
   return {
-    githubUrl,
-    ref: String(ref),
     targetImage: String(targetImage),
-    owner: parsed.owner,
-    repo: parsed.repo,
     contextLocal,
     dockerfileLocal,
     dockerfileFile,
@@ -126,90 +110,78 @@ function validateBuildRequest(request) {
   }
 }
 
-function renderJob({ request, namespace, jobName, githubSecret, registrySecret }) {
+function renderManifest({ request, namespace, jobName, serviceName, registrySecret }) {
   const build = validateBuildRequest(request)
+  validateDnsName(namespace, 'namespace')
   validateDnsName(jobName, 'job-name', 63)
-  validateDnsName(githubSecret, 'github-secret')
+  validateDnsName(serviceName, 'service-name', 63)
   validateDnsName(registrySecret, 'registry-secret')
 
-  const cloneScript = [
-    'set -eu',
-    'git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/' + `${build.owner}/${build.repo}.git" /workspace`,
-    'cd /workspace',
-    `git checkout ${shellSingleQuote(build.ref)}`,
-    `test -f ${shellSingleQuote(build.dockerfileFile)}`,
-  ].join('\n')
-
-  const args = [
-    'build',
-    '--frontend',
-    'dockerfile.v0',
-    '--local',
-    `context=${build.contextLocal}`,
-    '--local',
-    `dockerfile=${build.dockerfileLocal}`,
-  ]
-
-  for (const [key, value] of Object.entries(build.buildArgs)) {
-    args.push('--opt', `build-arg:${key}=${String(value)}`)
-  }
-
-  args.push('--output', `type=image,name=${build.targetImage},push=true`)
-
-  return `apiVersion: batch/v1
+  return `apiVersion: v1
+kind: Service
+metadata:
+  name: ${serviceName}
+  namespace: ${namespace}
+  labels:
+    app.kubernetes.io/name: seakills-buildkitd
+    app.kubernetes.io/part-of: seakills
+    seakills.dev/buildkitd-job: ${jobName}
+  annotations:
+    seakills.dev/build-context: ${yamlSingleQuote(build.contextLocal)}
+    seakills.dev/dockerfile-dir: ${yamlSingleQuote(build.dockerfileLocal)}
+    seakills.dev/dockerfile-file: ${yamlSingleQuote(build.dockerfileFile)}
+    seakills.dev/target-image: ${yamlSingleQuote(build.targetImage)}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: seakills-buildkitd
+    seakills.dev/buildkitd-job: ${jobName}
+  ports:
+  - name: buildkit
+    port: 1234
+    targetPort: buildkit
+---
+apiVersion: batch/v1
 kind: Job
 metadata:
   name: ${jobName}
   namespace: ${namespace}
   labels:
-    app.kubernetes.io/name: k8s-buildkit-job
+    app.kubernetes.io/name: seakills-buildkitd
     app.kubernetes.io/part-of: seakills
+    seakills.dev/buildkitd-job: ${jobName}
 spec:
   backoffLimit: 0
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: k8s-buildkit-job
+        app.kubernetes.io/name: seakills-buildkitd
         app.kubernetes.io/part-of: seakills
+        seakills.dev/buildkitd-job: ${jobName}
     spec:
       restartPolicy: Never
       hostUsers: false
-      initContainers:
-      - name: clone
-        image: alpine/git:latest
-        env:
-        - name: GITHUB_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: ${githubSecret}
-              key: token
-        command:
-        - sh
-        - -c
-        - |
-${indent(cloneScript, 10)}
-        volumeMounts:
-        - name: workspace
-          mountPath: /workspace
       containers:
-      - name: buildkit
+      - name: buildkitd
         image: moby/buildkit:master
         command:
-        - buildctl-daemonless.sh
+        - buildkitd
         args:
-${renderList(args, 8)}
+        - --addr
+        - tcp://0.0.0.0:1234
+        ports:
+        - name: buildkit
+          containerPort: 1234
+        env:
+        - name: DOCKER_CONFIG
+          value: /root/.docker
         securityContext:
           privileged: true
         volumeMounts:
-        - name: workspace
-          mountPath: /workspace
-          readOnly: true
         - name: docker-config
           mountPath: /root/.docker
           readOnly: true
       volumes:
-      - name: workspace
-        emptyDir: {}
       - name: docker-config
         secret:
           secretName: ${registrySecret}
@@ -225,11 +197,11 @@ function main() {
     const requestFile = requireArg(args, 'request')
     const namespace = requireArg(args, 'namespace')
     const jobName = requireArg(args, 'job-name')
-    const githubSecret = requireArg(args, 'github-secret')
+    const serviceName = requireArg(args, 'service-name')
     const registrySecret = requireArg(args, 'registry-secret')
 
     const request = readJson(requestFile)
-    process.stdout.write(renderJob({ request, namespace, jobName, githubSecret, registrySecret }))
+    process.stdout.write(renderManifest({ request, namespace, jobName, serviceName, registrySecret }))
   } catch (error) {
     usage()
     console.error(`\nError: ${error.message}`)

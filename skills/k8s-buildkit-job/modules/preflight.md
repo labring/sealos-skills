@@ -1,12 +1,12 @@
 # Preflight
 
-Confirm that the sandbox can run a one-shot BuildKit Job.
+Confirm that the sandbox can run `buildctl` and create a temporary BuildKit daemon Job + Service.
 
 ## Inputs
 
 - `WORK_DIR`: project directory containing `.sealos/build-request.json`
 - `NAMESPACE`: Kubernetes namespace, default `default`
-- `GITHUB_TOKEN`: required
+- `GITHUB_TOKEN`: required for GHCR push
 - `SKILL_DIR`: directory containing this skill
 
 ## Step 1: Start Log
@@ -19,13 +19,14 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Build run started" > "$LOG_FILE"
 
 Append all phase boundaries and non-secret decisions to this file.
 
-## Step 2: Resolve kubectl
+## Step 2: Resolve kubectl and buildctl
 
 Try the active environment first:
 
 ```bash
 kubectl version --client 2>/dev/null
 kubectl get namespace "$NAMESPACE" 2>/dev/null
+buildctl --version 2>/dev/null
 ```
 
 If default kubectl access is unavailable and `/etc/kubernetes/admin.conf` exists, try:
@@ -55,13 +56,18 @@ Run:
 
 ```bash
 $KUBECTL auth can-i create jobs -n "$NAMESPACE"
+$KUBECTL auth can-i delete jobs -n "$NAMESPACE"
+$KUBECTL auth can-i create services -n "$NAMESPACE"
+$KUBECTL auth can-i delete services -n "$NAMESPACE"
 $KUBECTL auth can-i get jobs -n "$NAMESPACE"
+$KUBECTL auth can-i get services -n "$NAMESPACE"
+$KUBECTL auth can-i get endpoints -n "$NAMESPACE"
 $KUBECTL auth can-i create secrets -n "$NAMESPACE"
 $KUBECTL auth can-i get pods -n "$NAMESPACE"
 $KUBECTL auth can-i get pods/log -n "$NAMESPACE"
 ```
 
-Stop if Jobs or Secrets cannot be created.
+Stop if Jobs, Services, or Secrets cannot be created.
 
 ## Step 4: Check GITHUB_TOKEN
 
@@ -69,11 +75,10 @@ Stop if Jobs or Secrets cannot be created.
 test -n "${GITHUB_TOKEN:-}"
 ```
 
-Stop if `GITHUB_TOKEN` is missing. The token is used for both GitHub clone and GHCR push.
+Stop if `GITHUB_TOKEN` is missing. The token is used for GHCR push.
 
 Required capabilities:
 
-- read access to the repository
 - `write:packages` or equivalent GHCR package permission
 - `read:packages` for package verification
 
@@ -83,8 +88,9 @@ Report:
 
 - namespace
 - kubectl command shape, without credentials
+- whether `buildctl` exists
 - whether `GITHUB_TOKEN` exists
-- whether Job and Secret creation are allowed
+- whether Job, Service, and Secret creation are allowed
 - whether `build-request.json` exists
 
 Do not print token values, tokenized URLs, Docker auth JSON, or Secret data.

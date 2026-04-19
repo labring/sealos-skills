@@ -1,11 +1,10 @@
 # Security Notes
 
-The BuildKit Job handles GitHub and registry credentials. Keep the workflow safe by default.
+The BuildKit workflow handles registry credentials. Keep it safe by default.
 
 ## Never Log
 
 - `GITHUB_TOKEN`
-- tokenized clone URLs
 - Docker auth JSON
 - base64 auth strings
 - Kubernetes Secret YAML content
@@ -18,28 +17,15 @@ The BuildKit Job handles GitHub and registry credentials. Keep the workflow safe
 - Job name
 - Pod name
 - image reference
-- sanitized GitHub URL
 - BuildKit output after token redaction
 
 ## Redaction Rules
 
-Before appending command output to logs, redact:
-
-```text
-https://x-access-token:<anything>@github.com/
-```
-
-as:
-
-```text
-https://x-access-token:***@github.com/
-```
-
-Also redact the exact `GITHUB_TOKEN` value if it is available in the environment.
+Before appending command output to logs, redact the exact `GITHUB_TOKEN` value if it is available in the environment.
 
 ## Privileged Pods
 
-The daemonless BuildKit Job uses:
+The temporary BuildKit daemon Job uses:
 
 ```yaml
 securityContext:

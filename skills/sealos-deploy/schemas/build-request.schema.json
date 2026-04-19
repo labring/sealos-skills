@@ -26,23 +26,26 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "type",
         "github_url",
         "repo",
         "ref",
         "work_dir"
       ],
       "properties": {
-        "github_url": {
-          "anyOf": [
-            { "type": "string", "minLength": 1 },
-            { "type": "null" }
+        "type": {
+          "type": "string",
+          "enum": [
+            "sandbox-context"
           ]
         },
+        "github_url": {
+          "type": "string",
+          "minLength": 1
+        },
         "repo": {
-          "anyOf": [
-            { "type": "string", "minLength": 1 },
-            { "type": "null" }
-          ]
+          "type": "string",
+          "minLength": 1
         },
         "ref": {
           "type": "string",

@@ -1,6 +1,6 @@
 # Registry Auth
 
-Prepare Kubernetes Secrets for GitHub clone and GHCR push.
+Prepare GHCR credentials for sandbox `buildctl` and the temporary BuildKit daemon.
 
 ## GitHub Identity
 
@@ -22,35 +22,16 @@ Stop if the login cannot be resolved. Do not log the token.
 Use unique names per build:
 
 ```text
-seakills-github-token-<short-id>
 seakills-ghcr-auth-<short-id>
 ```
-
-## GitHub Token Secret
-
-Create a generic Secret containing the token for the clone init container:
-
-```bash
-$KUBECTL create secret generic "$GITHUB_TOKEN_SECRET" \
-  -n "$NAMESPACE" \
-  --from-literal=token="$GITHUB_TOKEN" \
-  --dry-run=client -o yaml | $KUBECTL apply -f -
-```
-
-Do not write the rendered YAML to logs.
 
 ## GHCR Docker Config Secret
 
 Generate Docker auth config:
 
-```json
-{
-  "auths": {
-    "ghcr.io": {
-      "auth": "base64(<github-login>:<GITHUB_TOKEN>)"
-    }
-  }
-}
+```bash
+DOCKER_AUTH=$(printf '%s:%s' "$GITHUB_LOGIN" "$GITHUB_TOKEN" | base64 | tr -d '\n')
+DOCKER_CONFIG_JSON=$(printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$DOCKER_AUTH")
 ```
 
 Create a Secret containing:
@@ -59,12 +40,30 @@ Create a Secret containing:
 config.json
 ```
 
+```bash
+$KUBECTL create secret generic "$REGISTRY_AUTH_SECRET" \
+  -n "$NAMESPACE" \
+  --from-literal=config.json="$DOCKER_CONFIG_JSON" \
+  --dry-run=client -o yaml | $KUBECTL apply -f -
+```
+
 The BuildKit container mounts this Secret at:
 
 ```text
 /root/.docker/config.json
 ```
 
+Also make the same config available to sandbox `buildctl`, because BuildKit can receive registry credentials through the client session:
+
+```bash
+BUILDCTL_DOCKER_CONFIG=$(mktemp -d)
+mkdir -p "$BUILDCTL_DOCKER_CONFIG"
+printf '%s' "$DOCKER_CONFIG_JSON" > "$BUILDCTL_DOCKER_CONFIG/config.json"
+export DOCKER_CONFIG="$BUILDCTL_DOCKER_CONFIG"
+```
+
+Do not write the rendered JSON to logs.
+
 ## Cleanup
 
-It is acceptable for the MVP to keep Secrets while debugging. If cleanup is implemented, only delete Secrets after logs and `build-result.json` are written.
+It is acceptable for the MVP to keep Secrets while debugging. If cleanup is implemented, only delete Secrets after logs and `build-result.json` are written. Remove the temporary local `BUILDCTL_DOCKER_CONFIG` directory after the build unless debugging requires it.

@@ -166,7 +166,7 @@
             "preflight",
             "build-request",
             "auth",
-            "clone",
+            "context",
             "dockerfile",
             "buildkit",
             "push",

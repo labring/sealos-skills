@@ -60,6 +60,15 @@ Report:
 - image ref
 - `build-result.json` path
 - log file path
-- Job and Pod names when applicable
+- BuildKit daemon Job and Pod names when applicable
 
 Do not include secrets.
+
+## Cleanup
+
+After writing `build-result.json` and saving logs, delete the temporary Service and Job unless debugging requires keeping them:
+
+```bash
+$KUBECTL delete service "$SERVICE_NAME" -n "$NAMESPACE" --ignore-not-found
+$KUBECTL delete job "$JOB_NAME" -n "$NAMESPACE" --ignore-not-found
+```
