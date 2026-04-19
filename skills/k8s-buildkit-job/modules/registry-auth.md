@@ -17,6 +17,8 @@ If `jq` is unavailable, parse with Node.js or another structured JSON parser.
 
 Stop if the login cannot be resolved. Do not log the token.
 
+Preflight should already have verified that `GITHUB_TOKEN` includes `write:packages` and `read:packages`. Do not defer that scope check to the push phase.
+
 ## Secret Names
 
 Use unique names per build:
@@ -41,10 +43,10 @@ config.json
 ```
 
 ```bash
-$KUBECTL create secret generic "$REGISTRY_AUTH_SECRET" \
+kubectl create secret generic "$REGISTRY_AUTH_SECRET" \
   -n "$NAMESPACE" \
   --from-literal=config.json="$DOCKER_CONFIG_JSON" \
-  --dry-run=client -o yaml | $KUBECTL apply -f -
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 The BuildKit container mounts this Secret at:

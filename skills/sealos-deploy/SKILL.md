@@ -1,14 +1,14 @@
 ---
 name: sealos-deploy
-description: Prepare and build a GitHub project for Sealos Cloud inside a sandboxed workflow. Requires a GitHub URL, assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox BuildKit daemon when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this GitHub project for sealos", or asks to containerize a GitHub project for Sealos. Also triggers on "/sealos-deploy".
-compatibility: git is required. Node.js 18+ is recommended for helper scripts. buildctl, kubectl, and GITHUB_TOKEN are required only when the pipeline needs a Kubernetes BuildKit build. This version does not require Sealos auth prompts, local Docker daemon access, or direct deploy access.
+description: Prepare and build the current workspace or a GitHub project for Sealos Cloud inside a sandboxed workflow. The skill assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox BuildKit daemon when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
+compatibility: git is required. Node.js 18+ is recommended for helper scripts. buildctl, kubectl, and GITHUB_TOKEN are required only when the pipeline needs a Kubernetes BuildKit build. Build-time Kubernetes access must come from the sandbox-provided kubeconfig and current service account in the active namespace. This version does not require Sealos auth prompts, local Docker daemon access, or direct deploy access.
 metadata:
   author: labring
 ---
 
 # Sealos Deploy
 
-Prepare a GitHub project for Sealos Cloud without requiring direct Sealos login or local Docker builds.
+Prepare the current workspace or a GitHub project for Sealos Cloud without requiring direct Sealos login or local Docker builds.
 
 This version of `sealos-deploy` is a sandbox-first workflow:
 
@@ -28,15 +28,17 @@ It does not:
 
 ## kubectl Safety Rules
 
-If any future phase or downstream skill uses `kubectl`, it must use the sandbox-provided permissions and kubeconfig. This version may create one-shot build Jobs, but it still must not mutate Sealos application resources directly.
+If any future phase or downstream skill uses `kubectl`, it must use the sandbox-provided permissions, kubeconfig, namespace, and current service account. This version may create one-shot build Jobs, but it still must not mutate Sealos application resources directly.
 
 ## Usage
 
 ```text
-/sealos-deploy <github-url>
+/sealos-deploy [github-url]
 ```
 
-The entrypoint only accepts GitHub URLs. Local paths and implicit current-directory runs are intentionally unsupported because the downstream BuildKit executor builds from a GitHub ref, not from local files.
+If the argument is omitted, resolve the current workspace first. When the current workspace is already the target git repository, build from that sandbox-local path instead of recloning. If a GitHub URL is provided explicitly, clone it to a temporary working directory and continue from there.
+
+The downstream BuildKit executor builds from the sandbox-local filesystem in `source.work_dir`. GitHub URL, repo, and ref fields are still recorded for traceability and image naming, but the build does not pull Dockerfiles from GitHub at execution time.
 
 ## Quick Start
 
@@ -99,7 +101,7 @@ This skill references co-installed internal skills on demand:
 ## Decision Flow
 
 ```text
-Input (GitHub URL)
+Input (current workspace or GitHub URL)
   │
   ▼
 [Phase 0] Preflight ── fail → explain blocker and STOP
@@ -129,4 +131,4 @@ Input (GitHub URL)
 Done — build artifacts and template ready for a later deploy step
 ```
 
-Execution rule: this version must never require Docker daemon access, Sealos auth, GitHub auth prompts, workspace switching, or direct deploy as entry prerequisites. It may require `buildctl`, `kubectl`, and `GITHUB_TOKEN` later, but only if `mode=build-required`.
+Execution rule: this version must never require Docker daemon access, Sealos auth, GitHub auth prompts, workspace switching, or direct deploy as entry prerequisites. It may require `buildctl`, `kubectl`, and `GITHUB_TOKEN` later, but only if `mode=build-required`. When that happens, use only the active sandbox namespace and current service account instead of assuming `default` or switching to an admin kubeconfig.

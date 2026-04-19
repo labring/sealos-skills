@@ -29,6 +29,7 @@ node "$SKILL_DIR/scripts/generate-job.mjs" \
   --job-name "$JOB_NAME" \
   --service-name "$SERVICE_NAME" \
   --registry-secret "$REGISTRY_AUTH_SECRET" \
+  ${SERVICE_ACCOUNT_NAME:+--service-account "$SERVICE_ACCOUNT_NAME"} \
   > "$WORK_DIR/.sealos/buildkitd.yaml"
 ```
 
@@ -37,7 +38,7 @@ Review the YAML before applying when debugging. Never include Secret data in the
 ## Apply
 
 ```bash
-$KUBECTL apply -f "$WORK_DIR/.sealos/buildkitd.yaml"
+kubectl apply -f "$WORK_DIR/.sealos/buildkitd.yaml"
 ```
 
 ## BuildKit Command Shape
@@ -59,6 +60,8 @@ For build args, the Job adds:
 ```
 
 The local paths must be readable from the sandbox process running `buildctl`; this is how Phase 3 generated Dockerfiles are consumed without pushing them to GitHub.
+
+If the current sandbox service account was resolved in preflight, set `serviceAccountName` on the generated Job Pod template. Do not let the temporary build Pod silently fall back to the namespace `default` service account.
 
 ## Security Context
 

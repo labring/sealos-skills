@@ -14,6 +14,7 @@ The BuildKit workflow handles registry credentials. Keep it safe by default.
 
 - Secret names
 - namespace
+- service account name
 - Job name
 - Pod name
 - image reference
@@ -35,6 +36,10 @@ securityContext:
 This is a sandbox capability requirement for the current pattern, not a general recommendation for application workloads.
 
 If the cluster denies privileged Pods, do not attempt to bypass policy. Report the blocker and stop.
+
+## Kubernetes Identity
+
+Use only the sandbox-provided kubeconfig and mounted service account identity. Do not switch to an admin kubeconfig, and do not assume the namespace is `default`. When generating the temporary BuildKit Job, carry the current sandbox service account onto the Job Pod template whenever it can be resolved.
 
 ## Secret Lifecycle
 

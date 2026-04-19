@@ -8,6 +8,8 @@ Signals:
 
 - `kubectl: command not found`
 - `You must be logged in to the server`
+- `cannot get namespaces "default"`
+- `forbidden: User ... cannot get resource "namespaces"`
 - `cannot create resource "jobs"`
 - `cannot create resource "services"`
 - `cannot create resource "secrets"`
@@ -15,8 +17,8 @@ Signals:
 
 Action:
 
-- Resolve kubectl access or namespace permissions.
-- If needed, retry with `sudo kubectl --kubeconfig /etc/kubernetes/admin.conf`.
+- Resolve namespace and permissions from the current sandbox kubeconfig, current namespace, and mounted service account.
+- Do not retry with `sudo kubectl --kubeconfig /etc/kubernetes/admin.conf`; that bypasses the sandbox permission model and can hide the real namespace-scoped failure.
 
 ## auth
 
@@ -24,11 +26,13 @@ Signals:
 
 - `GITHUB_TOKEN` missing
 - GitHub API `/user` returns 401 or 403
+- `missing required GHCR scopes`
+- `x-oauth-scopes` does not include `write:packages`
 - Secret creation fails
 
 Action:
 
-- Provide a token with GHCR package write access.
+- Provide a token with GHCR package write access and re-run the scope preflight before starting the build.
 - Do not paste the token into logs or generated YAML.
 
 ## context
@@ -97,11 +101,13 @@ Signals:
 - `CreateContainerConfigError`
 - `ImagePullBackOff` for `moby/buildkit`
 - `ErrImagePull`
+- generated BuildKit Job runs as `default` service account instead of the caller's service account
 
 Action:
 
 - For privileged denial, the sandbox policy must allow privileged BuildKit Jobs.
 - For image pull issues, confirm the cluster can pull `moby/buildkit:master`.
+- If the wrong service account was used, re-run with the current sandbox service account wired to `serviceAccountName`.
 
 ## timeout
 

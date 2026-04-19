@@ -6,7 +6,7 @@ After preflight passes, execute Phase 1–6 in order.
 
 Use `ENV` from preflight to choose between script mode (Node.js available) and fallback mode (AI-native).
 
-This workflow only accepts GitHub URL inputs. `WORK_DIR` is always a shallow clone created by preflight.
+This workflow can start from either the current workspace or an explicit GitHub URL. If preflight cloned a repository, `WORK_DIR` points to that shallow clone. If preflight reused the current workspace, `WORK_DIR` points to that sandbox-local path.
 
 ## Artifact Directory
 
@@ -189,6 +189,8 @@ Phase 3 output:
 
 The Kubernetes BuildKit executor runs a temporary `buildkitd` Job and Service. The sandbox process runs `buildctl` and sends the local build context from `WORK_DIR`.
 
+That downstream Job must run in the active sandbox namespace and inherit the current sandbox service account when it can be resolved. Do not assume the namespace is `default`.
+
 Before any `mode=build-required` handoff, ensure Phase 3 build inputs are present under `WORK_DIR` and can be read by the sandbox process.
 
 ### 3.5.1 Resolve build paths
@@ -225,7 +227,7 @@ Write build requests with:
   "type": "sandbox-context",
   "github_url": "<GITHUB_URL>",
   "repo": "owner/repo",
-  "ref": "<original cloned commit sha>",
+  "ref": "<resolved workspace commit sha>",
   "work_dir": "<WORK_DIR>"
 }
 ```
@@ -256,7 +258,7 @@ Write `.sealos/build-request.json`:
     "type": "sandbox-context",
     "github_url": "<GITHUB_URL>",
     "repo": "owner/repo",
-    "ref": "<original cloned commit sha>",
+    "ref": "<resolved workspace commit sha>",
     "work_dir": "<WORK_DIR>"
   },
   "mode": "build-required",
@@ -287,7 +289,7 @@ If Phase 2 found a reusable image, use:
     "type": "sandbox-context",
     "github_url": "<GITHUB_URL>",
     "repo": "owner/repo",
-    "ref": "<original cloned commit sha>",
+    "ref": "<resolved workspace commit sha>",
     "work_dir": "<WORK_DIR>"
   },
   "mode": "reuse-image",
@@ -342,7 +344,7 @@ If `mode=build-required`, require these capabilities at this point:
 - `kubectl`
 - `buildctl`
 - `GITHUB_TOKEN`
-- permission to create Jobs, Services, Pods, and Secrets in the active namespace
+- permission to create Jobs, Services, Pods, and Secrets in the active namespace through the sandbox-provided kubeconfig and current service account
 
 Then execute the `k8s-buildkit-job` workflow using the just-written `.sealos/build-request.json`:
 

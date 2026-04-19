@@ -69,6 +69,6 @@ Do not include secrets.
 After writing `build-result.json` and saving logs, delete the temporary Service and Job unless debugging requires keeping them:
 
 ```bash
-$KUBECTL delete service "$SERVICE_NAME" -n "$NAMESPACE" --ignore-not-found
-$KUBECTL delete job "$JOB_NAME" -n "$NAMESPACE" --ignore-not-found
+kubectl delete service "$SERVICE_NAME" -n "$NAMESPACE" --ignore-not-found
+kubectl delete job "$JOB_NAME" -n "$NAMESPACE" --ignore-not-found
 ```

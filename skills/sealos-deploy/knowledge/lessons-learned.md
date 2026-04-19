@@ -107,3 +107,57 @@ detection:
   # Fallback 2: README scan for docker pull/run references
   fallback_readme: "scan README.md for image references"
 ```
+
+### Sandbox Namespace And Service Account Detection (Prevents False kubectl Failures)
+
+```yaml
+detection:
+  trigger:
+    - "Build preflight claims kubectl or BuildKit is unavailable even though kubectl works inside the devbox pod"
+    - "Logs mention the default namespace even though the sandbox is namespaced"
+    - "Temporary BuildKit Job silently runs as the namespace default service account"
+  root_causes:
+    - "The workflow assumed namespace=default instead of resolving the active sandbox namespace"
+    - "The workflow checked cluster-scoped namespace access instead of namespaced permissions"
+    - "The generated Job omitted serviceAccountName, so Kubernetes used the namespace default service account"
+
+decision:
+  namespace_resolution_order:
+    - "explicit NAMESPACE override"
+    - "kubectl current-context namespace"
+    - "mounted serviceaccount namespace file"
+  service_account_resolution_order:
+    - "explicit SERVICE_ACCOUNT_NAME"
+    - "mounted serviceaccount token claims"
+    - "current pod spec"
+
+fixes:
+  preferred:
+    - "Use the sandbox-provided kubeconfig only"
+    - "Run permission checks against the resolved namespace"
+    - "Set Job spec.serviceAccountName to the current sandbox service account"
+  avoid:
+    - "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf"
+    - "assuming namespace=default"
+```
+
+### GHCR Scope Preflight (Prevents Late Push Failures)
+
+```yaml
+detection:
+  trigger:
+    - "Build completes most layers but push to ghcr.io fails with denied or insufficient_scope"
+  root_causes:
+    - "GITHUB_TOKEN exists but lacks write:packages"
+
+verification:
+  github_api: "GET https://api.github.com/user and inspect x-oauth-scopes"
+  required_scopes:
+    - "write:packages"
+    - "read:packages"
+
+fixes:
+  preferred:
+    - "Fail in BuildKit preflight before creating the Job when scopes are missing"
+    - "Replace the token with a PAT that can publish to GHCR"
+```

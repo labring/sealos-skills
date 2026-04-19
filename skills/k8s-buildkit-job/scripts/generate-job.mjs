@@ -6,7 +6,7 @@ import path from 'path'
 function usage() {
   console.error([
     'Usage:',
-    '  node generate-job.mjs --request <file> --namespace <namespace> --job-name <name> --service-name <name> --registry-secret <name>',
+    '  node generate-job.mjs --request <file> --namespace <namespace> --job-name <name> --service-name <name> --registry-secret <name> [--service-account <name>]',
   ].join('\n'))
 }
 
@@ -110,12 +110,15 @@ function validateBuildRequest(request) {
   }
 }
 
-function renderManifest({ request, namespace, jobName, serviceName, registrySecret }) {
+function renderManifest({ request, namespace, jobName, serviceName, registrySecret, serviceAccount }) {
   const build = validateBuildRequest(request)
   validateDnsName(namespace, 'namespace')
   validateDnsName(jobName, 'job-name', 63)
   validateDnsName(serviceName, 'service-name', 63)
   validateDnsName(registrySecret, 'registry-secret')
+  if (serviceAccount) {
+    validateDnsName(serviceAccount, 'service-account')
+  }
 
   return `apiVersion: v1
 kind: Service
@@ -160,7 +163,8 @@ spec:
         seakills.dev/buildkitd-job: ${jobName}
     spec:
       restartPolicy: Never
-      hostUsers: false
+${serviceAccount ? `      serviceAccountName: ${serviceAccount}
+` : ''}      hostUsers: false
       containers:
       - name: buildkitd
         image: moby/buildkit:master
@@ -199,9 +203,10 @@ function main() {
     const jobName = requireArg(args, 'job-name')
     const serviceName = requireArg(args, 'service-name')
     const registrySecret = requireArg(args, 'registry-secret')
+    const serviceAccount = args['service-account'] || null
 
     const request = readJson(requestFile)
-    process.stdout.write(renderManifest({ request, namespace, jobName, serviceName, registrySecret }))
+    process.stdout.write(renderManifest({ request, namespace, jobName, serviceName, registrySecret, serviceAccount }))
   } catch (error) {
     usage()
     console.error(`\nError: ${error.message}`)

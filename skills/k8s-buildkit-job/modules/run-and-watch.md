@@ -7,12 +7,12 @@ Wait for the BuildKit daemon, run sandbox `buildctl`, and collect logs.
 Wait until the BuildKit daemon Pod is ready and the Service has endpoints:
 
 ```bash
-$KUBECTL wait --for=condition=Ready pod \
+kubectl wait --for=condition=Ready pod \
   -n "$NAMESPACE" \
   -l "seakills.dev/buildkitd-job=$JOB_NAME" \
   --timeout=120s
 
-$KUBECTL get endpoints "$SERVICE_NAME" -n "$NAMESPACE" -o json
+kubectl get endpoints "$SERVICE_NAME" -n "$NAMESPACE" -o json
 ```
 
 Stop if no ready endpoint exists.
@@ -51,7 +51,7 @@ Default timeout:
 ## Collect Pod Name
 
 ```bash
-POD_NAME=$($KUBECTL get pods -n "$NAMESPACE" \
+POD_NAME=$(kubectl get pods -n "$NAMESPACE" \
   -l "seakills.dev/buildkitd-job=$JOB_NAME" \
   -o jsonpath='{.items[0].metadata.name}')
 ```
@@ -61,10 +61,10 @@ POD_NAME=$($KUBECTL get pods -n "$NAMESPACE" \
 Append these to `LOG_FILE`:
 
 ```bash
-$KUBECTL get job "$JOB_NAME" -n "$NAMESPACE" -o yaml
-$KUBECTL get service "$SERVICE_NAME" -n "$NAMESPACE" -o yaml
-$KUBECTL describe pod "$POD_NAME" -n "$NAMESPACE"
-$KUBECTL logs "$POD_NAME" -n "$NAMESPACE" -c buildkitd
+kubectl get job "$JOB_NAME" -n "$NAMESPACE" -o yaml
+kubectl get service "$SERVICE_NAME" -n "$NAMESPACE" -o yaml
+kubectl describe pod "$POD_NAME" -n "$NAMESPACE"
+kubectl logs "$POD_NAME" -n "$NAMESPACE" -c buildkitd
 ```
 
 Before writing logs, redact:

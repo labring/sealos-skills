@@ -300,11 +300,11 @@ function validateBuildRequestSemantics(data, errors) {
   }
 
   if (typeof source.github_url !== 'string' || source.github_url.length === 0) {
-    pushError(errors, '$.source.github_url', 'must be set because sealos-deploy only accepts GitHub URL inputs')
+    pushError(errors, '$.source.github_url', 'must be set so the build remains traceable to a GitHub repository')
   }
 
   if (typeof source.repo !== 'string' || source.repo.length === 0) {
-    pushError(errors, '$.source.repo', 'must be set because sealos-deploy only accepts GitHub URL inputs')
+    pushError(errors, '$.source.repo', 'must be set so image naming and build traceability can use owner/repo metadata')
   }
 
   if (source.ref === 'HEAD') {
