@@ -80,7 +80,7 @@ Scripts live in `scripts/` within this skill directory:
 | Script | Usage | Purpose |
 | --- | --- | --- |
 | `resolve-kube-context.mjs` | `node resolve-kube-context.mjs [--namespace <ns>]` | Resolve the active namespace, kube context, current pod name, and current service account from the sandbox environment |
-| `check-ghcr-token.mjs` | `node check-ghcr-token.mjs --token-env GITHUB_TOKEN --require-scope write:packages --require-scope read:packages` | Verify that the injected GitHub token can publish to GHCR before starting a build |
+| `check-ghcr-token.mjs` | `node check-ghcr-token.mjs --token-env GITHUB_TOKEN --require-scope write:packages` | Verify that the injected GitHub token can publish to GHCR before starting a build |
 | `generate-job.mjs` | `node generate-job.mjs --request <file> --namespace <ns> --job-name <name> --service-name <name> --registry-secret <name> [--service-account <name>]` | Generate a temporary buildkitd Job + Service YAML from `build-request.json` |
 | `write-result.mjs` | `node write-result.mjs --request <file> --status <status> --out <file> ...` | Write `.sealos/build-result.json` |
 

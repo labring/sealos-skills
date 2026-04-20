@@ -17,7 +17,7 @@ If `jq` is unavailable, parse with Node.js or another structured JSON parser.
 
 Stop if the login cannot be resolved. Do not log the token.
 
-Preflight should already have verified that `GITHUB_TOKEN` includes `write:packages` and `read:packages`. Do not defer that scope check to the push phase.
+Preflight should already have verified that `GITHUB_TOKEN` includes `write:packages`. Do not defer that scope check to the push phase.
 
 ## Secret Names
 

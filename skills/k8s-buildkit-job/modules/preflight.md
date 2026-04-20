@@ -76,8 +76,7 @@ If `SERVICE_ACCOUNT_NAME` is resolved, the generated BuildKit Job must set `serv
 ```bash
 node "$SKILL_DIR/scripts/check-ghcr-token.mjs" \
   --token-env GITHUB_TOKEN \
-  --require-scope write:packages \
-  --require-scope read:packages
+  --require-scope write:packages
 ```
 
 Stop if `GITHUB_TOKEN` is missing or the response headers do not include `write:packages`. Do this before creating the BuildKit Job so GHCR auth failures are caught in preflight instead of after a long build.

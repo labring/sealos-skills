@@ -33,6 +33,7 @@ Signals:
 Action:
 
 - Provide a token with GHCR package write access and re-run the scope preflight before starting the build.
+- Do not require `read:packages` for this push preflight; `write:packages` is the enforced scope.
 - Do not paste the token into logs or generated YAML.
 
 ## context

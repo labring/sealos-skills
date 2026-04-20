@@ -154,7 +154,6 @@ verification:
   github_api: "GET https://api.github.com/user and inspect x-oauth-scopes"
   required_scopes:
     - "write:packages"
-    - "read:packages"
 
 fixes:
   preferred:
