@@ -21,7 +21,7 @@ System tool installation requires user confirmation. If `docker`, `gh`, or `kube
 
 **`kubectl delete` requires user confirmation.** Before deleting any resource (deployment, service, ingress, PVC, database, etc.), always ask:
 ```
-⚠️ 即将删除 <resource kind>/<resource name>，数据不可恢复。确认？(y/n)
+WARNING: About to delete <resource kind>/<resource name>. This data cannot be recovered. Confirm? (y/n)
 ```
 Only proceed after user confirms. This applies even if the pipeline logic suggests deletion — always ask first.
 

@@ -1508,7 +1508,7 @@ class CheckConsistencyTests(unittest.TestCase):
     def test_ignores_latest_tag_in_negative_example_block(self):
         violations = self.run_checker(
             """
-            错误示例
+            wrong example
             ```yaml
             apiVersion: apps/v1
             kind: Deployment
