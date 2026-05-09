@@ -267,12 +267,13 @@ DEFAULT_REGION=$(jq -r '.default_region' "<SKILL_DIR>/config.json")
 ```
 Which Sealos Cloud region do you want to deploy to?
 
-  1. https://gzg.sealos.run  (default)
-  2. https://bja.sealos.run
-  3. https://hzh.sealos.run
-  4. Enter a custom region URL
+  1. https://usw-1.sealos.io  (default)
+  2. https://gzg.sealos.run
+  3. https://bja.sealos.run
+  4. https://hzh.sealos.run
+  5. Enter a custom region URL
 
-Default: https://gzg.sealos.run
+Default: https://usw-1.sealos.io
 ```
 
 The region list comes from `config.json` `regions` array. If `regions` is not present, show only `default_region`.

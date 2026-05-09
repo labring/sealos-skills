@@ -800,7 +800,7 @@ Before proceeding to Phase 6, present a final summary and ask for confirmation:
 Ready to deploy <app-name> to Sealos Cloud:
 
   Image:    zhujingyang/app:20260309
-  Region:   https://cloud.sealos.io
+  Region:   https://usw-1.sealos.io
   Database: PostgreSQL 16 (auto-provisioned)
   Config:   3 required inputs configured, 2 optional defaults kept
 
@@ -820,8 +820,8 @@ Configuration is applied directly to `.sealos/template/index.yaml`. No separate 
 The template deploy API uses a fixed `template.` subdomain prefix on the region domain:
 
 ```
-Region example:     https://gzg.sealos.run
-Deploy URL example: https://template.gzg.sealos.run/api/v2alpha/templates/raw
+Region example:     https://usw-1.sealos.io
+Deploy URL example: https://template.usw-1.sealos.io/api/v2alpha/templates/raw
 ```
 
 Do not send requests to the literal placeholder form `https://template.<region-domain>/...`.
