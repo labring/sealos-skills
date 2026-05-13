@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What This Project Is
 
-Seakills is a skills repository for Sealos Cloud in the `skills.sh` ecosystem and a Codex plugin package. This repo contains the root-level skills pack plus supporting helper scripts and eval fixtures. The landing site now lives in the separate `zjy365/seakills-site` repository.
+Sealos Skills is a skills repository for Sealos Cloud in the `skills.sh` ecosystem and a Codex plugin package. This repo contains the root-level skills pack plus supporting helper scripts and eval fixtures. The landing site now lives in a separate site repository.
 
 ## Commands
 
