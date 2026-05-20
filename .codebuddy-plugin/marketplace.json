@@ -1,0 +1,46 @@
+{
+  "name": "sealos",
+  "owner": {
+    "name": "Sealos",
+    "url": "https://sealos.io/"
+  },
+  "description": "Sealos Cloud deployment and Sealos Desktop app skills for AI agents.",
+  "version": "0.1.0",
+  "plugins": [
+    {
+      "name": "sealos",
+      "source": "./",
+      "description": "Deploy local or GitHub projects to Sealos Cloud, generate Dockerfiles and Sealos templates, assess cloud-native readiness, and build Sealos Desktop apps.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Sealos",
+        "url": "https://sealos.io/"
+      },
+      "homepage": "https://sealos.io/",
+      "repository": "https://github.com/labring/sealos-skills",
+      "license": "MIT",
+      "category": "coding",
+      "keywords": [
+        "sealos",
+        "sealos-cloud",
+        "deployment",
+        "cloud",
+        "devops",
+        "kubernetes",
+        "docker",
+        "containers",
+        "cloud-native",
+        "app-builder"
+      ],
+      "strict": false,
+      "commands": "./commands/",
+      "skills": [
+        "./skills/sealos-deploy",
+        "./skills/sealos-app-builder",
+        "./skills/cloud-native-readiness",
+        "./skills/dockerfile-skill",
+        "./skills/docker-to-sealos"
+      ]
+    }
+  ]
+}
