@@ -267,7 +267,7 @@ function extractTheme(workDir) {
   const theme = {
     accent: '#6c55ff',
     radius: '8px',
-    font: '"Avenir Next", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+    font: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
   }
 
   const files = [

@@ -7,24 +7,24 @@
   <link rel="icon" href="data:,">
   <style>
     :root {
-      --bg: oklch(12% 0.018 292);
-      --panel: oklch(16% 0.018 292);
-      --panel-2: oklch(19% 0.02 292);
-      --panel-3: oklch(23% 0.022 292);
-      --line: rgba(255, 255, 255, 0.075);
-      --border: rgba(255, 255, 255, 0.11);
-      --muted: oklch(72% 0.026 292);
-      --quiet: oklch(55% 0.025 292);
-      --text: oklch(95% 0.012 292);
+      --bg: #111019;
+      --panel: #171620;
+      --panel-2: #1d1c28;
+      --panel-3: #242230;
+      --line: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.12);
+      --muted: #a09dab;
+      --quiet: #7f7a8e;
+      --text: #f7f5fb;
       --accent: #6c55ff;
       --radius: 8px;
-      --font: "Avenir Next", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      --ready: oklch(79% 0.12 163);
-      --warning: oklch(81% 0.13 78);
-      --failed: oklch(72% 0.17 18);
-      --sleeping: oklch(77% 0.12 176);
+      --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --ready: #74d7a6;
+      --warning: #f4be5e;
+      --failed: #ff7a90;
+      --sleeping: #6ad6aa;
       --ease: cubic-bezier(0.16, 1, 0.3, 1);
-      --shadow-elevated: 0 18px 46px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.045);
+      --shadow-card: 0 18px 48px rgba(0, 0, 0, 0.22);
     }
 
     * {
@@ -43,9 +43,7 @@
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
       background:
-        linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px) 0 0 / 140px 140px,
-        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px) 0 0 / 140px 140px,
-        radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.18) 1px, transparent 0) 0 0 / 28px 28px,
+        radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.14) 1px, transparent 0) 0 0 / 32px 32px,
         var(--bg);
     }
 
@@ -76,7 +74,7 @@
       gap: 20px;
       padding: 12px 18px;
       border-bottom: 1px solid var(--line);
-      background: color-mix(in oklch, var(--bg) 88%, black 12%);
+      background: rgba(17, 16, 25, 0.95);
       z-index: 30;
     }
 
@@ -123,7 +121,7 @@
     }
 
     .summary-line a {
-      color: color-mix(in oklch, var(--text) 84%, var(--accent) 16%);
+      color: rgba(247, 245, 251, 0.86);
       text-decoration: none;
     }
 
@@ -133,10 +131,10 @@
       flex: 0 0 auto;
       height: 20px;
       padding: 0 7px;
-      border: 1px solid color-mix(in srgb, var(--ready) 36%, transparent);
+      border: 1px solid rgba(116, 215, 166, 0.34);
       border-radius: 999px;
       color: var(--ready);
-      background: color-mix(in srgb, var(--ready) 10%, transparent);
+      background: rgba(116, 215, 166, 0.08);
       font-size: 10px;
       font-weight: 760;
       letter-spacing: 0.01em;
@@ -149,7 +147,7 @@
       padding: 4px;
       border: 1px solid var(--line);
       border-radius: var(--radius);
-      background: rgba(255, 255, 255, 0.025);
+      background: rgba(255, 255, 255, 0.03);
     }
 
     .toolbar button {
@@ -158,7 +156,7 @@
       width: 34px;
       height: 34px;
       border-radius: 6px;
-      color: color-mix(in oklch, var(--text) 82%, var(--muted) 18%);
+      color: rgba(247, 245, 251, 0.78);
       background: transparent;
       cursor: pointer;
       transition: background-color 160ms var(--ease), color 160ms var(--ease), transform 160ms var(--ease);
@@ -177,7 +175,7 @@
 
     .toolbar button:focus-visible,
     .node:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--accent) 72%, white 28%);
+      outline: 2px solid rgba(108, 85, 255, 0.86);
       outline-offset: 2px;
     }
 
@@ -189,9 +187,6 @@
       min-height: 0;
       overflow: hidden;
       cursor: grab;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 34%),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.016), transparent 24%, transparent 76%, rgba(255, 255, 255, 0.012));
     }
 
     .canvas-region.dragging {
@@ -221,12 +216,12 @@
     }
 
     .edge.strong {
-      stroke: color-mix(in srgb, var(--ready) 64%, rgba(255, 255, 255, 0.22));
+      stroke: rgba(116, 215, 166, 0.58);
       stroke-dasharray: none;
     }
 
     .edge-label-bg {
-      fill: color-mix(in oklch, var(--bg) 82%, black 18%);
+      fill: rgba(17, 16, 25, 0.92);
       stroke: var(--line);
       stroke-width: 1px;
     }
@@ -246,40 +241,15 @@
       position: absolute;
       width: 390px;
       min-height: 166px;
+      border: 1px solid var(--border);
       border-radius: var(--radius);
       color: inherit;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
-        var(--panel);
-      box-shadow: var(--shadow-elevated);
-      outline: 1px solid var(--border);
-      outline-offset: -1px;
+      background: var(--panel);
+      box-shadow: var(--shadow-card);
       overflow: hidden;
       text-align: left;
       cursor: pointer;
-      transition: transform 180ms var(--ease), outline-color 180ms var(--ease), background-color 180ms var(--ease);
-    }
-
-    .node::before {
-      content: "";
-      position: absolute;
-      inset: 0 0 auto;
-      height: 2px;
-      background: color-mix(in srgb, var(--accent) 62%, transparent);
-      opacity: 0.62;
-    }
-
-    .node::after {
-      content: "";
-      position: absolute;
-      top: 74px;
-      right: -5px;
-      width: 9px;
-      height: 9px;
-      border: 1px solid color-mix(in srgb, var(--accent) 64%, transparent);
-      border-radius: 999px;
-      background: var(--bg);
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+      transition: border-color 160ms var(--ease), background-color 160ms var(--ease);
     }
 
     .node.small {
@@ -288,32 +258,16 @@
     }
 
     .node.selected {
-      outline-color: color-mix(in srgb, var(--accent) 72%, white 28%);
-      box-shadow:
-        0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
-        0 24px 62px rgba(0, 0, 0, 0.42),
-        inset 0 1px 0 rgba(255, 255, 255, 0.065);
-      transform: translateY(-2px);
+      border-color: rgba(108, 85, 255, 0.62);
+      background: var(--panel-2);
     }
 
     .node.warning {
-      outline-color: color-mix(in srgb, var(--warning) 42%, transparent);
-    }
-
-    .node.warning::before {
-      background: var(--warning);
+      border-color: rgba(244, 190, 94, 0.42);
     }
 
     .node.failed {
-      outline-color: color-mix(in srgb, var(--failed) 48%, transparent);
-    }
-
-    .node.failed::before {
-      background: var(--failed);
-    }
-
-    .node.sleeping::before {
-      background: var(--sleeping);
+      border-color: rgba(255, 122, 144, 0.48);
     }
 
     .node-header {
@@ -329,10 +283,7 @@
       place-items: center;
       width: 34px;
       height: 34px;
-      border: 1px solid rgba(255, 255, 255, 0.07);
-      border-radius: 7px;
-      color: color-mix(in srgb, var(--accent) 80%, white 20%);
-      background: rgba(255, 255, 255, 0.04);
+      color: var(--accent);
     }
 
     .icon svg {
@@ -351,7 +302,7 @@
       font-size: 20px;
       line-height: 1.2;
       font-weight: 740;
-      letter-spacing: -0.012em;
+      letter-spacing: 0;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -377,10 +328,10 @@
       gap: 9px;
       min-height: 30px;
       padding: 0 10px;
-      border: 1px solid color-mix(in srgb, var(--ready) 28%, transparent);
+      border: 1px solid rgba(116, 215, 166, 0.28);
       border-radius: 999px;
       color: var(--ready);
-      background: color-mix(in srgb, var(--ready) 8%, transparent);
+      background: rgba(116, 215, 166, 0.08);
       font-size: 13px;
       line-height: 1.3;
       font-weight: 680;
@@ -388,20 +339,20 @@
 
     .status.warning {
       color: var(--warning);
-      border-color: color-mix(in srgb, var(--warning) 32%, transparent);
-      background: color-mix(in srgb, var(--warning) 8%, transparent);
+      border-color: rgba(244, 190, 94, 0.32);
+      background: rgba(244, 190, 94, 0.08);
     }
 
     .status.failed {
       color: var(--failed);
-      border-color: color-mix(in srgb, var(--failed) 32%, transparent);
-      background: color-mix(in srgb, var(--failed) 8%, transparent);
+      border-color: rgba(255, 122, 144, 0.32);
+      background: rgba(255, 122, 144, 0.08);
     }
 
     .status.sleeping {
       color: var(--sleeping);
-      border-color: color-mix(in srgb, var(--sleeping) 32%, transparent);
-      background: color-mix(in srgb, var(--sleeping) 8%, transparent);
+      border-color: rgba(106, 214, 170, 0.32);
+      background: rgba(106, 214, 170, 0.08);
     }
 
     .status svg {
@@ -432,7 +383,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      color: color-mix(in oklch, var(--text) 84%, var(--muted) 16%);
+      color: rgba(234, 231, 240, 0.84);
     }
 
     .attachments {
@@ -480,9 +431,7 @@
       min-width: 0;
       min-height: 0;
       border-left: 1px solid var(--line);
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 26%),
-        color-mix(in oklch, var(--bg) 88%, black 12%);
+      background: rgba(17, 16, 25, 0.92);
       overflow: auto;
     }
 
@@ -493,12 +442,10 @@
 
     .panel-section h2 {
       margin: 0 0 12px;
-      color: var(--quiet);
-      font-size: 11px;
+      color: rgba(247, 245, 251, 0.88);
+      font-size: 13px;
       line-height: 1.2;
       font-weight: 760;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
     }
 
     .detail-title {
@@ -509,7 +456,6 @@
     .detail-title strong {
       font-size: 22px;
       line-height: 1.2;
-      letter-spacing: -0.012em;
       overflow-wrap: anywhere;
     }
 
@@ -545,7 +491,7 @@
 
     .detail-row dd {
       margin: 0;
-      color: color-mix(in oklch, var(--text) 86%, var(--muted) 14%);
+      color: rgba(247, 245, 251, 0.88);
       overflow-wrap: anywhere;
     }
 
@@ -554,18 +500,16 @@
       grid-row: 3;
       min-width: 0;
       border-top: 1px solid var(--line);
-      background: color-mix(in oklch, var(--bg) 90%, black 10%);
+      background: rgba(17, 16, 25, 0.88);
       overflow: hidden;
     }
 
     .events-panel h2 {
       margin: 0;
       padding: 13px 18px 0;
-      color: var(--quiet);
-      font-size: 11px;
+      color: rgba(247, 245, 251, 0.88);
+      font-size: 13px;
       font-weight: 760;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
     }
 
     .events {
