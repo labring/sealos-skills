@@ -2,7 +2,7 @@
 
 Deploy projects to [Sealos Cloud](https://sealos.io) from your AI agent.
 
-Sealos Skills is a plugin-first skill pack centered on Sealos Cloud deployment. It helps an AI agent inspect a project, prepare missing deployment artifacts, build or reuse a container image, and ship the app to Sealos Cloud.
+Sealos Skills is a plugin-first skill pack centered on Sealos Cloud deployment. It helps an AI agent inspect a project, prepare missing deployment artifacts, build or reuse a container image, ship the app to Sealos Cloud, and view deployed resources in a local read-only canvas.
 
 The recommended way to use it is as an agent plugin installed with [`npx plugins`](https://www.npmjs.com/package/plugins). The same root `skills/` directory also remains compatible with `skills.sh` and context-only extension hosts such as Gemini CLI and Qwen Code.
 
@@ -85,6 +85,12 @@ Then run the deploy skill directly:
 /sealos-deploy https://github.com/labring-sigs/kite
 ```
 
+After a project has been deployed, run a local Sealos resource canvas UI:
+
+```text
+/sealos-canvas
+```
+
 `/sealos-deploy` is the direct `skills.sh` skill entry. Plugin usage should go through `$sealos` in Codex or `/sealos` in Claude Code.
 
 ## Why Use the Plugin
@@ -119,11 +125,23 @@ On a typical deploy, the agent will:
 
 Later runs can switch to an in-place update flow when an existing deployment is detected.
 
+## What Sealos Canvas Handles
+
+For a repository already deployed by `/sealos-deploy`, the agent will:
+
+1. Read `.sealos/state.json` to locate the deployed app.
+2. Query the Sealos namespace with read-only `kubectl get` commands.
+3. Start a temporary `127.0.0.1` canvas UI.
+4. Output and open the local UI address for inspection.
+
+If the project has not been deployed yet, `/sealos-canvas` stops and tells the user to run `/sealos-deploy` first.
+
 ## Included Skills
 
 The plugin and `skills.sh` pack expose the same skill source:
 
 - `sealos-deploy` — deploy a local or GitHub project to Sealos Cloud
+- `sealos-canvas` — view deployed Sealos resources in a local read-only canvas UI
 - `sealos-app-builder` — build Sealos Desktop apps with SDK integration
 - `cloud-native-readiness` — assess deployment readiness
 - `dockerfile-skill` — generate production-ready Dockerfiles
@@ -131,7 +149,7 @@ The plugin and `skills.sh` pack expose the same skill source:
 
 ## Repository
 
-[`skills/`](./skills) is the single source of truth for Sealos deploy and the supporting skills it uses during the deploy flow. The same root-level skills directory serves `skills.sh` installs and every plugin or extension manifest in this repository.
+[`skills/`](./skills) is the single source of truth for Sealos deploy, Sealos canvas, and the supporting skills used during the deploy flow. The same root-level skills directory serves `skills.sh` installs and every plugin or extension manifest in this repository.
 
 Important distribution files:
 
