@@ -24,10 +24,11 @@ This repo does not have a single top-level app build.
 
 ```text
 sealos plugin entry points ($sealos, /sealos)
-  └→ sealos-deploy (direct skills.sh entry point: /sealos-deploy)
-      ├→ cloud-native-readiness   (Phase 1: score 0-12)
-      ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
-      └→ docker-to-sealos         (Phase 5: Compose → Sealos template)
+  ├→ sealos-deploy (direct skills.sh entry point: /sealos-deploy)
+  │   ├→ cloud-native-readiness   (Phase 1: score 0-12)
+  │   ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
+  │   └→ docker-to-sealos         (Phase 5: Compose → Sealos template)
+  └→ sealos-database (direct skills.sh entry point: /sealos-database)
 ```
 
 `sealos-app-builder` is an adjacent skill for Sealos Desktop app work. `sealos-canvas` is an adjacent skill for read-only deployed-resource visualization after `/sealos-deploy` has created `.sealos/state.json`.
@@ -62,7 +63,7 @@ Root `skills/**` is the only skill source for every host. Do not add a second pa
 - `scripts/validate-codex-plugin.py` — Codex plugin validation script.
 - `CLAUDE.md` — shared context file for Claude-compatible and context-only hosts.
 
-Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts. Keep `/sealos-deploy` examples only in direct `skills.sh` sections.
+Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts. Keep `/sealos-deploy` and `/sealos-database` examples only in direct `skills.sh` sections.
 
 ### Deployment pipeline (sealos-deploy)
 
@@ -80,6 +81,7 @@ State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.j
 ## Key paths
 
 - `skills/sealos-deploy/SKILL.md` — primary entry point for the deploy workflow
+- `skills/sealos-database/SKILL.md` — primary entry point for cloud database development workflow
 - `skills/sealos-deploy/config.json` — OAuth client_id, regional Sealos URLs
 - `skills/sealos-deploy/scripts/` — auth, scoring, and helper automation scripts
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
