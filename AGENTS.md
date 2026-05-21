@@ -16,6 +16,7 @@ This repo does not have a single top-level app build.
 - Run helper scripts with `node <path-to-script>.mjs`.
 - Keep `skills/sealos-deploy/evals/` in sync when skill behavior changes.
 - Validate distribution metadata when adding or renaming skills, commands, or manifests.
+- Run `python3 scripts/validate-codex-plugin.py` when Codex plugin metadata changes.
 
 ## Architecture
 
@@ -29,7 +30,7 @@ sealos plugin entry points ($sealos, /sealos)
       └→ docker-to-sealos         (Phase 5: Compose → Sealos template)
 ```
 
-`sealos-app-builder` is an adjacent skill for Sealos Desktop app work.
+`sealos-app-builder` is an adjacent skill for Sealos Desktop app work. `sealos-canvas` is an adjacent skill for read-only deployed-resource visualization after `/sealos-deploy` has created `.sealos/state.json`.
 
 ### Skill module pattern
 
@@ -58,6 +59,7 @@ Root `skills/**` is the only skill source for every host. Do not add a second pa
 - `openclaw.plugin.json` — OpenClaw / ClawHub bundle pointer.
 - `distribution/platforms.json` — platform support registry and support-claim scope.
 - `marketplaces/README.md` — maintainer notes for marketplace files.
+- `scripts/validate-codex-plugin.py` — Codex plugin validation script.
 - `CLAUDE.md` — shared context file for Claude-compatible and context-only hosts.
 
 Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts. Keep `/sealos-deploy` examples only in direct `skills.sh` sections.
@@ -81,7 +83,11 @@ State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.j
 - `skills/sealos-deploy/config.json` — OAuth client_id, regional Sealos URLs
 - `skills/sealos-deploy/scripts/` — auth, scoring, and helper automation scripts
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
-- `.codex-plugin/plugin.json` — Codex plugin manifest
+- `skills/sealos-canvas/SKILL.md` — read-only resource canvas workflow
+- `.codex-plugin/plugin.json` — Codex plugin manifest pointing to root `skills/`
+- `.agents/plugins/marketplace.json` — local Codex marketplace entry for the Sealos plugin
 - `.claude-plugin/plugin.json` — Claude Code-compatible plugin manifest
 - `commands/sealos.md` — `/sealos` command route for plugin hosts
-- `distribution/platforms.json` — platform support registry
+- `distribution/platforms.json` — platform support registry and evidence
+- `marketplaces/README.md` — marketplace ownership and support-claim rules
+- `scripts/validate-codex-plugin.py` — Codex plugin validation script

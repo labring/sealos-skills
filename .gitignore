@@ -6,3 +6,8 @@ skills/sealos-deploy-workspace/
 .sealos/build/
 
 docs
+
+# Local agent install artifacts; keep repo marketplace metadata tracked
+.agents/*
+!.agents/plugins/
+!.agents/plugins/marketplace.json
