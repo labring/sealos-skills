@@ -2,7 +2,7 @@
   "id": "sealos",
   "name": "sealos",
   "version": "0.1.0",
-  "description": "Deploy local or GitHub projects to Sealos Cloud, generate Dockerfiles and Sealos templates, assess cloud-native readiness, and build Sealos Desktop apps.",
+  "description": "Deploy local or GitHub projects to Sealos Cloud, connect cloud databases, generate Dockerfiles and Sealos templates, assess cloud-native readiness, and build Sealos Desktop apps.",
   "author": {
     "name": "Sealos",
     "url": "https://sealos.io/"
@@ -20,13 +20,15 @@
     "docker",
     "containers",
     "cloud-native",
-    "app-builder"
+    "app-builder",
+    "database"
   ],
   "commands": [
     "./commands/"
   ],
   "skills": [
     "./skills/sealos-deploy",
+    "./skills/sealos-database",
     "./skills/sealos-app-builder",
     "./skills/cloud-native-readiness",
     "./skills/dockerfile-skill",
