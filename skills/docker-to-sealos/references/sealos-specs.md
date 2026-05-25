@@ -923,7 +923,7 @@ Allowed `limits.memory` values:
 - `128Mi`
 - `256Mi`
 - `512Mi`
-- `1G`
+- `1024Mi`
 - `2G`
 - `4G`
 - `8G`
@@ -944,7 +944,7 @@ Allowed `limits.memory` values:
 | `memory: 128Mi` | `memory: 12Mi` |
 | `memory: 256Mi` | `memory: 25Mi` |
 | `memory: 512Mi` | `memory: 51Mi` |
-| `memory: 1G` | `memory: 100Mi` |
+| `memory: 1024Mi` | `memory: 102Mi` |
 | `memory: 2G` | `memory: 200Mi` |
 | `memory: 4G` | `memory: 400Mi` |
 | `memory: 8G` | `memory: 800Mi` |
@@ -1005,16 +1005,16 @@ resources:
     memory: 256Mi
   limits:
     cpu: 1
-    memory: 1G
+    memory: 1024Mi
 
-# Incorrect: binary Gi value is not part of the current ladder
+# Incorrect: decimal G form is not the canonical 1G-class ladder value
 resources:
   requests:
     cpu: 100m
     memory: 100Mi
   limits:
     cpu: 1
-    memory: 1Gi
+    memory: 1G
 ```
 
 **Tuning guidance:**
