@@ -192,6 +192,24 @@ Unless source docs explicitly require otherwise, use the lightweight app ladder 
 
 For higher resource needs, move only to another allowed `limits` ladder entry and recompute `requests` from that `limits` value.
 
+### Browser / remote desktop resource validation
+
+For browser, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or remote-desktop-style containers:
+
+- Do not treat a short smoke test as proof of a stable minimum memory value.
+- Validate memory with a fresh deployment, not only a patched warm pod.
+- Exercise cold start until readiness, a lightweight page, a real/medium page, an interactive/search page, and a 60s post-smoke stability check.
+- If observed cgroup memory reaches more than 80% of the limit during smoke, move to the next allowed Sealos memory ladder value.
+- Keep requests derived from limits according to the Sealos resource ladder.
+
+Example:
+- Bad: Chrome passes a short smoke at `512Mi` but reaches `503Mi`; shipping `512Mi` as the stable minimum is unsafe.
+- Good: raise to `1024Mi`, set request to `102Mi`, rerun smoke and stability checks.
+
+For Chrome + Xvfb + Selkies with 4K max display, use at least:
+- limits: `cpu=200m`, `memory=1024Mi`
+- requests: `cpu=20m`, `memory=102Mi`
+
 ### Defaults vs inputs
 
 - `defaults` for generated values (`app_name`, `app_host`, random passwords/keys).
