@@ -31,3 +31,7 @@ This directory documents the Sealos skill pack distribution surfaces.
 - Do not copy skill directories into host-specific package folders.
 - Keep plugin examples as `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts.
 - Keep `/sealos-deploy` examples only in direct `skills.sh` usage sections.
+
+## Codex validation
+
+- Run `python3 scripts/validate-codex-plugin.py` when Codex manifest, repo marketplace, or platform registry metadata changes.

@@ -12,8 +12,8 @@
       "install": "npx plugins add https://github.com/labring/sealos-skills --target codex",
       "invoke": "$sealos in Codex CLI; select Sealos from Plugins in Codex App",
       "commands": "supported",
-      "evidence": "npx plugins discover . --remote",
-      "lastVerified": "2026-05-20"
+      "evidence": "npx plugins discover . --remote + codex_manifest+repo_marketplace",
+      "lastVerified": "2026-05-21"
     },
     {
       "id": "claude-code",
