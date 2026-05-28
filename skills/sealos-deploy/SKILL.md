@@ -1,12 +1,16 @@
 ---
 name: sealos-deploy
 description: Deploy any GitHub project to Sealos Cloud in one command. Assesses readiness, generates Dockerfile, builds image, creates Sealos template, and deploys — fully automated. Use when user says "deploy to sealos", "deploy this project", "deploy to cloud", "deploy this repo", mentions Sealos deployment, wants to deploy a GitHub URL or local project to a cloud platform, or asks about one-click deployment. Also triggers on "/sealos-deploy".
-compatibility: Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ and Python 3.8+ remain optional accelerators.
 metadata:
   author: labring
 ---
 
 # Sealos Deploy
+
+## Compatibility
+
+Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ and Python 3.8+ remain optional accelerators.
+
 
 Deploy any GitHub project to Sealos Cloud — from source code to running application, one command.
 
@@ -24,6 +28,29 @@ System tool installation requires user confirmation. If `docker`, `gh`, or `kube
 WARNING: About to delete <resource kind>/<resource name>. This data cannot be recovered. Confirm? (y/n)
 ```
 Only proceed after user confirms. This applies even if the pipeline logic suggests deletion — always ask first.
+
+**Template API cleanup must include Instance CRs.** Deployments created through `scripts/deploy-template.mjs` create `instances.app.sealos.io/<app-name>` in addition to App/workload resources. A cleanup is incomplete until `instances.app.sealos.io`, `apps.app.sealos.io`, workloads, Services, Ingresses, PVCs, and Pods are all checked.
+
+Use this check when cleaning Template API test deployments:
+```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" \
+  get instances.app.sealos.io,app,statefulset,deployment,svc,ingress,pvc,pod | grep "$APP"
+```
+
+Delete in this order after confirmation:
+```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete instances.app.sealos.io "$APP" --ignore-not-found --wait=false
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete app "$APP" --ignore-not-found --wait=false
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete statefulset "$APP" --ignore-not-found --wait=false
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete deployment "$APP" --ignore-not-found --wait=false
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete ingress "$APP" --ignore-not-found --wait=false
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete svc "$APP" --ignore-not-found --wait=false
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" get pvc -o name | grep "$APP" | while read -r PVC; do
+  KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete "$PVC" --ignore-not-found --wait=false
+done
+```
+
+Anti-example: do not report cleanup complete after only checking `app,statefulset,svc,ingress,pvc,pod`; that misses `instances.app.sealos.io/<app-name>` and leaves the Sealos Instance layer dirty.
 
 ## Usage
 
