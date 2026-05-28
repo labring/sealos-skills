@@ -2,6 +2,10 @@
 
 This document contains complete Sealos template configurations for various databases, intended as a reference during conversion.
 
+## Database Workload Rule
+
+Database services must be represented by KubeBlocks `Cluster` resources. Do not translate Compose database services such as PostgreSQL, MySQL, MongoDB, Redis, or Kafka into raw Kubernetes `Deployment` or `StatefulSet` workloads. `StatefulSet` remains valid for stateful application components, but not for managed database services.
+
 ## PostgreSQL Full Template
 
 ```yaml

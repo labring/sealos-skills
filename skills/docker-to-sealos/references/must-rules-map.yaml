@@ -196,6 +196,10 @@ must_rules:
     enforcement:
       type: rule
       target: R027
+  - must: "Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services."
+    enforcement:
+      type: rule
+      target: R039
   - must: "PostgreSQL version: `postgresql-16.4.0`."
     enforcement:
       type: manual

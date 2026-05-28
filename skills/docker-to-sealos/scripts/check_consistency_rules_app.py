@@ -80,6 +80,21 @@ CRONJOB_REQUIRED_LABELS: Dict[str, str] = {
 }
 POSTGRES_URL_DATABASE_RE = re.compile(r"postgres(?:ql)?://[^/\s]+/([^?\s'\";]+)", re.IGNORECASE)
 DEFAULT_POSTGRES_DATABASE_NAMES = {"postgres", "template0", "template1"}
+DATABASE_WORKLOAD_IMAGE_NAMES = {
+    "apecloud-mysql",
+    "kafka",
+    "mariadb",
+    "mongo",
+    "mongodb",
+    "mysql",
+    "percona",
+    "postgis",
+    "postgres",
+    "postgresql",
+    "redis",
+    "timescaledb",
+    "valkey",
+}
 OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, str]] = {
     "goauthentik/server": {
         "liveness_path": "/-/health/live/",
@@ -1204,6 +1219,59 @@ def _is_template_artifact_document(doc) -> bool:
     return doc.path.suffix.lower() in TEMPLATE_ARTIFACT_SUFFIXES and doc.path.name == "index.yaml"
 
 
+def _image_repository_basename(image: str) -> str:
+    reference = image.strip()
+    if "@" in reference:
+        reference = reference.split("@", 1)[0]
+
+    slash_index = reference.rfind("/")
+    colon_index = reference.rfind(":")
+    if colon_index > slash_index:
+        reference = reference[:colon_index]
+
+    return reference.rsplit("/", 1)[-1].lower()
+
+
+def _is_database_image(image: str) -> bool:
+    return _image_repository_basename(image) in DATABASE_WORKLOAD_IMAGE_NAMES
+
+
+def _is_database_like_workload(doc) -> bool:
+    if not is_app_workload_document(doc) or not isinstance(doc.data, dict):
+        return False
+
+    for container in iter_containers(doc.data):
+        image = container.get("image")
+        if isinstance(image, str) and _is_database_image(image):
+            return True
+
+    return False
+
+
+def check_database_services_use_clusters(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not _is_template_artifact_document(doc):
+            continue
+        if not isinstance(doc.data, dict):
+            continue
+        if doc.data.get("kind") not in {"Deployment", "StatefulSet"}:
+            continue
+        if not _is_database_like_workload(doc):
+            continue
+
+        add_doc_violation(
+            violations,
+            rule_id="R039",
+            doc=doc,
+            pattern=r"^\s*kind\s*:\s*(?:Deployment|StatefulSet)\s*$",
+            default_pattern=r"^\s*kind\s*:",
+            message="database services must use KubeBlocks Cluster resources, not raw Deployment/StatefulSet workloads",
+        )
+
+    return violations
+
+
 def _extract_postgres_database_names_from_value(raw_value: str) -> List[str]:
     names: List[str] = []
     for match in POSTGRES_URL_DATABASE_RE.finditer(raw_value):
@@ -1811,6 +1879,7 @@ APP_RULES: Dict[str, Rule] = {
     "R026": Rule("R026", check_http_ingress_annotations),
     "R027": Rule("R027", check_postgres_custom_db_init_job),
     "R037": Rule("R037", check_postgres_secret_refs_match_cluster_name),
+    "R039": Rule("R039", check_database_services_use_clusters),
     "R008": Rule("R008", check_deploy_manager_label_match_name),
     "R034": Rule("R034", check_app_label_match_name),
     "R028": Rule("R028", check_container_names_match_workload_name),
