@@ -69,6 +69,7 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 
 ### Step 5: Apply database strategy
 
+- Database services must be generated as KubeBlocks `Cluster` resources. Do not convert PostgreSQL/MySQL/MongoDB/Redis/Kafka Compose database services into raw Kubernetes `Deployment` or `StatefulSet` workloads.
 - PostgreSQL must follow the pinned version and structure requirements.
 - MySQL/MongoDB/Redis/Kafka must use templates and secret naming from `references/database-templates.md`.
 - Add DB init Job/initContainer when application database bootstrap requires it.
@@ -164,6 +165,7 @@ If validation fails, fix template/rules/examples first.
 
 ### Database-specific constraints
 
+- Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services.
 - PostgreSQL version: `postgresql-16.4.0`.
 - PostgreSQL API: `apps.kubeblocks.io/v1alpha1`.
 - PostgreSQL RBAC unified naming: `${{ defaults.app_name }}-pg`.
