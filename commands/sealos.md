@@ -1,7 +1,7 @@
 ---
 name: sealos
-description: "Deploy projects to Sealos Cloud, prepare Docker artifacts, convert Compose files, assess cloud readiness, build Sealos Desktop apps, or connect Sealos Cloud databases."
-argument-hint: "[deploy|database|app|assess|dockerfile|compose] [path-or-url]"
+description: "Deploy projects to Sealos Cloud, prepare Docker artifacts, convert Compose files, assess cloud readiness, build Sealos Desktop apps, connect databases, or use Sealos S3 object storage."
+argument-hint: "[deploy|database|s3|app|assess|dockerfile|compose] [path-or-url]"
 parameters:
   - name: task
     type: string
@@ -17,6 +17,7 @@ Use this command as the Claude Code and compatible plugin entry point for Sealos
 
 - Deploy, update, or publish a local/GitHub project to Sealos Cloud → `sealos-deploy`
 - Create, connect, or manage a Sealos Cloud database for local development or Devbox → `sealos-database`
+- Create, connect, or operate Sealos S3-compatible object storage → `sealos-s3`
 - Build or adapt a Sealos Desktop app with the Sealos app SDK → `sealos-app-builder`
 - Assess whether a project is cloud-native/container-ready → `cloud-native-readiness`
 - Generate or fix Docker packaging → `dockerfile-skill`
@@ -28,6 +29,7 @@ Use this command as the Claude Code and compatible plugin entry point for Sealos
 - Treat `/sealos` as the plugin entry point. Do not tell plugin users to invoke `/sealos-deploy`; `/sealos-deploy` is the direct `skills.sh` skill entry.
 - For deployments, follow the safety and auth rules in `skills/sealos-deploy/SKILL.md`.
 - For database work, follow the secret-handling and public-access rules in `skills/sealos-database/SKILL.md`.
+- For S3 object storage work, follow the secret-handling, bucket-policy, and destructive-operation rules in `skills/sealos-s3/SKILL.md`.
 - Ask for confirmation before destructive Kubernetes operations or system tool installation.
 
 ## Examples
@@ -38,6 +40,8 @@ Use this command as the Claude Code and compatible plugin entry point for Sealos
 /sealos deploy https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos connect this project to a Sealos Redis database for local development
+/sealos create private S3 object storage for uploads and wire env vars
+/sealos generate a presigned URL for an object in my Sealos bucket
 /sealos build a Sealos Desktop app from this web project
 /sealos assess whether this repo is ready for Sealos Cloud
 ```
