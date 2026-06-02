@@ -2,7 +2,7 @@
   "name": "sealos",
   "version": "0.1.0",
   "repository": "https://github.com/labring/sealos-skills",
-  "lastUpdated": "2026-05-20",
+  "lastUpdated": "2026-05-28",
   "platforms": [
     {
       "id": "codex",
@@ -77,7 +77,7 @@
       "claim": "context-only",
       "runtime": "agent_skill",
       "install": "npx skills add labring/sealos-skills",
-      "invoke": "/sealos-deploy",
+      "invoke": "/sealos-deploy, /sealos-database, /sealos-s3",
       "commands": "not_claimed",
       "evidence": "root skills/**",
       "lastVerified": "2026-05-20"
