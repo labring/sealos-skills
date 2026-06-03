@@ -45,7 +45,7 @@ def main() -> int:
     platforms = load_json(PLATFORMS_PATH)
 
     require(plugin.get("name") == "sealos", "Codex plugin name is sealos")
-    require(plugin.get("version") == "0.1.0", "Codex plugin version is current")
+    require(plugin.get("version") == "1.0.0", "Codex plugin version is current")
     require(plugin.get("skills") == "./skills/", "Codex plugin points to root skills directory")
     require((ROOT / "skills").is_dir(), "skills directory exists")
 
