@@ -1,7 +1,7 @@
 {
   "id": "sealos",
   "name": "sealos",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Deploy local or GitHub projects to Sealos Cloud, connect cloud databases and S3 object storage, generate Dockerfiles and Sealos templates, assess cloud-native readiness, and build Sealos Desktop apps.",
   "author": {
     "name": "Sealos",
