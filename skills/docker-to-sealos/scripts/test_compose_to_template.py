@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 from subprocess import CompletedProcess
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -17,6 +17,7 @@ from compose_to_template import (
     ServiceShape,
     build_zh_description,
     convert_compose_to_template,
+    find_svgl_logo_url,
     infer_metadata,
     parse_args,
     resolve_image_reference,
@@ -33,6 +34,14 @@ def parse_yaml_documents(path: Path):
     return list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
 
 
+def assert_db_visibility_labels(test_case: unittest.TestCase, cluster: Dict[str, Any], engine: str) -> None:
+    name = cluster["metadata"]["name"]
+    labels = cluster["metadata"]["labels"]
+    test_case.assertEqual(name, labels.get("sealos-db-provider-cr"))
+    test_case.assertEqual(name, labels.get("app.kubernetes.io/instance"))
+    test_case.assertEqual(engine, labels.get("clusterdefinition.kubeblocks.io/name"))
+
+
 def render_registry(include_paths: Optional[List[str]] = None) -> str:
     include_paths = include_paths or ["SKILL.md", "references/placeholder.md"]
     lines = ["version: 1", "scope:", "  include:"]
@@ -47,6 +56,13 @@ def render_registry(include_paths: Optional[List[str]] = None) -> str:
 
 
 class ComposeToTemplateTests(unittest.TestCase):
+    def setUp(self):
+        self._svgl_json_patcher = mock.patch("compose_to_template._read_json_url", return_value=[])
+        self._svgl_json_patcher.start()
+
+    def tearDown(self):
+        self._svgl_json_patcher.stop()
+
     def _meta(self, app_name: str = "demo") -> MetadataOptions:
         return MetadataOptions(
             app_name=app_name,
@@ -117,10 +133,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 ingress["metadata"]["labels"]["cloud.sealos.io/app-deploy-manager"],
             )
             workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
-            self.assertEqual(
-                [{"name": "${{ defaults.app_name }}"}],
-                workload["spec"]["template"]["spec"]["imagePullSecrets"],
-            )
+            self.assertNotIn("imagePullSecrets", workload["spec"]["template"]["spec"])
             self.assertEqual(
                 {
                     "kubernetes.io/ingress.class": "nginx",
@@ -162,6 +175,198 @@ class ComposeToTemplateTests(unittest.TestCase):
                 additional_include_paths=[str(index_path)],
             )
             self.assertEqual([], violations)
+
+
+    def test_uses_svgl_svg_logo_when_available(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: nginx:1.27.2
+                """,
+            )
+
+            with mock.patch("compose_to_template._read_json_url") as read_json:
+                with mock.patch("compose_to_template._read_text_url", return_value='<svg viewBox="0 0 24 24"></svg>'):
+                    read_json.return_value = [
+                        {
+                            "title": "Nginx",
+                            "route": "https://svgl.app/library/nginx.svg",
+                            "url": "https://nginx.org/",
+                        }
+                    ]
+                    index_path, _ = convert_compose_to_template(
+                        compose_path=compose,
+                        output_root=root / "template",
+                        meta=self._meta("nginx"),
+                        fetch_logo=True,
+                    )
+
+            docs = parse_yaml_documents(index_path)
+            template = next(doc for doc in docs if doc.get("kind") == "Template")
+            app = next(doc for doc in docs if doc.get("kind") == "App")
+            self.assertEqual(
+                "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nginx/logo.svg",
+                template["spec"]["icon"],
+            )
+            self.assertEqual(template["spec"]["icon"], app["spec"]["icon"])
+            self.assertEqual('<svg viewBox="0 0 24 24"></svg>', (root / "template" / "nginx" / "logo.svg").read_text())
+
+    def test_fetches_svgl_logo_by_default(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: nginx:1.27.2
+                """,
+            )
+
+            with mock.patch("compose_to_template._read_json_url") as read_json:
+                with mock.patch("compose_to_template._read_text_url", return_value='<svg viewBox="0 0 24 24"></svg>'):
+                    read_json.return_value = [
+                        {
+                            "title": "Nginx",
+                            "route": "https://svgl.app/library/nginx.svg",
+                            "url": "https://nginx.org/",
+                        }
+                    ]
+                    index_path, _ = convert_compose_to_template(
+                        compose_path=compose,
+                        output_root=root / "template",
+                        meta=self._meta("nginx"),
+                    )
+
+            docs = parse_yaml_documents(index_path)
+            template = next(doc for doc in docs if doc.get("kind") == "Template")
+            self.assertEqual(
+                "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nginx/logo.svg",
+                template["spec"]["icon"],
+            )
+
+    def test_can_disable_default_svgl_logo_search(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: nginx:1.27.2
+                """,
+            )
+
+            with mock.patch("compose_to_template._read_json_url") as read_json:
+                index_path, _ = convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("nginx"),
+                    fetch_logo=False,
+                )
+
+            read_json.assert_not_called()
+            docs = parse_yaml_documents(index_path)
+            template = next(doc for doc in docs if doc.get("kind") == "Template")
+            self.assertEqual(
+                "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/nginx/logo.png",
+                template["spec"]["icon"],
+            )
+
+    def test_keeps_png_icon_path_when_svgl_search_misses(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                """,
+            )
+
+            with mock.patch("compose_to_template._read_json_url", return_value=[]):
+                index_path, _ = convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("demo"),
+                    fetch_logo=True,
+                )
+
+            docs = parse_yaml_documents(index_path)
+            template = next(doc for doc in docs if doc.get("kind") == "Template")
+            self.assertEqual(
+                "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/logo.png",
+                template["spec"]["icon"],
+            )
+            self.assertFalse((root / "template" / "demo" / "logo.svg").exists())
+
+    def test_uses_existing_logo_extension_when_svgl_search_misses(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            output_dir = root / "template"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                """,
+            )
+            write_file(output_dir / "demo" / "logo.webp", "webp")
+
+            with mock.patch("compose_to_template._read_json_url", return_value=[]):
+                index_path, _ = convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=output_dir,
+                    meta=self._meta("demo"),
+                    fetch_logo=True,
+                )
+
+            docs = parse_yaml_documents(index_path)
+            template = next(doc for doc in docs if doc.get("kind") == "Template")
+            self.assertEqual(
+                "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/logo.webp",
+                template["spec"]["icon"],
+            )
+
+    def test_find_svgl_logo_url_prefers_matching_title_and_domain(self):
+        meta = MetadataOptions(
+            app_name="open-webui",
+            title="Open WebUI",
+            description="Demo app",
+            url="https://openwebui.com/",
+            git_repo="https://github.com/open-webui/open-webui",
+            author="Sealos",
+            categories=("ai",),
+            repo_raw_base="https://raw.githubusercontent.com/labring-actions/templates/kb-0.9",
+        )
+
+        def fake_read_json(url):
+            return [
+                {
+                    "title": "Open WebUI Docs",
+                    "route": "https://svgl.app/library/openwebui-docs.svg",
+                    "url": "https://docs.openwebui.com/",
+                },
+                {
+                    "title": "Open WebUI",
+                    "route": "https://svgl.app/library/openwebui.svg",
+                    "url": "https://openwebui.com/",
+                },
+            ]
+
+        with mock.patch("compose_to_template._read_json_url", side_effect=fake_read_json):
+            self.assertEqual("https://svgl.app/library/openwebui.svg", find_svgl_logo_url(meta))
 
     def test_service_ports_always_include_names_for_multi_port_services(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -634,6 +839,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             cluster = next(doc for doc in docs if doc.get("kind") == "Cluster")
             self.assertEqual("${{ defaults.app_name }}-pg", cluster["metadata"]["name"])
             self.assertIn("kb.io/database", cluster["metadata"]["labels"])
+            assert_db_visibility_labels(self, cluster, "postgresql")
             self.assertNotIn("finalizers", cluster["metadata"])
             self.assertNotIn("annotations", cluster["metadata"])
             affinity = cluster["spec"]["affinity"]
@@ -739,6 +945,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertIn("Cluster", kinds)
 
             cluster = next(doc for doc in docs if doc.get("kind") == "Cluster")
+            assert_db_visibility_labels(self, cluster, "redis")
             redis_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "redis")
             redis_data = redis_comp["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
             self.assertEqual("1Gi", redis_data)
@@ -755,9 +962,10 @@ class ComposeToTemplateTests(unittest.TestCase):
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
             redis_host = next(item for item in env if item["name"] == "REDIS_HOST")
-            secret_ref = redis_host.get("valueFrom", {}).get("secretKeyRef", {})
-            self.assertEqual("${{ defaults.app_name }}-redis-redis-account-default", secret_ref.get("name"))
-            self.assertEqual("host", secret_ref.get("key"))
+            self.assertEqual(
+                "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+                redis_host.get("value"),
+            )
 
     def test_generates_mysql_cluster_resources_and_secret_env_mapping(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -784,6 +992,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             docs = parse_yaml_documents(index_path)
             cluster = next(doc for doc in docs if doc.get("kind") == "Cluster")
             self.assertEqual("${{ defaults.app_name }}-mysql", cluster["metadata"]["name"])
+            assert_db_visibility_labels(self, cluster, "apecloud-mysql")
             self.assertNotIn("finalizers", cluster["metadata"])
             self.assertNotIn("annotations", cluster["metadata"])
             self.assertEqual(["kubernetes.io/hostname"], cluster["spec"]["affinity"]["topologyKeys"])
@@ -829,6 +1038,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             docs = parse_yaml_documents(index_path)
             cluster = next(doc for doc in docs if doc.get("kind") == "Cluster")
             self.assertEqual("${{ defaults.app_name }}-mongo", cluster["metadata"]["name"])
+            assert_db_visibility_labels(self, cluster, "mongodb")
             self.assertNotIn("finalizers", cluster["metadata"])
             self.assertNotIn("annotations", cluster["metadata"])
             mongo_comp = cluster["spec"]["componentSpecs"][0]
@@ -843,8 +1053,50 @@ class ComposeToTemplateTests(unittest.TestCase):
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
             mongo_host = next(item for item in env if item["name"] == "MONGO_HOST")
             host_ref = mongo_host.get("valueFrom", {}).get("secretKeyRef", {})
-            self.assertEqual("${{ defaults.app_name }}-mongodb-account-root", host_ref.get("name"))
+            self.assertEqual("${{ defaults.app_name }}-mongo-mongodb-account-root", host_ref.get("name"))
             self.assertEqual("host", host_ref.get("key"))
+
+    def test_composes_mongodb_url_with_service_host_and_credential_secret(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    environment:
+                      MONGODB_URI: mongodb://root:password@mongo:27017/demo?authSource=admin
+                  mongo:
+                    image: mongo:8.0.4
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+
+            host = next(item for item in env if item["name"] == "SEALOS_MONGODB_MONGODB_HOST")
+            port = next(item for item in env if item["name"] == "SEALOS_MONGODB_MONGODB_PORT")
+            username = next(item for item in env if item["name"] == "SEALOS_MONGODB_MONGODB_USERNAME")
+            password = next(item for item in env if item["name"] == "SEALOS_MONGODB_MONGODB_PASSWORD")
+            uri = next(item for item in env if item["name"] == "MONGODB_URI")
+
+            self.assertEqual("${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local", host["value"])
+            self.assertEqual("27017", port["value"])
+            self.assertEqual("${{ defaults.app_name }}-mongo-mongodb-account-root", username["valueFrom"]["secretKeyRef"]["name"])
+            self.assertEqual("username", username["valueFrom"]["secretKeyRef"]["key"])
+            self.assertEqual("${{ defaults.app_name }}-mongo-mongodb-account-root", password["valueFrom"]["secretKeyRef"]["name"])
+            self.assertEqual("password", password["valueFrom"]["secretKeyRef"]["key"])
+            self.assertEqual(
+                "mongodb://$(SEALOS_MONGODB_MONGODB_USERNAME):$(SEALOS_MONGODB_MONGODB_PASSWORD)@$(SEALOS_MONGODB_MONGODB_HOST):$(SEALOS_MONGODB_MONGODB_PORT)/demo?authSource=admin",
+                uri["value"],
+            )
 
     def test_generates_kafka_cluster_resources_and_secret_env_mapping(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -870,6 +1122,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             docs = parse_yaml_documents(index_path)
             cluster = next(doc for doc in docs if doc.get("kind") == "Cluster")
             self.assertEqual("${{ defaults.app_name }}-broker", cluster["metadata"]["name"])
+            assert_db_visibility_labels(self, cluster, "kafka")
             broker_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "broker")
             controller_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "controller")
             metrics_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "metrics-exp")
@@ -940,6 +1193,10 @@ class ComposeToTemplateTests(unittest.TestCase):
     def test_parse_args_defaults_to_always_kompose_mode(self):
         args = parse_args(["--compose", "docker-compose.yml"])
         self.assertEqual("always", args.kompose_mode)
+
+    def test_parse_args_supports_disabling_default_logo_fetch(self):
+        args = parse_args(["--compose", "docker-compose.yml", "--no-fetch-logo"])
+        self.assertTrue(args.no_fetch_logo)
 
     def test_infer_metadata_normalizes_categories_to_allowlist(self):
         args = parse_args(

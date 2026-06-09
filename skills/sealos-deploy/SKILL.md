@@ -1,16 +1,16 @@
 ---
 name: sealos-deploy
 description: Prepare and build the current workspace or a GitHub project for Sealos Cloud inside a sandboxed workflow. The skill assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox BuildKit daemon when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
-compatibility: git is required. Node.js 18+ is recommended for helper scripts. buildctl, kubectl, and GITHUB_TOKEN are required only when the pipeline needs a Kubernetes BuildKit build. Build-time Kubernetes access must come from the sandbox-provided kubeconfig and current service account in the active namespace. This version does not require Sealos auth prompts, local Docker daemon access, or direct deploy access.
+compatibility: git is required. Node.js 18+ is recommended for helper scripts. buildctl, kubectl, and GITHUB_TOKEN are required when the pipeline needs a Kubernetes BuildKit build. Build-time Kubernetes access uses the sandbox-provided kubeconfig and current service account in the active namespace.
 metadata:
   author: labring
 ---
 
 # Sealos Deploy
 
-Prepare the current workspace or a GitHub project for Sealos Cloud without requiring direct Sealos login or local Docker builds.
+Prepare the current workspace or a GitHub project for Sealos Cloud.
 
-This version of `sealos-deploy` is a sandbox-first workflow:
+Workflow:
 
 1. inspect and score the project
 2. detect reusable container images
@@ -19,16 +19,9 @@ This version of `sealos-deploy` is a sandbox-first workflow:
 5. either reuse an existing image or run a sandbox BuildKit build through `k8s-buildkit-job`
 6. generate `.sealos/template/index.yaml`
 
-It does not:
-
-- perform Sealos auth
-- switch region, workspace, or namespace
-- build or push images locally
-- deploy directly to Sealos
-
 ## kubectl Safety Rules
 
-If any future phase or downstream skill uses `kubectl`, it must use the sandbox-provided permissions, kubeconfig, namespace, and current service account. This version may create one-shot build Jobs, but it still must not mutate Sealos application resources directly.
+Build phases that use `kubectl` use the sandbox-provided permissions, kubeconfig, namespace, and current service account.
 
 ## Usage
 
@@ -131,4 +124,4 @@ Input (current workspace or GitHub URL)
 Done — build artifacts and template ready for a later deploy step
 ```
 
-Execution rule: this version must never require Docker daemon access, Sealos auth, GitHub auth prompts, workspace switching, or direct deploy as entry prerequisites. It may require `buildctl`, `kubectl`, and `GITHUB_TOKEN` later, but only if `mode=build-required`. When that happens, use only the active sandbox namespace and current service account instead of assuming `default` or switching to an admin kubeconfig.
+Execution rule: `buildctl`, `kubectl`, and `GITHUB_TOKEN` are required only when `mode=build-required`. When that happens, use the active sandbox namespace and current service account instead of assuming `default`.

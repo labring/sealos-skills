@@ -2,16 +2,6 @@
 
 Detect the sandbox environment, resolve the target repository, and determine whether the build-and-prepare workflow can complete.
 
-Preflight must not require:
-
-- local Docker daemon
-- `docker buildx`
-- Sealos login
-- region selection
-- namespace switching
-- GitHub auth prompts at entry
-- direct deploy access
-
 ## Step 1: Environment Detection
 
 Run these checks on every execution:
@@ -53,8 +43,8 @@ Notes:
 Classify findings into:
 
 - immediate stop conditions
-- warnings only
-- explicit non-requirements
+- conditional build capabilities
+- optional accelerators
 
 ### 2.1 Immediate Stop Conditions
 
@@ -64,31 +54,24 @@ Stop before pipeline work only when one of these is true:
 - `git` is unavailable
 - Node.js is unavailable and the environment cannot run the included helper scripts
 
-### 2.2 Warnings Only
+### 2.2 Conditional Build Capabilities
 
-Report but do not stop:
+Record these capabilities for Phase 4:
 
-- `python3` missing
-- `jq` missing
 - `kubectl` missing
 - `buildctl` missing
 - `GITHUB_TOKEN` missing
-
-`kubectl` is a conditional blocker only if Phase 4 resolves to `mode=build-required`.
 
 `buildctl`, `kubectl`, and `GITHUB_TOKEN` are conditional blockers only if Phase 4 resolves to `mode=build-required`.
 
 `GITHUB_TOKEN` is used for GHCR push credentials, not for GitHub clone inside the BuildKit job.
 
-### 2.3 Explicit Non-Requirements
+### 2.3 Optional Accelerators
 
-Tell the user these are intentionally out of scope for this version:
+Record but do not stop:
 
-- Docker daemon and registry login
-- Sealos OAuth auth
-- region switching
-- namespace switching
-- direct deploy and rollout operations
+- `python3` missing
+- `jq` missing
 
 ## Step 3: Resolve Project Context
 
@@ -168,7 +151,6 @@ At the end of preflight, present:
 - whether assessment and image detection can run
 - whether sandbox helpers like `kubectl` and `GITHUB_TOKEN` are present
 - whether a later BuildKit phase would use the active sandbox namespace and current service account
-- which old deploy-time dependencies are intentionally not required
 - whether a later sandbox BuildKit phase would be able to run if the project needs a new image
 
 Example:
@@ -183,6 +165,5 @@ Preflight summary:
   - kubectl: available in sandbox
   - GITHUB_TOKEN: injected
   - Build identity: active sandbox namespace + current service account
-  - Docker / Sealos auth / deploy API: not required at entry
   - BuildKit readiness: buildctl, kubectl, and GITHUB_TOKEN will only matter if no reusable image is found
 ```

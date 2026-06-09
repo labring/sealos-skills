@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import re
@@ -11,10 +12,12 @@ import shlex
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
-from urllib.parse import urlparse
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlparse
+from urllib.request import Request, urlopen
 
 import yaml
 
@@ -50,7 +53,7 @@ DB_FQDN_BY_TYPE: Dict[str, str] = {
 DB_SECRET_NAME_BY_TYPE: Dict[str, str] = {
     "postgres": "${{ defaults.app_name }}-pg-conn-credential",
     "mysql": "${{ defaults.app_name }}-mysql-conn-credential",
-    "mongodb": "${{ defaults.app_name }}-mongodb-account-root",
+    "mongodb": "${{ defaults.app_name }}-mongo-mongodb-account-root",
     "redis": "${{ defaults.app_name }}-redis-redis-account-default",
     "kafka": "${{ defaults.app_name }}-broker-account-admin",
 }
@@ -89,8 +92,36 @@ FLOATING_NUMERIC_TAG_RE = re.compile(r"^v?\d+(?:\.\d+)?$")
 FLOATING_ALIAS_TAGS = {"latest", "stable", "main", "master", "edge", "nightly", "dev"}
 COMPOSE_BRACED_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 COMPOSE_SIMPLE_VAR_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+SEALOS_CPU_REQUEST_BY_LIMIT = {
+    "100m": "10m",
+    "200m": "20m",
+    "500m": "50m",
+    "1": "100m",
+    "2": "200m",
+    "3": "300m",
+    "4": "400m",
+    "8": "800m",
+}
+SEALOS_MEMORY_REQUEST_BY_LIMIT = {
+    "128Mi": "12Mi",
+    "256Mi": "25Mi",
+    "512Mi": "51Mi",
+    "1024Mi": "102Mi",
+    "2048Mi": "204Mi",
+    "4096Mi": "409Mi",
+    "8192Mi": "819Mi",
+    "16384Mi": "1638Mi",
+}
+DEFAULT_RESOURCE_LIMITS = {"cpu": "200m", "memory": "256Mi"}
+DEFAULT_RESOURCE_REQUESTS = {
+    "cpu": SEALOS_CPU_REQUEST_BY_LIMIT[DEFAULT_RESOURCE_LIMITS["cpu"]],
+    "memory": SEALOS_MEMORY_REQUEST_BY_LIMIT[DEFAULT_RESOURCE_LIMITS["memory"]],
+}
 DB_COMPONENT_RESOURCE_LIMITS = {"cpu": "500m", "memory": "512Mi"}
-DB_COMPONENT_RESOURCE_REQUESTS = {"cpu": "50m", "memory": "51Mi"}
+DB_COMPONENT_RESOURCE_REQUESTS = {
+    "cpu": SEALOS_CPU_REQUEST_BY_LIMIT[DB_COMPONENT_RESOURCE_LIMITS["cpu"]],
+    "memory": SEALOS_MEMORY_REQUEST_BY_LIMIT[DB_COMPONENT_RESOURCE_LIMITS["memory"]],
+}
 ZH_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
 EN_DESCRIPTION_REWRITE_PATTERNS: Tuple[Tuple[re.Pattern[str], str], ...] = (
     (
@@ -141,6 +172,9 @@ CATEGORY_ALIASES = {
     "machine-learning": "ai",
 }
 TEMPLATE_README_BASE = "https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template"
+SVGL_API_BASE = "https://api.svgl.app"
+SVGL_REQUEST_TIMEOUT = 10
+SVGL_LOGO_EXT = "svg"
 HTTP_INGRESS_ANNOTATIONS = {
     "kubernetes.io/ingress.class": "nginx",
     "nginx.ingress.kubernetes.io/proxy-body-size": "32m",
@@ -205,6 +239,7 @@ class MetadataOptions:
     author: str
     categories: Sequence[str]
     repo_raw_base: str
+    logo_ext: str = "png"
 
 
 @dataclass(frozen=True)
@@ -225,6 +260,146 @@ def normalize_k8s_name(raw: str) -> str:
     if not value:
         raise ValueError(f"unable to derive a valid name from: {raw!r}")
     return value
+
+
+def _normalize_search_text(raw: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", raw.lower())
+
+
+def _logo_search_terms(meta: MetadataOptions) -> List[str]:
+    terms = [meta.title, meta.app_name.replace("-", " ")]
+    for url in (meta.url, meta.git_repo):
+        parsed = urlparse(url)
+        host = parsed.netloc.lower().removeprefix("www.")
+        if host:
+            terms.append(host.split(".")[0])
+        path_name = Path(parsed.path).stem
+        if path_name:
+            terms.append(path_name.replace("-", " "))
+
+    unique: List[str] = []
+    seen = set()
+    for term in terms:
+        normalized = re.sub(r"\s+", " ", term.strip())
+        if not normalized:
+            continue
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(normalized)
+    return unique
+
+
+def _read_json_url(url: str, timeout: int = SVGL_REQUEST_TIMEOUT) -> Any:
+    request = Request(url, headers={"User-Agent": "docker-to-sealos/1.0"})
+    with urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _read_text_url(url: str, timeout: int = SVGL_REQUEST_TIMEOUT) -> str:
+    request = Request(url, headers={"User-Agent": "docker-to-sealos/1.0"})
+    with urlopen(request, timeout=timeout) as response:
+        return response.read().decode("utf-8")
+
+
+def _select_svg_route(route: Any) -> str:
+    if isinstance(route, str) and route.lower().endswith(".svg"):
+        return route
+    if isinstance(route, dict):
+        for key in ("light", "dark"):
+            value = route.get(key)
+            if isinstance(value, str) and value.lower().endswith(".svg"):
+                return value
+        for value in route.values():
+            if isinstance(value, str) and value.lower().endswith(".svg"):
+                return value
+    return ""
+
+
+def _score_svgl_result(
+    result: Mapping[str, Any],
+    meta: MetadataOptions,
+    term: str,
+) -> Tuple[int, int, str]:
+    title = str(result.get("title") or "")
+    url = str(result.get("url") or result.get("brandUrl") or "")
+    title_key = _normalize_search_text(title)
+    term_key = _normalize_search_text(term)
+    app_key = _normalize_search_text(meta.app_name)
+    meta_title_key = _normalize_search_text(meta.title)
+
+    score = 0
+    if title_key and title_key == term_key:
+        score += 120
+    elif title_key and term_key and (title_key in term_key or term_key in title_key):
+        score += 70
+    if title_key and title_key in {app_key, meta_title_key}:
+        score += 90
+
+    parsed_meta = urlparse(meta.url)
+    parsed_result = urlparse(url)
+    meta_host = parsed_meta.netloc.lower().removeprefix("www.")
+    result_host = parsed_result.netloc.lower().removeprefix("www.")
+    if meta_host and result_host:
+        hosts_match = (
+            meta_host == result_host
+            or meta_host.endswith(f".{result_host}")
+            or result_host.endswith(f".{meta_host}")
+        )
+        if hosts_match:
+            score += 100
+
+    route = _select_svg_route(result.get("route"))
+    if route:
+        score += 20
+    return score, -len(title_key), route
+
+
+def find_svgl_logo_url(meta: MetadataOptions) -> str:
+    best: Tuple[int, int, str] = (0, 0, "")
+    for term in _logo_search_terms(meta):
+        search_url = f"{SVGL_API_BASE}?search={quote(term)}"
+        try:
+            payload = _read_json_url(search_url)
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(payload, list):
+            continue
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            score = _score_svgl_result(item, meta, term)
+            if score[2] and score > best:
+                best = score
+    return best[2]
+
+
+def fetch_svgl_logo(meta: MetadataOptions, output_path: Path) -> bool:
+    logo_url = find_svgl_logo_url(meta)
+    if not logo_url:
+        return False
+    try:
+        svg_text = _read_text_url(logo_url)
+    except (HTTPError, URLError, TimeoutError, UnicodeDecodeError, OSError):
+        return False
+    if "<svg" not in svg_text[:500].lower():
+        return False
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(svg_text, encoding="utf-8")
+    return True
+
+
+def prepare_logo_asset(meta: MetadataOptions, app_dir: Path, enabled: bool) -> MetadataOptions:
+    if not enabled:
+        return meta
+    logo_path = app_dir / f"logo.{SVGL_LOGO_EXT}"
+    if fetch_svgl_logo(meta, logo_path):
+        return replace(meta, logo_ext=SVGL_LOGO_EXT)
+    existing_logo = next(iter(sorted(app_dir.glob("logo.*"))), None)
+    if existing_logo is not None and existing_logo.suffix:
+        return replace(meta, logo_ext=existing_logo.suffix.lstrip("."))
+    return meta
 
 
 def has_pinned_image(image: str) -> bool:
@@ -1075,7 +1250,7 @@ def build_template_resource(meta: MetadataOptions) -> Dict[str, Any]:
             "author": meta.author,
             "description": meta.description,
             "readme": f"{readme_base}/README.md",
-            "icon": f"{meta.repo_raw_base}/template/{meta.app_name}/logo.png",
+            "icon": f"{meta.repo_raw_base}/template/{meta.app_name}/logo.{meta.logo_ext}",
             "templateType": "inline",
             "locale": "en",
             "i18n": {
@@ -1155,6 +1330,8 @@ def build_postgres_resources() -> List[Dict[str, Any]]:
             "metadata": {
                 "name": name,
                 "labels": {
+                    "sealos-db-provider-cr": name,
+                    "app.kubernetes.io/instance": name,
                     "kb.io/database": "postgresql-16.4.0",
                     "clusterdefinition.kubeblocks.io/name": "postgresql",
                     "clusterversion.kubeblocks.io/name": "postgresql-16.4.0",
@@ -1251,6 +1428,8 @@ def build_mysql_resources() -> List[Dict[str, Any]]:
             "metadata": {
                 "name": name,
                 "labels": {
+                    "sealos-db-provider-cr": name,
+                    "app.kubernetes.io/instance": name,
                     "kb.io/database": "ac-mysql-8.0.30-1",
                     "clusterdefinition.kubeblocks.io/name": "apecloud-mysql",
                     "clusterversion.kubeblocks.io/name": "ac-mysql-8.0.30-1",
@@ -1350,7 +1529,9 @@ def build_mongodb_resources() -> List[Dict[str, Any]]:
             "metadata": {
                 "name": name,
                 "labels": {
+                    "sealos-db-provider-cr": name,
                     "kb.io/database": "mongodb-8.0.4",
+                    "clusterdefinition.kubeblocks.io/name": "mongodb",
                     "app.kubernetes.io/instance": name,
                 },
             },
@@ -1442,6 +1623,7 @@ def build_redis_resources() -> List[Dict[str, Any]]:
             "metadata": {
                 "name": name,
                 "labels": {
+                    "sealos-db-provider-cr": name,
                     "kb.io/database": "redis-7.2.7",
                     "app.kubernetes.io/instance": name,
                     "app.kubernetes.io/version": "7.2.7",
@@ -1560,6 +1742,8 @@ def build_kafka_resources() -> List[Dict[str, Any]]:
                 "name": name,
                 "finalizers": ["cluster.kubeblocks.io/finalizer"],
                 "labels": {
+                    "sealos-db-provider-cr": name,
+                    "app.kubernetes.io/instance": name,
                     "kb.io/database": "kafka-3.3.2",
                     "clusterdefinition.kubeblocks.io/name": "kafka",
                     "clusterversion.kubeblocks.io/name": "kafka-3.3.2",
@@ -1593,10 +1777,7 @@ def build_kafka_resources() -> List[Dict[str, Any]]:
                                 "effect": "NoSchedule",
                             }
                         ],
-                        "resources": {
-                            "limits": {"cpu": "500m", "memory": "512Mi"},
-                            "requests": {"cpu": "50m", "memory": "51Mi"},
-                        },
+                        "resources": db_component_resources(),
                         "volumeClaimTemplates": [
                             {
                                 "name": "data",
@@ -1772,6 +1953,11 @@ def infer_db_secret_ref(env_name: str, value: str, db_services: Mapping[str, str
     if db_type is None:
         return None
 
+    # Some KubeBlocks account secrets only expose credentials. Host/port use
+    # stable Sealos Service FQDN values for those databases instead.
+    if db_type == "redis" and connection_key in {"host", "port"}:
+        return None
+
     secret_name = DB_SECRET_NAME_BY_TYPE.get(db_type)
     if not isinstance(secret_name, str):
         return None
@@ -1803,27 +1989,43 @@ def build_db_url_composed_env_entries(
     user_var = f"SEALOS_{env_token}_{db_token}_USERNAME"
     password_var = f"SEALOS_{env_token}_{db_token}_PASSWORD"
 
-    helper_entries: List[Dict[str, Any]] = [
-        build_secret_ref_env_entry(host_var, secret_name, "host"),
-        build_secret_ref_env_entry(port_var, secret_name, "port"),
-    ]
+    helper_entries: List[Dict[str, Any]]
+    if db_type == "redis":
+        helper_entries = [
+            {"name": host_var, "value": DB_FQDN_BY_TYPE["redis"]},
+            {"name": port_var, "value": "6379"},
+        ]
+    elif db_type == "mongodb":
+        helper_entries = [
+            {"name": host_var, "value": DB_FQDN_BY_TYPE["mongodb"]},
+            {"name": port_var, "value": "27017"},
+        ]
+    else:
+        helper_entries = [
+            build_secret_ref_env_entry(host_var, secret_name, "host"),
+            build_secret_ref_env_entry(port_var, secret_name, "port"),
+        ]
 
     auth_prefix = ""
-    if parsed.username is not None:
+    has_auth = "@" in parsed.netloc
+    has_username = parsed.username not in (None, "")
+    has_password = parsed.password is not None
+
+    if has_username:
         helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
-        if parsed.password is not None:
-            helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
-            auth_prefix = f"$({user_var}):$({password_var})@"
-        else:
-            auth_prefix = f"$({user_var})@"
-    elif parsed.password is not None:
-        # Compose URLs with password but no username are uncommon; keep generated form explicit.
-        helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
+    if has_password:
         helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
-        auth_prefix = f"$({user_var}):$({password_var})@"
+
+    if has_auth:
+        if has_username and has_password:
+            auth_prefix = f"$({user_var}):$({password_var})@"
+        elif has_username:
+            auth_prefix = f"$({user_var})@"
+        elif has_password:
+            auth_prefix = f":$({password_var})@"
 
     host_port = f"$({host_var})"
-    if parsed.port is not None:
+    if parsed.port is not None or db_type in {"redis", "mongodb"}:
         host_port = f"{host_port}:$({port_var})"
 
     suffix = parsed.path or ""
@@ -1872,7 +2074,6 @@ def build_env_entries(
 def build_workload(
     *,
     workload_name: str,
-    pull_secret_name: str,
     image: str,
     ports: Sequence[int],
     env_entries: Sequence[Dict[str, Any]],
@@ -1884,15 +2085,14 @@ def build_workload(
     kind = "StatefulSet" if is_stateful else "Deployment"
     template_spec: Dict[str, Any] = {
         "automountServiceAccountToken": False,
-        "imagePullSecrets": [{"name": pull_secret_name}],
         "containers": [
             {
                 "name": workload_name,
                 "image": image,
                 "imagePullPolicy": "IfNotPresent",
                 "resources": {
-                    "limits": {"cpu": "200m", "memory": "256Mi"},
-                    "requests": {"cpu": "20m", "memory": "25Mi"},
+                    "limits": dict(DEFAULT_RESOURCE_LIMITS),
+                    "requests": dict(DEFAULT_RESOURCE_REQUESTS),
                 },
             }
         ],
@@ -2042,7 +2242,7 @@ def build_app_resource(meta: MetadataOptions) -> Dict[str, Any]:
                 "url": "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}",
             },
             "displayType": "normal",
-            "icon": f"{meta.repo_raw_base}/template/{meta.app_name}/logo.png",
+            "icon": f"{meta.repo_raw_base}/template/{meta.app_name}/logo.{meta.logo_ext}",
             "name": meta.title,
             "type": "link",
         },
@@ -2126,7 +2326,6 @@ def build_documents(
             app_services = service_items[:1]
 
     db_hosts = {name: DB_FQDN_BY_TYPE[db_type] for name, db_type in db_services.items() if db_type in DB_FQDN_BY_TYPE}
-    pull_secret_name = "${{ defaults.app_name }}"
 
     docs: List[Dict[str, Any]] = []
     docs.append(build_template_resource(meta))
@@ -2176,7 +2375,6 @@ def build_documents(
         probes = build_probe_pair(service, image, ports, command_args)
         workload = build_workload(
             workload_name=workload_name,
-            pull_secret_name=pull_secret_name,
             image=image,
             ports=ports,
             env_entries=env_entries,
@@ -2206,10 +2404,13 @@ def convert_compose_to_template(
     meta: MetadataOptions,
     kompose_shapes: Optional[Mapping[str, ServiceShape]] = None,
     write_files: bool = True,
+    fetch_logo: bool = True,
 ) -> Tuple[Path, str]:
     compose_data = parse_compose(compose_path)
-    documents = build_documents(compose_data, meta, kompose_shapes=kompose_shapes)
     app_dir = output_root / meta.app_name
+    if write_files:
+        meta = prepare_logo_asset(meta, app_dir, fetch_logo)
+    documents = build_documents(compose_data, meta, kompose_shapes=kompose_shapes)
     index_path = app_dir / "index.yaml"
     rendered = render_index_yaml(documents)
     if write_files:
@@ -2240,6 +2441,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default="always",
         help="Use kompose-generated workload shapes: always (required, default), auto (best effort), never (disable)",
     )
+    parser.add_argument(
+        "--no-fetch-logo",
+        action="store_true",
+        help="Disable default svgl.app SVG logo search and keep the fallback logo path",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print index.yaml content without writing files")
     return parser.parse_args(argv)
 
@@ -2262,6 +2468,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             meta=meta,
             kompose_shapes=kompose_shapes,
             write_files=not args.dry_run,
+            fetch_logo=not args.no_fetch_logo,
         )
     except ValueError as exc:
         raise SystemExit(f"ERROR: {exc}") from exc

@@ -263,8 +263,6 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           image: yidadaa/chatgpt-next-web:v2.12.4
@@ -639,8 +637,10 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
     kb.io/database: mongodb-8.0.4
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    clusterdefinition.kubeblocks.io/name: mongodb
   annotations: {}
   name: ${{ defaults.app_name }}-mongo
   generation: 1

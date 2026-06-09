@@ -14,17 +14,40 @@ if TYPE_CHECKING:
 
 LATEST_IMAGE_PATTERN = re.compile(r"\b(?:image|originImageName)\s*:\s*['\"]?[^#\s'\"]*:latest\b")
 TEMPLATE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$")
-NEGATIVE_MARKERS = ("错误示例", "wrong example", "❌", "invalid example")
+NEGATIVE_MARKERS = ("wrong example", "❌", "invalid example")
 WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
 APP_WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet"}
 DB_SECRET_SUFFIXES = (
     "-pg-conn-credential",
     "-mysql-conn-credential",
     "-mongodb-account-root",
+    "-mongo-mongodb-account-root",
+    "-mongodb-mongodb-account-root",
     "-redis-redis-account-default",
+    "-redis-account-default",
     "-broker-account-admin",
 )
 MAX_PVC_STORAGE_BYTES = 1024 ** 3  # 1Gi
+SEALOS_CPU_REQUEST_BY_LIMIT = {
+    "100m": "10m",
+    "200m": "20m",
+    "500m": "50m",
+    "1": "100m",
+    "2": "200m",
+    "3": "300m",
+    "4": "400m",
+    "8": "800m",
+}
+SEALOS_MEMORY_REQUEST_BY_LIMIT = {
+    "128Mi": "12Mi",
+    "256Mi": "25Mi",
+    "512Mi": "51Mi",
+    "1024Mi": "102Mi",
+    "2048Mi": "204Mi",
+    "4096Mi": "409Mi",
+    "8192Mi": "819Mi",
+    "16384Mi": "1638Mi",
+}
 DB_COMPONENT_RESOURCE_LIMITS = {"cpu": "500m", "memory": "512Mi"}
 DB_COMPONENT_RESOURCE_REQUESTS = {"cpu": "50m", "memory": "51Mi"}
 STORAGE_UNIT_TO_BYTES = {

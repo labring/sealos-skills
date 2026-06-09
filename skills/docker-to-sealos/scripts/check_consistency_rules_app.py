@@ -18,6 +18,7 @@ from check_consistency_helpers_workload import (
     is_app_workload_document,
     iter_containers,
     iter_documents_by_kind,
+    iter_workload_secret_refs,
 )
 
 
@@ -72,8 +73,28 @@ HTTP_INGRESS_REQUIRED_ANNOTATIONS: Dict[str, str] = {
         "}"
     ),
 }
+CRONJOB_LABEL_KEY = "cloud.sealos.io/cronjob"
+CRONJOB_REQUIRED_LABELS: Dict[str, str] = {
+    "cronjob-launchpad-name": "",
+    "cronjob-type": "image",
+}
 POSTGRES_URL_DATABASE_RE = re.compile(r"postgres(?:ql)?://[^/\s]+/([^?\s'\";]+)", re.IGNORECASE)
 DEFAULT_POSTGRES_DATABASE_NAMES = {"postgres", "template0", "template1"}
+DATABASE_WORKLOAD_IMAGE_NAMES = {
+    "apecloud-mysql",
+    "kafka",
+    "mariadb",
+    "mongo",
+    "mongodb",
+    "mysql",
+    "percona",
+    "postgis",
+    "postgres",
+    "postgresql",
+    "redis",
+    "timescaledb",
+    "valkey",
+}
 OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, str]] = {
     "goauthentik/server": {
         "liveness_path": "/-/health/live/",
@@ -651,34 +672,27 @@ def check_container_names_match_workload_name(context: ScanContext) -> List[Viol
         if not isinstance(containers, list):
             continue
 
-        for container in containers:
-            if not isinstance(container, dict):
-                continue
-            container_name = container.get("name")
-            if isinstance(container_name, str) and container_name.strip() == workload_name:
-                continue
+        has_primary_container = any(
+            isinstance(container, dict)
+            and isinstance(container.get("name"), str)
+            and container["name"].strip() == workload_name
+            for container in containers
+        )
+        if has_primary_container:
+            continue
 
-            if isinstance(container_name, str) and container_name.strip():
-                pattern = rf"^\s*-\s*name\s*:\s*{re.escape(container_name.strip())}\s*$"
-                message = (
-                    f"container name '{container_name.strip()}' must exactly match metadata.name "
-                    f"'{workload_name}' for managed app workloads"
-                )
-            else:
-                pattern = r"^\s*-\s*name\s*:"
-                message = (
-                    "container name is required and must exactly match metadata.name "
-                    "for managed app workloads"
-                )
-
-            add_doc_violation(
-                violations,
-                rule_id="R028",
-                doc=doc,
-                pattern=pattern,
-                default_pattern=r"^\s*containers\s*:",
-                message=message,
-            )
+        add_doc_violation(
+            violations,
+            rule_id="R028",
+            doc=doc,
+            pattern=r"^\s*containers\s*:",
+            default_pattern=r"^\s*containers\s*:",
+            message=(
+                "managed app workloads must include a main application container "
+                f"named exactly like metadata.name '{workload_name}'; sidecar/helper "
+                "containers may use distinct names"
+            ),
+        )
 
     return violations
 
@@ -851,6 +865,141 @@ def check_service_labels_match_selector_app(context: ScanContext) -> List[Violat
     return violations
 
 
+def _configmap_volume_names(template_spec: Dict[str, Any], configmap_name: str) -> set[str]:
+    names: set[str] = set()
+    volumes = template_spec.get("volumes")
+    if not isinstance(volumes, list):
+        return names
+
+    for volume in volumes:
+        if not isinstance(volume, dict):
+            continue
+        volume_name = volume.get("name")
+        if not isinstance(volume_name, str) or not volume_name.strip():
+            continue
+
+        config_map = volume.get("configMap")
+        if isinstance(config_map, dict) and config_map.get("name") == configmap_name:
+            names.add(volume_name.strip())
+            continue
+
+        projected = volume.get("projected")
+        sources = projected.get("sources") if isinstance(projected, dict) else None
+        if not isinstance(sources, list):
+            continue
+        for source in sources:
+            if not isinstance(source, dict):
+                continue
+            source_config_map = source.get("configMap")
+            if isinstance(source_config_map, dict) and source_config_map.get("name") == configmap_name:
+                names.add(volume_name.strip())
+                break
+
+    return names
+
+
+def _volume_mount_names(container: Dict[str, Any]) -> set[str]:
+    mounts = container.get("volumeMounts")
+    if not isinstance(mounts, list):
+        return set()
+    return {
+        item["name"].strip()
+        for item in mounts
+        if isinstance(item, dict)
+        and isinstance(item.get("name"), str)
+        and item["name"].strip()
+    }
+
+
+def _persistent_volume_names(data: Dict[str, Any], template_spec: Dict[str, Any]) -> set[str]:
+    names: set[str] = set()
+    spec = data.get("spec")
+    claim_templates = spec.get("volumeClaimTemplates") if isinstance(spec, dict) else None
+    if isinstance(claim_templates, list):
+        for claim_template in claim_templates:
+            metadata = claim_template.get("metadata") if isinstance(claim_template, dict) else None
+            name = metadata.get("name") if isinstance(metadata, dict) else None
+            if isinstance(name, str) and name.strip():
+                names.add(name.strip())
+
+    volumes = template_spec.get("volumes")
+    if isinstance(volumes, list):
+        for volume in volumes:
+            if not isinstance(volume, dict):
+                continue
+            name = volume.get("name")
+            if isinstance(name, str) and name.strip() and isinstance(volume.get("persistentVolumeClaim"), dict):
+                names.add(name.strip())
+
+    return names
+
+
+def _container_command_text(container: Dict[str, Any]) -> str:
+    parts: List[str] = []
+    for key in ("command", "args"):
+        value = container.get(key)
+        if isinstance(value, list):
+            parts.extend(str(item) for item in value)
+        elif isinstance(value, str):
+            parts.append(value)
+    return "\n".join(parts)
+
+
+def _looks_like_copy_to_storage(container: Dict[str, Any]) -> bool:
+    command_text = _container_command_text(container).lower()
+    copy_markers = ("cp ", "cp\t", "rsync", "install ", "tee ", "cat ")
+    return any(marker in command_text for marker in copy_markers)
+
+
+def _is_bootstrap_only_configmap(context: ScanContext, configmap_name: str) -> bool:
+    saw_bootstrap_reference = False
+
+    for workload_doc in context.yaml_documents:
+        if not is_app_workload_document(workload_doc):
+            continue
+        if not isinstance(workload_doc.data, dict):
+            continue
+
+        template_spec = get_template_spec(workload_doc.data)
+        if not isinstance(template_spec, dict):
+            continue
+
+        configmap_volume_names = _configmap_volume_names(template_spec, configmap_name)
+        if not configmap_volume_names:
+            continue
+
+        containers = template_spec.get("containers")
+        if isinstance(containers, list):
+            for container in containers:
+                if isinstance(container, dict) and _volume_mount_names(container) & configmap_volume_names:
+                    return False
+
+        persistent_volume_names = _persistent_volume_names(workload_doc.data, template_spec)
+        init_containers = template_spec.get("initContainers")
+        if not isinstance(init_containers, list):
+            return False
+
+        matched_bootstrap_container = False
+        for container in init_containers:
+            if not isinstance(container, dict):
+                continue
+            mounts = _volume_mount_names(container)
+            if not mounts & configmap_volume_names:
+                continue
+            if not mounts & persistent_volume_names:
+                return False
+            if not _looks_like_copy_to_storage(container):
+                return False
+            matched_bootstrap_container = True
+
+        if matched_bootstrap_container:
+            saw_bootstrap_reference = True
+        else:
+            return False
+
+    return saw_bootstrap_reference
+
+
 def check_configmap_labels_match_name(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     cloud_label_key = "cloud.sealos.io/app-deploy-manager"
@@ -871,6 +1020,27 @@ def check_configmap_labels_match_name(context: ScanContext) -> List[Violation]:
         if not isinstance(metadata_name, str) or not metadata_name.strip():
             continue
         metadata_name = metadata_name.strip()
+
+        if _is_bootstrap_only_configmap(context, metadata_name):
+            if app_label is not None:
+                add_doc_violation(
+                    violations,
+                    rule_id="R030",
+                    doc=doc,
+                    pattern=r"^\s*app\s*:",
+                    default_pattern=r"^\s*labels\s*:",
+                    message="Bootstrap-only ConfigMap must not define metadata.labels.app",
+                )
+            if cloud_label is not None:
+                add_doc_violation(
+                    violations,
+                    rule_id="R030",
+                    doc=doc,
+                    pattern=re.escape(cloud_label_key),
+                    default_pattern=r"^\s*labels\s*:",
+                    message="Bootstrap-only ConfigMap must not define metadata.labels.cloud.sealos.io/app-deploy-manager",
+                )
+            continue
 
         if not isinstance(app_label, str) or not app_label.strip():
             add_doc_violation(
@@ -913,7 +1083,7 @@ def check_configmap_labels_match_name(context: ScanContext) -> List[Violation]:
     return violations
 
 
-def _iter_ingress_backend_service_names(data: Dict[str, Any]) -> Iterable[str]:
+def _iter_root_prefix_ingress_backend_service_names(data: Dict[str, Any]) -> Iterable[str]:
     spec = data.get("spec")
     rules = spec.get("rules") if isinstance(spec, dict) else None
     if not isinstance(rules, list):
@@ -924,6 +1094,10 @@ def _iter_ingress_backend_service_names(data: Dict[str, Any]) -> Iterable[str]:
         if not isinstance(paths, list):
             continue
         for path in paths:
+            if not isinstance(path, dict):
+                continue
+            if path.get("pathType") != "Prefix" or path.get("path") != "/":
+                continue
             backend = path.get("backend") if isinstance(path, dict) else None
             service = backend.get("service") if isinstance(backend, dict) else None
             service_name = service.get("name") if isinstance(service, dict) else None
@@ -949,6 +1123,9 @@ def check_ingress_name_matches_backends(context: ScanContext) -> List[Violation]
         if not isinstance(metadata_name, str) or not metadata_name.strip():
             continue
         metadata_name = metadata_name.strip()
+        root_prefix_backend_names = list(_iter_root_prefix_ingress_backend_service_names(doc.data))
+        if not root_prefix_backend_names:
+            continue
 
         if not isinstance(cloud_label, str) or not cloud_label.strip():
             add_doc_violation(
@@ -969,7 +1146,7 @@ def check_ingress_name_matches_backends(context: ScanContext) -> List[Violation]
                 message="Ingress metadata.labels.cloud.sealos.io/app-deploy-manager must match metadata.name",
             )
 
-        for backend_name in _iter_ingress_backend_service_names(doc.data):
+        for backend_name in root_prefix_backend_names:
             if backend_name == metadata_name:
                 continue
             add_doc_violation(
@@ -1042,6 +1219,59 @@ def _is_template_artifact_document(doc) -> bool:
     return doc.path.suffix.lower() in TEMPLATE_ARTIFACT_SUFFIXES and doc.path.name == "index.yaml"
 
 
+def _image_repository_basename(image: str) -> str:
+    reference = image.strip()
+    if "@" in reference:
+        reference = reference.split("@", 1)[0]
+
+    slash_index = reference.rfind("/")
+    colon_index = reference.rfind(":")
+    if colon_index > slash_index:
+        reference = reference[:colon_index]
+
+    return reference.rsplit("/", 1)[-1].lower()
+
+
+def _is_database_image(image: str) -> bool:
+    return _image_repository_basename(image) in DATABASE_WORKLOAD_IMAGE_NAMES
+
+
+def _is_database_like_workload(doc) -> bool:
+    if not is_app_workload_document(doc) or not isinstance(doc.data, dict):
+        return False
+
+    for container in iter_containers(doc.data):
+        image = container.get("image")
+        if isinstance(image, str) and _is_database_image(image):
+            return True
+
+    return False
+
+
+def check_database_services_use_clusters(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not _is_template_artifact_document(doc):
+            continue
+        if not isinstance(doc.data, dict):
+            continue
+        if doc.data.get("kind") not in {"Deployment", "StatefulSet"}:
+            continue
+        if not _is_database_like_workload(doc):
+            continue
+
+        add_doc_violation(
+            violations,
+            rule_id="R039",
+            doc=doc,
+            pattern=r"^\s*kind\s*:\s*(?:Deployment|StatefulSet)\s*$",
+            default_pattern=r"^\s*kind\s*:",
+            message="database services must use KubeBlocks Cluster resources, not raw Deployment/StatefulSet workloads",
+        )
+
+    return violations
+
+
 def _extract_postgres_database_names_from_value(raw_value: str) -> List[str]:
     names: List[str] = []
     for match in POSTGRES_URL_DATABASE_RE.finditer(raw_value):
@@ -1094,6 +1324,67 @@ def _is_postgres_cluster_document(doc) -> bool:
         return True
 
     return False
+
+
+def _collect_postgres_expected_conn_secrets(artifact_docs) -> Dict[Path, set[str]]:
+    expected_by_path: Dict[Path, set[str]] = {}
+    for doc in artifact_docs:
+        if not _is_postgres_cluster_document(doc):
+            continue
+        metadata = doc.data.get("metadata") if isinstance(doc.data, dict) else None
+        cluster_name = metadata.get("name") if isinstance(metadata, dict) else None
+        if not isinstance(cluster_name, str) or not cluster_name.strip():
+            continue
+        expected_by_path.setdefault(doc.path, set()).add(f"{cluster_name.strip()}-conn-credential")
+    return expected_by_path
+
+
+def check_postgres_secret_refs_match_cluster_name(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+
+    artifact_docs = [doc for doc in context.yaml_documents if _is_template_artifact_document(doc)]
+    if not artifact_docs:
+        return violations
+
+    expected_by_path = _collect_postgres_expected_conn_secrets(artifact_docs)
+    if not expected_by_path:
+        return violations
+
+    seen: set[tuple[Path, str]] = set()
+    for doc in artifact_docs:
+        if not isinstance(doc.data, dict):
+            continue
+        expected = expected_by_path.get(doc.path)
+        if not expected:
+            continue
+
+        for _, secret_name, _, secret_key in iter_workload_secret_refs(doc.data):
+            if not isinstance(secret_name, str) or not secret_name.endswith("-pg-conn-credential"):
+                continue
+            if secret_name in expected:
+                continue
+            if secret_key is not None and secret_key not in {"host", "port", "username", "password", "endpoint"}:
+                continue
+
+            marker = (doc.path, secret_name)
+            if marker in seen:
+                continue
+            seen.add(marker)
+
+            expected_list = ", ".join(sorted(expected))
+            add_doc_violation(
+                violations,
+                rule_id="R037",
+                doc=doc,
+                pattern=rf"^\s*name\s*:\s*{re.escape(secret_name)}\s*$",
+                default_pattern=r"^\s*env\s*:",
+                message=(
+                    f"PostgreSQL secret reference '{secret_name}' must match the "
+                    f"Cluster metadata.name-derived secret ({expected_list})"
+                ),
+            )
+
+    return violations
 
 
 def _extract_job_script(doc) -> str:
@@ -1355,6 +1646,58 @@ def check_official_health_probes(context: ScanContext) -> List[Violation]:
     return violations
 
 
+def check_cronjob_required_labels(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+
+    for doc in iter_documents_by_kind(context, "CronJob"):
+        metadata = doc.data.get("metadata") if isinstance(doc.data, dict) else None
+        if not isinstance(metadata, dict):
+            continue
+        name = metadata.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+
+        labels = metadata.get("labels")
+        if not isinstance(labels, dict):
+            add_doc_violation(
+                violations,
+                rule_id="R036",
+                doc=doc,
+                pattern=r"^\s*labels\s*:",
+                default_pattern=r"^\s*metadata\s*:",
+                message=(
+                    "CronJob metadata.labels must define cloud.sealos.io/cronjob, "
+                    "cronjob-launchpad-name, and cronjob-type"
+                ),
+            )
+            continue
+
+        cronjob_label_value = labels.get(CRONJOB_LABEL_KEY)
+        if cronjob_label_value != name:
+            add_doc_violation(
+                violations,
+                rule_id="R036",
+                doc=doc,
+                pattern=re.escape(CRONJOB_LABEL_KEY),
+                default_pattern=r"^\s*labels\s*:",
+                message="CronJob label cloud.sealos.io/cronjob must exist and exactly match metadata.name",
+            )
+
+        for label_key, expected_value in CRONJOB_REQUIRED_LABELS.items():
+            if labels.get(label_key) == expected_value:
+                continue
+            add_doc_violation(
+                violations,
+                rule_id="R036",
+                doc=doc,
+                pattern=re.escape(label_key),
+                default_pattern=r"^\s*labels\s*:",
+                message=f"CronJob label {label_key} must exist and be set to {expected_value!r}",
+            )
+
+    return violations
+
+
 def check_revision_history_limit(context: ScanContext) -> List[Violation]:
     return check_managed_workload_setting(
         context,
@@ -1370,6 +1713,13 @@ def check_revision_history_limit(context: ScanContext) -> List[Violation]:
     )
 
 
+SERVICE_ACCOUNT_TOKEN_REASON_ANNOTATION = "sealos.io/service-account-token-reason"
+SERVICE_ACCOUNT_TOKEN_REASON_RE = re.compile(
+    r"\b(k8s|kubernetes|service\s*account|serviceaccount|token|api)\b",
+    re.IGNORECASE,
+)
+
+
 def _extract_automount_service_account_token(data: dict) -> object:
     template_spec = get_template_spec(data)
     if not isinstance(template_spec, dict):
@@ -1377,17 +1727,91 @@ def _extract_automount_service_account_token(data: dict) -> object:
     return template_spec.get("automountServiceAccountToken")
 
 
-def check_automount_service_account_token(context: ScanContext) -> List[Violation]:
-    return check_managed_workload_setting(
-        context,
-        rule_id="R010",
-        value_extractor=_extract_automount_service_account_token,
-        expected=False,
-        value_pattern=r"^\s*automountServiceAccountToken\s*:",
-        fallback_pattern=r"^\s*template\s*:",
-        missing_message="managed app workloads must explicitly set automountServiceAccountToken: false",
-        mismatch_message="automountServiceAccountToken must be false for managed app workloads",
+def _service_account_token_reason(data: Dict[str, Any]) -> str:
+    metadata = data.get("metadata")
+    annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+    reason = annotations.get(SERVICE_ACCOUNT_TOKEN_REASON_ANNOTATION) if isinstance(annotations, dict) else None
+    return reason.strip() if isinstance(reason, str) else ""
+
+
+def _has_service_account_token_usage_evidence(data: Dict[str, Any]) -> bool:
+    reason = _service_account_token_reason(data)
+    if reason and SERVICE_ACCOUNT_TOKEN_REASON_RE.search(reason):
+        return True
+
+    template_spec = get_template_spec(data)
+    if not isinstance(template_spec, dict):
+        return False
+
+    if isinstance(template_spec.get("serviceAccountName"), str) and template_spec["serviceAccountName"].strip():
+        return True
+
+    command_text_parts: List[str] = []
+    for container in iter_containers(data):
+        if not isinstance(container, dict):
+            continue
+        for key in ("command", "args"):
+            value = container.get(key)
+            if isinstance(value, list):
+                command_text_parts.extend(str(item) for item in value)
+            elif isinstance(value, str):
+                command_text_parts.append(value)
+        for env_item in container.get("env", []) if isinstance(container.get("env"), list) else []:
+            if not isinstance(env_item, dict):
+                continue
+            env_name = env_item.get("name")
+            env_value = env_item.get("value")
+            if isinstance(env_name, str):
+                command_text_parts.append(env_name)
+            if isinstance(env_value, str):
+                command_text_parts.append(env_value)
+
+    command_text = "\n".join(command_text_parts).lower()
+    return any(
+        marker in command_text
+        for marker in (
+            "kubernetes.default.svc",
+            "/var/run/secrets/kubernetes.io/serviceaccount",
+            "serviceaccount",
+            "service_account",
+            "kubeconfig",
+        )
     )
+
+
+def check_automount_service_account_token(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not is_app_workload_document(doc) or not has_managed_workload_marker(doc.data):
+            continue
+        if not isinstance(doc.data, dict):
+            continue
+
+        value = _extract_automount_service_account_token(doc.data)
+        if value is False:
+            continue
+        if value is True and _has_service_account_token_usage_evidence(doc.data):
+            continue
+
+        if value is True:
+            message = (
+                "automountServiceAccountToken may be true only when Kubernetes API/service account "
+                "token usage is evidenced by integration settings, serviceAccountName, or "
+                f"{SERVICE_ACCOUNT_TOKEN_REASON_ANNOTATION}"
+            )
+        else:
+            message = "managed app workloads must explicitly set automountServiceAccountToken: false"
+
+        add_doc_violation(
+            violations,
+            rule_id="R010",
+            doc=doc,
+            pattern=r"^\s*automountServiceAccountToken\s*:",
+            default_pattern=r"^\s*template\s*:",
+            message=message,
+        )
+
+    return violations
 
 
 def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
@@ -1402,6 +1826,12 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
         template_spec = get_template_spec(doc.data)
         image_pull_secrets = template_spec.get("imagePullSecrets") if isinstance(template_spec, dict) else None
 
+        # Public images should omit imagePullSecrets entirely. When a private-registry
+        # workload does declare pull secrets, only the app-scoped runtime-managed
+        # secret is allowed so templates do not depend on undeclared custom secrets.
+        if image_pull_secrets is None:
+            continue
+
         referenced_names: List[str] = []
         if isinstance(image_pull_secrets, list):
             for item in image_pull_secrets:
@@ -1411,7 +1841,7 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
                 if isinstance(name, str) and name.strip():
                     referenced_names.append(name.strip())
 
-        if "${{ defaults.app_name }}" in referenced_names:
+        if referenced_names == ["${{ defaults.app_name }}"]:
             continue
 
         add_doc_violation(
@@ -1421,8 +1851,9 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
             pattern=r"^\s*imagePullSecrets\s*:",
             default_pattern=r"^\s*template\s*:",
             message=(
-                "managed app workloads must reference the app-scoped image pull secret "
-                "`${{ defaults.app_name }}` via template.spec.imagePullSecrets"
+                "imagePullSecrets may be omitted for public images; if declared for "
+                "private-registry workloads, it must reference only the app-scoped "
+                "secret `${{ defaults.app_name }}`"
             ),
         )
 
@@ -1446,6 +1877,7 @@ APP_RULES: Dict[str, Rule] = {
     "R022": Rule("R022", check_template_i18n_zh_title_absent),
     "R023": Rule("R023", check_template_categories_allowed),
     "R024": Rule("R024", check_official_health_probes),
+    "R036": Rule("R036", check_cronjob_required_labels),
     "R015": Rule("R015", check_origin_image_name_matches_container),
     "R020": Rule("R020", check_service_ports_have_names),
     "R029": Rule("R029", check_service_labels_match_selector_app),
@@ -1453,6 +1885,8 @@ APP_RULES: Dict[str, Rule] = {
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
     "R027": Rule("R027", check_postgres_custom_db_init_job),
+    "R037": Rule("R037", check_postgres_secret_refs_match_cluster_name),
+    "R039": Rule("R039", check_database_services_use_clusters),
     "R008": Rule("R008", check_deploy_manager_label_match_name),
     "R034": Rule("R034", check_app_label_match_name),
     "R028": Rule("R028", check_container_names_match_workload_name),

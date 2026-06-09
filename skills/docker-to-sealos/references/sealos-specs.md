@@ -453,8 +453,6 @@ spec:
   template:
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           volumeMounts:
@@ -493,12 +491,14 @@ spec:
    - `${{ defaults.app_name }}-ml`
    - `${{ defaults.app_name }}-redis`
 5. Application Service must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and `metadata.name`, both labels, and `spec.selector.app` must be exactly the same
-6. Component-level ConfigMap must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and both must be consistent with `metadata.name`
-7. Application Ingress's `metadata.name` must be consistent with `metadata.labels.cloud.sealos.io/app-deploy-manager` and the backend `service.name`
+6. Runtime component-level ConfigMap must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and both must be consistent with `metadata.name`; ConfigMaps used only by init containers to copy initial config into persistent storage must not include either label
+7. Root-path Ingress rules (`pathType: Prefix`, `path: /`) must keep `metadata.name` consistent with `metadata.labels.cloud.sealos.io/app-deploy-manager` and backend `service.name`; non-root or non-Prefix Ingress rules may use a distinct Ingress name and backend service
 
 ### Container Naming Rules
 
-The `containers.name` must be consistent with the `metadata.name` value.
+The main application container name must be consistent with the workload
+`metadata.name` value. Sidecar/helper containers may use distinct descriptive
+names when they are not the main application container.
 
 ```yaml
 # Correct example
@@ -509,6 +509,7 @@ spec:
     spec:
       containers:
         - name: ${{ defaults.app_name }}  # Must be consistent with metadata.name
+        - name: metrics-sidecar          # Allowed: helper/sidecar container
 
 # Correct example for sub-components
 metadata:
@@ -547,14 +548,24 @@ metadata:
 
 ### Special Case: Database Resources
 
-Database resources (Clusters created via kubeblocks) use the special label `sealos-db-provider-cr` instead of `cloud.sealos.io/app-deploy-manager`:
+Database resources (Clusters created via kubeblocks) use dbprovider labels instead of `cloud.sealos.io/app-deploy-manager`.
+
+Required labels:
+
+1. `kb.io/database` must identify the KubeBlocks database/version.
+2. `sealos-db-provider-cr` must equal `metadata.name`.
+3. `clusterdefinition.kubeblocks.io/name` must identify the database engine, such as `postgresql`, `apecloud-mysql`, `mongodb`, `redis`, or `kafka`.
+4. Related Pods, Services, and OpsRequests should carry `app.kubernetes.io/instance=<database name>` for dbprovider detail views. Generated templates may also place this label on the Cluster for consistency, but dbprovider's Cluster list path primarily keys on `clusterdefinition.kubeblocks.io/name`.
 
 ```yaml
 # Correct labels for database resources
 metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
+    kb.io/database: redis-7.2.7
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    clusterdefinition.kubeblocks.io/name: redis
 ```
 
 ## Object Storage Configuration
@@ -596,7 +607,7 @@ env:
 ### Notes
 
 1. `object-storage-key` is a fixed secret name (does not include the application name)
-2. Only the bucket's secret name includes the application name: `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}`
+2. Only the bucket's secret name includes the application name: `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}`. Bucket-scoped variants may append a lowercase suffix, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`.
 3. S3_ENDPOINT and S3_PUBLIC_DOMAIN use environment variable references: `$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)`
 4. S3_ENABLE_PATH_STYLE must be set to "1"
 
@@ -707,10 +718,10 @@ env:
 
 ### Other Databases
 
-Other databases (Redis, MySQL, MongoDB) follow a similar pattern:
-- Redis: `${{ defaults.app_name }}-redis-redis-account-default`
+Other databases follow the same approved secret policy, with service-FQDN exceptions where KubeBlocks only exposes credentials:
+- Redis: `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted); host/port may use `${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local` and `6379`
 - MySQL: `${{ defaults.app_name }}-mysql-conn-credential`
-- MongoDB: `${{ defaults.app_name }}-mongodb-account-root`
+- MongoDB: `${{ defaults.app_name }}-mongo-mongodb-account-root` (or `${{ defaults.app_name }}-mongodb-mongodb-account-root` when the Cluster name uses `${{ defaults.app_name }}-mongodb`); MongoDB URLs may use `${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc:27017`
 
 ### PostgreSQL Database Initialization
 
@@ -827,9 +838,9 @@ This is because Kubernetes parses environment variables in the order they appear
 
 All application Deployments or StatefulSets must include the following configurations:
 
-1. **automountServiceAccountToken**: Must be set to `false` to avoid unnecessary permission exposure
+1. **automountServiceAccountToken**: Must be set to `false` to avoid unnecessary permission exposure. Set it to `true` only when the application explicitly needs the Kubernetes API/service account token, evidenced by Kubernetes integration settings, `serviceAccountName`, or `sealos.io/service-account-token-reason` in workload annotations.
 2. **revisionHistoryLimit**: Must be set to `1` to reduce resources consumed by historical revisions
-3. **imagePullSecrets**: Must reference the app-scoped image pull Secret `${{ defaults.app_name }}`
+3. **imagePullSecrets**: Omit for public images. For private-registry images, reference only the app-scoped pull Secret `${{ defaults.app_name }}`
 4. **metadata.annotations**: Must include the following annotations:
    - `originImageName`: Original image name
    - `deploy.cloud.sealos.io/minReplicas`: Minimum replica count, typically set to `'1'`
@@ -837,9 +848,9 @@ All application Deployments or StatefulSets must include the following configura
 
 Recommended registry pull Secret model:
 
-- Managed workloads reference `${{ defaults.app_name }}` in `imagePullSecrets`
-- `sealos-deploy` creates or refreshes that Secret automatically from local `gh` CLI credentials when the image is a private GHCR image
-- If the template is deployed outside `sealos-deploy`, the operator must create the Secret manually before applying the workload
+- Public-image managed workloads omit `imagePullSecrets`
+- For private or authenticated images, the downstream deployment environment must provide `${{ defaults.app_name }}` before applying workloads that reference it through `imagePullSecrets`
+- For public images, do not add `imagePullSecrets`
 
 ```yaml
 apiVersion: apps/v1
@@ -857,9 +868,7 @@ spec:
   revisionHistoryLimit: 1  # Must be set to 1
   template:
     spec:
-      automountServiceAccountToken: false  # Must be set to false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
+      automountServiceAccountToken: false  # Default; only set true with evidenced Kubernetes API token need
       containers:
         - name: ${{ defaults.app_name }}
           # Other container configuration...
@@ -891,8 +900,6 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false  # Disable automatic service account token mounting
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           image: example/app:1.0.0
@@ -903,145 +910,126 @@ spec:
 
 ### Resource Limit Configuration
 
-**Important: The resources field of all containers must include both requests and limits!**
+**Important: The resources field of all containers must include both requests and limits.**
 
-All containers in application Deployments or StatefulSets must have resource quotas configured:
+All containers in application Deployments or StatefulSets must use the fixed Sealos resource ladder. Do not invent intermediate values during template generation or resource tuning.
 
-```yaml
-containers:
-  - name: ${{ defaults.app_name }}
-    image: example/app:1.0.0
-    imagePullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 100m      # Minimum CPU request (required)
-        memory: 128Mi  # Minimum memory request (required)
-      limits:
-        cpu: 500m      # CPU upper limit (required)
-        memory: 512Mi  # Memory upper limit (required)
-```
+Allowed `limits.cpu` values use canonical Kubernetes quantities:
 
-**Quota setting guidelines**:
+- `100m` (0.1 core)
+- `200m` (0.2 core)
+- `500m` (0.5 core)
+- `1`
+- `2`
+- `3`
+- `4`
+- `8`
 
-1. **Lightweight frontend applications** (static file serving, simple web applications):
-   ```yaml
-   resources:
-     requests:
-       cpu: 20m
-       memory: 25Mi
-     limits:
-       cpu: 200m
-       memory: 256Mi
-   ```
+Allowed `limits.memory` values:
 
-2. **Standard backend applications** (API services, medium-load applications):
-   ```yaml
-   resources:
-     requests:
-       cpu: 100m
-       memory: 256Mi
-     limits:
-       cpu: 1000m
-       memory: 1Gi
-   ```
+- `128Mi`
+- `256Mi`
+- `512Mi`
+- `1024Mi`
+- `2048Mi`
+- `4096Mi`
+- `8192Mi`
+- `16384Mi`
 
-3. **Heavy-load applications** (AI processing, video processing, big data processing):
-   ```yaml
-   resources:
-     requests:
-       cpu: 500m
-       memory: 512Mi
-     limits:
-       cpu: 2000m
-       memory: 2Gi
-   ```
+`requests` must be derived from `limits` by dropping the last numeric digit:
 
-4. **AI/Machine Learning applications** (requiring GPU or large computational resources):
-   ```yaml
-   resources:
-     requests:
-       cpu: 1000m
-       memory: 1Gi
-     limits:
-       cpu: 4000m
-       memory: 4Gi
-   ```
+| limits | requests |
+|--------|----------|
+| `cpu: 100m` | `cpu: 10m` |
+| `cpu: 200m` | `cpu: 20m` |
+| `cpu: 500m` | `cpu: 50m` |
+| `cpu: 1` | `cpu: 100m` |
+| `cpu: 2` | `cpu: 200m` |
+| `cpu: 3` | `cpu: 300m` |
+| `cpu: 4` | `cpu: 400m` |
+| `cpu: 8` | `cpu: 800m` |
+| `memory: 128Mi` | `memory: 12Mi` |
+| `memory: 256Mi` | `memory: 25Mi` |
+| `memory: 512Mi` | `memory: 51Mi` |
+| `memory: 1024Mi` | `memory: 102Mi` |
+| `memory: 2048Mi` | `memory: 204Mi` |
+| `memory: 4096Mi` | `memory: 409Mi` |
+| `memory: 8192Mi` | `memory: 819Mi` |
+| `memory: 16384Mi` | `memory: 1638Mi` |
 
-**Quota setting explanation**:
-
-- **requests (request values)**: The minimum resources guaranteed for the container
-  - CPU uses `m` units (1000m = 1 CPU core)
-  - Memory uses `Mi` or `Gi` units
-  - Recommendation: Set requests to 70-80% of actual usage
-
-- **limits (limit values)**: The maximum resources the container can use
-  - CPU can burst up to the limit value
-  - Memory exceeding the limit will trigger OOM Kill
-  - Recommendation: Set limits to 2-4 times the requests
-
-**Golden rules for quota settings**:
-
-1. **Always set both requests and limits**
-   - Incorrect: Setting only requests may lead to resource starvation
-   - Incorrect: Setting only limits may cause scheduling failures
-   - Correct: Setting both guarantees performance and stability
-
-2. **Reasonable requests/limits ratio**
-   - CPU: limits can be 2-10 times the requests (CPU is compressible)
-   - Memory: limits should be 1.5-2 times the requests (memory is incompressible)
-
-3. **Adjust based on application type**
-   - Compute-intensive: Increase CPU quota
-   - Memory-intensive: Increase memory quota
-   - I/O-intensive: Balance CPU and memory
-
-4. **Monitor and adjust**
-   - Use conservative quotas for initial deployment
-   - Monitor actual resource usage
-   - Dynamically adjust based on monitoring data
-
-**Comparison examples**:
+**Default lightweight application quota:**
 
 ```yaml
-# Incorrect: No resource limits
-containers:
-  - name: app
-    image: app:1.0.0
-    imagePullPolicy: IfNotPresent
-
-# Incorrect: Only requests
-containers:
-  - name: app
-    image: app:1.0.0
-    imagePullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-
-# Incorrect: Only limits
-containers:
-  - name: app
-    image: app:1.0.0
-    imagePullPolicy: IfNotPresent
-    resources:
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
-# Correct: Both requests and limits are present
-containers:
-  - name: app
-    image: app:1.0.0
-    imagePullPolicy: IfNotPresent
-    resources:
-      requests:
-        cpu: 100m
-        memory: 128Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
+resources:
+  requests:
+    cpu: 20m
+    memory: 25Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
 ```
+
+**Standard backend or broker quota after validation:**
+
+```yaml
+resources:
+  requests:
+    cpu: 50m
+    memory: 51Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+```
+
+**Heavy workload quota:**
+
+```yaml
+resources:
+  requests:
+    cpu: 200m
+    memory: 204Mi
+  limits:
+    cpu: 2
+    memory: 2048Mi
+```
+
+**Invalid examples:**
+
+```yaml
+# Incorrect: non-ladder values
+resources:
+  requests:
+    cpu: 30m
+    memory: 160Mi
+  limits:
+    cpu: 300m
+    memory: 384Mi
+
+# Incorrect: requests copied from old ratio guidance instead of deriving from limits
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1
+    memory: 1024Mi
+
+# Incorrect: G/Gi forms can make Sealos Template API quota preview parse memory as 0; use Mi ladder values
+resources:
+  requests:
+    cpu: 200m
+    memory: 200Mi
+  limits:
+    cpu: 2
+    memory: 2G
+```
+
+**Tuning guidance:**
+
+1. Move only between allowed `limits` ladder values.
+2. Recompute `requests` from the selected `limits`; do not preserve old requests.
+3. If a StatefulSet fails readiness at a lower resource tier, recreate or cleanly roll the Pod before testing the next tier so a stale non-ready Pod is not mistaken for the next tier's result.
+4. Choose the lowest tier that becomes Ready and passes application-level probes.
 
 ## Image Configuration Specification
 

@@ -55,6 +55,9 @@ rules:
   - id: R024
     description: Workloads with official health checks must define livenessProbe/readinessProbe and startupProbe using official endpoints/commands.
     severity: error
+  - id: R036
+    description: CronJob resources must define cloud.sealos.io/cronjob, cronjob-launchpad-name, and cronjob-type labels with required values.
+    severity: error
   - id: R015
     description: Managed app workload originImageName must match a declared container image.
     severity: error
@@ -65,13 +68,19 @@ rules:
     description: All containers must explicitly set imagePullPolicy to IfNotPresent.
     severity: error
   - id: R007
-    description: Env/volume Secret usage must follow approved database/object-storage policy, and Kubeblocks reserved database secret names must not be overridden.
+    description: Env/volume Secret usage must follow approved database/object-storage policy, including database secret naming variants and bucket-scoped object-storage secrets, and Kubeblocks reserved database secret names must not be overridden.
     severity: error
   - id: R017
-    description: Database connection env fields (endpoint/host/port/username/password) in business workloads must use approved Kubeblocks database secretKeyRef entries, or (for endpoint/URL fields) compose values only from env vars sourced from approved DB secretKeyRef keys.
+    description: Database connection env fields (endpoint/host/port/username/password) in application workloads must use approved Kubeblocks database secretKeyRef entries, except Redis host/port may use Sealos Redis Service FQDN and port 6379, MongoDB URLs may use Sealos MongoDB Service FQDN and port 27017, and endpoint/URL fields may compose values from approved DB secretKeyRef env vars.
     severity: error
   - id: R019
     description: Database cluster component resources must use limits cpu=500m/memory=512Mi and requests cpu=50m/memory=51Mi.
+    severity: error
+  - id: R039
+    description: Database services must use KubeBlocks Cluster resources instead of raw Deployment or StatefulSet workloads.
+    severity: error
+  - id: R038
+    description: Managed workload container resources must use allowed Sealos limits ladder values and derive requests from limits.
     severity: error
   - id: R020
     description: Service spec.ports entries must define non-empty name fields in template artifacts.
@@ -82,6 +91,12 @@ rules:
   - id: R027
     description: Template artifacts using non-default PostgreSQL database names must define a robust pg-init Job (readiness wait plus idempotent create).
     severity: error
+  - id: R037
+    description: PostgreSQL Cluster metadata.name must align with referenced *-pg-conn-credential secret names in the same template artifact.
+    severity: error
+  - id: R040
+    description: Database Cluster resources must include dbprovider visibility labels kb.io/database, sealos-db-provider-cr, and clusterdefinition.kubeblocks.io/name.
+    severity: error
   - id: R008
     description: App workload cloud.sealos.io/app-deploy-manager label must exist and match metadata.name.
     severity: error
@@ -89,25 +104,25 @@ rules:
     description: Managed app workloads must define metadata.labels.app and match metadata.name.
     severity: error
   - id: R028
-    description: Managed app workload container names must exactly match metadata.name.
+    description: Managed app workloads must include a main application container whose name exactly matches metadata.name.
     severity: error
   - id: R029
     description: Application Services must use one component name across metadata.name, labels.app, cloud.sealos.io/app-deploy-manager, and spec.selector.app.
     severity: error
   - id: R030
-    description: Component ConfigMaps must use one component name across metadata.name, labels.app, and cloud.sealos.io/app-deploy-manager.
+    description: Runtime component ConfigMaps must use one component name across metadata.name, labels.app, and cloud.sealos.io/app-deploy-manager; bootstrap-only init-copy ConfigMaps must not define either managed label.
     severity: error
   - id: R031
-    description: Application Ingress resources must use one component name across metadata.name, cloud.sealos.io/app-deploy-manager, and backend service names.
+    description: Root-path Prefix Ingress resources must use one component name across metadata.name, cloud.sealos.io/app-deploy-manager, and backend service names; non-root or non-Prefix routes may differ.
     severity: error
   - id: R009
     description: Managed app workloads must explicitly set revisionHistoryLimit to 1.
     severity: error
   - id: R010
-    description: Managed app workloads must explicitly set automountServiceAccountToken to false.
+    description: Managed app workloads must explicitly set automountServiceAccountToken to false unless Kubernetes API/service account token usage is evidenced by integration settings, serviceAccountName, or a service-account-token reason annotation.
     severity: error
   - id: R035
-    description: Managed app workloads must reference the app-scoped image pull secret name via template.spec.imagePullSecrets.
+    description: Managed app workloads that declare imagePullSecrets must reference only the app-scoped pull secret name via template.spec.imagePullSecrets; public-image workloads may omit imagePullSecrets.
     severity: error
   - id: R011
     description: All PVC storage requests must be concrete values and less than or equal to 1Gi.

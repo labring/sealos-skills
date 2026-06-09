@@ -67,8 +67,6 @@ All fields are optional. If a field is present, it overrides the corresponding a
 
 ## Resume Detection
 
-This version does not support deploy state or update mode.
-
 If any of these artifacts already exist:
 
 - `.sealos/analysis.json`

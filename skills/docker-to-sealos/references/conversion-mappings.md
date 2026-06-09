@@ -103,8 +103,6 @@ spec:
   template:
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           image: nginx:1.27.2
@@ -112,8 +110,8 @@ spec:
 ```
 
 Notes:
-- Always reference the app-scoped image pull Secret `${{ defaults.app_name }}`.
-- `sealos-deploy` should create or refresh that Secret automatically from local `gh` CLI credentials when deploying private GHCR images.
+- Omit `imagePullSecrets` for public images. For private-registry images, reference only the app-scoped image pull Secret `${{ defaults.app_name }}`.
+- The downstream deployment environment must provide that Secret before applying workloads that use private or authenticated images.
 - Reusable templates should not expose raw registry credential inputs as user-facing form fields.
 
 ## Port Mapping
@@ -138,8 +136,6 @@ spec:
   template:
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           ports:
@@ -251,8 +247,6 @@ spec:
   template:
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           env:
@@ -369,8 +363,6 @@ spec:
   template:
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           volumeMounts:
@@ -521,6 +513,8 @@ env:
 
 ## Resource Limits Mapping
 
+Compose resource values must be normalized to the Sealos ladder. Use Compose limits only to choose the nearest allowed `limits` tier. Normalize 1G-class memory to `1024Mi`; normalize higher GiB classes to Mi values such as `2048Mi`, `4096Mi`, `8192Mi`, or `16384Mi`. Never emit bare `2G/4G/8G/16G` limits because the Sealos Template API quota preview can parse them as 0. Ignore Compose reservations for `requests`; Sealos `requests` are derived from the selected `limits` by dropping the last numeric digit, so `1024Mi` maps to `102Mi` and `4096Mi` maps to `409Mi`.
+
 ### Docker Compose
 ```yaml
 services:
@@ -544,11 +538,11 @@ spec:
         - name: ${{ defaults.app_name }}
           resources:
             limits:
-              cpu: 1000m
+              cpu: 1
               memory: 1024Mi
             requests:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 100m
+              memory: 102Mi
 ```
 
 ## Health Check Mapping
@@ -667,13 +661,13 @@ If the Sealos template does not provision a matching volume, the `/app/logs` dir
 
 ### Built-in Edge Gateway (Traefik) Handling
 
-When Compose includes both Traefik and business services, prefer using the Sealos platform Ingress capability and do not retain Traefik as an in-template workload.
+When Compose includes both Traefik and application services, prefer using the Sealos platform Ingress capability and do not retain Traefik as an in-template workload.
 
 Handling rules:
 
-- If a service name or image is identifiable as Traefik, and at least one non-database business service exists, skip Traefik resource generation.
-- The primary access entry point should target the business service (typically the first business service) via its Service, with the public domain exposed through Sealos Ingress.
-- Only when the application contains only Traefik (no other business services) should Traefik be retained as a fallback, to avoid generating empty workloads.
+- If a service name or image is identifiable as Traefik, and at least one non-database application service exists, skip Traefik resource generation.
+- The primary access entry point should target the application service (typically the first application service) via its Service, with the public domain exposed through Sealos Ingress.
+- Only when the application contains only Traefik (no other application services) should Traefik be retained as a fallback, to avoid generating empty workloads.
 
 Motivation:
 
@@ -790,10 +784,24 @@ spec:
                   name: object-storage-key
                   key: secretKey
             - name: S3_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-                  key: bucket
+    valueFrom:
+      secretKeyRef:
+        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+        key: bucket
+```
+
+Bucket-scoped object-storage secrets may append an additional lowercase suffix when one app needs multiple bucket values, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`. Env names ending in `_BUCKET` may reference those bucket-scoped secrets.
+
+## CronJob Mapping
+
+Any generated `CronJob` must include Sealos cron labels:
+
+```yaml
+metadata:
+  labels:
+    cloud.sealos.io/cronjob: <metadata.name>
+    cronjob-launchpad-name: ""
+    cronjob-type: image
 ```
 
 ## Common Patterns Summary
@@ -867,7 +875,7 @@ volumes:
       name: ${{ defaults.app_name }}
 ```
 
-Real-world examples: see `seakills/knowledge/lessons-learned.md` (EverShop case study)
+Real-world examples: see `skills/sealos-deploy/knowledge/lessons-learned.md` (EverShop case study)
 
 ### Sensitive Information
 - Docker business env vars → `env[].value` (`defaults`/`inputs`)

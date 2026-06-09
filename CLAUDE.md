@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-Seakills is a skills repository for Sealos Cloud in the `skills.sh` ecosystem. This repo contains the skills pack plus supporting helper scripts and eval fixtures. The landing site now lives in the separate `zjy365/seakills-site` repository.
+Seakills is a skills repository for Sealos Cloud in the `skills.sh` ecosystem. This repo contains the skills pack plus supporting helper scripts and eval fixtures.
 
 ## Commands
 
@@ -21,33 +21,34 @@ This repo does not have a single top-level app build.
 sealos-deploy (user entry point: /sealos-deploy)
   ├→ cloud-native-readiness   (Phase 1: score 0-12)
   ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
-  └→ docker-to-sealos         (Phase 5: Compose → Sealos template)
+  ├→ k8s-buildkit-job         (Phase 4: sandbox BuildKit build)
+  └→ docker-to-sealos         (Phase 5: Sealos template)
 ```
 
 ### Skill module pattern
 Each skill follows the same structure:
 - `SKILL.md` — entry point with YAML frontmatter (name, version, allowed-tools, compatibility)
-- `modules/*.md` — phased execution logic (preflight, assess, generate, build, deploy)
-- `scripts/*.mjs` — Node.js executables (auth, scoring, image detection, build)
+- `modules/*.md` — phased execution logic (preflight, assess, generate, build, template, finish)
+- `scripts/*.mjs` — Node.js executables (scoring, image detection, artifact validation, build helpers)
 - `knowledge/*.md` — error patterns, best practices, scoring criteria
-- `config.json` — runtime config (OAuth, regions)
+- `config.json` — runtime config for prepare/build defaults
 
 Skills reference paths with `<SKILL_DIR>` for self and `<SKILL_DIR>/../other-skill/` for siblings.
 
-### Deployment pipeline (sealos-deploy)
+### Prepare pipeline (sealos-deploy)
 ```text
-Preflight → Mode Detection → DEPLOY or UPDATE
+Preflight → Assess → Detect Image → Dockerfile → Build/Reuse Image → Template → Finish
 
-DEPLOY: Assess → Detect image → Dockerfile → Build & Push → Template → Deploy
-UPDATE: Build & Push → kubectl set image → Verify rollout (auto-rollback on failure)
+Build/Reuse Image:
+  - reusable public image found → write build-result.json with status=skipped
+  - no reusable image → write build-request.json and delegate to k8s-buildkit-job
 ```
 
-Mode detection reads `.sealos/state.json` `last_deploy` field. If a running deployment is found (verified via kubectl), the skill enters UPDATE mode and skips assess/template/deploy phases. If not, it runs the full DEPLOY pipeline.
-
-State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot), and `.sealos/config.json` (optional user overrides). The `last_deploy` section in `state.json` records app name, namespace, image, and URL so later deploys can update in place instead of starting over.
+State is tracked through `.sealos/analysis.json`, `.sealos/build-request.json`, `.sealos/build-result.json`, `.sealos/template/index.yaml`, and `.sealos/delivery-manifest.json`. `.sealos/config.json` remains an optional user override file.
 
 ## Key paths
-- `skills/sealos-deploy/SKILL.md` — primary entry point for the deploy workflow
-- `skills/sealos-deploy/config.json` — OAuth client_id, regional Sealos URLs
-- `skills/sealos-deploy/scripts/` — auth, scoring, and helper automation scripts
+- `skills/sealos-deploy/SKILL.md` — primary entry point for the prepare workflow
+- `skills/sealos-deploy/config.json` — prepare/build defaults
+- `skills/sealos-deploy/scripts/` — scoring, image detection, and artifact validation scripts
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
+- `skills/k8s-buildkit-job/` — sandbox BuildKit executor used when a new image is required
