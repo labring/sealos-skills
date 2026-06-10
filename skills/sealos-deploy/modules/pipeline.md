@@ -157,13 +157,57 @@ node "<SKILL_DIR>/scripts/detect-image.mjs" "$GITHUB_URL" "$WORK_DIR"
 
 Goal:
 
-- detect a reusable amd64 image from Docker Hub, GHCR, compose files, workflows, or README
-- update `analysis.json.image_ref` if one is found
+- infer deployment intent from project documentation and release/CI signals
+- detect a reusable amd64 image when the project documents or publishes one
+- update `analysis.json.image_ref` when `found=true`
+
+Detection priority (conflict resolution):
+
+1. README and docs deploy/install guides
+2. GitHub Releases (API or local release notes)
+3. CI workflows and package metadata
+4. project files (`docker-compose`, etc.)
+5. direct registry naming (`ghcr.io/<owner>/<repo>`, `docker.io/<owner>/<repo>`)
+6. Docker Hub search with GitHub URL verification
 
 Decision:
 
-- reusable image found → later build mode becomes `reuse-image`
-- no reusable image → later build mode becomes `build-required`
+- `found=true` and `mode=reuse-image` → later build mode becomes `reuse-image`
+- `mode=build-required` → later build mode becomes `build-required`, even if a registry happens to host a similarly named image
+- README documents docker build / compose `--build` deployment with no prebuilt image reference → always `build-required`
+
+Example output:
+
+```json
+{
+  "found": true,
+  "mode": "reuse-image",
+  "deployment_mode": "prebuilt",
+  "image": "ghcr.io/owner/repo",
+  "tag": "v1.2.3",
+  "source": "readme",
+  "confidence": "high",
+  "platforms": ["linux/amd64"],
+  "evidence": [{ "source": "readme", "signal": "ghcr.io/owner/repo:v1.2.3 in README.md" }]
+}
+```
+
+When README requires a source build:
+
+```json
+{
+  "found": false,
+  "mode": "build-required",
+  "deployment_mode": "build",
+  "reason": "README documents docker build deployment; skipping registry reuse",
+  "evidence": [{ "source": "readme", "signal": "build instructions in README.md" }]
+}
+```
+
+After Phase 2:
+
+- if `found=true`, set `analysis.json.image_ref` to `"<image>:<tag>"`
+- record `mode` from the script output for Phase 4 handoff
 
 ## Phase 3: Dockerfile
 
