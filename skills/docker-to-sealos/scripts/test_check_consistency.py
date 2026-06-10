@@ -2989,6 +2989,89 @@ class CheckConsistencyTests(unittest.TestCase):
         )
         self.assertTrue(any(item.rule_id == "R011" for item in violations))
 
+    def test_detects_statefulset_volume_claim_template_missing_template_deploy_label(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: demo
+              labels:
+                app: demo
+                cloud.sealos.io/app-deploy-manager: demo
+                cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+            spec:
+              revisionHistoryLimit: 1
+              selector:
+                matchLabels:
+                  app: demo
+              template:
+                metadata:
+                  labels:
+                    app: demo
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+              volumeClaimTemplates:
+                - metadata:
+                    name: data
+                    labels:
+                      app: demo
+                  spec:
+                    resources:
+                      requests:
+                        storage: 1Gi
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R041" for item in violations))
+
+    def test_allows_statefulset_volume_claim_template_template_deploy_label(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: demo
+              labels:
+                app: demo
+                cloud.sealos.io/app-deploy-manager: demo
+                cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+            spec:
+              revisionHistoryLimit: 1
+              selector:
+                matchLabels:
+                  app: demo
+              template:
+                metadata:
+                  labels:
+                    app: demo
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+              volumeClaimTemplates:
+                - metadata:
+                    name: data
+                    labels:
+                      app: demo
+                      cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
+                  spec:
+                    resources:
+                      requests:
+                        storage: 1Gi
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R041" for item in violations))
+
     def test_registry_rule_scope_filters_violations(self):
         rules_yaml = render_registry(
             overrides={

@@ -1504,6 +1504,8 @@ For all resources deployed through the template marketplace, including system re
 
 Where `app_name` is the name of the application deployed by the user, which by default ends with a random number, such as `fastgpt-zu1n048s`.
 
+For application `StatefulSet` resources that define `spec.volumeClaimTemplates`, also set `cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` on every `volumeClaimTemplates[].metadata.labels`. Preserve component labels such as `app` so legacy component-level PVC cleanup remains possible.
+
 ## Part 3: `Rendering Process Details`
 
 The Sealos template engine follows a specific order during the rendering process to ensure that variables and conditional statements can be correctly parsed.

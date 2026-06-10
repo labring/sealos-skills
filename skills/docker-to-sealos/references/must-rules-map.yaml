@@ -152,6 +152,10 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires intent-level storage-need inference for each service."
+  - must: "StatefulSet resources with `volumeClaimTemplates` must set `metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` and every `volumeClaimTemplates[].metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` so Template can track and clean PVCs."
+    enforcement:
+      type: rule
+      target: R041
   - must: "PVC request must be `<= 1Gi` unless source spec explicitly requires less."
     enforcement:
       type: rule
@@ -216,7 +220,7 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires label presence checks scoped to PostgreSQL RBAC resources."
-  - must: "Every KubeBlocks database `Cluster` must include `kb.io/database`, `sealos-db-provider-cr`, and `clusterdefinition.kubeblocks.io/name` labels; `sealos-db-provider-cr` must equal `metadata.name`."
+  - must: "Every KubeBlocks database `Cluster` must include `kb.io/database`, `sealos-db-provider-cr`, and `clusterdefinition.kubeblocks.io/name` labels; `sealos-db-provider-cr` must equal `metadata.name` so dbprovider can list and classify the database. Related Pods, Services, and OpsRequests should carry `app.kubernetes.io/instance=<database name>` for detail views."
     enforcement:
       type: rule
       target: R040
