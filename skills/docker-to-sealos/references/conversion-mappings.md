@@ -358,6 +358,7 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   revisionHistoryLimit: 1
   template:
@@ -375,6 +376,9 @@ spec:
         annotations:
           path: /app/data
           value: '1'
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
         name: vn-appvn-data
       spec:
         accessModes:
@@ -386,6 +390,9 @@ spec:
         annotations:
           path: /app/config
           value: '1'
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
         name: vn-appvn-config
       spec:
         accessModes:
