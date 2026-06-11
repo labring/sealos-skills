@@ -59,6 +59,24 @@ function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf-8'))
 }
 
+function resolveRegistry(request, status, imageRef) {
+  if (request.mode !== 'build-required' || status !== 'succeeded') {
+    return null
+  }
+
+  if (!imageRef.startsWith('ghcr.io/')) {
+    return null
+  }
+
+  return {
+    host: 'ghcr.io',
+    pull_auth_required: true,
+    pull_secret_name: '${{ defaults.app_name }}',
+    pull_auth_reason: 'built-and-pushed-private-ghcr',
+    inline_pull_secret: true,
+  }
+}
+
 function resolveImage(request, status) {
   if (request.mode === 'reuse-image') {
     if (!request.image?.image_ref) {
@@ -133,6 +151,11 @@ function buildResult(request, args) {
       phase,
       message: args['error-message'] || 'Build failed; see logs.local_file',
     }
+  }
+
+  const registry = resolveRegistry(request, status, imageRef)
+  if (registry) {
+    result.registry = registry
   }
 
   return result

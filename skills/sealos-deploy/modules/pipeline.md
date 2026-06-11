@@ -423,6 +423,37 @@ References:
 
 If required env vars need user input, collect them here and apply them to the template.
 
+### 5.1 Inline GHCR pull Secret (POC)
+
+When `.sealos/build-result.json` indicates a freshly built private GHCR image, inline the sandbox GitHub token into the template so the cluster can pull the image without a separate deploy step.
+
+Trigger when either:
+
+- `build-result.json.registry.pull_auth_required` is `true`, or
+- `mode=build-required` and `status=succeeded`
+
+After `index.yaml` is generated, run:
+
+```bash
+node "<SKILL_DIR>/scripts/patch-template-pull-secret.mjs" \
+  --template "$WORK_DIR/.sealos/template/index.yaml" \
+  --build-result "$WORK_DIR/.sealos/build-result.json" \
+  --token-env GITHUB_TOKEN
+```
+
+This script:
+
+- prepends a `kubernetes.io/dockerconfigjson` Secret named `${{ defaults.app_name }}`
+- adds `imagePullSecrets` to managed `Deployment` / `StatefulSet` documents
+- uses the same GHCR auth shape as `k8s-buildkit-job/modules/registry-auth.md`
+
+POC constraints:
+
+- requires `GITHUB_TOKEN` in the sandbox
+- writes registry credentials into `.sealos/template/index.yaml`
+- do not commit the patched template to git
+- skip this step for `mode=reuse-image` unless a future detector marks `pull_auth_required`
+
 ## Phase 6: Finish
 
 Write `.sealos/delivery-manifest.json`:

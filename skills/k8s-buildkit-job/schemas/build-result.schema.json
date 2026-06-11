@@ -180,6 +180,39 @@
           "minLength": 1
         }
       }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host",
+        "pull_auth_required",
+        "pull_secret_name",
+        "pull_auth_reason",
+        "inline_pull_secret"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "const": "ghcr.io"
+        },
+        "pull_auth_required": {
+          "type": "boolean",
+          "const": true
+        },
+        "pull_secret_name": {
+          "type": "string",
+          "const": "${{ defaults.app_name }}"
+        },
+        "pull_auth_reason": {
+          "type": "string",
+          "const": "built-and-pushed-private-ghcr"
+        },
+        "inline_pull_secret": {
+          "type": "boolean",
+          "const": true
+        }
+      }
     }
   },
   "allOf": [
