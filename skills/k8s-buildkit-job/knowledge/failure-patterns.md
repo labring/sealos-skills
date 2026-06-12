@@ -103,11 +103,12 @@ Signals:
 - `ImagePullBackOff` for `moby/buildkit`
 - `ErrImagePull`
 - generated BuildKit Job runs as `default` service account instead of the caller's service account
+- admission errors mentioning `privileged`, `seccompProfile.type: Unconfined`, or `appArmorProfile.type: Unconfined`
 
 Action:
 
-- For privileged denial, the sandbox policy must allow privileged BuildKit Jobs.
-- For image pull issues, confirm the cluster can pull `moby/buildkit:master`.
+- For privileged or unconfined-profile denial, confirm the generated manifest uses rootless BuildKit and does not set privileged, unconfined seccomp, or unconfined AppArmor fields.
+- For image pull issues, confirm the cluster can pull `moby/buildkit:master-rootless`.
 - If the wrong service account was used, re-run with the current sandbox service account wired to `serviceAccountName`.
 
 ## timeout

@@ -52,7 +52,7 @@ kubectl create secret generic "$REGISTRY_AUTH_SECRET" \
 The BuildKit container mounts this Secret at:
 
 ```text
-/root/.docker/config.json
+/home/user/.docker/config.json
 ```
 
 Also make the same config available to sandbox `buildctl`, because BuildKit can receive registry credentials through the client session:

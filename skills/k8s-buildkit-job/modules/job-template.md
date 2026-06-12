@@ -1,6 +1,6 @@
 # Job Template
 
-Generate a temporary BuildKit daemon Job and Service for the build.
+Generate a temporary rootless BuildKit daemon Job and Service for the build.
 
 ## Job Naming
 
@@ -63,13 +63,17 @@ The local paths must be readable from the sandbox process running `buildctl`; th
 
 If the current sandbox service account was resolved in preflight, set `serviceAccountName` on the generated Job Pod template. Do not let the temporary build Pod silently fall back to the namespace `default` service account.
 
-## Security Context
+## Rootless Security Context
+
+The generated Job uses `moby/buildkit:master-rootless` and must stay compatible with namespaces that enforce the Kubernetes Pod Security `baseline` profile. Do not set `securityContext.privileged: true`, `seccompProfile.type: Unconfined`, or `appArmorProfile.type: Unconfined` in this workflow.
 
 The BuildKit daemon container uses:
 
 ```yaml
 securityContext:
-  privileged: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
 ```
 
-If the cluster denies privileged Pods, stop and report that this sandbox cannot run the BuildKit daemon pattern without policy changes.
+The daemon image is started with `--oci-worker-no-process-sandbox`, matching the rootless Kubernetes pattern from BuildKit. This avoids privileged Pod admission failures, but some Dockerfiles can still fail at runtime if they require kernel features unavailable to rootless BuildKit.

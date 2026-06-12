@@ -167,24 +167,27 @@ ${serviceAccount ? `      serviceAccountName: ${serviceAccount}
 ` : ''}      hostUsers: false
       containers:
       - name: buildkitd
-        image: moby/buildkit:master
-        command:
-        - buildkitd
+        image: moby/buildkit:master-rootless
         args:
         - --addr
         - tcp://0.0.0.0:1234
+        - --oci-worker-no-process-sandbox
         ports:
         - name: buildkit
           containerPort: 1234
         env:
         - name: DOCKER_CONFIG
-          value: /root/.docker
+          value: /home/user/.docker
         securityContext:
-          privileged: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
         volumeMounts:
         - name: docker-config
-          mountPath: /root/.docker
+          mountPath: /home/user/.docker
           readOnly: true
+        - name: buildkitd
+          mountPath: /home/user/.local/share/buildkit
       volumes:
       - name: docker-config
         secret:
@@ -192,6 +195,8 @@ ${serviceAccount ? `      serviceAccountName: ${serviceAccount}
           items:
           - key: config.json
             path: config.json
+      - name: buildkitd
+        emptyDir: {}
 `
 }
 
