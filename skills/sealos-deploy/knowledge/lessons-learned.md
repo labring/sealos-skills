@@ -107,3 +107,36 @@ detection:
   # Fallback 2: README scan for docker pull/run references
   fallback_readme: "scan README.md for image references"
 ```
+
+### BillionMail Safe Entry and DB Bootstrap (Prevents `access denied` and Init Loops)
+
+```yaml
+detection:
+  symptoms:
+    - "Pod is Running but login APIs return access denied"
+    - "Root URL and configured App URL behave differently in a fresh session"
+    - "Init container waits forever on application-specific database checks"
+    - "Startup logs mention pg_indexes, relay compatibility objects, or missing PostgreSQL search_path"
+
+runtime_entry:
+  final_config:
+    safe_path: ""
+    app_url: "root Sealos App URL"
+  verification:
+    - "GET /api/get_validate_code returns success from the root App URL"
+    - "POST /api/login succeeds with generated admin credentials"
+    - "An authenticated page or API route works after login"
+
+database_bootstrap:
+  principle: "Make critical compatibility objects idempotent and self-healing in init containers"
+  verify_live_state:
+    - "public.pg_indexes compatibility view exists"
+    - "relay compatibility objects exist"
+    - "application role search_path resolves expected public schema objects"
+  ttl_job_note: "A completed or cleaned-up Job is only historical evidence; the database state is the acceptance signal"
+
+generalized_pattern:
+  - "The Sealos App URL must be the URL that succeeds from a fresh browser session"
+  - "Path-based safe entrances need root-path smoke tests because launchers may normalize or revisit root"
+  - "Post-rollout log scans are part of acceptance for login-gated web apps"
+```
