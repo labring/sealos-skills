@@ -1,0 +1,14 @@
+{
+  "id": "sealos",
+  "version": "1.0.0",
+  "format": "claude-plugin",
+  "source": ".claude-plugin/plugin.json",
+  "commands": [
+    "./commands/"
+  ],
+  "commandCount": 1,
+  "hostTargets": [
+    "claude-code",
+    "openclaw"
+  ]
+}

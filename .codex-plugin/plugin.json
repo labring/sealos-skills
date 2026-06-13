@@ -1,40 +1,51 @@
 {
   "name": "sealos",
-  "version": "0.1.0",
-  "description": "Ship any repo to Sealos Cloud, then build Sealos Desktop apps from Codex.",
+  "version": "1.0.0",
+  "description": "Sealos deployment, database, object storage, and app-building skills for Codex.",
   "author": {
     "name": "Sealos",
     "url": "https://sealos.io/"
   },
-  "homepage": "https://sealos.io/",
+  "homepage": "https://github.com/labring/sealos-skills",
   "repository": "https://github.com/labring/sealos-skills",
   "license": "MIT",
   "keywords": [
     "sealos",
+    "sealos-cloud",
     "deployment",
-    "cloud",
-    "devops"
+    "docker",
+    "kubernetes",
+    "codex",
+    "skills",
+    "devops",
+    "desktop-apps",
+    "database",
+    "object-storage",
+    "s3"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Sealos",
-    "shortDescription": "Ship any repo to Sealos Cloud from Codex.",
-    "longDescription": "Deploy GitHub and local projects to Sealos Cloud with readiness checks, Dockerfile generation, image builds, Sealos templates, rollout updates, and cloud-native migration helpers. You can also build Sealos Desktop apps with SDK integration, session data, and local debugging.",
+    "shortDescription": "Deploy apps and connect Sealos cloud services",
+    "longDescription": "Use Sealos in Codex to assess cloud-native readiness, generate production Dockerfiles, build or reuse container images, convert Docker Compose services into Sealos templates, deploy and update workloads on Sealos Cloud, connect cloud databases, configure S3-compatible object storage, and build Sealos Desktop apps with SDK integration guidance. The plugin bundles Sealos Agent Skills under ./skills/ and is invoked as $sealos in Codex or /sealos in Claude Code-compatible hosts.",
     "developerName": "Sealos",
     "category": "Coding",
     "capabilities": [
       "Interactive",
+      "Read",
       "Write"
     ],
     "websiteURL": "https://sealos.io/",
     "privacyPolicyURL": "https://sealos.io/docs/msa/privacy-policy/",
     "termsOfServiceURL": "https://sealos.io/docs/msa/terms-of-service/",
     "defaultPrompt": [
-      "Deploy this repo to Sealos Cloud with Dockerfile, image build, and rollout checks.",
-      "Deploy this GitHub project to Sealos Cloud from source to running app.",
-      "Build a Sealos Desktop app with SDK auth, session data, and local debugging."
+      "Deploy this repo to Sealos Cloud.",
+      "Containerize this app and deploy it to Sealos.",
+      "Create private S3 object storage and wire env vars."
     ],
+    "brandColor": "#15B8A6",
     "composerIcon": "./assets/logo.svg",
-    "logo": "./assets/logo.svg"
+    "logo": "./assets/logo.svg",
+    "screenshots": []
   }
 }

@@ -290,6 +290,7 @@ volumes:
 - For StatefulSet: Use `volumeClaimTemplates` to create persistent storage
 - For Deployment: Consider whether storage is truly needed; if so, switch to StatefulSet
 - For temporary configuration: Consider using ConfigMap or Secret
+- For StatefulSet PVC tracking: set `cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` on both the StatefulSet metadata labels and every `volumeClaimTemplates[].metadata.labels`, while preserving component labels such as `app`.
 
 ### PersistentVolumeClaim Usage Restriction
 
@@ -318,6 +319,9 @@ volumeClaimTemplates:
       annotations:
         path: /var/lib/headscale  # Mount path
         value: '1'                 # Fixed value
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
       name: vn-varvn-libvn-headscale  # Naming rules see below
     spec:
       accessModes:
@@ -453,8 +457,6 @@ spec:
   template:
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           volumeMounts:
@@ -493,12 +495,14 @@ spec:
    - `${{ defaults.app_name }}-ml`
    - `${{ defaults.app_name }}-redis`
 5. Application Service must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and `metadata.name`, both labels, and `spec.selector.app` must be exactly the same
-6. Component-level ConfigMap must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and both must be consistent with `metadata.name`
-7. Application Ingress's `metadata.name` must be consistent with `metadata.labels.cloud.sealos.io/app-deploy-manager` and the backend `service.name`
+6. Runtime component-level ConfigMap must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and both must be consistent with `metadata.name`; ConfigMaps used only by init containers to copy initial config into persistent storage must not include either label
+7. Root-path Ingress rules (`pathType: Prefix`, `path: /`) must keep `metadata.name` consistent with `metadata.labels.cloud.sealos.io/app-deploy-manager` and backend `service.name`; non-root or non-Prefix Ingress rules may use a distinct Ingress name and backend service
 
 ### Container Naming Rules
 
-The `containers.name` must be consistent with the `metadata.name` value.
+The primary business container name must be consistent with the workload
+`metadata.name` value. Sidecar/helper containers may use distinct descriptive
+names when they are not the main business container.
 
 ```yaml
 # Correct example
@@ -509,6 +513,7 @@ spec:
     spec:
       containers:
         - name: ${{ defaults.app_name }}  # Must be consistent with metadata.name
+        - name: metrics-sidecar          # Allowed: helper/sidecar container
 
 # Correct example for sub-components
 metadata:
@@ -547,14 +552,24 @@ metadata:
 
 ### Special Case: Database Resources
 
-Database resources (Clusters created via kubeblocks) use the special label `sealos-db-provider-cr` instead of `cloud.sealos.io/app-deploy-manager`:
+Database resources (Clusters created via kubeblocks) use dbprovider labels instead of `cloud.sealos.io/app-deploy-manager`.
+
+Required labels:
+
+1. `kb.io/database` must identify the KubeBlocks database/version.
+2. `sealos-db-provider-cr` must equal `metadata.name`.
+3. `clusterdefinition.kubeblocks.io/name` must identify the database engine, such as `postgresql`, `apecloud-mysql`, `mongodb`, `redis`, or `kafka`.
+4. Related Pods, Services, and OpsRequests should carry `app.kubernetes.io/instance=<database name>` for dbprovider detail views. Generated templates may also place this label on the Cluster for consistency, but dbprovider's Cluster list path primarily keys on `clusterdefinition.kubeblocks.io/name`.
 
 ```yaml
 # Correct labels for database resources
 metadata:
   name: ${{ defaults.app_name }}-redis
   labels:
+    kb.io/database: redis-7.2.7
     sealos-db-provider-cr: ${{ defaults.app_name }}-redis
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-redis
+    clusterdefinition.kubeblocks.io/name: redis
 ```
 
 ## Object Storage Configuration
@@ -827,9 +842,9 @@ This is because Kubernetes parses environment variables in the order they appear
 
 All application Deployments or StatefulSets must include the following configurations:
 
-1. **automountServiceAccountToken**: Must be set to `false` to avoid unnecessary permission exposure
+1. **automountServiceAccountToken**: Must be set to `false` to avoid unnecessary permission exposure. Set it to `true` only when the application explicitly needs the Kubernetes API/service account token, evidenced by Kubernetes integration settings, `serviceAccountName`, or `sealos.io/service-account-token-reason` in workload annotations.
 2. **revisionHistoryLimit**: Must be set to `1` to reduce resources consumed by historical revisions
-3. **imagePullSecrets**: Must reference the app-scoped image pull Secret `${{ defaults.app_name }}`
+3. **imagePullSecrets**: Omit for public images. For private-registry images, reference only the app-scoped pull Secret `${{ defaults.app_name }}`
 4. **metadata.annotations**: Must include the following annotations:
    - `originImageName`: Original image name
    - `deploy.cloud.sealos.io/minReplicas`: Minimum replica count, typically set to `'1'`
@@ -837,9 +852,9 @@ All application Deployments or StatefulSets must include the following configura
 
 Recommended registry pull Secret model:
 
-- Managed workloads reference `${{ defaults.app_name }}` in `imagePullSecrets`
-- `sealos-deploy` creates or refreshes that Secret automatically from local `gh` CLI credentials when the image is a private GHCR image
-- If the template is deployed outside `sealos-deploy`, the operator must create the Secret manually before applying the workload
+- Public-image managed workloads omit `imagePullSecrets`
+- For private GHCR images, `sealos-deploy` creates or refreshes `${{ defaults.app_name }}` from local `gh` CLI credentials and the workload may reference it through `imagePullSecrets`
+- If a private-registry template is deployed outside `sealos-deploy`, the operator must create the Secret manually before applying the workload
 
 ```yaml
 apiVersion: apps/v1
@@ -857,9 +872,7 @@ spec:
   revisionHistoryLimit: 1  # Must be set to 1
   template:
     spec:
-      automountServiceAccountToken: false  # Must be set to false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
+      automountServiceAccountToken: false  # Default; only set true with evidenced Kubernetes API token need
       containers:
         - name: ${{ defaults.app_name }}
           # Other container configuration...
@@ -891,8 +904,6 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false  # Disable automatic service account token mounting
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           image: example/app:1.0.0
@@ -924,10 +935,10 @@ Allowed `limits.memory` values:
 - `256Mi`
 - `512Mi`
 - `1024Mi`
-- `2G`
-- `4G`
-- `8G`
-- `16G`
+- `2048Mi`
+- `4096Mi`
+- `8192Mi`
+- `16384Mi`
 
 `requests` must be derived from `limits` by dropping the last numeric digit:
 
@@ -945,10 +956,10 @@ Allowed `limits.memory` values:
 | `memory: 256Mi` | `memory: 25Mi` |
 | `memory: 512Mi` | `memory: 51Mi` |
 | `memory: 1024Mi` | `memory: 102Mi` |
-| `memory: 2G` | `memory: 200Mi` |
-| `memory: 4G` | `memory: 400Mi` |
-| `memory: 8G` | `memory: 800Mi` |
-| `memory: 16G` | `memory: 1600Mi` |
+| `memory: 2048Mi` | `memory: 204Mi` |
+| `memory: 4096Mi` | `memory: 409Mi` |
+| `memory: 8192Mi` | `memory: 819Mi` |
+| `memory: 16384Mi` | `memory: 1638Mi` |
 
 **Default lightweight application quota:**
 
@@ -980,10 +991,10 @@ resources:
 resources:
   requests:
     cpu: 200m
-    memory: 200Mi
+    memory: 204Mi
   limits:
     cpu: 2
-    memory: 2G
+    memory: 2048Mi
 ```
 
 **Invalid examples:**
@@ -1007,14 +1018,14 @@ resources:
     cpu: 1
     memory: 1024Mi
 
-# Incorrect: decimal G form is not the canonical 1G-class ladder value
+# Incorrect: G/Gi forms can make Sealos Template API quota preview parse memory as 0; use Mi ladder values
 resources:
   requests:
-    cpu: 100m
-    memory: 100Mi
+    cpu: 200m
+    memory: 200Mi
   limits:
-    cpu: 1
-    memory: 1G
+    cpu: 2
+    memory: 2G
 ```
 
 **Tuning guidance:**

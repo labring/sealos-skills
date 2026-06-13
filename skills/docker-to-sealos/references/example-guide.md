@@ -263,8 +263,6 @@ spec:
         app: ${{ defaults.app_name }}
     spec:
       automountServiceAccountToken: false
-      imagePullSecrets:
-        - name: ${{ defaults.app_name }}
       containers:
         - name: ${{ defaults.app_name }}
           image: yidadaa/chatgpt-next-web:v2.12.4
@@ -639,8 +637,10 @@ metadata:
   finalizers:
     - cluster.kubeblocks.io/finalizer
   labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-mongo
     kb.io/database: mongodb-8.0.4
     app.kubernetes.io/instance: ${{ defaults.app_name }}-mongo
+    clusterdefinition.kubeblocks.io/name: mongodb
   annotations: {}
   name: ${{ defaults.app_name }}-mongo
   generation: 1
@@ -1503,6 +1503,8 @@ The CRD itself will be fully migrated according to the template format and field
 For all resources deployed through the template marketplace, including system resources such as `deploy`, `service` as well as custom resources such as `app`, `kb database`, etc., a unified label will be added to all of them: `cloud.sealos.io/deploy-on-sealos: $app_name`.
 
 Where `app_name` is the name of the application deployed by the user, which by default ends with a random number, such as `fastgpt-zu1n048s`.
+
+For application `StatefulSet` resources that define `spec.volumeClaimTemplates`, also set `cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` on every `volumeClaimTemplates[].metadata.labels`. Preserve component labels such as `app` so legacy component-level PVC cleanup remains possible.
 
 ## Part 3: `Rendering Process Details`
 

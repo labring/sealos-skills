@@ -156,6 +156,10 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires intent-level storage-need inference for each service."
+  - must: "StatefulSet resources with `volumeClaimTemplates` must set `metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` and every `volumeClaimTemplates[].metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` so Template can track and clean PVCs."
+    enforcement:
+      type: rule
+      target: R041
   - must: "PVC request must be `<= 1Gi` unless source spec explicitly requires less."
     enforcement:
       type: rule
@@ -210,8 +214,8 @@ must_rules:
       note: "Requires review of init Job/initContainer shell scripts and SQL quoting."
   - must: "Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services."
     enforcement:
-      type: manual
-      note: "Requires database resource kind review until this branch carries a dedicated static rule."
+      type: rule
+      target: R039
   - must: "PostgreSQL version: `postgresql-16.4.0`."
     enforcement:
       type: manual
@@ -228,6 +232,10 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires label presence checks scoped to PostgreSQL RBAC resources."
+  - must: "Every KubeBlocks database `Cluster` must include `kb.io/database`, `sealos-db-provider-cr`, and `clusterdefinition.kubeblocks.io/name` labels; `sealos-db-provider-cr` must equal `metadata.name` so dbprovider can list and classify the database. Related Pods, Services, and OpsRequests should carry `app.kubernetes.io/instance=<database name>` for detail views."
+    enforcement:
+      type: rule
+      target: R040
   - must: "PostgreSQL role wildcard permission requirement remains as defined in current spec."
     enforcement:
       type: manual

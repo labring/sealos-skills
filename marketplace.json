@@ -1,0 +1,46 @@
+{
+  "name": "sealos",
+  "owner": {
+    "name": "Sealos",
+    "url": "https://sealos.io/"
+  },
+  "metadata": {
+    "description": "Sealos Cloud deployment, database, S3 object storage, and Sealos Desktop app skills for AI agents.",
+    "version": "1.0.0",
+    "repository": "https://github.com/labring/sealos-skills"
+  },
+  "plugins": [
+    {
+      "name": "sealos",
+      "source": "./",
+      "description": "Deploy local or GitHub projects to Sealos Cloud, connect cloud databases and S3 object storage, generate Dockerfiles and Sealos templates, assess cloud-native readiness, and build Sealos Desktop apps.",
+      "version": "1.0.0",
+      "category": "coding",
+      "commands": "./commands/",
+      "tags": [
+        "sealos",
+        "sealos-cloud",
+        "deployment",
+        "cloud",
+        "devops",
+        "kubernetes",
+        "docker",
+        "containers",
+        "cloud-native",
+        "app-builder",
+        "database",
+        "object-storage",
+        "s3"
+      ],
+      "skills": [
+        "./skills/sealos-deploy",
+        "./skills/sealos-database",
+        "./skills/sealos-s3",
+        "./skills/sealos-app-builder",
+        "./skills/cloud-native-readiness",
+        "./skills/dockerfile-skill",
+        "./skills/docker-to-sealos"
+      ]
+    }
+  ]
+}
