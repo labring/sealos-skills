@@ -206,6 +206,23 @@ inputs:
 - ❌ Randomly generated secret keys (should be placed in defaults)
 - ❌ Automatically generated configurations (should be placed in defaults)
 
+### Startup-Critical Input Defaults
+
+Some applications validate bootstrap values before the HTTP server becomes ready. Admin passwords, API keys, salts, install tokens, and feature toggles used by entrypoints must have defaults that pass the application's own startup checks.
+
+When an app documents password complexity, generate defaults with deterministic required character classes around the random segment:
+
+```yaml
+inputs:
+  admin_password:
+    description: Admin password. Leave the generated default or use at least 8 characters with uppercase, lowercase, number, and special character.
+    type: string
+    default: "Example@${{ random(16) }}!1"
+    required: true
+```
+
+Avoid empty strings, weak examples, and bare `${{ random(n) }}` for startup-critical passwords, because the random function may not emit all required classes. During live validation, check first boot logs and the login/setup path using the generated default.
+
 ## Internationalization (i18n) Configuration
 
 ### Basic Format
