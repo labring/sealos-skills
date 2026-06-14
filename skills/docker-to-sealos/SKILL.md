@@ -31,6 +31,7 @@ Extract from Docker Compose/docs:
 - volumes/config mounts/object storage requirements
 - ports, dependencies, service communication
 - env vars and secret usage
+- startup-time validation rules for bootstrap credentials, API keys, salts, secrets, and feature flags
 - resource limits/requests and health checks
 - if official Kubernetes installation docs/manifests are available, also extract app-runtime behavior from them (bootstrap admin fields, external endpoint/protocol assumptions, health probes, startup/init flow)
 
@@ -229,6 +230,8 @@ For Chrome + Xvfb + Selkies with 4K max display, use at least:
 - `defaults` for generated values (`app_name`, `app_host`, random passwords/keys).
 - `inputs` only for truly user-provided operational values (email/SMTP/external API keys, etc.).
 - `inputs.description` must be in English.
+- Startup-critical `inputs[*].default` values must satisfy the application's documented startup validation. For admin/bootstrap passwords with complexity rules, do not use `''`, weak examples, or bare `${{ random(n) }}` because generated characters may not include required classes; include deterministic required classes around the random segment, for example `"AppName@${{ random(16) }}!1"`.
+- If an application exits when a required input is weak or empty, treat the input default as part of the runtime contract. Live validation must include the first boot logs and login/setup path with the generated default value.
 
 ## Validation Commands
 
