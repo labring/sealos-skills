@@ -617,6 +617,10 @@ spec:
 
 ## Command and Arguments Mapping
 
+Main business containers should keep startup behavior close to the image's official entrypoint.
+Use `command`/`args` only for official startup commands, Compose-native parameters, or a short wrapper that fixes one local precondition and then `exec`s the final process.
+Move file preparation, permission repair, database/bootstrap SQL, compatibility views, package installs, and generated config into initContainers, one-shot Jobs, or ConfigMap-mounted scripts.
+
 ### Docker Compose
 ```yaml
 services:
@@ -639,6 +643,43 @@ spec:
           command: ["/app/start.sh"]
           args: ["arg1", "arg2"]
 ```
+
+### Main Container Startup Contract
+
+Use this decision flow before emitting a business container `command`/`args`:
+
+1. If the image already has a valid `ENTRYPOINT`/`CMD`, omit `command` and `args` unless the upstream docs explicitly require parameters.
+2. If Compose provides a simple command or args that are the application entrypoint, keep them.
+3. If a small runtime precondition is required, use `workingDir` plus a short shell wrapper that ends with `exec`, for example:
+
+```yaml
+workingDir: /opt/billionmail/core
+command:
+  - /bin/sh
+  - -ec
+  - mkdir -p template && exec ./billionmail
+```
+
+4. If the startup block copies files, changes ownership/permissions, writes config, runs database clients, creates compatibility objects, installs packages, or spans multiple lines, move that logic out of the main container.
+
+Bad main-container startup:
+
+```yaml
+command:
+  - /bin/sh
+  - -ec
+  - |
+    cp -r /defaults/* /data/
+    chmod -R 777 /data
+    psql -c 'CREATE VIEW ...'
+    exec ./app
+```
+
+Good split:
+
+- Config/data preparation: initContainer or ConfigMap script.
+- Database bootstrap/compatibility: idempotent Job or initContainer.
+- Main container: official entrypoint or short `exec` wrapper only.
 
 ### Volume-Dependent Arguments (Important!)
 

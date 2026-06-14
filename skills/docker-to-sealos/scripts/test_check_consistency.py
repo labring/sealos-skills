@@ -3861,6 +3861,186 @@ class CheckConsistencyTests(unittest.TestCase):
         )
         self.assertFalse(any(item.rule_id in {"R009", "R010", "R011"} for item in violations))
 
+    def test_main_container_multiline_bootstrap_command_warns(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_file(rules_file, render_registry(overrides={"R042": {"severity": "warning"}}))
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: demo
+                  labels:
+                    cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
+                spec:
+                  revisionHistoryLimit: 1
+                  template:
+                    spec:
+                      automountServiceAccountToken: false
+                      imagePullSecrets:
+                        - name: demo
+                      containers:
+                        - name: demo
+                          image: nginx:1.27.2
+                          imagePullPolicy: IfNotPresent
+                          command:
+                            - /bin/sh
+                            - -ec
+                            - |
+                              cp -r /defaults/* /data/
+                              chmod -R 777 /data
+                              psql -c 'select 1'
+                              exec nginx -g 'daemon off;'
+                          resources:
+                            requests:
+                              cpu: 20m
+                              memory: 25Mi
+                            limits:
+                              cpu: 200m
+                              memory: 256Mi
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            r042 = [item for item in violations if item.rule_id == "R042"]
+            self.assertTrue(r042)
+            self.assertTrue(all(item.severity == "warning" for item in r042))
+
+    def test_main_container_short_exec_wrapper_passes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "billionmail" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: billionmail
+                  labels:
+                    cloud.sealos.io/app-deploy-manager: billionmail
+                    app: billionmail
+                spec:
+                  revisionHistoryLimit: 1
+                  template:
+                    spec:
+                      automountServiceAccountToken: false
+                      imagePullSecrets:
+                        - name: billionmail
+                      containers:
+                        - name: billionmail
+                          image: billionmail/core:4.9.3
+                          imagePullPolicy: IfNotPresent
+                          workingDir: /opt/billionmail/core
+                          command:
+                            - /bin/sh
+                            - -ec
+                            - mkdir -p template && exec ./billionmail
+                          resources:
+                            requests:
+                              cpu: 20m
+                              memory: 25Mi
+                            limits:
+                              cpu: 200m
+                              memory: 256Mi
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/billionmail/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R042" for item in violations))
+
+    def test_main_container_contract_ignores_init_container_bootstrap(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: demo
+                  labels:
+                    cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
+                spec:
+                  revisionHistoryLimit: 1
+                  template:
+                    spec:
+                      automountServiceAccountToken: false
+                      imagePullSecrets:
+                        - name: demo
+                      initContainers:
+                        - name: init-demo
+                          image: postgres:16.4-alpine
+                          imagePullPolicy: IfNotPresent
+                          command:
+                            - /bin/sh
+                            - -ec
+                            - |
+                              cp -r /defaults/* /data/
+                              chmod -R 777 /data
+                              psql -c 'select 1'
+                      containers:
+                        - name: demo
+                          image: nginx:1.27.2
+                          imagePullPolicy: IfNotPresent
+                          command: ["nginx", "-g", "daemon off;"]
+                          resources:
+                            requests:
+                              cpu: 20m
+                              memory: 25Mi
+                            limits:
+                              cpu: 200m
+                              memory: 256Mi
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R042" for item in violations))
+
     def test_passes_minimal_compliant_docs(self):
         violations = self.run_checker(
             """
