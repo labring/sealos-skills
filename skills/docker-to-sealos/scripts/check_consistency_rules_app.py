@@ -109,6 +109,14 @@ OFFICIAL_HEALTH_WORKER_EXEC_EXPECTATIONS: Dict[str, Dict[str, str]] = {
         "startup_command": "ak healthcheck",
     },
 }
+MAIN_CONTAINER_BOOTSTRAP_RE = re.compile(
+    r"\b(?:cp|rsync|chmod|chown|psql|createdb|dropdb|mysql|mongosh|redis-cli|sed|awk|"
+    r"envsubst|openssl|useradd|groupadd|apk|apt-get|yum|dnf|pip|npm|pnpm|yarn)\b"
+)
+MAIN_CONTAINER_ALLOWED_SHORT_SETUP_RE = re.compile(r"^\s*mkdir\s+-p\s+[-./A-Za-z0-9_ ]+\s+&&\s+exec\s+\S+")
+MAIN_CONTAINER_SHELLS = {"sh", "/bin/sh", "bash", "/bin/bash", "ash", "/bin/ash"}
+MAIN_CONTAINER_MAX_SCRIPT_CHARS = 160
+MAIN_CONTAINER_MAX_SCRIPT_COMMANDS = 2
 
 
 def _iter_template_artifact_documents(context: ScanContext) -> Iterable:
@@ -1248,6 +1256,88 @@ def _is_database_like_workload(doc) -> bool:
     return False
 
 
+def _as_string_list(value: Any) -> List[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None and str(item).strip()]
+    return []
+
+
+def _shell_script_part(container: Dict[str, Any]) -> str:
+    command = _as_string_list(container.get("command"))
+    args = _as_string_list(container.get("args"))
+    if not command:
+        return ""
+    shell = command[0].strip().lower()
+    if shell not in MAIN_CONTAINER_SHELLS:
+        return ""
+
+    candidates: List[str] = []
+    for item in command[1:] + args:
+        stripped = item.strip()
+        if stripped in {"-c", "-ec", "-e", "-eux", "-euxc", "-ex", "-exc", "-lc"}:
+            continue
+        candidates.append(item)
+    return "\n".join(candidates).strip()
+
+
+def _is_allowed_short_main_container_wrapper(script: str) -> bool:
+    normalized = " ".join(script.split())
+    if not normalized:
+        return True
+    if "\n" in script:
+        return False
+    if len(normalized) > MAIN_CONTAINER_MAX_SCRIPT_CHARS:
+        return False
+    if MAIN_CONTAINER_ALLOWED_SHORT_SETUP_RE.match(normalized):
+        return True
+    if normalized.startswith("exec "):
+        return True
+    return False
+
+
+def _main_container_startup_issue(container: Dict[str, Any]) -> Optional[str]:
+    command = _as_string_list(container.get("command"))
+    args = _as_string_list(container.get("args"))
+    if not command and not args:
+        return None
+
+    shell_script = _shell_script_part(container)
+    if not shell_script:
+        multiline_parts = [part for part in command + args if "\n" in part]
+        operator_parts = [
+            part
+            for part in command + args
+            if re.search(r"(?:&&|\|\|)", part) and MAIN_CONTAINER_BOOTSTRAP_RE.search(part)
+        ]
+        if multiline_parts:
+            script = "\n".join(multiline_parts)
+        elif operator_parts:
+            script = " ".join(operator_parts)
+        else:
+            return None
+    else:
+        script = shell_script
+
+    normalized = " ".join(script.split())
+    command_count = len([part for part in re.split(r"\s*(?:&&|;|\|\|)\s*", normalized) if part.strip()])
+
+    if _is_allowed_short_main_container_wrapper(script):
+        return None
+    if "\n" in script:
+        return "main container startup uses a multi-line shell script"
+    if len(normalized) > MAIN_CONTAINER_MAX_SCRIPT_CHARS:
+        return "main container startup command is too long for an auditable runtime entry"
+    if command_count > MAIN_CONTAINER_MAX_SCRIPT_COMMANDS:
+        return "main container startup chains too many commands"
+    if MAIN_CONTAINER_BOOTSTRAP_RE.search(normalized):
+        return "main container startup contains bootstrap/setup commands"
+    if shell_script and "exec " not in normalized:
+        return "main container shell wrapper should exec the final process"
+    return None
+
+
 def check_database_services_use_clusters(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in context.yaml_documents:
@@ -1268,6 +1358,44 @@ def check_database_services_use_clusters(context: ScanContext) -> List[Violation
             default_pattern=r"^\s*kind\s*:",
             message="database services must use KubeBlocks Cluster resources, not raw Deployment/StatefulSet workloads",
         )
+
+    return violations
+
+
+def check_main_container_startup_contract(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if not _is_template_artifact_document(doc):
+            continue
+        if not is_app_workload_document(doc) or not has_managed_workload_marker(doc.data):
+            continue
+
+        template_spec = get_template_spec(doc.data)
+        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
+        if not isinstance(containers, list):
+            continue
+
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+            issue = _main_container_startup_issue(container)
+            if issue is None:
+                continue
+            add_doc_violation(
+                violations,
+                rule_id="R042",
+                doc=doc,
+                pattern=r"^\s*(command|args)\s*:",
+                default_pattern=r"^\s*containers\s*:",
+                message=(
+                    f"{issue}; move file preparation, permissions, database bootstrap, "
+                    "and compatibility repair into initContainers, Jobs, or ConfigMap scripts. "
+                    "Keep only the official entrypoint/args or a short exec wrapper in the main container."
+                ),
+            )
 
     return violations
 
@@ -1887,6 +2015,7 @@ APP_RULES: Dict[str, Rule] = {
     "R027": Rule("R027", check_postgres_custom_db_init_job),
     "R037": Rule("R037", check_postgres_secret_refs_match_cluster_name),
     "R039": Rule("R039", check_database_services_use_clusters),
+    "R042": Rule("R042", check_main_container_startup_contract),
     "R008": Rule("R008", check_deploy_manager_label_match_name),
     "R034": Rule("R034", check_app_label_match_name),
     "R028": Rule("R028", check_container_names_match_workload_name),

@@ -117,15 +117,28 @@ detection:
     - "Root URL and configured App URL behave differently in a fresh session"
     - "Init container waits forever on application-specific database checks"
     - "Startup logs mention pg_indexes, relay compatibility objects, or missing PostgreSQL search_path"
+    - "PostgreSQL bootstrap logs show syntax error at or near \"$\""
+    - "PostgreSQL bootstrap logs show syntax error at or near \":\" for ALTER ROLE ... :'app_password'"
 
 runtime_entry:
   final_config:
     safe_path: ""
     app_url: "root Sealos App URL"
+    main_container_working_dir: "/opt/billionmail/core"
+    main_container_command: "mkdir -p template && exec ./billionmail"
+  command_boundary:
+    keep_in_main_container:
+      - "official entrypoint or short exec wrapper only"
+    move_out_of_main_container:
+      - "file preparation and permission repair"
+      - "certificate/log-file setup"
+      - "database bootstrap and compatibility objects"
+      - "relay/search-path repair"
   verification:
     - "GET /api/get_validate_code returns success from the root App URL"
     - "POST /api/login succeeds with generated admin credentials"
     - "An authenticated page or API route works after login"
+    - "Live pod main container command stays short and ends in exec"
 
 database_bootstrap:
   principle: "Make critical compatibility objects idempotent and self-healing in init containers"
@@ -134,6 +147,11 @@ database_bootstrap:
     - "relay compatibility objects exist"
     - "application role search_path resolves expected public schema objects"
   ttl_job_note: "A completed or cleaned-up Job is only historical evidence; the database state is the acceptance signal"
+
+quoting_rules:
+  - "Prefer shell-level guard queries plus simple SQL over inline DO $$ blocks"
+  - "Use single-quoted heredocs for psql -v variable interpolation"
+  - "Do not put :'var' psql syntax inside psql -c strings"
 
 generalized_pattern:
   - "The Sealos App URL must be the URL that succeeds from a fresh browser session"

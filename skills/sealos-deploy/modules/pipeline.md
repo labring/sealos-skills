@@ -1058,7 +1058,8 @@ node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" \
   --captcha-path "/api/get_validate_code" \
   --login-path "/api/login" \
   --username "$ADMIN_USER" \
-  --password "$ADMIN_PASSWORD"
+  --password "$ADMIN_PASSWORD" \
+  --auth-path "/api/languages/get"
 ```
 
 After the browser/API smoke, inspect recent logs again:
@@ -1068,6 +1069,14 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   logs -n "$NAMESPACE" pod/<pod> --all-containers --tail=300
 ```
 
+Inspect the live main container startup command for managed app workloads:
+
+```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  get pod/<pod> -n "$NAMESPACE" \
+  -o jsonpath='{range .spec.containers[*]}{.name}{" command="}{.command}{" args="}{.args}{"\n"}{end}'
+```
+
 Acceptance checklist:
 
 - Pods and initContainers are complete or ready.
@@ -1075,6 +1084,8 @@ Acceptance checklist:
 - The actual App URL loads from a fresh session.
 - Login-gated apps complete setup/login and one authenticated action.
 - Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
+- Main business containers keep `command`/`args` short and close to the official entrypoint; repeated file preparation, permission repair, database bootstrap, or compatibility self-healing belongs in initContainers, Jobs, or ConfigMap scripts.
+- Shell wrappers in main containers end with `exec <final-process>` so signal handling remains correct.
 - Database-backed apps have the expected live database objects, because Job completion or TTL cleanup is only historical evidence.
 
 For app-specific guidance, load:

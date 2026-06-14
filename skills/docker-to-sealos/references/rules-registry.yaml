@@ -97,6 +97,9 @@ rules:
   - id: R040
     description: Database Cluster resources must include dbprovider visibility labels kb.io/database, sealos-db-provider-cr, and clusterdefinition.kubeblocks.io/name.
     severity: error
+  - id: R042
+    description: Managed app main containers should keep startup command/args short and move bootstrap work to initContainers, Jobs, or ConfigMap scripts.
+    severity: warning
   - id: R008
     description: App workload cloud.sealos.io/app-deploy-manager label must exist and match metadata.name.
     severity: error

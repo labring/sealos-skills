@@ -208,10 +208,22 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires app-specific runtime/database semantic review and live DB-state verification."
-  - must: "Database bootstrap SQL must be safe under shell execution: avoid unescaped `DO $$` in double-quoted or shell-expanded strings; prefer heredocs with single-quoted delimiters or `psql -v` variables."
+  - must: "Managed app main container `command`/`args` must stay close to the image's official entrypoint. Keep only official startup commands, Compose-native args, or a short exec wrapper; move file preparation, permission repair, database bootstrap, and compatibility self-healing into initContainers, Jobs, or ConfigMap scripts."
+    enforcement:
+      type: rule
+      target: R042
+  - must: "Shell wrappers in the main business container must `exec` the final process so signal handling remains correct."
+    enforcement:
+      type: rule
+      target: R042
+  - must: "Database bootstrap SQL must be safe under shell execution: prefer shell-level guard queries plus simple SQL, use single-quoted heredocs for psql variables, and avoid unguarded inline `DO $$` blocks."
     enforcement:
       type: manual
       note: "Requires review of init Job/initContainer shell scripts and SQL quoting."
+  - must: "`psql -c` must not contain `:'var'` psql variable syntax; use heredocs for SQL that needs `-v` interpolation."
+    enforcement:
+      type: manual
+      note: "Requires psql command-form review."
   - must: "Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services."
     enforcement:
       type: rule

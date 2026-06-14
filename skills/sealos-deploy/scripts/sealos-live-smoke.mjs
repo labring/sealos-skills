@@ -14,7 +14,13 @@ function parseArgs(argv) {
       args[key] = true;
       continue;
     }
-    args[key] = next;
+    if (args[key] === undefined) {
+      args[key] = next;
+    } else if (Array.isArray(args[key])) {
+      args[key].push(next);
+    } else {
+      args[key] = [args[key], next];
+    }
     index += 1;
   }
   for (const [key, value] of Object.entries({ ...args })) {
@@ -46,20 +52,26 @@ function redact(value) {
   return `${value.slice(0, 4)}...${value.slice(-4)}`;
 }
 
-function redactJson(value) {
+function compactString(key, value) {
+  const sensitivePattern = /(token|secret|password|credential|apikey|api_key|authorization|session|cookie)/i;
+  const bulkyPattern = /(base64|image|captcha|validateCodeBase64)/i;
+  if (sensitivePattern.test(key)) {
+    return redact(value);
+  }
+  if (bulkyPattern.test(key) || value.startsWith("data:image/") || value.length > 500) {
+    return `<redacted:${value.length} chars>`;
+  }
+  return value;
+}
+
+function redactJson(value, key = "") {
   if (Array.isArray(value)) {
-    return value.map((item) => redactJson(item));
+    return value.map((item) => redactJson(item, key));
   }
   if (!value || typeof value !== "object") {
-    return value;
+    return typeof value === "string" ? compactString(key, value) : value;
   }
-  const sensitivePattern = /(token|secret|password|credential|apikey|api_key|authorization|session|cookie)/i;
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [
-      key,
-      sensitivePattern.test(key) && typeof entry === "string" ? redact(entry) : redactJson(entry),
-    ]),
-  );
+  return Object.fromEntries(Object.entries(value).map(([entryKey, entry]) => [entryKey, redactJson(entry, entryKey)]));
 }
 
 async function requestStep(name, url, options = {}) {
@@ -94,6 +106,7 @@ async function requestStep(name, url, options = {}) {
     setCookie: response.headers.get("set-cookie") ? "<present>" : null,
     bodyPreview: safeJson ? JSON.stringify(safeJson).slice(0, 240) : text.slice(0, 240),
     json: safeJson,
+    rawJson: json,
   };
 }
 
@@ -114,11 +127,30 @@ function detectJsonSuccess(step) {
   return null;
 }
 
+function extractToken(loginStep) {
+  const data = loginStep?.rawJson?.data;
+  if (data?.token && typeof data.token === "string") {
+    return data.token;
+  }
+  if (loginStep?.rawJson?.token && typeof loginStep.rawJson.token === "string") {
+    return loginStep.rawJson.token;
+  }
+  return null;
+}
+
+function authPathsFromArgs(args) {
+  const authPath = args.authPath || args.authPaths;
+  if (!authPath) {
+    return [];
+  }
+  return Array.isArray(authPath) ? authPath : String(authPath).split(",").filter(Boolean);
+}
+
 const args = parseArgs(process.argv);
 const baseUrl = args.url;
 
 if (!baseUrl) {
-  fail("usage: node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-path <path>] [--username <user>] [--password <pass>]");
+  fail("usage: node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-path <path>] [--username <user>] [--password <pass>] [--auth-path <path>]");
 }
 
 const steps = [];
@@ -143,15 +175,27 @@ try {
       }),
     );
   }
+
+  const loginStep = steps.find((step) => step.name === "login");
+  const token = extractToken(loginStep);
+  for (const path of authPathsFromArgs(args)) {
+    steps.push(
+      await requestStep(`auth:${path}`, joinUrl(baseUrl, path), {
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+      }),
+    );
+  }
 } catch (error) {
-  fail(error.message, { steps });
+  fail(error.message, { steps: steps.map(({ rawJson, ...step }) => step) });
 }
 
 const loginStep = steps.find((step) => step.name === "login");
 const captchaStep = steps.find((step) => step.name === "captcha");
 const rootStep = steps.find((step) => step.name === "root");
+const authSteps = steps.filter((step) => step.name.startsWith("auth:"));
 const loginJsonSuccess = loginStep ? detectJsonSuccess(loginStep) : null;
 const captchaJsonSuccess = captchaStep ? detectJsonSuccess(captchaStep) : null;
+const authSuccess = authSteps.every((step) => step.ok && detectJsonSuccess(step) !== false);
 
 console.log(
   JSON.stringify(
@@ -159,10 +203,11 @@ console.log(
       ok:
         Boolean(rootStep?.ok) &&
         (captchaStep ? captchaStep.ok && captchaJsonSuccess !== false : true) &&
-        (loginStep ? loginStep.ok && loginJsonSuccess !== false : true),
+        (loginStep ? loginStep.ok && loginJsonSuccess !== false : true) &&
+        authSuccess,
       url: baseUrl,
       credentials: args.username ? { username: args.username, password: redact(args.password) } : null,
-      steps,
+      steps: steps.map(({ rawJson, ...step }) => step),
     },
     null,
     2,
