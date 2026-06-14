@@ -56,6 +56,10 @@ must_rules:
     enforcement:
       type: rule
       target: R033
+  - must: "App resource `spec.data.url` must be the browser entry URL that succeeds from a fresh Sealos launch. For apps with safe-path, setup-path, or entrance-path behavior, verify the configured path and root path, then choose the URL that supports login or first-run setup without hidden prior navigation."
+    enforcement:
+      type: manual
+      note: "Requires live Sealos App URL smoke from a fresh browser/session."
   - must: "Never use `spec.template` in App resource."
     enforcement:
       type: rule
@@ -200,6 +204,14 @@ must_rules:
     enforcement:
       type: rule
       target: R027
+  - must: "For application-specific database compatibility, include an initContainer or startup gate that idempotently creates or repairs required views, aliases, indexes, extensions, privileges, role search paths, and legacy compatibility objects before the business container starts."
+    enforcement:
+      type: manual
+      note: "Requires app-specific runtime/database semantic review and live DB-state verification."
+  - must: "Database bootstrap SQL must be safe under shell execution: avoid unescaped `DO $$` in double-quoted or shell-expanded strings; prefer heredocs with single-quoted delimiters or `psql -v` variables."
+    enforcement:
+      type: manual
+      note: "Requires review of init Job/initContainer shell scripts and SQL quoting."
   - must: "Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services."
     enforcement:
       type: rule

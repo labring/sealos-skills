@@ -74,6 +74,9 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - MySQL/MongoDB/Redis/Kafka must use templates and secret naming from `references/database-templates.md`.
 - Add DB init Job/initContainer when application database bootstrap requires it.
 - For PostgreSQL custom databases (non-`postgres`), the init Job must wait for PostgreSQL readiness before execution and create the target database idempotently.
+- Critical application compatibility objects must be verified in live database state. Use idempotent initContainer self-healing for compatibility views, legacy tables/views, indexes, extensions, search paths, and bootstrap state that the app requires on every cold start.
+- One-shot init Jobs may create initial databases or seed state, but app startup gates must verify the final database objects directly. Treat TTL-expired Jobs as historical evidence and rely on database state for acceptance.
+- PostgreSQL bootstrap shell must use safe quoting patterns (`psql -v name=value`, single-quoted heredocs, or separate SQL files) so shell expansion cannot corrupt SQL blocks such as `DO $$`.
 
 ### Step 6: Generate output files
 
@@ -115,6 +118,7 @@ If validation fails, fix template/rules/examples first.
 - App resource must use `spec.data.url`.
 - App resource `spec.displayType` must be `normal`.
 - App resource `spec.type` must be `link`.
+- App resource `spec.data.url` must be the browser entry URL that succeeds from a fresh Sealos launch. For apps with safe-path, setup-path, or entrance-path behavior, verify the configured path and root path, then choose the URL that supports login or first-run setup without hidden prior navigation.
 - Never use `spec.template` in App resource.
 - `cloud.sealos.io/app-deploy-manager` label value must equal resource `metadata.name`.
 - `metadata.labels.app` label value must equal resource `metadata.name` for managed app workloads.
@@ -163,6 +167,8 @@ If validation fails, fix template/rules/examples first.
 - Follow official app env var naming; do not invent prefixes.
 - When the application requires its public URL configured via a file-based config system (e.g., node-config `config/default.json`, PHP config files), create a ConfigMap containing the config file with the public URL set to `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`, and mount it to the application's config directory. The ConfigMap must follow standard naming and label conventions.
 - For PostgreSQL custom databases (non-`postgres`), include `${{ defaults.app_name }}-pg-init` Job and implement startup-safe/idempotent creation logic (readiness wait + existence check before create).
+- For application-specific database compatibility, include an initContainer or startup gate that idempotently creates or repairs required views, aliases, indexes, extensions, privileges, role search paths, and legacy compatibility objects before the business container starts.
+- Database bootstrap SQL must be safe under shell execution: avoid unescaped `DO $$` in double-quoted or shell-expanded strings; prefer heredocs with single-quoted delimiters or `psql -v` variables.
 
 ### Database-specific constraints
 
@@ -232,6 +238,7 @@ Run all checks before final response:
 6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml`
 7. `python scripts/check_must_coverage.py --skill SKILL.md --mapping references/must-rules-map.yaml --rules-file references/rules-registry.yaml`
 8. (CI / one-shot) `python scripts/quality_gate.py` (requires `template/*/index.yaml` by default; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
+9. Live deploy acceptance: after `sealos-deploy` creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, expected database objects, and full resource footprint before reporting success.
 
 `check_consistency.py` is registry-driven. Keep `references/rules-registry.yaml` in sync with implemented rules.
 Registry rule entries support `severity` and optional `scope.include_paths` metadata.
