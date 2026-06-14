@@ -1323,6 +1323,235 @@ class CheckConsistencyTests(unittest.TestCase):
             )
             self.assertTrue(any(item.rule_id == "R030" for item in violations))
 
+    def test_accepts_configmap_file_mount_contract(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: demo
+                  labels:
+                    app: demo
+                    cloud.sealos.io/app-deploy-manager: demo
+                data:
+                  vn-optvn-demovn-startvn-sh: |
+                    echo start
+                  vn-optvn-demovn-initvn-py: |
+                    print("init")
+                ---
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: demo
+                  annotations:
+                    originImageName: ghcr.io/example/demo:1.0.0
+                  labels:
+                    app: demo
+                    cloud.sealos.io/app-deploy-manager: demo
+                spec:
+                  replicas: 1
+                  revisionHistoryLimit: 1
+                  selector:
+                    matchLabels:
+                      app: demo
+                  template:
+                    metadata:
+                      labels:
+                        app: demo
+                    spec:
+                      automountServiceAccountToken: false
+                      imagePullSecrets:
+                        - name: demo
+                      containers:
+                        - name: demo
+                          image: ghcr.io/example/demo:1.0.0
+                          imagePullPolicy: IfNotPresent
+                          resources:
+                            limits:
+                              cpu: 200m
+                              memory: 256Mi
+                            requests:
+                              cpu: 20m
+                              memory: 25Mi
+                          volumeMounts:
+                            - name: demo-cm
+                              mountPath: /opt/demo/start.sh
+                              subPath: vn-optvn-demovn-startvn-sh
+                            - name: demo-cm
+                              mountPath: /opt/demo/init.py
+                              subPath: vn-optvn-demovn-initvn-py
+                      volumes:
+                        - name: demo-cm
+                          configMap:
+                            name: demo
+                            defaultMode: 493
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R043" for item in violations))
+
+    def test_detects_configmap_file_mount_contract_violations(self):
+        base_artifact = """apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: __CONFIGMAP_NAME__
+  labels:
+    app: __CONFIGMAP_NAME__
+    cloud.sealos.io/app-deploy-manager: __CONFIGMAP_NAME__
+data:
+  vn-optvn-demovn-startvn-sh: |
+    echo start
+  vn-optvn-demovn-initvn-py: |
+    print("init")
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo
+  annotations:
+    originImageName: ghcr.io/example/demo:1.0.0
+  labels:
+    app: demo
+    cloud.sealos.io/app-deploy-manager: demo
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: demo
+  template:
+    metadata:
+      labels:
+        app: demo
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: demo
+      containers:
+        - name: demo
+          image: ghcr.io/example/demo:1.0.0
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          volumeMounts:
+__MOUNTS__
+      volumes:
+        - name: __VOLUME_NAME__
+          configMap:
+            name: __CONFIGMAP_NAME__
+            defaultMode: 493
+"""
+        cases = [
+            (
+                "configmap suffix",
+                "demo-config",
+                "demo-cm",
+                """
+                - name: demo-cm
+                  mountPath: /opt/demo/start.sh
+                  subPath: vn-optvn-demovn-startvn-sh
+                - name: demo-cm
+                  mountPath: /opt/demo/init.py
+                  subPath: vn-optvn-demovn-initvn-py
+                """,
+            ),
+            (
+                "wrong volume name",
+                "demo",
+                "vn-optvn-demo",
+                """
+                - name: vn-optvn-demo
+                  mountPath: /opt/demo/start.sh
+                  subPath: vn-optvn-demovn-startvn-sh
+                - name: vn-optvn-demo
+                  mountPath: /opt/demo/init.py
+                  subPath: vn-optvn-demovn-initvn-py
+                """,
+            ),
+            (
+                "directory mount",
+                "demo",
+                "demo-cm",
+                """
+                - name: demo-cm
+                  mountPath: /opt/demo
+                """,
+            ),
+            (
+                "path subPath",
+                "demo",
+                "demo-cm",
+                """
+                - name: demo-cm
+                  mountPath: /opt/demo/start.sh
+                  subPath: /opt/demo/start.sh
+                - name: demo-cm
+                  mountPath: /opt/demo/init.py
+                  subPath: ./opt/demo/init.py
+                """,
+            ),
+            (
+                "missing key mount",
+                "demo",
+                "demo-cm",
+                """
+                - name: demo-cm
+                  mountPath: /opt/demo/start.sh
+                  subPath: vn-optvn-demovn-startvn-sh
+                """,
+            ),
+        ]
+        for label, configmap_name, volume_name, mounts in cases:
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    root = Path(temp_dir)
+                    skill = root / "SKILL.md"
+                    refs_dir = root / "references"
+                    refs_file = refs_dir / "sample.md"
+                    rules_file = refs_dir / "rules-registry.yaml"
+                    artifact_file = root / "template" / "demo" / "index.yaml"
+
+                    write_file(skill, "# no yaml snippets\n")
+                    write_file(refs_file, "# refs\n")
+                    write_registry(rules_file)
+                    artifact = (
+                        base_artifact.replace("__CONFIGMAP_NAME__", configmap_name)
+                        .replace("__VOLUME_NAME__", volume_name)
+                        .replace("__MOUNTS__", textwrap.indent(textwrap.dedent(mounts).strip("\n"), " " * 12))
+                    )
+                    write_file(artifact_file, artifact)
+
+                    violations = CHECKER.run_checks(
+                        skill,
+                        refs_dir,
+                        rules_file,
+                        additional_include_paths=["template/demo/index.yaml"],
+                    )
+                    self.assertTrue(any(item.rule_id == "R043" for item in violations), label)
+
     def test_detects_ingress_backend_name_mismatch_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

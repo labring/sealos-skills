@@ -1434,15 +1434,25 @@ spec:
 
 #### `Object Storage`
 
-We use object storage to provide bucket resource support. You can directly use the following code to deploy a bucket:
+Use a boolean input when object storage has only enabled and disabled states:
 
 ```yaml
+inputs:
+  enable_s3_storage:
+    description: "Enable S3 object storage"
+    type: boolean
+    default: "false"
+    required: false
+
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
   name: ${{ defaults.app_name }}
 spec:
   policy: private
+${{ endif() }}
 ```
 
 The policy has three types: private (private bucket, not open), publicRead (shared bucket, open for public read), and publicReadwrite (shared bucket, open for public read and write).

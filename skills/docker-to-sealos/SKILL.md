@@ -156,7 +156,10 @@ If validation fails, fix template/rules/examples first.
 - Use persistent storage patterns (`volumeClaimTemplates`) where storage is needed.
 - StatefulSet resources with `volumeClaimTemplates` must set `metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` and every `volumeClaimTemplates[].metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` so Template can track and clean PVCs.
 - PVC request must be `<= 1Gi` unless source spec explicitly requires less.
-- ConfigMap keys and volume names must follow vn naming (`scripts/path_converter.py`).
+- ConfigMap data keys must follow vn naming (`scripts/path_converter.py`), including `/`, `-`, `.`, and other special characters.
+- ConfigMaps mounted by managed Deployment/StatefulSet workloads must use `metadata.name == workload.metadata.name`.
+- ConfigMap workload volumes must use `<workload-name>-cm`, and every ConfigMap `data` key must be mounted as its own `volumeMount` with `subPath` exactly equal to that key.
+- Avoid long inline startup scripts or heredocs in `command`/`args`; place initialization/start scripts in ConfigMap files and invoke them with a short command.
 
 ### Env and secrets
 
@@ -232,6 +235,7 @@ For Chrome + Xvfb + Selkies with 4K max display, use at least:
 - `inputs.description` must be in English.
 - Startup-critical `inputs[*].default` values must satisfy the application's documented startup validation. For admin/bootstrap passwords with complexity rules, do not use `''`, weak examples, or bare `${{ random(n) }}` because generated characters may not include required classes; include deterministic required classes around the random segment, for example `"AppName@${{ random(16) }}!1"`.
 - If an application exits when a required input is weak or empty, treat the input default as part of the runtime contract. Live validation must include the first boot logs and login/setup path with the generated default value.
+- For binary object storage choices, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`.
 
 ## Validation Commands
 

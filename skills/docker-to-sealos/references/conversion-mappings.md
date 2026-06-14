@@ -419,6 +419,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-etcvn-nginxvn-nginxvn-conf: |
     server {
@@ -436,17 +439,14 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}
           volumeMounts:
-            - name: vn-etcvn-nginxvn-nginxvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/nginx/nginx.conf
-              subPath: ./etc/nginx/nginx.conf
+              subPath: vn-etcvn-nginxvn-nginxvn-conf
       volumes:
-        - name: vn-etcvn-nginxvn-nginxvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-nginxvn-nginxvn-conf
-                path: ./etc/nginx/nginx.conf
-            defaultMode: 420
+            defaultMode: 493
 ```
 
 ## Database Service Mapping
@@ -806,12 +806,22 @@ services:
 
 ### Sealos Template
 ```yaml
+inputs:
+  enable_s3_storage:
+    description: "Enable S3 object storage"
+    type: boolean
+    default: "false"
+    required: false
+
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
   name: ${{ defaults.app_name }}
 spec:
   policy: private
+${{ endif() }}
 
 ---
 # Using object storage in the application
@@ -824,18 +834,18 @@ spec:
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: accessKey
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: secretKey
             - name: S3_BUCKET
-    valueFrom:
-      secretKeyRef:
-        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-        key: bucket
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
 ```
 
 Bucket-scoped object-storage secrets may append an additional lowercase suffix when one app needs multiple bucket values, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`. Env names ending in `_BUCKET` may reference those bucket-scoped secrets.
