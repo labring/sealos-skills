@@ -39,15 +39,14 @@ If you only use one detected agent tool on the machine, you can let `plugins` ch
 npx plugins add https://github.com/labring/sealos-skills
 ```
 
-After installation, use the plugin from your agent:
+After installation, use the plugin from Codex:
 
 - **Codex CLI:** type `$sealos`
 - **Codex App:** click the **+** button in the lower-left corner of the chat input, choose **Plugins**, then choose **Sealos**
-- **Claude Code:** type `/sealos`
 
 ![Select the Sealos plugin in Codex App](./assets/codex-sealos.png)
 
-Plugin examples:
+Codex examples:
 
 ```text
 $sealos deploy this repo to Sealos Cloud
@@ -67,13 +66,11 @@ For Claude Code, use the same requests with `/sealos`:
 /sealos create private S3 object storage for uploads and wire env vars
 ```
 
-In Codex App, select **Sealos** from **Plugins**, then describe what you want to deploy.
-
 ### Other supported AI tools
 
 | Tool | Install | Usage |
 | --- | --- | --- |
-| Codex CLI / Codex App | `npx plugins add https://github.com/labring/sealos-skills --target codex` | `$sealos` in Codex CLI, or **+** → **Plugins** → **Sealos** in Codex App |
+| Codex CLI / Codex App | `codex plugin marketplace add labring/sealos-skills` then `codex plugin add sealos@sealos` | `$sealos` in Codex CLI, or **+** → **Plugins** → **Sealos** in Codex App |
 | Claude Code | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
 | Claude Code marketplace flow | `/plugin marketplace add labring/sealos-skills` | `/sealos` |
 | OpenClaw / ClawHub | `clawhub install labring/sealos-skills` | Host command exposure depends on the ClawHub runtime |
