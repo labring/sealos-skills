@@ -4,17 +4,28 @@ Deploy projects to [Sealos Cloud](https://sealos.io) from your AI agent.
 
 Sealos Skills is a plugin-first skill pack centered on Sealos Cloud development and deployment. It helps an AI agent inspect a project, prepare missing deployment artifacts, connect Sealos Cloud databases and object storage for development, build or reuse a container image, ship the app to Sealos Cloud, and view deployed resources in a local read-only canvas.
 
-The recommended way to use it is as an agent plugin installed with [`npx plugins`](https://www.npmjs.com/package/plugins). The same root `skills/` directory also remains compatible with `skills.sh` and context-only extension hosts such as Gemini CLI and Qwen Code.
+The recommended Codex path is native Codex plugin installation. Cross-host plugin installs, `skills.sh`, and context-only extension hosts such as Gemini CLI and Qwen Code use the same root `skills/**` source.
 
 ## Quick Start
 
-### Recommended: install as a plugin
+### Recommended: install in Codex
 
-Install the Sealos plugin into Codex:
+Add this repository as a Codex marketplace, then install the Sealos plugin:
+
+```bash
+codex plugin marketplace add labring/sealos-skills
+codex plugin add sealos@sealos
+```
+
+One Sealos plugin installs the deploy, database, S3, canvas, app-builder, and supporting cloud-native skills from root `skills/**`: `sealos-deploy`, `sealos-database`, `sealos-s3`, `sealos-canvas`, `sealos-app-builder`, `cloud-native-readiness`, `dockerfile-skill`, and `docker-to-sealos`.
+
+For compatibility and local Codex testing, install the same plugin with:
 
 ```bash
 npx plugins add https://github.com/labring/sealos-skills --target codex
 ```
+
+### Install in Claude Code
 
 Install the Sealos plugin into Claude Code:
 
