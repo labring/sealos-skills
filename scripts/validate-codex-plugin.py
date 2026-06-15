@@ -28,6 +28,7 @@ README_NATIVE_COMMANDS = (
     "codex plugin marketplace add labring/sealos-skills",
     "codex plugin add sealos@sealos",
 )
+README_RECOMMENDED_CODEX_HEADING = "### Recommended: install in Codex"
 README_FALLBACK_COMMAND = "npx plugins add https://github.com/labring/sealos-skills --target codex"
 PLATFORM_INSTALL_COMMAND = "codex plugin marketplace add labring/sealos-skills && codex plugin add sealos@sealos"
 CODEX_PLATFORM_ID = "codex"
@@ -60,13 +61,19 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def load_json(path: Path) -> dict:
+def load_json(path: Path) -> object:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         fail(f"missing {path.relative_to(ROOT)}")
     except json.JSONDecodeError as exc:
         fail(f"invalid JSON in {path.relative_to(ROOT)}: {exc}")
+
+
+def load_json_object(path: Path) -> dict:
+    value = load_json(path)
+    require(isinstance(value, dict), f"{path.relative_to(ROOT)} contains a JSON object")
+    return value
 
 
 def read_text(path: Path) -> str:
@@ -80,6 +87,25 @@ def require(condition: bool, message: str) -> None:
     if not condition:
         fail(message)
     print(f"PASS: {message}")
+
+
+def require_list(value: object, label: str) -> list:
+    require(isinstance(value, list), f"{label} is a JSON array")
+    return value
+
+
+def require_single_object_entry(value: object, label: str) -> dict:
+    entries = require_list(value, f"{label} plugins")
+    require(len(entries) == 1, f"{label} has one plugin entry")
+    entry = entries[0]
+    require(isinstance(entry, dict), f"{label} plugin entry is a JSON object")
+    return entry
+
+
+def optional_object(parent: dict, key: str, label: str) -> dict:
+    value = parent.get(key, {})
+    require(isinstance(value, dict), f"{label} is a JSON object")
+    return value
 
 
 def require_relative_path(value: str, field: str) -> None:
@@ -97,17 +123,45 @@ def require_manifest_parity(root_plugin: dict, codex_plugin: dict) -> None:
     require(not mismatched, "root plugin.json matches .codex-plugin/plugin.json key fields")
 
 
+def section_after_heading(text: str, heading: str) -> str:
+    start = text.find(heading)
+    require(start >= 0, f"README includes {heading} section")
+    body_start = start + len(heading)
+    next_heading = text.find("\n### ", body_start)
+    if next_heading == -1:
+        return text[body_start:]
+    return text[body_start:next_heading]
+
+
+def bash_blocks(markdown: str) -> list[list[str]]:
+    blocks = []
+    lines = markdown.splitlines()
+    index = 0
+    while index < len(lines):
+        if lines[index].strip() == "```bash":
+            index += 1
+            block_lines = []
+            while index < len(lines) and lines[index].strip() != "```":
+                line = lines[index].strip()
+                if line:
+                    block_lines.append(line)
+                index += 1
+            blocks.append(block_lines)
+        index += 1
+    return blocks
+
+
 def require_readme_contract(readme: str) -> None:
-    command_positions = []
-    for command in README_NATIVE_COMMANDS:
-        position = readme.find(command)
-        command_positions.append(position)
-        require(position >= 0, f"README includes native Codex command: {command}")
+    recommended_section = section_after_heading(readme, README_RECOMMENDED_CODEX_HEADING)
+    recommended_blocks = bash_blocks(recommended_section)
     require(
-        command_positions == sorted(command_positions),
-        "README lists native Codex commands in canonical order",
+        list(README_NATIVE_COMMANDS) in recommended_blocks,
+        "README Quick Start includes exact native Codex install block",
     )
-    require(README_FALLBACK_COMMAND in readme, "README includes fallback Codex npx install command")
+    require(
+        [README_FALLBACK_COMMAND] in recommended_blocks,
+        "README Quick Start includes exact fallback Codex npx install block",
+    )
     for token in (REPOSITORY_SLUG, PLUGIN_SELECTOR, "$sealos", DISPLAY_LABEL):
         require(token in readme, f"README includes canonical identity token: {token}")
 
@@ -115,12 +169,13 @@ def require_readme_contract(readme: str) -> None:
 def require_manifest_contract(root_plugin: dict, codex_plugin: dict) -> None:
     require_manifest_parity(root_plugin, codex_plugin)
     for label, manifest in (("root plugin.json", root_plugin), ("Codex plugin manifest", codex_plugin)):
+        interface = optional_object(manifest, "interface", f"{label} interface")
         require(manifest.get("name") == PLUGIN_ID, f"{label} uses canonical plugin id")
         require(manifest.get("homepage") == REPOSITORY_URL, f"{label} uses canonical homepage")
         require(manifest.get("repository") == REPOSITORY_URL, f"{label} uses canonical repository")
         require(manifest.get("skills") == SKILLS_SOURCE, f"{label} points to root skills directory")
         require(
-            manifest.get("interface", {}).get("displayName") == DISPLAY_LABEL,
+            interface.get("displayName") == DISPLAY_LABEL,
             f"{label} uses canonical display label",
         )
 
@@ -136,34 +191,34 @@ def require_plugin_payload(root: Path, label: str) -> None:
 
 
 def require_codex_marketplace_contract(marketplace: dict) -> None:
+    interface = optional_object(marketplace, "interface", "Codex marketplace interface")
     require(marketplace.get("name") == PLUGIN_ID, "Codex marketplace uses canonical marketplace id")
     require(
-        marketplace.get("interface", {}).get("displayName") == DISPLAY_LABEL,
+        interface.get("displayName") == DISPLAY_LABEL,
         "Codex marketplace uses canonical display label",
     )
-    plugins = marketplace.get("plugins", [])
-    require(len(plugins) == 1, "Codex marketplace has one plugin entry")
-    entry = plugins[0]
+    entry = require_single_object_entry(marketplace.get("plugins", []), "Codex marketplace")
+    source = optional_object(entry, "source", "Codex marketplace entry source")
+    policy = optional_object(entry, "policy", "Codex marketplace entry policy")
     require(entry.get("name") == PLUGIN_ID, "Codex marketplace entry names Sealos")
-    require(entry.get("source", {}).get("source") == "local", "Codex marketplace uses local source")
+    require(source.get("source") == "local", "Codex marketplace uses local source")
     require(
-        entry.get("source", {}).get("path") == CODEX_MARKETPLACE_SOURCE,
+        source.get("path") == CODEX_MARKETPLACE_SOURCE,
         "Codex marketplace points at repo-root plugin source",
     )
-    require(entry.get("policy", {}).get("installation") == "AVAILABLE", "Codex marketplace installation policy is available")
-    require(entry.get("policy", {}).get("authentication") == "ON_INSTALL", "Codex marketplace authentication policy is on install")
+    require(policy.get("installation") == "AVAILABLE", "Codex marketplace installation policy is available")
+    require(policy.get("authentication") == "ON_INSTALL", "Codex marketplace authentication policy is on install")
     require(entry.get("category") == "Coding", "Codex marketplace category is Coding")
 
 
 def require_root_marketplace_contract(root_marketplace: dict, codex_plugin: dict) -> None:
+    metadata = optional_object(root_marketplace, "metadata", "root marketplace metadata")
     require(root_marketplace.get("name") == PLUGIN_ID, "root marketplace uses canonical marketplace id")
     require(
-        root_marketplace.get("metadata", {}).get("repository") == REPOSITORY_URL,
+        metadata.get("repository") == REPOSITORY_URL,
         "root marketplace uses canonical repository URL",
     )
-    plugins = root_marketplace.get("plugins", [])
-    require(len(plugins) == 1, "root marketplace has one plugin entry")
-    entry = plugins[0]
+    entry = require_single_object_entry(root_marketplace.get("plugins", []), "root marketplace")
     require(entry.get("name") == PLUGIN_ID, "root marketplace entry uses canonical plugin id")
     require(entry.get("source") == ROOT_MARKETPLACE_SOURCE, "root marketplace entry points to repository root")
     require(entry.get("commands") == ROOT_MARKETPLACE_COMMANDS, "root marketplace entry points to commands directory")
@@ -171,7 +226,15 @@ def require_root_marketplace_contract(root_marketplace: dict, codex_plugin: dict
 
 
 def require_platform_codex_contract(platforms: dict) -> None:
-    codex_entries = [platform for platform in platforms.get("platforms", []) if platform.get("id") == CODEX_PLATFORM_ID]
+    require(platforms.get("name") == PLUGIN_ID, "platform registry uses canonical plugin id")
+    require(platforms.get("version") == "1.0.0", "platform registry version is current")
+    require(platforms.get("repository") == REPOSITORY_URL, "platform registry uses canonical repository URL")
+    platform_entries = require_list(platforms.get("platforms", []), "platform registry platforms")
+    require(
+        all(isinstance(platform, dict) for platform in platform_entries),
+        "platform registry platform entries are JSON objects",
+    )
+    codex_entries = [platform for platform in platform_entries if platform.get("id") == CODEX_PLATFORM_ID]
     require(len(codex_entries) == 1, "platform registry includes one Codex entry")
     codex = codex_entries[0]
     require(codex.get("claim") == "verified", "Codex platform claim is verified")
@@ -189,11 +252,11 @@ def require_platform_codex_contract(platforms: dict) -> None:
 
 def main() -> int:
     readme = read_text(README_PATH)
-    root_plugin = load_json(ROOT_PLUGIN_PATH)
-    plugin = load_json(PLUGIN_PATH)
-    marketplace = load_json(MARKETPLACE_PATH)
-    root_marketplace = load_json(ROOT_MARKETPLACE_PATH)
-    platforms = load_json(PLATFORMS_PATH)
+    root_plugin = load_json_object(ROOT_PLUGIN_PATH)
+    plugin = load_json_object(PLUGIN_PATH)
+    marketplace = load_json_object(MARKETPLACE_PATH)
+    root_marketplace = load_json_object(ROOT_MARKETPLACE_PATH)
+    platforms = load_json_object(PLATFORMS_PATH)
 
     require(README_PATH.is_file(), "README.md exists")
     require(ROOT_PLUGIN_PATH.is_file(), "root plugin.json exists")
@@ -208,14 +271,16 @@ def main() -> int:
     require(plugin.get("skills") == SKILLS_SOURCE, "Codex plugin points to root skills directory")
     require((ROOT / "skills").is_dir(), "skills directory exists")
 
-    interface = plugin.get("interface", {})
+    interface = optional_object(plugin, "interface", "Codex plugin interface")
     require(interface.get("displayName") == DISPLAY_LABEL, "Codex display name is Sealos")
     require(interface.get("category") == "Coding", "Codex category is Coding")
     require(interface.get("brandColor") == "#15B8A6", "Codex brand color is set")
-    require(len(interface.get("defaultPrompt", [])) <= 3, "Codex default prompts are limited to 3")
-    require("Interactive" in interface.get("capabilities", []), "Codex capabilities include Interactive")
-    require("Read" in interface.get("capabilities", []), "Codex capabilities include Read")
-    require("Write" in interface.get("capabilities", []), "Codex capabilities include Write")
+    default_prompts = require_list(interface.get("defaultPrompt", []), "Codex default prompts")
+    capabilities = require_list(interface.get("capabilities", []), "Codex capabilities")
+    require(len(default_prompts) <= 3, "Codex default prompts are limited to 3")
+    require("Interactive" in capabilities, "Codex capabilities include Interactive")
+    require("Read" in capabilities, "Codex capabilities include Read")
+    require("Write" in capabilities, "Codex capabilities include Write")
     require_relative_path(interface.get("composerIcon", ""), "composerIcon")
     require_relative_path(interface.get("logo", ""), "logo")
 
