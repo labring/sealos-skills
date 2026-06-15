@@ -1,0 +1,22 @@
+
+██████╗ ██╗     ██╗   ██╗ ██████╗ ██╗███╗   ██╗███████╗
+██╔══██╗██║     ██║   ██║██╔════╝ ██║████╗  ██║██╔════╝
+██████╔╝██║     ██║   ██║██║  ███╗██║██╔██╗ ██║███████╗
+██╔═══╝ ██║     ██║   ██║██║   ██║██║██║╚██╗██║╚════██║
+██║     ███████╗╚██████╔╝╚██████╔╝██║██║ ╚████║███████║
+╚═╝     ╚══════╝ ╚═════╝  ╚═════╝ ╚═╝╚═╝  ╚═══╝╚══════╝
+
+┌   plugins 
+◇  Source: https://github.com/labring/sealos-skills
+│
+●  Repository cloned
+│
+│
+◇  Found 1 plugin(s)
+│
+│  sealos  7 skills, 1 cmd  Deploy local or GitHub projects to Sealos Cloud, co…
+│
+│  Targets:  Codex
+│  Scope:    user
+│
+◆  Install? [Y/n] 

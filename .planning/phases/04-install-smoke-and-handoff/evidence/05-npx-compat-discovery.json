@@ -1,0 +1,141 @@
+{
+  "capturedAt": "2026-06-15T12:12:35Z",
+  "status": "discovery_evidence",
+  "command": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+  "exitCode": 0,
+  "classificationReason": "Exact command discovered the remote repository and Codex-target plugin, then stopped at the installer confirmation prompt with no installed Codex state under isolated CODEX_HOME.",
+  "compatibilityEvidence": {
+    "stdoutFile": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.txt",
+    "stderrFile": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.stderr.txt",
+    "exitCodeFile": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.exitcode",
+    "envFile": ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt",
+    "stdoutSignals": {
+      "repository_cloned": true,
+      "found_one_plugin": true,
+      "sealos_listed": true,
+      "targets_codex": true,
+      "interactive_install_prompt": true
+    },
+    "stderrSignals": {
+      "npx_installed_plugins_package": true,
+      "npm_update_notice_only": true
+    },
+    "isolatedPaths": {
+      "NPX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo",
+      "NPX_CACHE": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache",
+      "NPX_CODEX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.codex",
+      "XDG_CACHE_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache",
+      "XDG_CONFIG_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.config"
+    },
+    "installedCodexStateFound": false,
+    "discoveredPluginCachePath": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills"
+  },
+  "packageMetadata": {
+    "command": {
+      "cmd": "npm view plugins name version repository.url homepage bin engines scripts.postinstall --json",
+      "exitCode": 0,
+      "stdout": "{\n  \"name\": \"plugins\",\n  \"version\": \"1.3.1\",\n  \"repository.url\": \"git+https://github.com/vercel-labs/plugins.git\",\n  \"homepage\": \"https://github.com/vercel-labs/plugins#readme\",\n  \"bin\": {\n    \"plugins\": \"dist/index.js\"\n  },\n  \"engines\": {\n    \"node\": \">=18\"\n  }\n}",
+      "stderr": ""
+    },
+    "parsed": {
+      "name": "plugins",
+      "version": "1.3.1",
+      "repository.url": "git+https://github.com/vercel-labs/plugins.git",
+      "homepage": "https://github.com/vercel-labs/plugins#readme",
+      "bin": {
+        "plugins": "dist/index.js"
+      },
+      "engines": {
+        "node": ">=18"
+      }
+    }
+  },
+  "repositoryDiscovery": {
+    "repo_discovered": true,
+    "pluginJson": {},
+    "codexPluginJson": {
+      "name": "sealos",
+      "version": "1.0.0",
+      "description": "Sealos deployment, database, object storage, and app-building skills for Codex.",
+      "author": {
+        "name": "Sealos",
+        "url": "https://sealos.io/"
+      },
+      "homepage": "https://github.com/labring/sealos-skills",
+      "repository": "https://github.com/labring/sealos-skills",
+      "license": "MIT",
+      "keywords": [
+        "sealos",
+        "sealos-cloud",
+        "deployment",
+        "docker",
+        "kubernetes",
+        "codex",
+        "skills",
+        "devops",
+        "desktop-apps",
+        "database",
+        "object-storage",
+        "s3"
+      ],
+      "skills": "./skills/",
+      "interface": {
+        "displayName": "Sealos",
+        "shortDescription": "Deploy apps and connect Sealos cloud services",
+        "longDescription": "Use Sealos in Codex to assess cloud-native readiness, generate production Dockerfiles, build or reuse container images, convert Docker Compose services into Sealos templates, deploy and update workloads on Sealos Cloud, connect cloud databases, configure S3-compatible object storage, and build Sealos Desktop apps with SDK integration guidance. The plugin bundles Sealos Agent Skills under ./skills/ and is invoked as $sealos in Codex or /sealos in Claude Code-compatible hosts.",
+        "developerName": "Sealos",
+        "category": "Coding",
+        "capabilities": [
+          "Interactive",
+          "Read",
+          "Write"
+        ],
+        "websiteURL": "https://sealos.io/",
+        "privacyPolicyURL": "https://sealos.io/docs/msa/privacy-policy/",
+        "termsOfServiceURL": "https://sealos.io/docs/msa/terms-of-service/",
+        "defaultPrompt": [
+          "Deploy this repo to Sealos Cloud.",
+          "Containerize this app and deploy it to Sealos.",
+          "Create private S3 object storage and wire env vars."
+        ],
+        "brandColor": "#15B8A6",
+        "composerIcon": "./assets/logo.svg",
+        "logo": "./assets/logo.svg",
+        "screenshots": []
+      }
+    },
+    "identity": {
+      "name": "sealos",
+      "displayName": null,
+      "skills": "./skills/"
+    }
+  },
+  "readmeProof": {
+    "commandFound": true,
+    "matches": [
+      {
+        "line": 25,
+        "text": "npx plugins add https://github.com/labring/sealos-skills --target codex"
+      }
+    ]
+  },
+  "platformRegistryProof": {
+    "commandFound": true,
+    "matches": [
+      {
+        "platform": null,
+        "field": "alternateInstall",
+        "value": "npx plugins add https://github.com/labring/sealos-skills --target codex"
+      }
+    ]
+  },
+  "validatorProof": {
+    "command": "python3 scripts/validate-codex-plugin.py",
+    "exitCode": 0,
+    "stdout": "PASS: plugin.json contains a JSON object\nPASS: .codex-plugin/plugin.json contains a JSON object\nPASS: .agents/plugins/marketplace.json contains a JSON object\nPASS: marketplace.json contains a JSON object\nPASS: distribution/platforms.json contains a JSON object\nPASS: README.md exists\nPASS: root plugin.json exists\nPASS: Codex plugin manifest exists\nPASS: root marketplace.json exists\nPASS: README includes ### Recommended: install in Codex section\nPASS: README Quick Start includes exact native Codex install block\nPASS: README Quick Start includes exact fallback Codex npx install block\nPASS: README includes canonical identity token: labring/sealos-skills\nPASS: README includes canonical identity token: sealos@sealos\nPASS: README includes canonical identity token: $sealos\nPASS: README includes canonical identity token: Sealos\nPASS: root plugin.json matches .codex-plugin/plugin.json key fields\nPASS: root plugin.json interface is a JSON object\nPASS: root plugin.json uses canonical plugin id\nPASS: root plugin.json uses canonical homepage\nPASS: root plugin.json uses canonical repository\nPASS: root plugin.json points to root skills directory\nPASS: root plugin.json uses canonical display label\nPASS: Codex plugin manifest interface is a JSON object\nPASS: Codex plugin manifest uses canonical plugin id\nPASS: Codex plugin manifest uses canonical homepage\nPASS: Codex plugin manifest uses canonical repository\nPASS: Codex plugin manifest points to root skills directory\nPASS: Codex plugin manifest uses canonical display label\nPASS: Codex marketplace plugin source is a symlink\nPASS: Codex marketplace plugin source resolves to repository root\nPASS: Codex marketplace source payload contains plugin.json\nPASS: Codex marketplace source payload contains .codex-plugin/plugin.json\nPASS: Codex marketplace source payload contains skills/sealos-deploy/SKILL.md\nPASS: Codex marketplace source payload contains skills/sealos-database/SKILL.md\nPASS: Codex marketplace source payload contains skills/sealos-s3/SKILL.md\nPASS: Codex marketplace source payload contains assets/logo.svg\nPASS: Codex plugin name is sealos\nPASS: Codex plugin version is current\nPASS: Codex plugin points to root skills directory\nPASS: skills directory exists\nPASS: Codex plugin interface is a JSON object\nPASS: Codex display name is Sealos\nPASS: Codex category is Coding\nPASS: Codex brand color is set\nPASS: Codex default prompts is a JSON array\nPASS: Codex capabilities is a JSON array\nPASS: Codex default prompts are limited to 3\nPASS: Codex capabilities include Interactive\nPASS: Codex capabilities include Read\nPASS: Codex capabilities include Write\nPASS: composerIcon uses ./ relative path\nPASS: composerIcon target exists: ./assets/logo.svg\nPASS: logo uses ./ relative path\nPASS: logo target exists: ./assets/logo.svg\nPASS: Codex marketplace interface is a JSON object\nPASS: Codex marketplace uses canonical marketplace id\nPASS: Codex marketplace uses canonical display label\nPASS: Codex marketplace plugins is a JSON array\nPASS: Codex marketplace has one plugin entry\nPASS: Codex marketplace plugin entry is a JSON object\nPASS: Codex marketplace entry source is a JSON object\nPASS: Codex marketplace entry policy is a JSON object\nPASS: Codex marketplace entry names Sealos\nPASS: Codex marketplace uses local source\nPASS: Codex marketplace points at repo-root plugin source\nPASS: Codex marketplace installation policy is available\nPASS: Codex marketplace authentication policy is on install\nPASS: Codex marketplace category is Coding\nPASS: root marketplace metadata is a JSON object\nPASS: root marketplace uses canonical marketplace id\nPASS: root marketplace uses canonical repository URL\nPASS: root marketplace plugins is a JSON array\nPASS: root marketplace has one plugin entry\nPASS: root marketplace plugin entry is a JSON object\nPASS: root marketplace entry uses canonical plugin id\nPASS: root marketplace entry points to repository root\nPASS: root marketplace entry points to commands directory\nPASS: root marketplace version matches Codex manifest\nPASS: platform registry uses canonical plugin id\nPASS: platform registry version is current\nPASS: platform registry uses canonical repository URL\nPASS: platform registry platforms is a JSON array\nPASS: platform registry platform entries are JSON objects\nPASS: platform registry includes one Codex entry\nPASS: Codex platform claim is verified\nPASS: Codex platform runtime is plugin\nPASS: Codex platform install command matches native contract\nPASS: Codex platform alternate install matches fallback contract\nPASS: Codex platform invocation names CLI and app plugin entry\nPASS: Codex command support matches platform registry\nPASS: Codex platform evidence records native marketplace proof\nPASS: Codex platform evidence records manifest and repo marketplace\nPASS: Codex platform lastVerified is current\nSealos Codex plugin integration validation passed",
+    "stderr": "",
+    "passed": true
+  },
+  "truthfulLabel": "compatibility discovery evidence: command/package/repository/plugin discovery succeeded; documented command reached interactive confirmation without installed Codex state.",
+  "followUp": "Use the same command in an interactive terminal, approve the prompt, or add a documented installer non-interactive flag after validating host support."
+}
