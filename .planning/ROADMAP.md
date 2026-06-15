@@ -88,11 +88,11 @@ Plans:
   3. Final handoff reports the exact files changed during the milestone.
   4. Final handoff names any remaining non-Codex distribution follow-up.
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 
-- [ ] 04-01-PLAN.md — Capture isolated native Codex install smoke evidence and native payload assertions.
+- [x] 04-01-PLAN.md — Capture isolated native Codex install smoke evidence and native payload assertions.
 - [ ] 04-02-PLAN.md — Capture compatibility evidence, aggregate assertions, cleanup proof, validation transcript, and final changed-file handoff.
 
 ## Requirement Coverage
@@ -132,4 +132,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | 1. Native Marketplace Discovery Contract | 3/3 | Complete    | 2026-06-15 |
 | 2. README and Metadata Alignment | 2/2 | Complete    | 2026-06-15 |
 | 3. Validator Hardening | 1/1 | Complete    | 2026-06-15 |
-| 4. Install Smoke and Handoff | 0/2 | Not started | - |
+| 4. Install Smoke and Handoff | 1/2 | In Progress|  |
