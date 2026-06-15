@@ -8,7 +8,7 @@
       "name": "sealos",
       "source": {
         "source": "local",
-        "path": "./.codex-plugin"
+        "path": "./plugins/sealos"
       },
       "policy": {
         "installation": "AVAILABLE",

@@ -10,7 +10,7 @@
       "enabled": false,
       "source": {
         "source": "local",
-        "path": "/Users/longnv/.codex/worktrees/31e2/sealos-skills/.codex-plugin"
+        "path": "/Users/longnv/.codex/worktrees/31e2/sealos-skills/plugins/sealos"
       },
       "marketplaceSource": {
         "sourceType": "local",

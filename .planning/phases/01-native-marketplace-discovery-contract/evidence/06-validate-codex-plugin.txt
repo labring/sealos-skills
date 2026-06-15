@@ -1,11 +1,17 @@
 PASS: root plugin.json exists
-PASS: marketplace .codex-plugin/plugin.json exists
+PASS: Codex plugin manifest exists
 PASS: root plugin.json matches .codex-plugin/plugin.json key fields
-PASS: marketplace plugin manifest matches Codex manifest with install-root paths
+PASS: Codex marketplace plugin source is a symlink
+PASS: Codex marketplace plugin source resolves to repository root
+PASS: Codex marketplace source payload contains plugin.json
+PASS: Codex marketplace source payload contains .codex-plugin/plugin.json
+PASS: Codex marketplace source payload contains skills/sealos-deploy/SKILL.md
+PASS: Codex marketplace source payload contains skills/sealos-database/SKILL.md
+PASS: Codex marketplace source payload contains skills/sealos-s3/SKILL.md
+PASS: Codex marketplace source payload contains assets/logo.svg
 PASS: Codex plugin name is sealos
 PASS: Codex plugin version is current
 PASS: Codex plugin points to root skills directory
-PASS: marketplace plugin points to root skills directory
 PASS: skills directory exists
 PASS: Codex display name is Sealos
 PASS: Codex category is Coding
@@ -18,14 +24,10 @@ PASS: composerIcon uses ./ relative path
 PASS: composerIcon target exists: ./assets/logo.svg
 PASS: logo uses ./ relative path
 PASS: logo target exists: ./assets/logo.svg
-PASS: marketplace composerIcon uses ../ relative path
-PASS: marketplace composerIcon target exists: ../assets/logo.svg
-PASS: marketplace logo uses ../ relative path
-PASS: marketplace logo target exists: ../assets/logo.svg
 PASS: Codex marketplace has one plugin entry
 PASS: Codex marketplace entry names Sealos
 PASS: Codex marketplace uses local source
-PASS: Codex marketplace points at plugin root
+PASS: Codex marketplace points at repo-root plugin source
 PASS: Codex marketplace installation policy is available
 PASS: Codex marketplace authentication policy is on install
 PASS: Codex marketplace category is Coding

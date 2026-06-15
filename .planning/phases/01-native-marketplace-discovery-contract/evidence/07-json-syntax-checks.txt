@@ -4,3 +4,4 @@ PASS .agents/plugins/marketplace.json
 PASS marketplace.json
 PASS .claude-plugin/marketplace.json
 PASS distribution/platforms.json
+PASS .planning/phases/01-native-marketplace-discovery-contract/evidence/05-native-smoke-assertions.json
