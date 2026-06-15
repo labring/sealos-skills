@@ -121,6 +121,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Native Marketplace Discovery Contract | 3/3 | Complete    | 2026-06-15 |
-| 2. README and Metadata Alignment | 2/2 | Complete   | 2026-06-15 |
+| 2. README and Metadata Alignment | 2/2 | Complete    | 2026-06-15 |
 | 3. Validator Hardening | 0/TBD | Not started | - |
 | 4. Install Smoke and Handoff | 0/TBD | Not started | - |
