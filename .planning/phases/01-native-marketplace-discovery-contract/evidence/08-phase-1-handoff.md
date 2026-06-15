@@ -6,10 +6,9 @@
 - Marketplace id: `sealos`
 - Plugin id: `sealos`
 - Display label: `Sealos`
-- Native marketplace source path: `.agents/plugins/marketplace.json` uses `source.path: "./.codex-plugin"`
-- Install-root manifest: `.codex-plugin/.codex-plugin/plugin.json`
-- Install-root manifest skill path: `skills: "../skills/"`
-- Install-root manifest logo paths: `../assets/logo.svg`
+- Native marketplace source path: `.agents/plugins/marketplace.json` uses `source.path: "./plugins/sealos"`
+- Marketplace plugin source: `plugins/sealos` is a symlink to the repository root
+- Installed payload: Codex installs the repository-root payload, including `.codex-plugin/plugin.json`, root `skills/**`, and `assets/logo.svg`
 - Root discovery manifest: root plugin.json mirrors `.codex-plugin/plugin.json` and keeps `skills: "./skills/"`
 - Main Codex manifest: `.codex-plugin/plugin.json` keeps `skills: "./skills/"`
 - Canonical skill source: root `skills/**`
@@ -29,6 +28,7 @@ Every native Codex smoke command in this phase used isolated HOME and CODEX_HOME
 - `.planning/phases/01-native-marketplace-discovery-contract/evidence/06-validate-codex-plugin.txt`
 - `.planning/phases/01-native-marketplace-discovery-contract/evidence/07-json-syntax-checks.txt`
 - `.planning/phases/01-native-marketplace-discovery-contract/evidence/08-phase-1-handoff.md`
+- `.planning/phases/01-native-marketplace-discovery-contract/evidence/09-native-payload-smoke-env.txt`
 
 ## Validator Commands
 
@@ -47,9 +47,10 @@ git diff -- skills --exit-code
 ## Metadata Files Changed in Phase 1
 
 - `plugin.json` - Root Codex discovery manifest. It mirrors `.codex-plugin/plugin.json` key fields and keeps `skills: "./skills/"`.
-- `.agents/plugins/marketplace.json` - Native Codex marketplace entry. Final passing value is `source.path: "./.codex-plugin"`.
-- `.codex-plugin/.codex-plugin/plugin.json` - Install-root manifest shim. It points back to root skills through `../skills/` and root logo assets through `../assets/logo.svg`.
-- `scripts/validate-codex-plugin.py` - Validator now checks root manifest parity, install-root manifest parity, Codex marketplace source path, and referenced asset/skills paths.
+- `.agents/plugins/marketplace.json` - Native Codex marketplace entry. Final passing value is `source.path: "./plugins/sealos"`.
+- `plugins/sealos` - Symlink to `..`, allowing Codex to discover a plugin-shaped marketplace entry and install the repository-root payload.
+- `.codex-plugin/.codex-plugin/plugin.json` - Removed obsolete install-root manifest shim.
+- `scripts/validate-codex-plugin.py` - Validator now checks root manifest parity, Codex marketplace symlink source path, and required asset/skills payload paths.
 
 ## Phase 2 Note
 
