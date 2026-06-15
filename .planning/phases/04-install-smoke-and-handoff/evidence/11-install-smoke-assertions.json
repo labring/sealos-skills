@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-06-15T12:16:13Z",
+  "capturedAt": "2026-06-15T13:05:57Z",
   "passed": true,
   "requirements": {
     "HAND-01": {
@@ -325,7 +325,15 @@
     "present": true,
     "path": ".planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md",
     "milestone_base": "9ee2d3ac269b4d5b1c81ba43be979c0c7cdac03b",
-    "milestone_base_source": "git merge-base HEAD upstream/main"
+    "milestone_base_source": "git merge-base HEAD upstream/main",
+    "finalRefreshBundleCommittedTogether": true
+  },
+  "verificationReport": {
+    "present": true,
+    "path": ".planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md",
+    "status": "passed",
+    "score": "6/6 must-haves verified",
+    "includedInFinalHandoffCommit": true
   },
   "downstreamArtifacts": [
     ".planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md",

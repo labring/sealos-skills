@@ -4,7 +4,7 @@
 - milestone_base_source: `git merge-base HEAD upstream/main`
 - HAND-01: native Codex smoke evidence passed.
 - HAND-02: compatibility evidence status `discovery_evidence`; exact command `npx plugins add https://github.com/labring/sealos-skills --target codex`.
-- HAND-03: git-truth changed-file handoff, cleanup proof, validation transcript, and secret scan are recorded from current HEAD.
+- HAND-03: git-truth changed-file handoff, cleanup proof, validation transcript, and secret scan are recorded from current HEAD plus the final verification/handoff refresh bundle.
 - autonomous package gate approval: recorded in `evidence/05-npx-package-audit.json` and imported by `evidence/11-install-smoke-assertions.json`; approval scope is limited to isolated compatibility evidence.
 - Downstream closeout artifacts: `04-VERIFICATION.md` and `04-UAT.md` must cite this evidence set.
 
@@ -137,6 +137,7 @@
 - `.planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/02-native-marketplace-list.json`
@@ -177,12 +178,29 @@
 - `none`
 
 ## Current Working Tree Status
+This handoff was refreshed while the final verification/handoff bundle was pending commit. The pre-commit state records the bundle truthfully, and the expected post-commit state is a clean `worktree-agent-phase-01` working tree.
+
 ```
 ## worktree-agent-phase-01
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-phase-4-uncommitted-files.txt
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt
+ M .planning/phases/04-install-smoke-and-handoff/evidence/11-install-smoke-assertions.json
+ M .planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt
+?? .planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md
 ```
 
 ## Phase 4 Uncommitted Files at Handoff Generation
-- none
+These files form the final refresh bundle and are committed by the same final handoff commit:
+
+- `.planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-phase-4-uncommitted-files.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/11-install-smoke-assertions.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt`
 
 ## Phase 4 Files Included in Current Milestone Diff
 - `.planning/phases/04-install-smoke-and-handoff/04-01-PLAN.md`
@@ -194,6 +212,7 @@
 - `.planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/02-native-marketplace-list.json`
@@ -217,7 +236,7 @@
 - `.planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/13-cleanup-verification.txt`
 
-## remaining non-Codex distribution follow-up
+## remaining non-Codex follow-up
 - v2 distribution-wide validator for Claude-compatible hosts, CodeBuddy, Gemini, Qwen, OpenClaw, marketplaces, and command-route parity.
 - CI or documented local command that runs the full distribution validation set.
 - Non-Codex screenshot/GIF refresh after host UI copy changes.
