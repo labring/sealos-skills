@@ -39,7 +39,17 @@ If you only use one detected agent tool on the machine, you can let `plugins` ch
 npx plugins add https://github.com/labring/sealos-skills
 ```
 
-After installation, use the plugin from Codex:
+After installation in Claude Code, use `/sealos`:
+
+```text
+/sealos deploy this repo to Sealos Cloud
+/sealos deploy /path/to/project
+/sealos deploy https://github.com/labring-sigs/kite
+/sealos create a cloud Postgres database for this repo and wire DATABASE_URL
+/sealos create private S3 object storage for uploads and wire env vars
+```
+
+After installation in Codex, use the plugin from Codex:
 
 - **Codex CLI:** type `$sealos`
 - **Codex App:** click the **+** button in the lower-left corner of the chat input, choose **Plugins**, then choose **Sealos**
@@ -54,16 +64,6 @@ $sealos deploy /path/to/project
 $sealos deploy https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
-```
-
-For Claude Code, use the same requests with `/sealos`:
-
-```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
-/sealos create a cloud Postgres database for this repo and wire DATABASE_URL
-/sealos create private S3 object storage for uploads and wire env vars
 ```
 
 ### Other supported AI tools
@@ -99,11 +99,7 @@ Then run the deploy skill directly:
 /sealos-s3 create private object storage for uploads and wire env vars
 ```
 
-After a project has been deployed, run a local Sealos resource canvas UI:
-
-```text
-/sealos-canvas
-```
+After a project has been deployed, use the `sealos-canvas` skill through your installed plugin entry point.
 
 `/sealos-deploy`, `/sealos-database`, and `/sealos-s3` are direct `skills.sh` skill entries. Plugin usage should go through `$sealos` in Codex or `/sealos` in Claude Code.
 
@@ -185,14 +181,14 @@ For a local project or Devbox that needs S3-compatible object storage, the agent
 
 ## What Sealos Canvas Handles
 
-For a repository already deployed by `/sealos-deploy`, the agent will:
+For a repository already deployed by Sealos Deploy, the agent will:
 
 1. Read `.sealos/state.json` to locate the deployed app.
 2. Query the Sealos namespace with read-only `kubectl get` commands.
 3. Start a temporary `127.0.0.1` canvas UI.
 4. Output and open the local UI address for inspection.
 
-If the project has not been deployed yet, `/sealos-canvas` stops and tells the user to run `/sealos-deploy` first.
+If the project has not been deployed yet, Sealos Canvas stops and directs the user to deploy the project first.
 
 ## Included Skills
 
