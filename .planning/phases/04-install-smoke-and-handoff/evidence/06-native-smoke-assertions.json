@@ -1,0 +1,33 @@
+{
+  "passed": true,
+  "available_contains_sealos_at_sealos": true,
+  "install_reports_sealos_from_sealos": true,
+  "installed_path_under_isolated_codex_home": true,
+  "installed_payload_complete": true,
+  "identity": {
+    "pluginId": "sealos@sealos",
+    "name": "sealos",
+    "marketplaceName": "sealos"
+  },
+  "paths": {
+    "smokeHome": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.D8LZwoRCdO",
+    "smokeCodexHome": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.D8LZwoRCdO/.codex",
+    "installedPath": "/private/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.D8LZwoRCdO/.codex/plugins/cache/sealos/sealos/1.0.0"
+  },
+  "payloadChecks": {
+    "plugin.json": true,
+    ".codex-plugin/plugin.json": true,
+    "skills/sealos-deploy/SKILL.md": true,
+    "skills/sealos-database/SKILL.md": true,
+    "skills/sealos-s3/SKILL.md": true,
+    "assets/logo.svg": true
+  },
+  "cleanup": {
+    "attempted": true,
+    "status": "removed",
+    "smokeHomeExistsBeforeCleanup": true,
+    "smokeHomeExistsAfterCleanup": false,
+    "retainedForDebugging": false
+  },
+  "checkedAt": "2026-06-15T12:03:30Z"
+}
