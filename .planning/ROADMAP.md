@@ -49,7 +49,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Reader sees `npx plugins add https://github.com/labring/sealos-skills --target codex` as the compatibility or local install path.
   5. Reader sees Codex-specific invocation and Codex App selection guidance near the Sealos plugin screenshot, while Claude-compatible command examples remain in Claude-specific sections.
 
-**Plans:** TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Align README Codex native install, compatibility path, capabilities, and invocation wording.
+- [ ] 02-02-PLAN.md — Align Codex platform metadata and run existing validation gates.
 
 ### Phase 3: Validator Hardening
 
@@ -116,6 +120,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Native Marketplace Discovery Contract | 3/3 | Complete    | 2026-06-15 |
-| 2. README and Metadata Alignment | 0/TBD | Not started | - |
+| 2. README and Metadata Alignment | 0/2 | Planned | - |
 | 3. Validator Hardening | 0/TBD | Not started | - |
 | 4. Install Smoke and Handoff | 0/TBD | Not started | - |
