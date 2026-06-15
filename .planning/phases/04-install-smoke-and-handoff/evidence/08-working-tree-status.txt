@@ -1,2 +1,3 @@
-?? .planning/phases/04-install-smoke-and-handoff/evidence/07-validator-and-json-checks.txt
-?? .planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt
+## gsd-reviewfix/04-64324
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt
+?? .planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md

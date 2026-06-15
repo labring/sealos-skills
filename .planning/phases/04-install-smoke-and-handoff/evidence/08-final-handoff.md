@@ -4,7 +4,8 @@
 - milestone_base_source: `git merge-base HEAD upstream/main`
 - HAND-01: native Codex smoke evidence passed.
 - HAND-02: compatibility evidence status `discovery_evidence`; exact command `npx plugins add https://github.com/labring/sealos-skills --target codex`.
-- HAND-03: git-truth changed-file handoff, cleanup proof, validation transcript, and secret scan are recorded.
+- HAND-03: git-truth changed-file handoff, cleanup proof, validation transcript, and secret scan are recorded from current HEAD.
+- autonomous package gate approval: recorded in `evidence/05-npx-package-audit.json` and imported by `evidence/11-install-smoke-assertions.json`; approval scope is limited to isolated compatibility evidence.
 - Downstream closeout artifacts: `04-VERIFICATION.md` and `04-UAT.md` must cite this evidence set.
 
 ## Native Evidence
@@ -23,6 +24,16 @@
 - `evidence/05-npx-compat-install.exitcode`
 - `evidence/05-npx-compat-discovery.json`
 - `evidence/10-compat-smoke-env.txt`
+
+## Package Gate Approval Record
+- approval_record: `autonomous_package_gate_approval`
+- source: user delegated autonomous interaction-gate decisions during Phase 4 execution.
+- package: `plugins@1.3.1`
+- repository: `git+https://github.com/vercel-labs/plugins.git`
+- bin: `plugins -> dist/index.js`
+- postinstall: absent for the tested version.
+- integrity: npm registry integrity and registry tarball metadata recorded.
+- scope: isolated compatibility evidence only, using temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths.
 
 ## Validator and Final Evidence
 - `evidence/07-validator-and-json-checks.txt`
@@ -48,7 +59,7 @@
 ### metadata/assets
 - `plugins/sealos`
 
-### planning/evidence
+### planning/core
 - `.planning/PROJECT.md`
 - `.planning/REQUIREMENTS.md`
 - `.planning/ROADMAP.md`
@@ -61,6 +72,8 @@
 - `.planning/codebase/STRUCTURE.md`
 - `.planning/codebase/TESTING.md`
 - `.planning/config.json`
+
+### planning/phase-1
 - `.planning/phases/01-native-marketplace-discovery-contract/01-01-metadata-discovery-contract-PLAN.md`
 - `.planning/phases/01-native-marketplace-discovery-contract/01-01-metadata-discovery-contract-SUMMARY.md`
 - `.planning/phases/01-native-marketplace-discovery-contract/01-02-isolated-codex-smoke-PLAN.md`
@@ -87,6 +100,8 @@
 - `.planning/phases/01-native-marketplace-discovery-contract/evidence/07-json-syntax-checks.txt`
 - `.planning/phases/01-native-marketplace-discovery-contract/evidence/08-phase-1-handoff.md`
 - `.planning/phases/01-native-marketplace-discovery-contract/evidence/09-native-payload-smoke-env.txt`
+
+### planning/phase-2
 - `.planning/phases/02-readme-and-metadata-alignment/02-01-PLAN.md`
 - `.planning/phases/02-readme-and-metadata-alignment/02-01-SUMMARY.md`
 - `.planning/phases/02-readme-and-metadata-alignment/02-02-PLAN.md`
@@ -99,6 +114,8 @@
 - `.planning/phases/02-readme-and-metadata-alignment/02-REVIEW.md`
 - `.planning/phases/02-readme-and-metadata-alignment/02-UAT.md`
 - `.planning/phases/02-readme-and-metadata-alignment/02-VERIFICATION.md`
+
+### planning/phase-3
 - `.planning/phases/03-validator-hardening/03-01-PLAN.md`
 - `.planning/phases/03-validator-hardening/03-01-SUMMARY.md`
 - `.planning/phases/03-validator-hardening/03-CONTEXT.md`
@@ -109,12 +126,16 @@
 - `.planning/phases/03-validator-hardening/03-REVIEW.md`
 - `.planning/phases/03-validator-hardening/03-UAT.md`
 - `.planning/phases/03-validator-hardening/03-VERIFICATION.md`
+
+### planning/phase-4
 - `.planning/phases/04-install-smoke-and-handoff/04-01-PLAN.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-01-SUMMARY.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-02-PLAN.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-02-SUMMARY.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-CONTEXT.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-DISCUSSION-LOG.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-REVIEW.md`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/02-native-marketplace-list.json`
@@ -126,8 +147,19 @@
 - `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/06-native-smoke-assertions.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/07-validator-and-json-checks.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-phase-4-uncommitted-files.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-skills-files.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/09-native-smoke-env.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/11-install-smoke-assertions.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/13-cleanup-verification.txt`
+
+### planning/research
 - `.planning/research/ARCHITECTURE.md`
 - `.planning/research/FEATURES.md`
 - `.planning/research/PITFALLS.md`
@@ -141,16 +173,50 @@
 - none
 
 ## Milestone skills/** Changes
-- none
+- `none`
 
 ## Current Working Tree Status
 ```
-?? .planning/phases/04-install-smoke-and-handoff/evidence/07-validator-and-json-checks.txt
-?? .planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt
+## gsd-reviewfix/04-64324
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt
+?? .planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md
 ```
 
 ## Phase 4 Uncommitted Files at Handoff Generation
-- none
+- `.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt`
+
+## Phase 4 Files Included in Current Milestone Diff
+- `.planning/phases/04-install-smoke-and-handoff/04-01-PLAN.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-01-SUMMARY.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-02-PLAN.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-02-SUMMARY.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-CONTEXT.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-DISCUSSION-LOG.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-REVIEW.md`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/02-native-marketplace-list.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/03-native-plugin-list-available.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/04-native-plugin-add.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.stderr.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.exitcode`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/06-native-smoke-assertions.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/07-validator-and-json-checks.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-phase-4-uncommitted-files.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-skills-files.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/09-native-smoke-env.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/11-install-smoke-assertions.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/13-cleanup-verification.txt`
 
 ## remaining non-Codex distribution follow-up
 - v2 distribution-wide validator for Claude-compatible hosts, CodeBuddy, Gemini, Qwen, OpenClaw, marketplaces, and command-route parity.

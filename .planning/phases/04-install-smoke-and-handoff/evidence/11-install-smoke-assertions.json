@@ -8,7 +8,13 @@
     },
     "HAND-02": {
       "passed": true,
-      "evidence": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json"
+      "evidence": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json",
+      "packageGateApproval": {
+        "present": true,
+        "evidence": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json",
+        "approvalRecordType": "autonomous_package_gate_approval",
+        "approvedScope": "Isolated compatibility evidence only: run the documented npx plugins command with temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths; no persistent Codex, npm, or project source state modification approved."
+      }
     },
     "HAND-03": {
       "passed": true,
@@ -187,7 +193,32 @@
       "passed": true
     },
     "truthfulLabel": "compatibility discovery evidence: command/package/repository/plugin discovery succeeded; documented command reached interactive confirmation without installed Codex state.",
-    "followUp": "Use the same command in an interactive terminal, approve the prompt, or add a documented installer non-interactive flag after validating host support."
+    "followUp": "Use the same command in an interactive terminal, approve the prompt, or add a documented installer non-interactive flag after validating host support.",
+    "packageGateApproval": {
+      "type": "autonomous_package_gate_approval",
+      "approved": true,
+      "approvalSource": "User delegated autonomous decisions for interaction gates during Phase 4 execution; agent applied metadata due diligence before isolated compatibility evidence collection.",
+      "approvedScope": "Isolated compatibility evidence only: run the documented npx plugins command with temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths; no persistent Codex, npm, or project source state modification approved.",
+      "package": "plugins",
+      "version": "1.3.1",
+      "repository": "git+https://github.com/vercel-labs/plugins.git",
+      "command": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+      "recordedAt": "2026-06-15T12:31:19.150Z",
+      "metadataDueDiligence": {
+        "package_name_matches": true,
+        "repository_matches_expected": true,
+        "cli_bin_present": true,
+        "no_postinstall_script": true,
+        "registry_integrity_present": true,
+        "tarball_under_npm_registry": true,
+        "node_engine_supported": true
+      },
+      "evidenceFiles": [
+        ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json",
+        ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json",
+        ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt"
+      ]
+    }
   },
   "packageAudit": {
     "disposition": "approved_for_isolated_compatibility_install",
@@ -205,7 +236,32 @@
     },
     "evidenceLimitations": [
       "Audit uses npm registry metadata available from commands; compatibility execution remains isolated in a temp HOME, CODEX_HOME, npm cache, and XDG dirs."
-    ]
+    ],
+    "approvalRecord": {
+      "type": "autonomous_package_gate_approval",
+      "approved": true,
+      "approvalSource": "User delegated autonomous decisions for interaction gates during Phase 4 execution; agent applied metadata due diligence before isolated compatibility evidence collection.",
+      "approvedScope": "Isolated compatibility evidence only: run the documented npx plugins command with temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths; no persistent Codex, npm, or project source state modification approved.",
+      "package": "plugins",
+      "version": "1.3.1",
+      "repository": "git+https://github.com/vercel-labs/plugins.git",
+      "command": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+      "recordedAt": "2026-06-15T12:31:19.150Z",
+      "metadataDueDiligence": {
+        "package_name_matches": true,
+        "repository_matches_expected": true,
+        "cli_bin_present": true,
+        "no_postinstall_script": true,
+        "registry_integrity_present": true,
+        "tarball_under_npm_registry": true,
+        "node_engine_supported": true
+      },
+      "evidenceFiles": [
+        ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json",
+        ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json",
+        ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt"
+      ]
+    }
   },
   "validation": {
     "passed": true,

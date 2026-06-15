@@ -1,1 +1,2 @@
-none
+.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md
+.planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt

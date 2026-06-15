@@ -9,6 +9,7 @@ requires:
     provides: Fresh native Codex marketplace install evidence from Plan 04-01
 provides:
   - Autonomous npm package legitimacy audit for the `plugins` compatibility installer
+  - Traceable autonomous package gate approval record for isolated compatibility evidence
   - Isolated compatibility `npx plugins` command evidence with truthful discovery classification
   - Aggregate HAND-01/HAND-02/HAND-03 assertions, cleanup proof, secret scan, and final changed-file handoff
 affects: [HAND-02, HAND-03, install-smoke-closeout, downstream-verification, downstream-uat]
@@ -35,6 +36,7 @@ key-files:
   modified: []
 
 key-decisions:
+  - "Recorded autonomous package gate approval for `plugins@1.3.1`, based on user-delegated interaction-gate decisions and metadata due diligence for isolated compatibility evidence."
   - "Approved `plugins@1.3.1` for isolated compatibility execution after npm metadata matched expected package, repository, CLI bin, Node engine, registry integrity, and no postinstall script."
   - "Classified compatibility output as discovery evidence because the exact command discovered the Sealos plugin and Codex target, then reached an installer confirmation prompt without installed Codex state."
   - "Used `git merge-base HEAD upstream/main` as the milestone base for final changed-file handoff."
@@ -118,6 +120,7 @@ completed: 2026-06-15
 
 ## Decisions Made
 
+- The package legitimacy gate now has an explicit `autonomous_package_gate_approval` record in `05-npx-package-audit.json` and `11-install-smoke-assertions.json`; scope is limited to isolated compatibility evidence.
 - The `plugins` npm package passed autonomous due diligence for isolated execution based on npm metadata: expected name, repository, homepage, CLI bin, Node engine, registry integrity, and no `postinstall` script.
 - The compatibility command result is labeled `discovery_evidence` because it discovered the remote repository and Sealos Codex target, then stopped at the interactive install prompt.
 - `MILESTONE_BASE` is `9ee2d3ac269b4d5b1c81ba43be979c0c7cdac03b`, produced by `git merge-base HEAD upstream/main`.
