@@ -7,6 +7,7 @@ This MVP upgrades the Sealos Codex plugin install experience from a compatibilit
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
@@ -20,52 +21,64 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Native Marketplace Discovery Contract
+
 **Goal:** Maintainers can add this repository as a Codex marketplace and install `sealos@sealos` from an isolated Codex environment.
 **Mode:** mvp
 **Depends on:** Nothing (first phase)
 **Requirements:** DISC-01, DISC-02, DISC-03, META-03
 **Success Criteria** (what must be TRUE):
+
   1. Maintainer can add the repository as a Codex marketplace in an isolated `HOME` and `CODEX_HOME`.
   2. Maintainer can see `sealos@sealos` in `codex plugin list --available --json`.
   3. Maintainer can install `sealos@sealos` with `codex plugin add sealos@sealos --json`.
   4. Marketplace metadata exposes the installable Sealos plugin while root `skills/**` remains the single canonical skill source.
-**Plans:** TBD
+
+**Plans:** 1/3 plans executed
 
 ### Phase 2: README and Metadata Alignment
+
 **Goal:** Codex users see a README and metadata contract that teaches the verified native install path, compatibility path, installed capabilities, and correct invocation surface.
 **Mode:** mvp
 **Depends on:** Phase 1
 **Requirements:** DOCS-01, DOCS-02, DOCS-03, DOCS-04, DOCS-05, DOCS-06, META-01, META-02, META-04
 **Success Criteria** (what must be TRUE):
+
   1. Reader sees `codex plugin marketplace add labring/sealos-skills` before the plugin install command in the Codex Quick Start.
   2. Reader sees `codex plugin add sealos@sealos` as the native Codex plugin install command.
   3. Reader understands that one Sealos plugin installs deploy, database, S3, canvas, app-builder, and supporting cloud-native skills.
   4. Reader sees `npx plugins add https://github.com/labring/sealos-skills --target codex` as the compatibility or local install path.
   5. Reader sees Codex-specific invocation and Codex App selection guidance near the Sealos plugin screenshot, while Claude-compatible command examples remain in Claude-specific sections.
+
 **Plans:** TBD
 
 ### Phase 3: Validator Hardening
+
 **Goal:** Maintainers can run validation that catches README, manifest, marketplace, platform registry, fallback install, and JSON syntax drift.
 **Mode:** mvp
 **Depends on:** Phase 2
 **Requirements:** VAL-01, VAL-02, VAL-03, VAL-04
 **Success Criteria** (what must be TRUE):
+
   1. `scripts/validate-codex-plugin.py` fails when README native Codex install commands are absent or mismatched.
   2. `scripts/validate-codex-plugin.py` fails when the README fallback `npx plugins` command is absent or mismatched.
   3. `scripts/validate-codex-plugin.py` fails when README, manifest, marketplace, or platform registry plugin identity diverges.
   4. JSON syntax checks pass for every touched plugin, marketplace, and platform registry file.
+
 **Plans:** TBD
 
 ### Phase 4: Install Smoke and Handoff
+
 **Goal:** Maintainers finish the milestone with native install evidence, compatibility install evidence, and a clear changed-file handoff.
 **Mode:** mvp
 **Depends on:** Phase 3
 **Requirements:** HAND-01, HAND-02, HAND-03
 **Success Criteria** (what must be TRUE):
+
   1. Final verification records isolated Codex native marketplace add, available-list, and install smoke output.
   2. Final verification records compatibility install or discovery evidence for the `npx plugins` path.
   3. Final handoff reports the exact files changed during the milestone.
   4. Final handoff names any remaining non-Codex distribution follow-up.
+
 **Plans:** TBD
 
 ## Requirement Coverage
@@ -102,7 +115,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Native Marketplace Discovery Contract | 0/TBD | Not started | - |
+| 1. Native Marketplace Discovery Contract | 1/3 | In Progress|  |
 | 2. README and Metadata Alignment | 0/TBD | Not started | - |
 | 3. Validator Hardening | 0/TBD | Not started | - |
 | 4. Install Smoke and Handoff | 0/TBD | Not started | - |

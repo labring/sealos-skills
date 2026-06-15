@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Roadmap created; next action is `$gsd-plan-phase 1`.
-last_updated: "2026-06-15T08:02:55.752Z"
-last_activity: 2026-06-15 - MVP roadmap created with 20/20 v1 requirements mapped.
+stopped_at: Completed 01-01-metadata-discovery-contract-PLAN.md
+last_updated: "2026-06-15T08:16:09.072Z"
+last_activity: 2026-06-15 -- Phase 01 execution started
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-15)
 
 **Core value:** Codex users can discover, install, and invoke the Sealos plugin through the most native Codex plugin flow, with README instructions and plugin metadata that match the actual repository layout.
-**Current focus:** Phase 1 - Native Marketplace Discovery Contract
+**Current focus:** Phase 01 — native-marketplace-discovery-contract
 
 ## Current Position
 
-Phase: 1 of 4 (Native Marketplace Discovery Contract)
-Plan: TBD
+Phase: 01 (native-marketplace-discovery-contract) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-15 - MVP roadmap created with 20/20 v1 requirements mapped.
+Last activity: 2026-06-15 -- Phase 01 execution started
 
 Progress: [----------] 0%
 
@@ -55,6 +55,7 @@ Progress: [----------] 0%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01 P01-01-metadata-discovery-contract | 5 min | 4 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Use 4 coarse MVP phases: native marketplace discovery, README and metadata alignment, validator hardening, install smoke and handoff.
 - [Roadmap]: Keep root `skills/**` as the single canonical skill source across Codex and other hosts.
 - [Roadmap]: Treat native Codex marketplace discovery as the prerequisite for promoting native install copy.
+- [Phase 01]: Keep .agents/plugins/marketplace.json source.path as ./ so root skills remain the only skill source.
+- [Phase 01]: Expose root plugin.json because Codex 0.139.0 reads plugin manifests directly from marketplace source.path.
+- [Phase 01]: Validate key-field parity between root plugin.json and .codex-plugin/plugin.json.
 
 ### Pending Todos
 
@@ -87,6 +91,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15
-Stopped at: Roadmap created; next action is `$gsd-plan-phase 1`.
+Last session: 2026-06-15T08:16:09.069Z
+Stopped at: Completed 01-01-metadata-discovery-contract-PLAN.md
 Resume file: None

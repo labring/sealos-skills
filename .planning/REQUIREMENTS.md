@@ -7,9 +7,9 @@
 
 ### Discovery
 
-- [ ] **DISC-01**: Maintainer can add this repository as a Codex marketplace in an isolated Codex home.
-- [ ] **DISC-02**: Maintainer can list `sealos@sealos` through `codex plugin list --available --json` after adding the marketplace.
-- [ ] **DISC-03**: Maintainer can install `sealos@sealos` through `codex plugin add sealos@sealos --json` in an isolated Codex home.
+- [x] **DISC-01**: Maintainer can add this repository as a Codex marketplace in an isolated Codex home.
+- [x] **DISC-02**: Maintainer can list `sealos@sealos` through `codex plugin list --available --json` after adding the marketplace.
+- [x] **DISC-03**: Maintainer can install `sealos@sealos` through `codex plugin add sealos@sealos --json` in an isolated Codex home.
 
 ### Documentation
 
@@ -24,7 +24,7 @@
 
 - [ ] **META-01**: Codex-facing metadata consistently uses repo source `labring/sealos-skills`, marketplace id `sealos`, plugin id `sealos`, and display label `Sealos`.
 - [ ] **META-02**: `.codex-plugin/plugin.json` remains aligned with README Codex plugin identity, display copy, asset paths, and root `./skills/` source.
-- [ ] **META-03**: `marketplace.json`, `.claude-plugin/marketplace.json`, and `.agents/plugins/marketplace.json` expose the installable Sealos plugin without duplicating `skills/**`.
+- [x] **META-03**: `marketplace.json`, `.claude-plugin/marketplace.json`, and `.agents/plugins/marketplace.json` expose the installable Sealos plugin without duplicating `skills/**`.
 - [ ] **META-04**: `distribution/platforms.json` records the verified Codex native install path, fallback install path, invocation wording, evidence, and verification date.
 
 ### Validation
@@ -64,9 +64,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DISC-01 | Phase 1 | Pending |
-| DISC-02 | Phase 1 | Pending |
-| DISC-03 | Phase 1 | Pending |
+| DISC-01 | Phase 1 | Complete |
+| DISC-02 | Phase 1 | Complete |
+| DISC-03 | Phase 1 | Complete |
 | DOCS-01 | Phase 2 | Pending |
 | DOCS-02 | Phase 2 | Pending |
 | DOCS-03 | Phase 2 | Pending |
@@ -75,7 +75,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOCS-06 | Phase 2 | Pending |
 | META-01 | Phase 2 | Pending |
 | META-02 | Phase 2 | Pending |
-| META-03 | Phase 1 | Pending |
+| META-03 | Phase 1 | Complete |
 | META-04 | Phase 2 | Pending |
 | VAL-01 | Phase 3 | Pending |
 | VAL-02 | Phase 3 | Pending |
@@ -86,6 +86,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HAND-03 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 20 total
 - Mapped to phases: 20
 - Unmapped: 0
