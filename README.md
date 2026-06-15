@@ -128,7 +128,9 @@ Validate plugin metadata before publishing or pushing manifest changes:
 ```bash
 python3 scripts/validate-codex-plugin.py
 python3 -m json.tool .codex-plugin/plugin.json >/dev/null
+python3 -m json.tool plugin.json >/dev/null
 python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
+python3 -m json.tool marketplace.json >/dev/null
 python3 -m json.tool distribution/platforms.json >/dev/null
 ```
 
