@@ -13,7 +13,7 @@ This MVP upgrades the Sealos Codex plugin install experience from a compatibilit
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Native Marketplace Discovery Contract** - Prove the Sealos repository exposes an installable `sealos@sealos` plugin through Codex native marketplace discovery.
+- [x] **Phase 1: Native Marketplace Discovery Contract** - Prove the Sealos repository exposes an installable `sealos@sealos` plugin through Codex native marketplace discovery. (completed 2026-06-15)
 - [ ] **Phase 2: README and Metadata Alignment** - Make the verified native path the primary Codex install story and align metadata, registry claims, and invocation wording.
 - [ ] **Phase 3: Validator Hardening** - Extend validation so README commands, fallback install copy, plugin identity, and JSON syntax drift fail loudly.
 - [ ] **Phase 4: Install Smoke and Handoff** - Capture native and compatibility install evidence, then hand off the exact changed files and remaining follow-up.
@@ -33,7 +33,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Maintainer can install `sealos@sealos` with `codex plugin add sealos@sealos --json`.
   4. Marketplace metadata exposes the installable Sealos plugin while root `skills/**` remains the single canonical skill source.
 
-**Plans:** 1/3 plans executed
+**Plans:** 3/3 plans complete
 
 ### Phase 2: README and Metadata Alignment
 
@@ -115,7 +115,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Native Marketplace Discovery Contract | 1/3 | In Progress|  |
+| 1. Native Marketplace Discovery Contract | 3/3 | Complete    | 2026-06-15 |
 | 2. README and Metadata Alignment | 0/TBD | Not started | - |
 | 3. Validator Hardening | 0/TBD | Not started | - |
 | 4. Install Smoke and Handoff | 0/TBD | Not started | - |
