@@ -364,13 +364,11 @@ For example:
 
 ### Naming Rules
 
-The name of the ConfigMap must be the same as the `metadata.name` value of the application that mounts the ConfigMap.
+The ConfigMap name must match the `metadata.name` of the workload that mounts it.
 
-### File Storage Rules (Extremely Important!!!)
+### File Storage Rules
 
-**Important reminder: All key names in the ConfigMap's data field must strictly follow the vn- conversion rules!**
-
-All configuration files should be placed in the same ConfigMap. The key names in `data.<filename>` **must** have special characters in the mount path replaced with "vn-":
+Place all configuration files for the same workload in one ConfigMap. Each ConfigMap `data` key must be derived from the full mount path using `scripts/path_converter.py` vn naming:
 
 **Conversion rules:**
 - Replace `/` in the path with `vn-`
@@ -378,16 +376,6 @@ All configuration files should be placed in the same ConfigMap. The key names in
 - Replace `.` in the path with `vn-`
 - Other special characters are also replaced with `vn-`
 
-**Incorrect example (never do this):**
-```yaml
-data:
-  inifile: |  # Error! Not using vn- conversion
-    content here
-  chart.ini: | # Error! Contains a dot
-    content here
-```
-
-**Correct example:**
 ```yaml
 apiVersion: v1
 kind: ConfigMap
@@ -413,26 +401,20 @@ data:
 
 ### Volume Mount Specification
 
-#### Volumes Format
+Create one ConfigMap volume per workload. The volume name must be `<workload metadata.name>-cm`. Every ConfigMap `data` key must have its own `volumeMount`, and `volumeMount.subPath` must exactly equal the ConfigMap `data` key.
 
 ```yaml
 volumes:
-  - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+  - name: ${{ defaults.app_name }}-cm
     configMap:
       name: ${{ defaults.app_name }}
-      items:
-        - key: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
-          path: ./etc/nginx/conf.d/default.conf
-      defaultMode: 420
-```
-
-#### VolumeMount Format
-
-```yaml
 volumeMounts:
-  - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+  - name: ${{ defaults.app_name }}-cm
     mountPath: /etc/nginx/conf.d/default.conf
-    subPath: ./etc/nginx/conf.d/default.conf
+    subPath: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+  - name: ${{ defaults.app_name }}-cm
+    mountPath: /app/config.yml
+    subPath: vn-appvn-configvn-yml
 ```
 
 ### Complete Example
@@ -456,7 +438,7 @@ data:
         index index.html;
       }
     }
-  vn-appvn-configvn-ymlvn-: |
+  vn-appvn-configvn-yml: |
     database:
       host: localhost
       port: 5432
@@ -477,27 +459,17 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}
           volumeMounts:
-            - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/nginx/conf.d/default.conf
-              subPath: ./etc/nginx/conf.d/default.conf
-            - name: vn-appvn-configvn-ymlvn-
+              subPath: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /app/config.yml
-              subPath: ./app/config.yml
+              subPath: vn-appvn-configvn-yml
       volumes:
-        - name: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-nginxvn-confvn-dvn-defaultvn-conf
-                path: ./etc/nginx/conf.d/default.conf
-            defaultMode: 420
-        - name: vn-appvn-configvn-ymlvn-
-          configMap:
-            name: ${{ defaults.app_name }}
-            items:
-              - key: vn-appvn-configvn-ymlvn-
-                path: ./app/config.yml
-            defaultMode: 420
+            defaultMode: 493
 ```
 
 ## Labels and Naming Specification
@@ -600,12 +572,12 @@ env:
   - name: S3_ACCESS_KEY_ID
     valueFrom:
       secretKeyRef:
-        name: object-storage-key
+        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
         key: accessKey
   - name: S3_SECRET_ACCESS_KEY
     valueFrom:
       secretKeyRef:
-        name: object-storage-key
+        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
         key: secretKey
   - name: S3_BUCKET
     valueFrom:
@@ -617,7 +589,7 @@ env:
   - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
     valueFrom:
       secretKeyRef:
-        name: object-storage-key
+        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
         key: external
   - name: S3_PUBLIC_DOMAIN
     value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
@@ -627,10 +599,10 @@ env:
 
 ### Notes
 
-1. `object-storage-key` is a fixed secret name (does not include the application name)
-2. Only the bucket's secret name includes the application name: `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}`. Bucket-scoped variants may append a lowercase suffix, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`.
-3. S3_ENDPOINT and S3_PUBLIC_DOMAIN use environment variable references: `$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)`
-4. S3_ENABLE_PATH_STYLE must be set to "1"
+1. Prefer the bucket-scoped secret: `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}`.
+2. Bucket-scoped variants may append a lowercase suffix, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`.
+3. S3_ENDPOINT and S3_PUBLIC_DOMAIN use environment variable references: `$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)`.
+4. S3_ENABLE_PATH_STYLE must be set to "1".
 
 ## Ingress Configuration Specification
 

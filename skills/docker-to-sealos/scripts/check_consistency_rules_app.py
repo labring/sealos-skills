@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 
-from check_consistency_models import LATEST_IMAGE_PATTERN, TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation
+from check_consistency_models import LATEST_IMAGE_PATTERN, TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation, YamlDocument
 from check_consistency_helpers_violations import (
     add_doc_violation,
     check_managed_workload_setting,
@@ -16,10 +16,12 @@ from check_consistency_helpers_workload import (
     get_template_spec,
     has_managed_workload_marker,
     is_app_workload_document,
+    is_managed_app_workload_document,
     iter_containers,
     iter_documents_by_kind,
     iter_workload_secret_refs,
 )
+from check_consistency_parser import find_line
 
 
 TEMPLATE_ARTIFACT_SUFFIXES = {".yaml", ".yml"}
@@ -117,6 +119,7 @@ MAIN_CONTAINER_ALLOWED_SHORT_SETUP_RE = re.compile(r"^\s*mkdir\s+-p\s+[-./A-Za-z
 MAIN_CONTAINER_SHELLS = {"sh", "/bin/sh", "bash", "/bin/bash", "ash", "/bin/ash"}
 MAIN_CONTAINER_MAX_SCRIPT_CHARS = 160
 MAIN_CONTAINER_MAX_SCRIPT_COMMANDS = 2
+CONFIGMAP_DATA_KEY_RE = re.compile(r"^vn-[a-z0-9]+(?:vn-[a-z0-9]+)*$")
 
 
 def _iter_template_artifact_documents(context: ScanContext) -> Iterable:
@@ -1091,7 +1094,248 @@ def check_configmap_labels_match_name(context: ScanContext) -> List[Violation]:
     return violations
 
 
+def _metadata_name(data: Any) -> Optional[str]:
+    if not isinstance(data, dict):
+        return None
+    metadata = data.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    name = metadata.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return None
+
+
+def _configmap_documents_by_path(context: ScanContext) -> Dict[Path, Dict[str, YamlDocument]]:
+    by_path: Dict[Path, Dict[str, YamlDocument]] = {}
+    for doc in iter_documents_by_kind(context, "ConfigMap"):
+        name = _metadata_name(doc.data)
+        if name is None:
+            continue
+        by_path.setdefault(doc.path, {})[name] = doc
+    return by_path
+
+
+def _configmap_data_keys(doc: YamlDocument) -> Set[str]:
+    if not isinstance(doc.data, dict):
+        return set()
+    data = doc.data.get("data")
+    if not isinstance(data, dict):
+        return set()
+    return {key for key in data.keys() if isinstance(key, str)}
+
+
+def _iter_configmap_volumes(template_spec: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+    volumes = template_spec.get("volumes")
+    if not isinstance(volumes, list):
+        return
+    for volume in volumes:
+        if not isinstance(volume, dict):
+            continue
+        config_map = volume.get("configMap")
+        if not isinstance(config_map, dict):
+            continue
+        config_name = config_map.get("name")
+        volume_name = volume.get("name")
+        if not isinstance(config_name, str) or not config_name.strip():
+            continue
+        if not isinstance(volume_name, str) or not volume_name.strip():
+            continue
+        yield volume
+
+
+def _iter_volume_mounts(template_spec: Dict[str, Any], volume_name: str) -> Iterable[Dict[str, Any]]:
+    for container in iter_containers(template_spec):
+        mounts = container.get("volumeMounts")
+        if not isinstance(mounts, list):
+            continue
+        for mount in mounts:
+            if not isinstance(mount, dict):
+                continue
+            if mount.get("name") == volume_name:
+                yield mount
+
+
+def check_configmap_file_mount_contract(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    configmaps_by_path = _configmap_documents_by_path(context)
+
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not is_managed_app_workload_document(doc):
+            continue
+        if doc.path.suffix.lower() not in TEMPLATE_ARTIFACT_SUFFIXES:
+            continue
+        if doc.path.name != "index.yaml":
+            continue
+        if not isinstance(doc.data, dict):
+            continue
+        if doc.data.get("kind") not in {"Deployment", "StatefulSet"}:
+            continue
+
+        workload_name = _metadata_name(doc.data)
+        if workload_name is None:
+            continue
+        template_spec = get_template_spec(doc.data)
+        if not isinstance(template_spec, dict):
+            continue
+
+        local_configmaps = configmaps_by_path.get(doc.path, {})
+        for volume in _iter_configmap_volumes(template_spec):
+            volume_name = str(volume.get("name")).strip()
+            config_map = volume.get("configMap")
+            assert isinstance(config_map, dict)
+            configmap_name = str(config_map.get("name")).strip()
+            configmap_doc = local_configmaps.get(configmap_name)
+            if configmap_doc is None:
+                continue
+
+            expected_volume_name = f"{workload_name}-cm"
+            if configmap_name != workload_name:
+                violations.append(
+                    Violation(
+                        rule_id="R043",
+                        path=doc.path,
+                        line=find_line(doc, r"^\s*configMap\s*:"),
+                        message=(
+                            "ConfigMap mounted by a managed workload must use the workload metadata.name; "
+                            f"expected configMap.name {workload_name}, got {configmap_name}"
+                        ),
+                    )
+                )
+
+            if volume_name != expected_volume_name:
+                violations.append(
+                    Violation(
+                        rule_id="R043",
+                        path=doc.path,
+                        line=find_line(doc, r"^\s*volumes\s*:"),
+                        message=(
+                            "ConfigMap volume name must be the managed workload name plus '-cm'; "
+                            f"expected {expected_volume_name}, got {volume_name}"
+                        ),
+                    )
+                )
+
+            items = config_map.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    key = item.get("key")
+                    item_path = item.get("path")
+                    if isinstance(key, str) and isinstance(item_path, str) and item_path != key:
+                        violations.append(
+                            Violation(
+                                rule_id="R043",
+                                path=doc.path,
+                                line=find_line(doc, r"^\s*items\s*:"),
+                                message=(
+                                    "ConfigMap volume items.path must equal items.key when items are used, "
+                                    "so volumeMount.subPath can match the ConfigMap data key"
+                                ),
+                            )
+                        )
+
+            data_keys = _configmap_data_keys(configmap_doc)
+            if not data_keys:
+                continue
+            for data_key in sorted(data_keys):
+                if CONFIGMAP_DATA_KEY_RE.fullmatch(data_key):
+                    continue
+                violations.append(
+                    Violation(
+                        rule_id="R043",
+                        path=configmap_doc.path,
+                        line=find_line(configmap_doc, re.escape(data_key)),
+                        message=(
+                            "ConfigMap data keys for mounted files must follow scripts/path_converter.py "
+                            f"vn naming; got {data_key}"
+                        ),
+                    )
+                )
+
+            mounts = list(_iter_volume_mounts(template_spec, volume_name))
+            mounted_keys: Set[str] = set()
+            for mount in mounts:
+                sub_path = mount.get("subPath")
+                mount_path = mount.get("mountPath")
+                if not isinstance(sub_path, str) or not sub_path.strip():
+                    violations.append(
+                        Violation(
+                            rule_id="R043",
+                            path=doc.path,
+                            line=find_line(doc, r"^\s*volumeMounts\s*:"),
+                            message=(
+                                "Each ConfigMap file must be mounted as an independent volumeMount with "
+                                "subPath equal to the ConfigMap data key; directory mounts are not allowed"
+                            ),
+                        )
+                    )
+                    continue
+                if sub_path not in data_keys:
+                    violations.append(
+                        Violation(
+                            rule_id="R043",
+                            path=doc.path,
+                            line=find_line(doc, re.escape(sub_path)),
+                            message=(
+                                "ConfigMap volumeMount.subPath must exactly match a ConfigMap data key; "
+                                f"got {sub_path}"
+                            ),
+                        )
+                    )
+                    continue
+                if not isinstance(mount_path, str) or not mount_path.startswith("/"):
+                    violations.append(
+                        Violation(
+                            rule_id="R043",
+                            path=doc.path,
+                            line=find_line(doc, re.escape(sub_path)),
+                            message="ConfigMap volumeMount.mountPath must be an absolute file path",
+                        )
+                    )
+                mounted_keys.add(sub_path)
+
+            missing_keys = sorted(data_keys - mounted_keys)
+            if missing_keys:
+                violations.append(
+                    Violation(
+                        rule_id="R043",
+                        path=configmap_doc.path,
+                        line=find_line(configmap_doc, re.escape(missing_keys[0])),
+                        message=(
+                            "Every ConfigMap data key must have a separate volumeMount using the same subPath; "
+                            f"missing mounts for {', '.join(missing_keys)}"
+                        ),
+                    )
+                )
+
+    return violations
+
+
 def _iter_root_prefix_ingress_backend_service_names(data: Dict[str, Any]) -> Iterable[str]:
+    spec = data.get("spec")
+    rules = spec.get("rules") if isinstance(spec, dict) else None
+    if not isinstance(rules, list):
+        return
+    for rule in rules:
+        http = rule.get("http") if isinstance(rule, dict) else None
+        paths = http.get("paths") if isinstance(http, dict) else None
+        if not isinstance(paths, list):
+            continue
+        for path in paths:
+            if not isinstance(path, dict):
+                continue
+            if path.get("pathType") != "Prefix" or path.get("path") != "/":
+                continue
+            backend = path.get("backend") if isinstance(path, dict) else None
+            service = backend.get("service") if isinstance(backend, dict) else None
+            service_name = service.get("name") if isinstance(service, dict) else None
+            if isinstance(service_name, str) and service_name.strip():
+                yield service_name.strip()
+
+
+def _iter_ingress_backend_service_names(data: Dict[str, Any]) -> Iterable[str]:
     spec = data.get("spec")
     rules = spec.get("rules") if isinstance(spec, dict) else None
     if not isinstance(rules, list):
@@ -2010,6 +2254,7 @@ APP_RULES: Dict[str, Rule] = {
     "R020": Rule("R020", check_service_ports_have_names),
     "R029": Rule("R029", check_service_labels_match_selector_app),
     "R030": Rule("R030", check_configmap_labels_match_name),
+    "R043": Rule("R043", check_configmap_file_mount_contract),
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
     "R027": Rule("R027", check_postgres_custom_db_init_job),
