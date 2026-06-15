@@ -1,0 +1,9 @@
+{
+  "available_contains_sealos_at_sealos": true,
+  "install_reports_sealos_from_sealos": true,
+  "passed": true,
+  "checked_files": [
+    ".planning/phases/01-native-marketplace-discovery-contract/evidence/03-plugin-list-available.json",
+    ".planning/phases/01-native-marketplace-discovery-contract/evidence/04-plugin-add.json"
+  ]
+}
