@@ -1,0 +1,4 @@
+cleanup_status: clean
+captured_at: 2026-06-15T12:16:13Z
+native: {"cleanup_status": "removed", "env_file": ".planning/phases/04-install-smoke-and-handoff/evidence/09-native-smoke-env.txt", "retained_for_debugging": false}
+compatibility: {"NPX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo", "cleanup_error": null, "env_file": ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt", "exists_after_cleanup": false, "exists_before_cleanup": true, "retained_for_debugging": false}

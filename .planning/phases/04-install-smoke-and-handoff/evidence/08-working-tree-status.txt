@@ -1,0 +1,2 @@
+?? .planning/phases/04-install-smoke-and-handoff/evidence/07-validator-and-json-checks.txt
+?? .planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt
