@@ -29,10 +29,10 @@
 
 ### Validation
 
-- [ ] **VAL-01**: `scripts/validate-codex-plugin.py` checks README native Codex install commands.
-- [ ] **VAL-02**: `scripts/validate-codex-plugin.py` checks README fallback `npx plugins` command.
-- [ ] **VAL-03**: `scripts/validate-codex-plugin.py` checks README/manifest/registry plugin identity parity.
-- [ ] **VAL-04**: JSON syntax checks pass for all touched plugin, marketplace, and platform registry files.
+- [x] **VAL-01**: `scripts/validate-codex-plugin.py` checks README native Codex install commands.
+- [x] **VAL-02**: `scripts/validate-codex-plugin.py` checks README fallback `npx plugins` command.
+- [x] **VAL-03**: `scripts/validate-codex-plugin.py` checks README/manifest/registry plugin identity parity.
+- [x] **VAL-04**: JSON syntax checks pass for all touched plugin, marketplace, and platform registry files.
 
 ### Handoff
 
@@ -77,10 +77,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | META-02 | Phase 2 | Complete |
 | META-03 | Phase 1 | Complete |
 | META-04 | Phase 2 | Complete |
-| VAL-01 | Phase 3 | Pending |
-| VAL-02 | Phase 3 | Pending |
-| VAL-03 | Phase 3 | Pending |
-| VAL-04 | Phase 3 | Pending |
+| VAL-01 | Phase 3 | Complete |
+| VAL-02 | Phase 3 | Complete |
+| VAL-03 | Phase 3 | Complete |
+| VAL-04 | Phase 3 | Complete |
 | HAND-01 | Phase 4 | Pending |
 | HAND-02 | Phase 4 | Pending |
 | HAND-03 | Phase 4 | Pending |

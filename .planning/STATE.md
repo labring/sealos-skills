@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-06-15T10:21:37.623Z"
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-06-15T10:58:58.055Z"
 last_activity: 2026-06-15
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
-  percent: 50
+  completed_phases: 3
+  total_plans: 6
+  completed_plans: 6
+  percent: 75
 ---
 
 # Project State
@@ -60,6 +60,7 @@ Progress: [█████░░░░░] 50%
 | Phase 01 P01-01-metadata-discovery-contract | 5 min | 4 tasks | 4 files |
 | Phase 02 P01 | 3min | 2 tasks | 2 files |
 | Phase 02 P02 | 4min | 2 tasks | 1 files |
+| Phase 03 P01 | 4min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -80,6 +81,9 @@ Recent decisions affecting current work:
 - [Phase 02]: Codex platform metadata uses the native Codex marketplace command pair as the primary install path. — Phase 1 verified the native marketplace add/list/install flow for sealos@sealos.
 - [Phase 02]: The npx plugins Codex path remains recorded as alternateInstall for compatibility and local flows. — The README keeps the same path as compatibility guidance.
 - [Phase 02]: Codex platform evidence cites Phase 1 native marketplace add/list/install plus installed payload assertions while preserving codex_manifest+repo_marketplace. — The existing validator checks the evidence token and Phase 1 adds native payload proof.
+- [Phase 03]: README maintainer validation instructions include explicit json.tool checks for root plugin.json and root marketplace.json. — Maintainers need visible JSON syntax coverage for the full Phase 3 metadata set.
+- [Phase 03]: Canonical Codex install, fallback, identity, source, and evidence values now live in scripts/validate-codex-plugin.py. — Phase 3 makes the validator the maintainer-facing drift gate.
+- [Phase 03]: The validator parses root marketplace.json as part of the Codex gate. — Root marketplace drift is part of the Phase 3 identity contract.
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15T10:01:03.403Z
-Stopped at: Completed 02-02-PLAN.md
+Last session: 2026-06-15T10:58:58.052Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None

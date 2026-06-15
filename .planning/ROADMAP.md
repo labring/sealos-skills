@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Native Marketplace Discovery Contract** - Prove the Sealos repository exposes an installable `sealos@sealos` plugin through Codex native marketplace discovery. (completed 2026-06-15)
 - [x] **Phase 2: README and Metadata Alignment** - Make the verified native path the primary Codex install story and align metadata, registry claims, and invocation wording. (completed 2026-06-15)
-- [ ] **Phase 3: Validator Hardening** - Extend validation so README commands, fallback install copy, plugin identity, and JSON syntax drift fail loudly.
+- [x] **Phase 3: Validator Hardening** - Extend validation so README commands, fallback install copy, plugin identity, and JSON syntax drift fail loudly. (completed 2026-06-15)
 - [ ] **Phase 4: Install Smoke and Handoff** - Capture native and compatibility install evidence, then hand off the exact changed files and remaining follow-up.
 
 ## Phase Details
@@ -69,11 +69,11 @@ Plans:
   3. `scripts/validate-codex-plugin.py` fails when README, manifest, marketplace, or platform registry plugin identity diverges.
   4. JSON syntax checks pass for every touched plugin, marketplace, and platform registry file.
 
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Plans:
 
-- [ ] 03-01-PLAN.md — Harden the Codex validator for README commands, fallback install, identity parity, platform registry fields, JSON syntax coverage, and targeted drift-failure proof.
+- [x] 03-01-PLAN.md — Harden the Codex validator for README commands, fallback install, identity parity, platform registry fields, JSON syntax coverage, and targeted drift-failure proof.
 
 ### Phase 4: Install Smoke and Handoff
 
@@ -126,5 +126,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Native Marketplace Discovery Contract | 3/3 | Complete    | 2026-06-15 |
 | 2. README and Metadata Alignment | 2/2 | Complete    | 2026-06-15 |
-| 3. Validator Hardening | 0/1 | Not started | - |
+| 3. Validator Hardening | 1/1 | Complete   | 2026-06-15 |
 | 4. Install Smoke and Handoff | 0/TBD | Not started | - |
