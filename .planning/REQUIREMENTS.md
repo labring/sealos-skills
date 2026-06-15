@@ -1,0 +1,95 @@
+# Requirements: Sealos Codex Plugin Installation Upgrade
+
+**Defined:** 2026-06-15  
+**Core Value:** Codex users can discover, install, and invoke the Sealos plugin through the most native Codex plugin flow, with README instructions and plugin metadata that match the actual repository layout.
+
+## v1 Requirements
+
+### Discovery
+
+- [ ] **DISC-01**: Maintainer can add this repository as a Codex marketplace in an isolated Codex home.
+- [ ] **DISC-02**: Maintainer can list `sealos@sealos` through `codex plugin list --available --json` after adding the marketplace.
+- [ ] **DISC-03**: Maintainer can install `sealos@sealos` through `codex plugin add sealos@sealos --json` in an isolated Codex home.
+
+### Documentation
+
+- [ ] **DOCS-01**: Codex Quick Start leads with `codex plugin marketplace add labring/sealos-skills`.
+- [ ] **DOCS-02**: Codex Quick Start installs the plugin with `codex plugin add sealos@sealos`.
+- [ ] **DOCS-03**: README explains that one Sealos plugin installs deploy, database, S3, canvas, app-builder, and supporting cloud-native skills.
+- [ ] **DOCS-04**: README keeps `npx plugins add https://github.com/labring/sealos-skills --target codex` as a compatibility or local install path.
+- [ ] **DOCS-05**: README uses Codex-specific invocation wording and keeps Claude-compatible `/sealos` examples in Claude-specific sections.
+- [ ] **DOCS-06**: README keeps Codex App selection guidance and the existing Sealos plugin screenshot close to the Codex install path.
+
+### Metadata
+
+- [ ] **META-01**: Codex-facing metadata consistently uses repo source `labring/sealos-skills`, marketplace id `sealos`, plugin id `sealos`, and display label `Sealos`.
+- [ ] **META-02**: `.codex-plugin/plugin.json` remains aligned with README Codex plugin identity, display copy, asset paths, and root `./skills/` source.
+- [ ] **META-03**: `marketplace.json`, `.claude-plugin/marketplace.json`, and `.agents/plugins/marketplace.json` expose the installable Sealos plugin without duplicating `skills/**`.
+- [ ] **META-04**: `distribution/platforms.json` records the verified Codex native install path, fallback install path, invocation wording, evidence, and verification date.
+
+### Validation
+
+- [ ] **VAL-01**: `scripts/validate-codex-plugin.py` checks README native Codex install commands.
+- [ ] **VAL-02**: `scripts/validate-codex-plugin.py` checks README fallback `npx plugins` command.
+- [ ] **VAL-03**: `scripts/validate-codex-plugin.py` checks README/manifest/registry plugin identity parity.
+- [ ] **VAL-04**: JSON syntax checks pass for all touched plugin, marketplace, and platform registry files.
+
+### Handoff
+
+- [ ] **HAND-01**: Final verification includes isolated Codex native marketplace add, list, and install smoke output.
+- [ ] **HAND-02**: Final verification includes compatibility install or discovery evidence for the `npx plugins` path.
+- [ ] **HAND-03**: Final handoff reports the exact files changed and any remaining non-Codex distribution follow-up.
+
+## v2 Requirements
+
+### Distribution
+
+- **DIST-01**: Add a distribution-wide validator covering Claude, CodeBuddy, Gemini, Qwen, OpenClaw, marketplace, and command-route parity with root `skills/**`.
+- **DIST-02**: Add CI or a documented local command that runs all distribution validators.
+- **DIST-03**: Refresh non-Codex install screenshots or GIFs if host UI copy changes.
+
+## Out of Scope
+
+| Feature | Reason |
+|---------|--------|
+| Deploy skill behavior changes | Current milestone targets installation and README distribution experience. |
+| Database, S3, canvas, or app-builder workflow changes | These capabilities are installed by the plugin but their runtime behavior is stable scope. |
+| Host-specific skill copies | Root `skills/**` is the canonical source and duplicate copies create drift. |
+| Full non-Codex distribution migration | Claude, Gemini, Qwen, CodeBuddy, OpenClaw, and skills.sh are secondary unless Codex wording creates a direct inconsistency. |
+| New product screenshots | Existing Codex App screenshot is sufficient for this milestone unless verification shows it has become misleading. |
+
+## Traceability
+
+Which phases cover which requirements. Updated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DISC-01 | Phase 1 | Pending |
+| DISC-02 | Phase 1 | Pending |
+| DISC-03 | Phase 1 | Pending |
+| DOCS-01 | Phase 2 | Pending |
+| DOCS-02 | Phase 2 | Pending |
+| DOCS-03 | Phase 2 | Pending |
+| DOCS-04 | Phase 2 | Pending |
+| DOCS-05 | Phase 2 | Pending |
+| DOCS-06 | Phase 2 | Pending |
+| META-01 | Phase 2 | Pending |
+| META-02 | Phase 2 | Pending |
+| META-03 | Phase 1 | Pending |
+| META-04 | Phase 2 | Pending |
+| VAL-01 | Phase 3 | Pending |
+| VAL-02 | Phase 3 | Pending |
+| VAL-03 | Phase 3 | Pending |
+| VAL-04 | Phase 3 | Pending |
+| HAND-01 | Phase 4 | Pending |
+| HAND-02 | Phase 4 | Pending |
+| HAND-03 | Phase 4 | Pending |
+
+**Coverage:**
+- v1 requirements: 20 total
+- Mapped to phases: 20
+- Unmapped: 0
+
+---
+*Requirements defined: 2026-06-15*
+*Last updated: 2026-06-15 after initial definition*
