@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-06-15T12:06:11.105Z"
+status: completed
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-06-15T12:20:53.289Z"
 last_activity: 2026-06-15
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
-  completed_plans: 7
-  percent: 75
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-15)
 
 **Core value:** Codex users can discover, install, and invoke the Sealos plugin through the most native Codex plugin flow, with README instructions and plugin metadata that match the actual repository layout.
-**Current focus:** Phase 03 — validator-hardening
+**Current focus:** Phase 04 — install smoke and handoff complete
 
 ## Current Position
 
 Phase: 4
-Plan: Not started
-Status: Phase 02 complete — ready for Phase 03 planning/execution
+Plan: Complete
+Status: Phase 04 complete — install smoke and handoff evidence complete
 Last activity: 2026-06-15
 
-Progress: [█████░░░░░] 50%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [█████░░░░░] 50%
 | Phase 02 P02 | 4min | 2 tasks | 1 files |
 | Phase 03 P01 | 4min | 3 tasks | 3 files |
 | Phase 04 P01 | 2min | 2 tasks | 8 files |
+| Phase 04 P02 | 8min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,9 @@ Recent decisions affecting current work:
 - [Phase 03]: The validator parses root marketplace.json as part of the Codex gate. — Root marketplace drift is part of the Phase 3 identity contract.
 - [Phase 04]: Use the current worktree path as the native Codex marketplace source for pre-merge final verification.
 - [Phase 04]: Commit raw native Codex command outputs plus assertion JSON as the durable HAND-01 proof.
+- [Phase 04]: Approved plugins@1.3.1 for isolated compatibility execution after npm metadata matched expected package, repository, CLI bin, Node engine, registry integrity, and no postinstall script.
+- [Phase 04]: Classified npx plugins Codex compatibility output as discovery evidence because the command reached the installer confirmation prompt without installed Codex state.
+- [Phase 04]: Used git merge-base HEAD upstream/main as the milestone base for final changed-file handoff.
 
 ### Pending Todos
 
@@ -109,6 +113,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15T12:06:11.092Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-06-15T12:19:35.396Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

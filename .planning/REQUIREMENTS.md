@@ -37,8 +37,8 @@
 ### Handoff
 
 - [x] **HAND-01**: Final verification includes isolated Codex native marketplace add, list, and install smoke output.
-- [ ] **HAND-02**: Final verification includes compatibility install or discovery evidence for the `npx plugins` path.
-- [ ] **HAND-03**: Final handoff reports the exact files changed and any remaining non-Codex distribution follow-up.
+- [x] **HAND-02**: Final verification includes compatibility install or discovery evidence for the `npx plugins` path.
+- [x] **HAND-03**: Final handoff reports the exact files changed and any remaining non-Codex distribution follow-up.
 
 ## v2 Requirements
 
@@ -82,8 +82,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VAL-03 | Phase 3 | Complete |
 | VAL-04 | Phase 3 | Complete |
 | HAND-01 | Phase 4 | Complete |
-| HAND-02 | Phase 4 | Pending |
-| HAND-03 | Phase 4 | Pending |
+| HAND-02 | Phase 4 | Complete |
+| HAND-03 | Phase 4 | Complete |
 
 **Coverage:**
 
