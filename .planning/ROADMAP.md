@@ -69,7 +69,11 @@ Plans:
   3. `scripts/validate-codex-plugin.py` fails when README, manifest, marketplace, or platform registry plugin identity diverges.
   4. JSON syntax checks pass for every touched plugin, marketplace, and platform registry file.
 
-**Plans:** TBD
+**Plans:** 1 plan
+
+Plans:
+
+- [ ] 03-01-PLAN.md — Harden the Codex validator for README commands, fallback install, identity parity, platform registry fields, JSON syntax coverage, and targeted drift-failure proof.
 
 ### Phase 4: Install Smoke and Handoff
 
@@ -122,5 +126,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4
 |-------|----------------|--------|-----------|
 | 1. Native Marketplace Discovery Contract | 3/3 | Complete    | 2026-06-15 |
 | 2. README and Metadata Alignment | 2/2 | Complete    | 2026-06-15 |
-| 3. Validator Hardening | 0/TBD | Not started | - |
+| 3. Validator Hardening | 0/1 | Not started | - |
 | 4. Install Smoke and Handoff | 0/TBD | Not started | - |
