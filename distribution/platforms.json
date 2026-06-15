@@ -2,18 +2,19 @@
   "name": "sealos",
   "version": "1.0.0",
   "repository": "https://github.com/labring/sealos-skills",
-  "lastUpdated": "2026-05-28",
+  "lastUpdated": "2026-06-15",
   "platforms": [
     {
       "id": "codex",
       "name": "Codex CLI / Codex App",
       "claim": "verified",
       "runtime": "plugin",
-      "install": "npx plugins add https://github.com/labring/sealos-skills --target codex",
-      "invoke": "$sealos in Codex CLI; select Sealos from Plugins in Codex App",
+      "install": "codex plugin marketplace add labring/sealos-skills && codex plugin add sealos@sealos",
+      "alternateInstall": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+      "invoke": "Use $sealos in Codex CLI; select Sealos from Plugins in Codex App",
       "commands": "supported",
-      "evidence": "npx plugins discover . --remote + codex_manifest+repo_marketplace",
-      "lastVerified": "2026-05-21"
+      "evidence": "Phase 1 native marketplace add/list/install + installed payload assertions + codex_manifest+repo_marketplace",
+      "lastVerified": "2026-06-15"
     },
     {
       "id": "claude-code",
