@@ -4,9 +4,10 @@
 - milestone_base_source: `git merge-base HEAD upstream/main`
 - HAND-01: native Codex smoke evidence passed.
 - HAND-02: compatibility evidence status `discovery_evidence`; exact command `npx plugins add https://github.com/labring/sealos-skills --target codex`.
-- HAND-03: git-truth changed-file handoff, cleanup proof, validation transcript, and secret scan are recorded from current HEAD plus the final verification/handoff refresh bundle.
+- HAND-03: git-truth changed-file handoff, cleanup proof, validation transcript, secret scan, UAT, verification, and phase.complete state are recorded from current HEAD plus this final closeout refresh bundle.
 - autonomous package gate approval: recorded in `evidence/05-npx-package-audit.json` and imported by `evidence/11-install-smoke-assertions.json`; approval scope is limited to isolated compatibility evidence.
-- Downstream closeout artifacts: `04-VERIFICATION.md` and `04-UAT.md` must cite this evidence set.
+- Phase complete state bundle: `.planning/ROADMAP.md` and `.planning/STATE.md` are part of this final closeout commit.
+- Downstream closeout artifacts: `04-VERIFICATION.md` and `04-UAT.md` are committed and included in the milestone file list.
 
 ## Native Evidence
 - `evidence/00-codex-version.txt`
@@ -36,6 +37,8 @@
 - scope: isolated compatibility evidence only, using temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths.
 
 ## Validator and Final Evidence
+- `04-VERIFICATION.md`
+- `04-UAT.md`
 - `evidence/07-validator-and-json-checks.txt`
 - `evidence/08-milestone-files.txt`
 - `evidence/08-working-tree-status.txt`
@@ -137,6 +140,7 @@
 - `.planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-UAT.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json`
@@ -178,23 +182,25 @@
 - `none`
 
 ## Current Working Tree Status
-This handoff was refreshed while the final verification/handoff bundle was pending commit. The pre-commit state records the bundle truthfully, and the expected post-commit state is a clean `worktree-agent-phase-01` working tree.
+This handoff was refreshed while the final phase.complete closeout bundle was pending commit. The pre-commit state records the bundle truthfully, and the expected post-commit state is a clean `worktree-agent-phase-01` working tree.
 
-```
+```text
 ## worktree-agent-phase-01
+ M .planning/ROADMAP.md
+ M .planning/STATE.md
  M .planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md
  M .planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt
  M .planning/phases/04-install-smoke-and-handoff/evidence/08-phase-4-uncommitted-files.txt
  M .planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt
  M .planning/phases/04-install-smoke-and-handoff/evidence/11-install-smoke-assertions.json
  M .planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt
-?? .planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md
 ```
 
 ## Phase 4 Uncommitted Files at Handoff Generation
-These files form the final refresh bundle and are committed by the same final handoff commit:
+These files form the final closeout refresh bundle and are committed by the same final handoff commit:
 
-- `.planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md`
+- `.planning/ROADMAP.md`
+- `.planning/STATE.md`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/08-phase-4-uncommitted-files.txt`
@@ -212,17 +218,18 @@ These files form the final refresh bundle and are committed by the same final ha
 - `.planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-UAT.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/02-native-marketplace-list.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/03-native-plugin-list-available.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/04-native-plugin-add.json`
-- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json`
-- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.txt`
-- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.stderr.txt`
-- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.exitcode`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.exitcode`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.stderr.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.txt`
+- `.planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/06-native-smoke-assertions.json`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/07-validator-and-json-checks.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md`
@@ -236,8 +243,17 @@ These files form the final refresh bundle and are committed by the same final ha
 - `.planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/13-cleanup-verification.txt`
 
+## Phase Complete Closeout State
+- `.planning/ROADMAP.md` records Phase 4 as complete in the milestone roadmap.
+- `.planning/STATE.md` records status `completed`, total plans completed `8`, and Phase 04 plan count `2`.
+- `04-UAT.md` records PASS and accepts the maintainer closeout workflow.
+- `04-VERIFICATION.md` records status `passed` and score `6/6 must-haves verified`.
+
 ## remaining non-Codex follow-up
 - v2 distribution-wide validator for Claude-compatible hosts, CodeBuddy, Gemini, Qwen, OpenClaw, marketplaces, and command-route parity.
 - CI or documented local command that runs the full distribution validation set.
 - Non-Codex screenshot/GIF refresh after host UI copy changes.
 - Post-publication remote smoke for `codex plugin marketplace add labring/sealos-skills` after candidate commits are published upstream.
+
+## Final Recommendation
+Final status: milestone ready to close. Phase 4 native install evidence, compatibility discovery evidence, review closure, UAT, verification, phase.complete state, cleanup proof, secret scan, and handoff file lists are aligned for final repository handoff.

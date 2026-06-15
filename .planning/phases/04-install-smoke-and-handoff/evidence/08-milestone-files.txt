@@ -68,6 +68,7 @@
 .planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md
 .planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md
 .planning/phases/04-install-smoke-and-handoff/04-REVIEW.md
+.planning/phases/04-install-smoke-and-handoff/04-UAT.md
 .planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md
 .planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt
 .planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json
