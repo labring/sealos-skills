@@ -135,6 +135,7 @@
 - `.planning/phases/04-install-smoke-and-handoff/04-CONTEXT.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-DISCUSSION-LOG.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW.md`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json`
@@ -177,14 +178,11 @@
 
 ## Current Working Tree Status
 ```
-## gsd-reviewfix/04-64324
- M .planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt
-?? .planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md
+## worktree-agent-phase-01
 ```
 
 ## Phase 4 Uncommitted Files at Handoff Generation
-- `.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md`
-- `.planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt`
+- none
 
 ## Phase 4 Files Included in Current Milestone Diff
 - `.planning/phases/04-install-smoke-and-handoff/04-01-PLAN.md`
@@ -194,6 +192,7 @@
 - `.planning/phases/04-install-smoke-and-handoff/04-CONTEXT.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-DISCUSSION-LOG.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-RESEARCH.md`
+- `.planning/phases/04-install-smoke-and-handoff/04-REVIEW-FIX.md`
 - `.planning/phases/04-install-smoke-and-handoff/04-REVIEW.md`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/00-codex-version.txt`
 - `.planning/phases/04-install-smoke-and-handoff/evidence/01-native-marketplace-add.json`
