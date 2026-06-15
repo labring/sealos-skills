@@ -8,9 +8,22 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+ROOT_PLUGIN_PATH = ROOT / "plugin.json"
 PLUGIN_PATH = ROOT / ".codex-plugin" / "plugin.json"
 MARKETPLACE_PATH = ROOT / ".agents" / "plugins" / "marketplace.json"
 PLATFORMS_PATH = ROOT / "distribution" / "platforms.json"
+PLUGIN_PARITY_KEYS = (
+    "name",
+    "version",
+    "description",
+    "author",
+    "homepage",
+    "repository",
+    "license",
+    "keywords",
+    "skills",
+    "interface",
+)
 
 
 def fail(message: str) -> None:
@@ -39,11 +52,23 @@ def require_relative_path(value: str, field: str) -> None:
     require(target.exists(), f"{field} target exists: {value}")
 
 
+def require_manifest_parity(root_plugin: dict, codex_plugin: dict) -> None:
+    mismatched = [
+        key
+        for key in PLUGIN_PARITY_KEYS
+        if root_plugin.get(key) != codex_plugin.get(key)
+    ]
+    require(not mismatched, "root plugin.json matches .codex-plugin/plugin.json key fields")
+
+
 def main() -> int:
+    root_plugin = load_json(ROOT_PLUGIN_PATH)
     plugin = load_json(PLUGIN_PATH)
     marketplace = load_json(MARKETPLACE_PATH)
     platforms = load_json(PLATFORMS_PATH)
 
+    require(ROOT_PLUGIN_PATH.is_file(), "root plugin.json exists")
+    require_manifest_parity(root_plugin, plugin)
     require(plugin.get("name") == "sealos", "Codex plugin name is sealos")
     require(plugin.get("version") == "1.0.0", "Codex plugin version is current")
     require(plugin.get("skills") == "./skills/", "Codex plugin points to root skills directory")
