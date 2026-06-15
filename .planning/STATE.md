@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 01-01-metadata-discovery-contract-PLAN.md
-last_updated: "2026-06-15T09:43:29Z"
-last_activity: 2026-06-15
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-06-15T09:53:34.774Z"
+last_activity: 2026-06-15 -- Phase 02 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
-  percent: 25
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-15)
 
 ## Current Position
 
-Phase: 2
-Plan: 02-01-PLAN.md
-Status: Planned
-Last activity: 2026-06-15
+Phase: 02 (readme-and-metadata-alignment) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-06-15 -- Phase 02 execution started
 
-Progress: [----------] 0%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [----------] 0%
 
 *Updated after each plan completion*
 | Phase 01 P01-01-metadata-discovery-contract | 5 min | 4 tasks | 4 files |
+| Phase 02 P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -71,10 +72,12 @@ Recent decisions affecting current work:
 - [Phase 01]: Keep .agents/plugins/marketplace.json source.path as ./plugins/sealos, with plugins/sealos symlinked to the repository root so root skills remain the only skill source.
 - [Phase 01]: Expose root plugin.json because Codex 0.139.0 reads plugin manifests directly from marketplace source.path.
 - [Phase 01]: Validate key-field parity between root plugin.json and .codex-plugin/plugin.json.
+- [Phase 02]: README Codex Quick Start uses native Codex marketplace installation as the primary path. — Phase 1 verified the native Codex marketplace command pair for sealos@sealos.
+- [Phase 02]: npx plugins add https://github.com/labring/sealos-skills --target codex remains documented as the compatibility/local Codex path. — The repository still supports cross-host plugin installation and local Codex testing.
+- [Phase 02]: Codex $sealos, Claude /sealos, and direct skills.sh /sealos-* examples stay in separate README sections. — Host-specific invocation examples reduce command-surface ambiguity.
 
 ### Pending Todos
 
-- Execute Phase 02 plan 01: README native Codex install and invocation alignment.
 - Execute Phase 02 plan 02: Codex platform registry alignment and validation.
 
 ### Blockers/Concerns
@@ -93,6 +96,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-15T08:16:09.069Z
-Stopped at: Completed 01-01-metadata-discovery-contract-PLAN.md
+Last session: 2026-06-15T09:53:14.941Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None

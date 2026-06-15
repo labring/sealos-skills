@@ -13,16 +13,16 @@
 
 ### Documentation
 
-- [ ] **DOCS-01**: Codex Quick Start leads with `codex plugin marketplace add labring/sealos-skills`.
-- [ ] **DOCS-02**: Codex Quick Start installs the plugin with `codex plugin add sealos@sealos`.
-- [ ] **DOCS-03**: README explains that one Sealos plugin installs deploy, database, S3, canvas, app-builder, and supporting cloud-native skills.
-- [ ] **DOCS-04**: README keeps `npx plugins add https://github.com/labring/sealos-skills --target codex` as a compatibility or local install path.
-- [ ] **DOCS-05**: README uses Codex-specific invocation wording and keeps Claude-compatible `/sealos` examples in Claude-specific sections.
-- [ ] **DOCS-06**: README keeps Codex App selection guidance and the existing Sealos plugin screenshot close to the Codex install path.
+- [x] **DOCS-01**: Codex Quick Start leads with `codex plugin marketplace add labring/sealos-skills`.
+- [x] **DOCS-02**: Codex Quick Start installs the plugin with `codex plugin add sealos@sealos`.
+- [x] **DOCS-03**: README explains that one Sealos plugin installs deploy, database, S3, canvas, app-builder, and supporting cloud-native skills.
+- [x] **DOCS-04**: README keeps `npx plugins add https://github.com/labring/sealos-skills --target codex` as a compatibility or local install path.
+- [x] **DOCS-05**: README uses Codex-specific invocation wording and keeps Claude-compatible `/sealos` examples in Claude-specific sections.
+- [x] **DOCS-06**: README keeps Codex App selection guidance and the existing Sealos plugin screenshot close to the Codex install path.
 
 ### Metadata
 
-- [ ] **META-01**: Codex-facing metadata consistently uses repo source `labring/sealos-skills`, marketplace id `sealos`, plugin id `sealos`, and display label `Sealos`.
+- [x] **META-01**: Codex-facing metadata consistently uses repo source `labring/sealos-skills`, marketplace id `sealos`, plugin id `sealos`, and display label `Sealos`.
 - [ ] **META-02**: `.codex-plugin/plugin.json` remains aligned with README Codex plugin identity, display copy, asset paths, and root `./skills/` source.
 - [x] **META-03**: `marketplace.json`, `.claude-plugin/marketplace.json`, and `.agents/plugins/marketplace.json` expose the installable Sealos plugin without duplicating `skills/**`.
 - [ ] **META-04**: `distribution/platforms.json` records the verified Codex native install path, fallback install path, invocation wording, evidence, and verification date.
@@ -67,13 +67,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DISC-01 | Phase 1 | Complete |
 | DISC-02 | Phase 1 | Complete |
 | DISC-03 | Phase 1 | Complete |
-| DOCS-01 | Phase 2 | Pending |
-| DOCS-02 | Phase 2 | Pending |
-| DOCS-03 | Phase 2 | Pending |
-| DOCS-04 | Phase 2 | Pending |
-| DOCS-05 | Phase 2 | Pending |
-| DOCS-06 | Phase 2 | Pending |
-| META-01 | Phase 2 | Pending |
+| DOCS-01 | Phase 2 | Complete |
+| DOCS-02 | Phase 2 | Complete |
+| DOCS-03 | Phase 2 | Complete |
+| DOCS-04 | Phase 2 | Complete |
+| DOCS-05 | Phase 2 | Complete |
+| DOCS-06 | Phase 2 | Complete |
+| META-01 | Phase 2 | Complete |
 | META-02 | Phase 2 | Pending |
 | META-03 | Phase 1 | Complete |
 | META-04 | Phase 2 | Pending |
