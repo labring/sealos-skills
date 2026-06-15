@@ -150,6 +150,38 @@ spec:
 
 **Do NOT add any other fields.** Fields like `menuData`, `nameColor`, `template`, etc. do not exist in the App CRD and will cause `strict decoding error: unknown field` on apply.
 
+### Multi-Service Web Runtime Contract
+
+For split-service web apps, classify each component before writing resources:
+
+- **Browser entry**: dashboard, console, setup UI, or docs page opened by users.
+- **REST API**: authenticated application or dashboard API.
+- **Protocol gateway**: OpenAI-compatible, webhook, or SDK-facing API surface.
+- **Docs/static service**: optional public documentation.
+- **Worker**: background processor with no public Service/Ingress unless upstream explicitly exposes one.
+
+The App CRD `spec.data.url` must point to the browser entry URL that works from a fresh Sealos launch. Test the root path and any login/setup/entrance path from upstream docs or source. Choose the path that loads without prior navigation and reaches login, registration, or setup.
+
+For SSR/Next.js/React server apps, HTTP status is not enough. Treat the entry as failed when the response body contains visible runtime failure text such as:
+
+- `Application error`
+- `server-side exception`
+- `Internal Server Error`
+- `Unhandled Runtime Error`
+- Next.js runtime digest markers such as `NEXT_`
+
+These failures invalidate the App URL and any HTTP probe path even when the HTTP status is 2xx or 3xx.
+
+Use `nginx.ingress.kubernetes.io/app-root` only after the target path has been verified as a stable fresh-session entry. It must not hide a broken root path, missing public URL configuration, or wrong backend service routing.
+
+Public and internal URLs must stay separate:
+
+- Browser-facing env vars use public HTTPS URLs: `https://${{ defaults.<host> }}.${{ SEALOS_CLOUD_DOMAIN }}`.
+- Backend-to-backend env vars use Kubernetes Service DNS names, for example `http://<service>.${{ SEALOS_NAMESPACE }}.svc.cluster.local:80`.
+- Use public URLs for server-side callbacks only when upstream explicitly requires external callback or OAuth-style redirect behavior.
+
+When workers, protocol gateways, or background services depend on database migrations, gate startup on app-specific database state such as migration markers or required tables, not merely on the database port.
+
 ## Defaults and Inputs Configuration Specification
 
 ### Basic Principles

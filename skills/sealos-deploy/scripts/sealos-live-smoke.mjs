@@ -39,7 +39,10 @@ function fail(message, extra = {}) {
 }
 
 function joinUrl(base, path) {
-  return new URL(path || "/", base).toString();
+  if (path === undefined || path === null || path === "") {
+    return new URL(base).toString();
+  }
+  return new URL(path, base).toString();
 }
 
 function redact(value) {
@@ -74,6 +77,33 @@ function redactJson(value, key = "") {
   return Object.fromEntries(Object.entries(value).map(([entryKey, entry]) => [entryKey, redactJson(entry, entryKey)]));
 }
 
+const FAILURE_SIGNAL_PATTERNS = [
+  {
+    id: "application-error",
+    pattern: /Application error/i,
+  },
+  {
+    id: "server-side-exception",
+    pattern: /server-side exception/i,
+  },
+  {
+    id: "internal-server-error",
+    pattern: /Internal Server Error/i,
+  },
+  {
+    id: "unhandled-runtime-error",
+    pattern: /Unhandled Runtime Error/i,
+  },
+  {
+    id: "next-runtime-digest",
+    pattern: /\bNEXT_[A-Z0-9_]+\b/i,
+  },
+];
+
+function detectFailureSignals(text) {
+  return FAILURE_SIGNAL_PATTERNS.filter(({ pattern }) => pattern.test(text)).map(({ id }) => id);
+}
+
 async function requestStep(name, url, options = {}) {
   const startedAt = Date.now();
   const response = await fetch(url, {
@@ -95,16 +125,18 @@ async function requestStep(name, url, options = {}) {
     }
   }
   const safeJson = redactJson(json);
+  const failureSignals = detectFailureSignals(text);
   return {
     name,
     url,
     status: response.status,
-    ok: response.status >= 200 && response.status < 400,
+    ok: response.status >= 200 && response.status < 400 && failureSignals.length === 0,
     elapsedMs: Date.now() - startedAt,
     contentType,
     location: response.headers.get("location"),
     setCookie: response.headers.get("set-cookie") ? "<present>" : null,
     bodyPreview: safeJson ? JSON.stringify(safeJson).slice(0, 240) : text.slice(0, 240),
+    failureSignals,
     json: safeJson,
     rawJson: json,
   };
@@ -155,7 +187,7 @@ if (!baseUrl) {
 
 const steps = [];
 try {
-  steps.push(await requestStep("root", joinUrl(baseUrl, args.rootPath || "/")));
+  steps.push(await requestStep("root", joinUrl(baseUrl, args.rootPath)));
 
   if (args.captchaPath) {
     steps.push(await requestStep("captcha", joinUrl(baseUrl, args.captchaPath)));

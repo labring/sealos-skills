@@ -32,8 +32,9 @@ Extract from Docker Compose/docs:
 - ports, dependencies, service communication
 - env vars and secret usage
 - startup-time validation rules for bootstrap credentials, API keys, salts, secrets, and feature flags
+- multi-service web roles: browser entry, REST API, OpenAI/API gateway, docs, workers, and one-shot jobs
 - resource limits/requests and health checks
-- if official Kubernetes installation docs/manifests are available, also extract app-runtime behavior from them (bootstrap admin fields, external endpoint/protocol assumptions, health probes, startup/init flow)
+- if official Kubernetes installation docs/manifests are available, also extract app-runtime behavior from them (bootstrap admin fields, external endpoint/protocol assumptions, health probes, startup/init flow, migration ordering)
 
 ### Step 2: Infer metadata
 
@@ -65,6 +66,8 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - for DB URL/DSN envs (for example `*_DATABASE_URL`, `*_DB_URL`), when Kubeblocks `endpoint` is host:port, inject `host`/`port`/`username`/`password` via approved `secretKeyRef` envs and compose the final URL with `$(VAR)` expansion
 - edge gateway normalization: when Compose includes Traefik-like edge proxy plus business services, skip the proxy workload and expose business services via Sealos Ingress directly
 - TLS offload normalization for Sealos Ingress: when a business service exposes both 80 and 443, drop 443 from workload/service ports and remove in-container TLS certificate mounts (for example `/etc/nginx/ssl`, `/etc/ssl`, `/certs`) unless official Kubernetes docs explicitly require HTTPS backend-to-service traffic
+- multi-service web normalization: expose the verified browser entry in the App resource, expose API/gateway/docs only when they are intended public surfaces, and keep workers private with no Service/Ingress
+- URL topology: browser-facing env vars must use public HTTPS URLs, while server-to-server env vars must use Kubernetes Service FQDNs unless the app explicitly requires public callbacks
 - prefer `scripts/compose_to_template.py --kompose-mode always` as deterministic conversion entrypoint (require `kompose` for reproducible workload shaping)
 - when official Kubernetes installation docs/manifests exist, perform a dual-source merge: use Compose as baseline topology, then align app-runtime semantics with official Kubernetes guidance
 
@@ -77,6 +80,8 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - For PostgreSQL custom databases (non-`postgres`), the init Job must wait for PostgreSQL readiness before execution and create the target database idempotently.
 - Critical application compatibility objects must be verified in live database state. Use idempotent initContainer self-healing for compatibility views, legacy tables/views, indexes, extensions, search paths, and bootstrap state that the app requires on every cold start.
 - One-shot init Jobs may create initial databases or seed state, but app startup gates must verify the final database objects directly. Treat TTL-expired Jobs as historical evidence and rely on database state for acceptance.
+- Worker, gateway, and background services that depend on app migrations must wait for the required tables, migration markers, or app-specific readiness objects, not only for the database port.
+- Redis readiness probes or initContainers must tolerate authenticated Redis responses such as `NOAUTH` or `Authentication required` when credentials are not needed for readiness.
 - PostgreSQL bootstrap shell must use safe quoting patterns. Prefer shell-level existence checks plus simple SQL statements when possible. Use single-quoted heredocs or SQL files for psql variable interpolation, and avoid PL/pgSQL `DO $$` blocks in inline shell commands when a guard query can express the same logic.
 - Do not use `psql -c "..."` for `:'var'` variable interpolation. Use `psql -v name=value <<'SQL' ... :'name' ... SQL` or pass already-safe literal SQL.
 
@@ -121,6 +126,7 @@ If validation fails, fix template/rules/examples first.
 - App resource `spec.displayType` must be `normal`.
 - App resource `spec.type` must be `link`.
 - App resource `spec.data.url` must be the browser entry URL that succeeds from a fresh Sealos launch. For apps with safe-path, setup-path, or entrance-path behavior, verify the configured path and root path, then choose the URL that supports login or first-run setup without hidden prior navigation.
+- SSR/Next.js/React server apps must not use a path that renders a server-side exception as the App URL or HTTP probe. Treat visible `Application error`, `server-side exception`, `Internal Server Error`, or `Unhandled Runtime Error` text as a failed entry path even if the HTTP status is 2xx/3xx.
 - Never use `spec.template` in App resource.
 - `cloud.sealos.io/app-deploy-manager` label value must equal resource `metadata.name`.
 - `metadata.labels.app` label value must equal resource `metadata.name` for managed app workloads.
@@ -170,6 +176,7 @@ If validation fails, fix template/rules/examples first.
 - Database connection/bootstrap may use Kubeblocks-provided secrets, and reserved Kubeblocks database secret names must not be redefined by custom `Secret` resources.
 - Env vars must be declared before referenced (for example password before URL composition).
 - Follow official app env var naming; do not invent prefixes.
+- For split frontend/API/gateway apps, keep public browser URLs and internal service URLs separate. Frontend/browser callback variables use `https://${{ defaults.<host> }}.${{ SEALOS_CLOUD_DOMAIN }}`; backend-to-backend variables use `http://<service>.$(SEALOS_NAMESPACE).svc.cluster.local:<port>` or the fully rendered Service FQDN.
 - When the application requires its public URL configured via a file-based config system (e.g., node-config `config/default.json`, PHP config files), create a ConfigMap containing the config file with the public URL set to `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`, and mount it to the application's config directory. The ConfigMap must follow standard naming and label conventions.
 - For PostgreSQL custom databases (non-`postgres`), include `${{ defaults.app_name }}-pg-init` Job and implement startup-safe/idempotent creation logic (readiness wait + existence check before create).
 - For application-specific database compatibility, include an initContainer or startup gate that idempotently creates or repairs required views, aliases, indexes, extensions, privileges, role search paths, and legacy compatibility objects before the business container starts.
