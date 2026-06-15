@@ -1,0 +1,12 @@
+{
+  "marketplaces": [
+    {
+      "name": "sealos",
+      "root": "/Users/longnv/.codex/worktrees/31e2/sealos-skills",
+      "marketplaceSource": {
+        "sourceType": "local",
+        "source": "/Users/longnv/.codex/worktrees/31e2/sealos-skills"
+      }
+    }
+  ]
+}
