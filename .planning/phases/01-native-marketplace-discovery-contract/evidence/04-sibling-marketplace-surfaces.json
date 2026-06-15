@@ -1,0 +1,38 @@
+{
+  "marketplace_json": {
+    "name": "sealos",
+    "plugin_name": "sealos",
+    "source": "./",
+    "commands": "./commands/",
+    "skills": [
+      "./skills/sealos-deploy",
+      "./skills/sealos-database",
+      "./skills/sealos-s3",
+      "./skills/sealos-app-builder",
+      "./skills/cloud-native-readiness",
+      "./skills/dockerfile-skill",
+      "./skills/docker-to-sealos"
+    ]
+  },
+  "claude_plugin_marketplace_json": {
+    "name": "sealos",
+    "plugin_name": "sealos",
+    "source": "./",
+    "commands": "./commands/",
+    "skills": [
+      "./skills/sealos-deploy",
+      "./skills/sealos-database",
+      "./skills/sealos-s3",
+      "./skills/sealos-app-builder",
+      "./skills/cloud-native-readiness",
+      "./skills/dockerfile-skill",
+      "./skills/docker-to-sealos"
+    ]
+  },
+  "diagnosis": {
+    "metadata_changes_required": false,
+    "root_skill_source_preserved": true,
+    "commands_path_preserved": true,
+    "skill_paths_preserved": true
+  }
+}
