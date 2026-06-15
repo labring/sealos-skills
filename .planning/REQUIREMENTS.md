@@ -23,9 +23,9 @@
 ### Metadata
 
 - [x] **META-01**: Codex-facing metadata consistently uses repo source `labring/sealos-skills`, marketplace id `sealos`, plugin id `sealos`, and display label `Sealos`.
-- [ ] **META-02**: `.codex-plugin/plugin.json` remains aligned with README Codex plugin identity, display copy, asset paths, and root `./skills/` source.
+- [x] **META-02**: `.codex-plugin/plugin.json` remains aligned with README Codex plugin identity, display copy, asset paths, and root `./skills/` source.
 - [x] **META-03**: `marketplace.json`, `.claude-plugin/marketplace.json`, and `.agents/plugins/marketplace.json` expose the installable Sealos plugin without duplicating `skills/**`.
-- [ ] **META-04**: `distribution/platforms.json` records the verified Codex native install path, fallback install path, invocation wording, evidence, and verification date.
+- [x] **META-04**: `distribution/platforms.json` records the verified Codex native install path, fallback install path, invocation wording, evidence, and verification date.
 
 ### Validation
 
@@ -74,9 +74,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DOCS-05 | Phase 2 | Complete |
 | DOCS-06 | Phase 2 | Complete |
 | META-01 | Phase 2 | Complete |
-| META-02 | Phase 2 | Pending |
+| META-02 | Phase 2 | Complete |
 | META-03 | Phase 1 | Complete |
-| META-04 | Phase 2 | Pending |
+| META-04 | Phase 2 | Complete |
 | VAL-01 | Phase 3 | Pending |
 | VAL-02 | Phase 3 | Pending |
 | VAL-03 | Phase 3 | Pending |
