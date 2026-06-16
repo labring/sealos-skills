@@ -21,7 +21,7 @@ This repo does not have a single top-level app build.
 sealos-deploy (user entry point: /sealos-deploy)
   ├→ cloud-native-readiness   (Phase 1: score 0-12)
   ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
-  ├→ k8s-buildkit-job         (Phase 4: sandbox BuildKit build)
+  ├→ k8s-kaniko-job         (Phase 4: sandbox kaniko build)
   └→ docker-to-sealos         (Phase 5: Sealos template)
 ```
 
@@ -41,7 +41,7 @@ Preflight → Assess → Detect Image → Dockerfile → Build/Reuse Image → T
 
 Build/Reuse Image:
   - reusable public image found → write build-result.json with status=skipped
-  - no reusable image → write build-request.json and delegate to k8s-buildkit-job
+  - no reusable image → write build-request.json and delegate to k8s-kaniko-job
 ```
 
 State is tracked through `.sealos/analysis.json`, `.sealos/build-request.json`, `.sealos/build-result.json`, `.sealos/template/index.yaml`, and `.sealos/delivery-manifest.json`. `.sealos/config.json` remains an optional user override file.
@@ -51,4 +51,4 @@ State is tracked through `.sealos/analysis.json`, `.sealos/build-request.json`, 
 - `skills/sealos-deploy/config.json` — prepare/build defaults
 - `skills/sealos-deploy/scripts/` — scoring, image detection, and artifact validation scripts
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
-- `skills/k8s-buildkit-job/` — sandbox BuildKit executor used when a new image is required
+- `skills/k8s-kaniko-job/` — sandbox kaniko executor used when a new image is required

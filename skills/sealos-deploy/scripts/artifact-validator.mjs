@@ -6,13 +6,13 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SCHEMA_DIR = path.join(__dirname, '..', 'schemas')
-const BUILDKIT_SCHEMA_DIR = path.join(__dirname, '..', '..', 'k8s-buildkit-job', 'schemas')
+const KANIKO_SCHEMA_DIR = path.join(__dirname, '..', '..', 'k8s-kaniko-job', 'schemas')
 
 const SCHEMA_FILES = {
   config: 'config.schema.json',
   analysis: 'analysis.schema.json',
   'build-request': 'build-request.schema.json',
-  'build-result': { dir: BUILDKIT_SCHEMA_DIR, file: 'build-result.schema.json' },
+  'build-result': { dir: KANIKO_SCHEMA_DIR, file: 'build-result.schema.json' },
   'delivery-manifest': 'delivery-manifest.schema.json',
 }
 
@@ -296,7 +296,7 @@ function validateBuildRequestSemantics(data, errors) {
   }
 
   if (source.type !== 'sandbox-context') {
-    pushError(errors, '$.source.type', 'must be sandbox-context for the current k8s sandbox BuildKit workflow')
+    pushError(errors, '$.source.type', 'must be sandbox-context for the current k8s sandbox kaniko workflow')
   }
 
   if (typeof source.github_url !== 'string' || source.github_url.length === 0) {

@@ -13,8 +13,9 @@ python3 --version 2>/dev/null
 curl --version 2>/dev/null | head -1
 which jq 2>/dev/null
 kubectl version --client 2>/dev/null || true
-buildctl --version 2>/dev/null || true
 printenv GITHUB_TOKEN >/dev/null
+printenv S3_ENDPOINT >/dev/null || printenv AWS_ENDPOINT_URL_S3 >/dev/null || printenv AWS_ENDPOINT_URL >/dev/null
+printenv AWS_SECRET_ACCESS_KEY >/dev/null || printenv SEALOS_DEVBOX_JWT_SECRET >/dev/null || printenv DEVBOX_JWT_SECRET >/dev/null
 ```
 
 Record:
@@ -26,8 +27,9 @@ ENV.python
 ENV.curl
 ENV.jq
 ENV.kubectl
-ENV.buildctl
 ENV.github_token
+ENV.s3_endpoint
+ENV.s3_secret
 ```
 
 Notes:
@@ -35,8 +37,9 @@ Notes:
 - `git` is required because this workflow needs git metadata either from the current workspace or from the cloned GitHub repository.
 - `node` is recommended because helper scripts are written in Node.js.
 - `curl` and `jq` are optional accelerators.
-- `kubectl` and `buildctl` may be available in the sandbox for a later BuildKit phase, but they are not entry prerequisites.
-- `GITHUB_TOKEN` may exist in the sandbox for a later source materialization or BuildKit phase, but this skill does not prompt for or refresh GitHub auth.
+- `kubectl` may be available in the sandbox for a later kaniko phase, but it is not an entry prerequisite.
+- `GITHUB_TOKEN` may exist in the sandbox for a later source materialization or kaniko phase, but this skill does not prompt for or refresh GitHub auth.
+- `S3_ENDPOINT` and the S3 secret may exist in the DevBox runtime for a later kaniko phase, but they are conditional blockers only when a new image must be built.
 
 ## Step 2: Capability Classification
 
@@ -59,12 +62,13 @@ Stop before pipeline work only when one of these is true:
 Record these capabilities for Phase 4:
 
 - `kubectl` missing
-- `buildctl` missing
 - `GITHUB_TOKEN` missing
+- `S3_ENDPOINT`, `AWS_ENDPOINT_URL_S3`, and `AWS_ENDPOINT_URL` missing
+- `AWS_SECRET_ACCESS_KEY`, `SEALOS_DEVBOX_JWT_SECRET`, and `DEVBOX_JWT_SECRET` missing
 
-`buildctl`, `kubectl`, and `GITHUB_TOKEN` are conditional blockers only if Phase 4 resolves to `mode=build-required`.
+`kubectl`, VersityGW S3 settings, and `GITHUB_TOKEN` are conditional blockers only if Phase 4 resolves to `mode=build-required`.
 
-`GITHUB_TOKEN` is used for GHCR push credentials, not for GitHub clone inside the BuildKit job.
+`GITHUB_TOKEN` is used for GHCR push credentials, not for GitHub clone inside the kaniko job.
 
 ### 2.3 Optional Accelerators
 
@@ -150,8 +154,9 @@ At the end of preflight, present:
 - detected GitHub repository and ref
 - whether assessment and image detection can run
 - whether sandbox helpers like `kubectl` and `GITHUB_TOKEN` are present
-- whether a later BuildKit phase would use the active sandbox namespace and current service account
-- whether a later sandbox BuildKit phase would be able to run if the project needs a new image
+- whether VersityGW S3 settings appear to be present
+- whether a later kaniko phase would use the active sandbox namespace and current service account
+- whether a later sandbox kaniko phase would be able to run if the project needs a new image
 
 Example:
 
@@ -165,5 +170,5 @@ Preflight summary:
   - kubectl: available in sandbox
   - GITHUB_TOKEN: injected
   - Build identity: active sandbox namespace + current service account
-  - BuildKit readiness: buildctl, kubectl, and GITHUB_TOKEN will only matter if no reusable image is found
+  - kaniko readiness: kubectl, VersityGW S3 settings, and GITHUB_TOKEN will only matter if no reusable image is found
 ```

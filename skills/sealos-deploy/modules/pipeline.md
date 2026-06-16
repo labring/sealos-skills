@@ -17,7 +17,7 @@ All build-and-prepare outputs are written under `.sealos/` in `WORK_DIR`:
 ├── config.json               ← optional user configuration overrides
 ├── analysis.json             ← project analysis snapshot
 ├── build-request.json        ← build execution contract
-├── build-result.json         ← resolved image result from reuse or BuildKit
+├── build-result.json         ← resolved image result from reuse or kaniko
 ├── delivery-manifest.json    ← manifest of generated workflow artifacts
 └── template/
     └── index.yaml            ← Sealos template
@@ -29,7 +29,7 @@ JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>
 - `analysis.schema.json`
 - `build-request.schema.json`
 - `delivery-manifest.schema.json`
-- `../k8s-buildkit-job/schemas/build-result.schema.json`
+- `../k8s-kaniko-job/schemas/build-result.schema.json`
 
 Validate them with:
 
@@ -229,11 +229,11 @@ Phase 3 output:
 
 ## Phase 3.5: Confirm Sandbox Build Context
 
-The Kubernetes BuildKit executor runs a temporary `buildkitd` Job and Service. The sandbox process runs `buildctl` and sends the local build context from `WORK_DIR`.
+The Kubernetes kaniko executor packages the Docker build context from `WORK_DIR`, writes a `context.tar.gz` object under the DevBox VersityGW bucket directory, then starts a temporary kaniko Job that pulls that object through S3.
 
 That downstream Job must run in the active sandbox namespace and inherit the current sandbox service account when it can be resolved. Do not assume the namespace is `default`.
 
-Before any `mode=build-required` handoff, ensure Phase 3 build inputs are present under `WORK_DIR` and can be read by the sandbox process.
+Before any `mode=build-required` handoff, ensure Phase 3 build inputs are present under `WORK_DIR`, can be read by the sandbox process, and can be represented as a kaniko S3 tar context.
 
 ### 3.5.1 Resolve build paths
 
@@ -250,15 +250,14 @@ For the current repository layout, prefer the actual application directory. Do n
 
 ### 3.5.2 Verify local build inputs
 
-Before invoking `k8s-buildkit-job`, verify:
+Before invoking `k8s-kaniko-job`, verify:
 
 ```bash
 test -d "$WORK_DIR/<context_path>"
 test -f "$WORK_DIR/<dockerfile_path>"
-buildctl --version
 ```
 
-If any check fails, stop before invoking `k8s-buildkit-job`.
+Also verify that `dockerfile_path` is inside `context_path`. If it is outside, fix the Dockerfile location or widen the explicit context path before invoking `k8s-kaniko-job`.
 
 ### 3.5.3 Source contract
 
@@ -274,7 +273,7 @@ Write build requests with:
 }
 ```
 
-`source.ref` is retained for traceability. It is not the build source for `k8s-buildkit-job`; the build source is the sandbox-local `source.work_dir` plus `build.context_path` and `build.dockerfile_path`.
+`source.ref` is retained for traceability. It is not the build source for `k8s-kaniko-job`; the build source is the sandbox-local `source.work_dir` plus `build.context_path` and `build.dockerfile_path`, packaged as `context.tar.gz`.
 
 ## Phase 4: Build
 
@@ -354,7 +353,7 @@ Important:
 
 - always write `build-request.json`
 - `mode=reuse-image` means no Kubernetes Job is needed
-- `mode=build-required` means Phase 4 must now call `k8s-buildkit-job`
+- `mode=build-required` means Phase 4 must now call `k8s-kaniko-job`
 - when `mode=build-required`, `source.work_dir`, `build.context_path`, and `build.dockerfile_path` must point to readable sandbox-local build inputs
 
 ### 4.3 Resolve build-result.json
@@ -362,15 +361,15 @@ Important:
 `sealos-deploy` owns the overall chain, but delegates actual build execution to the sibling skill:
 
 ```text
-<SKILL_DIR>/../k8s-buildkit-job/
+<SKILL_DIR>/../k8s-kaniko-job/
 ```
 
 #### Branch A: reuse-image
 
-If `mode=reuse-image`, do not run BuildKit. Write `.sealos/build-result.json` directly via the sibling helper:
+If `mode=reuse-image`, do not run kaniko. Write `.sealos/build-result.json` directly via the sibling helper:
 
 ```bash
-node "<SKILL_DIR>/../k8s-buildkit-job/scripts/write-result.mjs" \
+node "<SKILL_DIR>/../k8s-kaniko-job/scripts/write-result.mjs" \
   --request "$WORK_DIR/.sealos/build-request.json" \
   --out "$WORK_DIR/.sealos/build-result.json" \
   --status skipped \
@@ -384,18 +383,21 @@ The resulting `build-result.json` is still required, because later phases consum
 If `mode=build-required`, require these capabilities at this point:
 
 - `kubectl`
-- `buildctl`
+- `S3_ENDPOINT`, `AWS_ENDPOINT_URL_S3`, or `AWS_ENDPOINT_URL` from the DevBox runtime
+- `KANIKO_JOB_S3_ENDPOINT` when the local S3 endpoint is loopback and current Pod IP cannot be resolved
+- `AWS_SECRET_ACCESS_KEY`, `SEALOS_DEVBOX_JWT_SECRET`, or `DEVBOX_JWT_SECRET`
 - `GITHUB_TOKEN`
-- permission to create Jobs, Services, Pods, and Secrets in the active namespace through the sandbox-provided kubeconfig and current service account
+- permission to create Jobs and Secrets, and to read Pods and Pod logs in the active namespace through the sandbox-provided kubeconfig and current service account
 
-Then execute the `k8s-buildkit-job` workflow using the just-written `.sealos/build-request.json`:
+Then execute the `k8s-kaniko-job` workflow using the just-written `.sealos/build-request.json`:
 
-1. run `../k8s-buildkit-job/modules/preflight.md`
-2. run `../k8s-buildkit-job/modules/build-request.md`
-3. run `../k8s-buildkit-job/modules/registry-auth.md`
-4. run `../k8s-buildkit-job/modules/job-template.md`
-5. run `../k8s-buildkit-job/modules/run-and-watch.md`
-6. run `../k8s-buildkit-job/modules/result.md`
+1. run `../k8s-kaniko-job/modules/preflight.md`
+2. run `../k8s-kaniko-job/modules/build-request.md`
+3. run `../k8s-kaniko-job/modules/registry-auth.md`
+4. run `../k8s-kaniko-job/modules/context.md`
+5. run `../k8s-kaniko-job/modules/job-template.md`
+6. run `../k8s-kaniko-job/modules/run-and-watch.md`
+7. run `../k8s-kaniko-job/modules/result.md`
 
 Expected output:
 
@@ -445,7 +447,7 @@ This script:
 
 - prepends a `kubernetes.io/dockerconfigjson` Secret named `${{ defaults.app_name }}`
 - adds `imagePullSecrets` to managed `Deployment` / `StatefulSet` documents
-- uses the same GHCR auth shape as `k8s-buildkit-job/modules/registry-auth.md`
+- uses the same GHCR auth shape as `k8s-kaniko-job/modules/registry-auth.md`
 
 POC constraints:
 
@@ -483,7 +485,7 @@ node "<SKILL_DIR>/scripts/validate-artifacts.mjs" --dir "$WORK_DIR"
 
 At the end, present:
 
-- whether the project reused an existing image or completed a BuildKit job
+- whether the project reused an existing image or completed a kaniko job
 - where `build-request.json` is
 - where `build-result.json` is
 - where `index.yaml` is

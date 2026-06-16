@@ -158,5 +158,26 @@ verification:
 fixes:
   preferred:
     - "Fail in BuildKit preflight before creating the Job when scopes are missing"
+
+### Kaniko Context Must Be Explicit (Prevents S3 Tarball Drift)
+
+- "Problem":
+    - "kaniko Job cannot read the DevBox filesystem directly"
+    - "S3 context tarball omits the generated Dockerfile or packages too much local state"
+    - "Dockerfile path works in local tools but fails once kaniko extracts context.tar.gz"
+- "Root cause":
+    - "kaniko sees only the tarball root, not the original repository root"
+    - "Dockerfile must be inside build.context_path"
+    - "S3_ENDPOINT is a DevBox-local VersityGW endpoint, not stable project config"
+    - "If S3_ENDPOINT is loopback, the separate kaniko Job needs KANIKO_JOB_S3_ENDPOINT or a current Pod IP endpoint"
+- "Fix":
+    - "Package source.work_dir + build.context_path into context.tar.gz"
+    - "Reject dockerfile_path values outside context_path instead of silently widening context"
+    - "Resolve S3_ENDPOINT or AWS_ENDPOINT_URL_S3 and AWS_SECRET_ACCESS_KEY from runtime env during kaniko preflight"
+    - "Resolve KANIKO_CONTEXT_S3_BUCKET, KANIKO_CONTEXT_S3_PREFIX, and KANIKO_CONTEXT_POSIX_DIR from the runtime defaults"
+- "Prevention":
+    - "Keep .sealos/build-request.json as the source contract"
+    - "Record .sealos/kaniko-context.json before creating the Job"
+    - "Do not query Sealos internal CRs from the skill to synthesize S3 endpoints"
     - "Replace the token with a PAT that can publish to GHCR"
 ```

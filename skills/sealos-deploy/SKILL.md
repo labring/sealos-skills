@@ -1,7 +1,7 @@
 ---
 name: sealos-deploy
-description: Prepare and build the current workspace or a GitHub project for Sealos Cloud inside a sandboxed workflow. The skill assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox BuildKit daemon when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
-compatibility: git is required. Node.js 18+ is recommended for helper scripts. buildctl, kubectl, and GITHUB_TOKEN are required when the pipeline needs a Kubernetes BuildKit build. Build-time Kubernetes access uses the sandbox-provided kubeconfig and current service account in the active namespace.
+description: Prepare and build the current workspace or a GitHub project for Sealos Cloud inside a sandboxed workflow. The skill assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox kaniko Job when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
+compatibility: git is required. Node.js 18+ is recommended for helper scripts. kubectl, VersityGW S3 settings, and GITHUB_TOKEN are required when the pipeline needs a Kubernetes kaniko build. Build-time Kubernetes access uses the sandbox-provided kubeconfig and current service account in the active namespace.
 metadata:
   author: labring
 ---
@@ -16,7 +16,7 @@ Workflow:
 2. detect reusable container images
 3. reuse, repair, or generate a Dockerfile
 4. write `.sealos/build-request.json`
-5. either reuse an existing image or run a sandbox BuildKit build through `k8s-buildkit-job`
+5. either reuse an existing image or run a sandbox kaniko build through `k8s-kaniko-job`
 6. generate `.sealos/template/index.yaml`
 
 ## kubectl Safety Rules
@@ -31,7 +31,7 @@ Build phases that use `kubectl` use the sandbox-provided permissions, kubeconfig
 
 If the argument is omitted, resolve the current workspace first. When the current workspace is already the target git repository, build from that sandbox-local path instead of recloning. If a GitHub URL is provided explicitly, clone it to a temporary working directory and continue from there.
 
-The downstream BuildKit executor builds from the sandbox-local filesystem in `source.work_dir`. GitHub URL, repo, and ref fields are still recorded for traceability and image naming, but the build does not pull Dockerfiles from GitHub at execution time.
+The downstream kaniko executor packages the sandbox-local Docker context from `source.work_dir` and exposes it through the DevBox VersityGW S3 endpoint. GitHub URL, repo, and ref fields are still recorded for traceability and image naming, but the build does not pull Dockerfiles from GitHub at execution time.
 
 ## Quick Start
 
@@ -75,7 +75,7 @@ This skill references co-installed internal skills on demand:
 <SKILL_DIR>/../
 ├── sealos-deploy/           ← this skill (user entry point)
 ├── dockerfile-skill/        ← Phase 3: Dockerfile generation knowledge
-├── k8s-buildkit-job/        ← Phase 4: sandbox BuildKit execution
+├── k8s-kaniko-job/        ← Phase 4: sandbox kaniko execution
 ├── cloud-native-readiness/  ← Phase 1: assessment criteria
 └── docker-to-sealos/        ← Phase 5: Sealos template rules
 ```
@@ -125,4 +125,4 @@ Input (current workspace or GitHub URL)
 Done — build artifacts and template ready for a later deploy step
 ```
 
-Execution rule: `buildctl`, `kubectl`, and `GITHUB_TOKEN` are required only when `mode=build-required`. When that happens, use the active sandbox namespace and current service account instead of assuming `default`.
+Execution rule: `kubectl`, VersityGW S3 settings, and `GITHUB_TOKEN` are required only when `mode=build-required`. When that happens, use the active sandbox namespace and current service account instead of assuming `default`.
