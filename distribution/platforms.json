@@ -2,7 +2,7 @@
   "name": "sealos",
   "version": "1.0.0",
   "repository": "https://github.com/labring/sealos-skills",
-  "lastUpdated": "2026-06-15",
+  "lastUpdated": "2026-06-16",
   "platforms": [
     {
       "id": "codex",
@@ -21,12 +21,12 @@
       "name": "Claude Code",
       "claim": "install-target",
       "runtime": "plugin",
-      "install": "npx plugins add https://github.com/labring/sealos-skills --target claude-code",
-      "alternateInstall": "/plugin marketplace add labring/sealos-skills",
+      "install": "claude plugin marketplace add labring/sealos-skills && claude plugin install sealos@sealos",
+      "alternateInstall": "npx plugins add https://github.com/labring/sealos-skills --target claude-code",
       "invoke": "/sealos",
       "commands": "supported",
-      "evidence": ".claude-plugin/plugin.json + commands/sealos.md",
-      "lastVerified": "2026-05-20"
+      "evidence": ".claude-plugin/plugin.json + .claude-plugin/marketplace.json + marketplace.json + commands/sealos.md + README native CLI contract validation",
+      "lastVerified": "2026-06-16"
     },
     {
       "id": "clawhub-openclaw",

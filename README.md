@@ -25,9 +25,35 @@ For compatibility and local Codex testing, install the same plugin with:
 npx plugins add https://github.com/labring/sealos-skills --target codex
 ```
 
+After installation in Codex, use the plugin from Codex:
+
+- **Codex CLI:** type `$sealos`
+- **Codex App:** click the **+** button in the lower-left corner of the chat input, choose **Plugins**, then choose **Sealos**
+
+![Select the Sealos plugin in Codex App](./assets/codex-sealos.png)
+
+Codex examples:
+
+```text
+$sealos deploy this repo to Sealos Cloud
+$sealos deploy /path/to/project
+$sealos deploy https://github.com/labring-sigs/kite
+$sealos create a cloud Postgres database for this repo and wire DATABASE_URL
+$sealos create private S3 object storage for uploads and wire env vars
+```
+
 ### Install in Claude Code
 
-Install the Sealos plugin into Claude Code:
+Add this repository as a Claude Code marketplace, then install the Sealos plugin:
+
+```bash
+claude plugin marketplace add labring/sealos-skills
+claude plugin install sealos@sealos
+```
+
+This follows the native Claude Code marketplace CLI pattern used by plugin marketplaces such as [phuryn/pm-skills](https://github.com/phuryn/pm-skills).
+
+For compatibility with cross-host plugin installers, install the same plugin with:
 
 ```bash
 npx plugins add https://github.com/labring/sealos-skills --target claude-code
@@ -49,30 +75,13 @@ After installation in Claude Code, use `/sealos`:
 /sealos create private S3 object storage for uploads and wire env vars
 ```
 
-After installation in Codex, use the plugin from Codex:
-
-- **Codex CLI:** type `$sealos`
-- **Codex App:** click the **+** button in the lower-left corner of the chat input, choose **Plugins**, then choose **Sealos**
-
-![Select the Sealos plugin in Codex App](./assets/codex-sealos.png)
-
-Codex examples:
-
-```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
-$sealos create a cloud Postgres database for this repo and wire DATABASE_URL
-$sealos create private S3 object storage for uploads and wire env vars
-```
-
 ### Other supported AI tools
 
 | Tool | Install | Usage |
 | --- | --- | --- |
 | Codex CLI / Codex App | `codex plugin marketplace add labring/sealos-skills` then `codex plugin add sealos@sealos` | `$sealos` in Codex CLI, or **+** → **Plugins** → **Sealos** in Codex App |
-| Claude Code | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
-| Claude Code marketplace flow | `/plugin marketplace add labring/sealos-skills` | `/sealos` |
+| Claude Code | `claude plugin marketplace add labring/sealos-skills` then `claude plugin install sealos@sealos` | `/sealos` |
+| Claude Code compatibility path | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
 | OpenClaw / ClawHub | `clawhub install labring/sealos-skills` | Host command exposure depends on the ClawHub runtime |
 | CodeBuddy | `/plugin marketplace add labring/sealos-skills` | Host command exposure depends on the CodeBuddy runtime |
 | Gemini CLI | `gemini extensions install https://github.com/labring/sealos-skills` | Context-only extension; ask Gemini to use Sealos Skills |
@@ -118,9 +127,10 @@ The Codex integration follows [OpenAI's Codex plugin build guide](https://develo
 
 - `.codex-plugin/plugin.json` contains plugin identity, discovery metadata, interface copy, default prompts, brand metadata, and asset paths relative to the repository root.
 - `.agents/plugins/marketplace.json` registers this repo-local plugin for local Codex marketplace testing.
+- `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` define the Claude Code-compatible plugin surface.
 - `distribution/platforms.json` records platform support claims and evidence.
 - `marketplaces/README.md` owns marketplace rules and prevents command-support overclaims.
-- `scripts/validate-codex-plugin.py` validates the Codex manifest, repo marketplace, platform registry, and asset paths.
+- `scripts/validate-codex-plugin.py` validates the Codex manifest, Claude Code metadata, repo marketplaces, platform registry, and asset paths.
 - `skills/**/SKILL.md` remains the only skill source; do not add a second packaged copy of the skills.
 
 Validate plugin metadata before publishing or pushing manifest changes:
@@ -131,6 +141,8 @@ python3 -m json.tool .codex-plugin/plugin.json >/dev/null
 python3 -m json.tool plugin.json >/dev/null
 python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
 python3 -m json.tool marketplace.json >/dev/null
+python3 -m json.tool .claude-plugin/plugin.json >/dev/null
+python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
 python3 -m json.tool distribution/platforms.json >/dev/null
 ```
 
