@@ -235,6 +235,7 @@ inputs:
 - ✅ Custom domain name
 - ✅ API Key for external services (needs to be provided by the user)
 - ✅ Feature toggles (enable/disable certain features)
+- ✅ Binary optional object storage/S3 toggles, with `type: boolean` and conditions such as `inputs.use_object_storage === 'true'`
 - ❌ Randomly generated secret keys (should be placed in defaults)
 - ❌ Automatically generated configurations (should be placed in defaults)
 

@@ -794,6 +794,8 @@ spec:
 
 ## Object Storage Mapping
 
+When docs offer local file storage and S3-compatible object storage as a binary choice, model the S3 branch with a boolean input. Use `type: boolean` and conditionals that test `inputs.<name> === 'true'`; do not model the binary local/S3 choice as a `choice` input.
+
 ### Docker Compose (Using Minio)
 ```yaml
 services:
@@ -804,7 +806,7 @@ services:
       - minio-data:/data
 ```
 
-### Sealos Template
+### Sealos Template (Optional Object Storage)
 ```yaml
 inputs:
   enable_s3_storage:

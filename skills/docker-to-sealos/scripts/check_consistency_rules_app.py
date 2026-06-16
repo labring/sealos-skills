@@ -120,12 +120,29 @@ MAIN_CONTAINER_SHELLS = {"sh", "/bin/sh", "bash", "/bin/bash", "ash", "/bin/ash"
 MAIN_CONTAINER_MAX_SCRIPT_CHARS = 160
 MAIN_CONTAINER_MAX_SCRIPT_COMMANDS = 2
 CONFIGMAP_DATA_KEY_RE = re.compile(r"^vn-[a-z0-9]+(?:vn-[a-z0-9]+)*$")
+OBJECT_STORAGE_BRANCH_MARKER_RE = re.compile(
+    r"\b(?:ObjectStorageBucket|object-storage-key|object\s+storage|s3[_-]|aws_access_key_id|"
+    r"aws_secret_access_key|storage_s3|s3-compatible|bucket|bucket_name|minio)\b",
+    re.IGNORECASE,
+)
+TEMPLATE_IF_RE = re.compile(r"\$\{\{\s*if\s*\((.*?)\)\s*\}\}")
+TEMPLATE_ENDIF_RE = re.compile(r"\$\{\{\s*endif\(\)\s*\}\}")
+TEMPLATE_INPUT_REF_RE = re.compile(r"\binputs\.([A-Za-z_][A-Za-z0-9_]*)\b")
 
 
 def _iter_template_artifact_documents(context: ScanContext) -> Iterable:
     for doc in iter_documents_by_kind(context, "Template"):
         if doc.path.suffix.lower() in TEMPLATE_ARTIFACT_SUFFIXES:
             yield doc
+
+
+def _iter_template_artifact_paths(context: ScanContext) -> Iterable[Path]:
+    for path in sorted(context.file_texts):
+        if path.suffix.lower() not in TEMPLATE_ARTIFACT_SUFFIXES:
+            continue
+        if path.name != "index.yaml":
+            continue
+        yield path
 
 
 def _is_non_empty_value(value: Any, expected_type: type) -> bool:
@@ -1644,6 +1661,106 @@ def check_main_container_startup_contract(context: ScanContext) -> List[Violatio
     return violations
 
 
+def _template_inputs_by_path(context: ScanContext) -> Dict[Path, Dict[str, str]]:
+    inputs_by_path: Dict[Path, Dict[str, str]] = {}
+    for doc in _iter_template_artifact_documents(context):
+        if not isinstance(doc.data, dict):
+            continue
+        spec = doc.data.get("spec")
+        inputs = spec.get("inputs") if isinstance(spec, dict) else None
+        if not isinstance(inputs, dict):
+            continue
+
+        input_types: Dict[str, str] = {}
+        for input_name, input_spec in inputs.items():
+            if not isinstance(input_name, str) or not isinstance(input_spec, dict):
+                continue
+            input_type = input_spec.get("type")
+            if isinstance(input_type, str):
+                input_types[input_name] = input_type.strip().lower()
+        inputs_by_path[doc.path] = input_types
+    return inputs_by_path
+
+
+def _find_branch_end(lines: List[str], start_index: int) -> int:
+    depth = 0
+    for index in range(start_index, len(lines)):
+        line = lines[index]
+        if TEMPLATE_IF_RE.search(line):
+            depth += 1
+        if TEMPLATE_ENDIF_RE.search(line):
+            depth -= 1
+            if depth <= 0:
+                return index
+    return min(len(lines), start_index + 80)
+
+
+def _branch_uses_object_storage(branch_text: str) -> bool:
+    return OBJECT_STORAGE_BRANCH_MARKER_RE.search(branch_text) is not None
+
+
+def _condition_input_refs(condition: str) -> List[str]:
+    return [match.group(1) for match in TEMPLATE_INPUT_REF_RE.finditer(condition)]
+
+
+def _condition_uses_true_comparison(condition: str, input_name: str) -> bool:
+    escaped = re.escape(input_name)
+    return re.search(rf"\binputs\.{escaped}\s*===\s*['\"]true['\"]", condition) is not None
+
+
+def check_optional_object_storage_uses_boolean_input(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    inputs_by_path = _template_inputs_by_path(context)
+
+    for path in _iter_template_artifact_paths(context):
+        text = context.file_texts.get(path, "")
+        lines = text.splitlines()
+        input_types = inputs_by_path.get(path, {})
+        seen: set[tuple[Path, int, str]] = set()
+
+        for index, line in enumerate(lines):
+            match = TEMPLATE_IF_RE.search(line)
+            if match is None:
+                continue
+            condition = match.group(1)
+            input_names = _condition_input_refs(condition)
+            if not input_names:
+                continue
+
+            branch_end = _find_branch_end(lines, index)
+            branch_text = "\n".join(lines[index: branch_end + 1])
+            if not _branch_uses_object_storage(branch_text):
+                continue
+
+            for input_name in input_names:
+                input_type = input_types.get(input_name)
+                if input_type == "boolean" and _condition_uses_true_comparison(condition, input_name):
+                    continue
+                marker = (path, index + 1, input_name)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                if input_type == "boolean":
+                    detail = "but the condition must test inputs.<name> === 'true'"
+                else:
+                    detail = (
+                        "but binary object storage choices must be declared as type: boolean "
+                        "and tested with inputs.<name> === 'true'"
+                    )
+                violations.append(
+                    Violation(
+                        rule_id="R044",
+                        path=path,
+                        line=index + 1,
+                        message=(
+                            f"optional object storage/S3 branch uses inputs.{input_name}, {detail}"
+                        ),
+                    )
+                )
+
+    return violations
+
+
 def _extract_postgres_database_names_from_value(raw_value: str) -> List[str]:
     names: List[str] = []
     for match in POSTGRES_URL_DATABASE_RE.finditer(raw_value):
@@ -2255,6 +2372,7 @@ APP_RULES: Dict[str, Rule] = {
     "R029": Rule("R029", check_service_labels_match_selector_app),
     "R030": Rule("R030", check_configmap_labels_match_name),
     "R043": Rule("R043", check_configmap_file_mount_contract),
+    "R044": Rule("R044", check_optional_object_storage_uses_boolean_input),
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
     "R027": Rule("R027", check_postgres_custom_db_init_job),

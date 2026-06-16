@@ -4090,7 +4090,7 @@ __MOUNTS__
         )
         self.assertFalse(any(item.rule_id in {"R009", "R010", "R011"} for item in violations))
 
-    def test_main_container_multiline_bootstrap_command_warns(self):
+    def test_main_container_multiline_bootstrap_command_fails(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -4101,7 +4101,7 @@ __MOUNTS__
 
             write_file(skill, "# no yaml snippets\n")
             write_file(refs_file, "# refs\n")
-            write_file(rules_file, render_registry(overrides={"R042": {"severity": "warning"}}))
+            write_registry(rules_file)
             write_file(
                 artifact_file,
                 """
@@ -4149,7 +4149,7 @@ __MOUNTS__
             )
             r042 = [item for item in violations if item.rule_id == "R042"]
             self.assertTrue(r042)
-            self.assertTrue(all(item.severity == "warning" for item in r042))
+            self.assertTrue(all(item.severity == "error" for item in r042))
 
     def test_main_container_short_exec_wrapper_passes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4269,6 +4269,192 @@ __MOUNTS__
                 additional_include_paths=["template/demo/index.yaml"],
             )
             self.assertFalse(any(item.rule_id == "R042" for item in violations))
+
+    def test_optional_object_storage_choice_input_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "mindsdb" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: mindsdb
+                spec:
+                  title: MindsDB
+                  url: https://mindsdb.com
+                  gitRepo: https://github.com/mindsdb/mindsdb
+                  author: Sealos
+                  description: MindsDB template
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: MindsDB 模板
+                  categories:
+                    - ai
+                  inputs:
+                    file_storage:
+                      description: File storage backend
+                      type: choice
+                      default: local
+                      options:
+                        - local
+                        - s3
+                ---
+                ${{ if(inputs.file_storage === 's3') }}
+                apiVersion: objectstorage.sealos.io/v1
+                kind: ObjectStorageBucket
+                metadata:
+                  name: ${{ defaults.app_name }}
+                spec:
+                  policy: private
+                ---
+                ${{ endif() }}
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/mindsdb/index.yaml"],
+            )
+            r044 = [item for item in violations if item.rule_id == "R044"]
+            self.assertTrue(r044)
+            self.assertTrue(any("inputs.file_storage" in item.message for item in r044))
+
+    def test_optional_object_storage_boolean_input_passes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "mindsdb" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: mindsdb
+                spec:
+                  title: MindsDB
+                  url: https://mindsdb.com
+                  gitRepo: https://github.com/mindsdb/mindsdb
+                  author: Sealos
+                  description: MindsDB template
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: MindsDB 模板
+                  categories:
+                    - ai
+                  inputs:
+                    enable_s3_storage:
+                      description: Use Sealos Object Storage as S3-compatible storage
+                      type: boolean
+                      default: 'false'
+                      required: false
+                ---
+                ${{ if(inputs.enable_s3_storage === 'true') }}
+                apiVersion: objectstorage.sealos.io/v1
+                kind: ObjectStorageBucket
+                metadata:
+                  name: ${{ defaults.app_name }}
+                spec:
+                  policy: private
+                ---
+                ${{ endif() }}
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/mindsdb/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R044" for item in violations))
+
+    def test_optional_object_storage_boolean_without_true_comparison_fails(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "mindsdb" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: mindsdb
+                spec:
+                  title: MindsDB
+                  url: https://mindsdb.com
+                  gitRepo: https://github.com/mindsdb/mindsdb
+                  author: Sealos
+                  description: MindsDB template
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/mindsdb/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: MindsDB 模板
+                  categories:
+                    - ai
+                  inputs:
+                    enable_s3_storage:
+                      description: Use Sealos Object Storage as S3-compatible storage
+                      type: boolean
+                      default: 'false'
+                      required: false
+                ---
+                ${{ if(inputs.enable_s3_storage) }}
+                apiVersion: objectstorage.sealos.io/v1
+                kind: ObjectStorageBucket
+                metadata:
+                  name: ${{ defaults.app_name }}
+                spec:
+                  policy: private
+                ---
+                ${{ endif() }}
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/mindsdb/index.yaml"],
+            )
+            r044 = [item for item in violations if item.rule_id == "R044"]
+            self.assertTrue(r044)
+            self.assertTrue(any("condition must test" in item.message for item in r044))
 
     def test_passes_minimal_compliant_docs(self):
         violations = self.run_checker(
