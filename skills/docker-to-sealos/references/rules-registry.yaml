@@ -99,7 +99,7 @@ rules:
     severity: error
   - id: R042
     description: Managed app main containers should keep startup command/args short and move bootstrap work to initContainers, Jobs, or ConfigMap scripts.
-    severity: warning
+    severity: error
   - id: R008
     description: App workload cloud.sealos.io/app-deploy-manager label must exist and match metadata.name.
     severity: error
@@ -117,6 +117,9 @@ rules:
     severity: error
   - id: R043
     description: ConfigMaps mounted by managed Deployment/StatefulSet workloads must share the workload name, use a <workload>-cm volume, and mount every data key through an independent volumeMount with matching subPath.
+    severity: error
+  - id: R044
+    description: Binary optional object storage/S3 branches must be controlled by boolean inputs.
     severity: error
   - id: R031
     description: Root-path Prefix Ingress resources must use one component name across metadata.name, cloud.sealos.io/app-deploy-manager, and backend service names; non-root or non-Prefix routes may differ.

@@ -386,5 +386,5 @@ must_rules:
       note: "Requires runtime first-boot validation evidence."
   - must: "For binary object storage choices, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`."
     enforcement:
-      type: manual
-      note: "Requires source-option intent analysis for local versus object storage choices."
+      type: rule
+      target: R044
