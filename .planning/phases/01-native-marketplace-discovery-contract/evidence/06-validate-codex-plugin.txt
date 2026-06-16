@@ -1,0 +1,37 @@
+PASS: root plugin.json exists
+PASS: Codex plugin manifest exists
+PASS: root plugin.json matches .codex-plugin/plugin.json key fields
+PASS: Codex marketplace plugin source is a symlink
+PASS: Codex marketplace plugin source resolves to repository root
+PASS: Codex marketplace source payload contains plugin.json
+PASS: Codex marketplace source payload contains .codex-plugin/plugin.json
+PASS: Codex marketplace source payload contains skills/sealos-deploy/SKILL.md
+PASS: Codex marketplace source payload contains skills/sealos-database/SKILL.md
+PASS: Codex marketplace source payload contains skills/sealos-s3/SKILL.md
+PASS: Codex marketplace source payload contains assets/logo.svg
+PASS: Codex plugin name is sealos
+PASS: Codex plugin version is current
+PASS: Codex plugin points to root skills directory
+PASS: skills directory exists
+PASS: Codex display name is Sealos
+PASS: Codex category is Coding
+PASS: Codex brand color is set
+PASS: Codex default prompts are limited to 3
+PASS: Codex capabilities include Interactive
+PASS: Codex capabilities include Read
+PASS: Codex capabilities include Write
+PASS: composerIcon uses ./ relative path
+PASS: composerIcon target exists: ./assets/logo.svg
+PASS: logo uses ./ relative path
+PASS: logo target exists: ./assets/logo.svg
+PASS: Codex marketplace has one plugin entry
+PASS: Codex marketplace entry names Sealos
+PASS: Codex marketplace uses local source
+PASS: Codex marketplace points at repo-root plugin source
+PASS: Codex marketplace installation policy is available
+PASS: Codex marketplace authentication policy is on install
+PASS: Codex marketplace category is Coding
+PASS: platform registry includes Codex
+PASS: Codex platform evidence records manifest and repo marketplace
+PASS: Codex command support matches platform registry
+Sealos Codex plugin integration validation passed

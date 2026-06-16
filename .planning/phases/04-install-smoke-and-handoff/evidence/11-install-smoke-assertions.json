@@ -1,0 +1,357 @@
+{
+  "capturedAt": "2026-06-15T13:20:06Z",
+  "passed": true,
+  "requirements": {
+    "HAND-01": {
+      "passed": true,
+      "evidence": ".planning/phases/04-install-smoke-and-handoff/evidence/06-native-smoke-assertions.json"
+    },
+    "HAND-02": {
+      "passed": true,
+      "evidence": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json",
+      "packageGateApproval": {
+        "present": true,
+        "evidence": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json",
+        "approvalRecordType": "autonomous_package_gate_approval",
+        "approvedScope": "Isolated compatibility evidence only: run the documented npx plugins command with temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths; no persistent Codex, npm, or project source state modification approved."
+      }
+    },
+    "HAND-03": {
+      "passed": true,
+      "evidence": ".planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md"
+    }
+  },
+  "native": {
+    "passed": true,
+    "available_contains_sealos_at_sealos": true,
+    "install_reports_sealos_from_sealos": true,
+    "installed_path_under_isolated_codex_home": true,
+    "installed_payload_complete": true,
+    "identity": {
+      "pluginId": "sealos@sealos",
+      "name": "sealos",
+      "marketplaceName": "sealos"
+    },
+    "paths": {
+      "smokeHome": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.D8LZwoRCdO",
+      "smokeCodexHome": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.D8LZwoRCdO/.codex",
+      "installedPath": "/private/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.D8LZwoRCdO/.codex/plugins/cache/sealos/sealos/1.0.0"
+    },
+    "payloadChecks": {
+      "plugin.json": true,
+      ".codex-plugin/plugin.json": true,
+      "skills/sealos-deploy/SKILL.md": true,
+      "skills/sealos-database/SKILL.md": true,
+      "skills/sealos-s3/SKILL.md": true,
+      "assets/logo.svg": true
+    },
+    "cleanup": {
+      "attempted": true,
+      "status": "removed",
+      "smokeHomeExistsBeforeCleanup": true,
+      "smokeHomeExistsAfterCleanup": false,
+      "retainedForDebugging": false
+    },
+    "checkedAt": "2026-06-15T12:03:30Z"
+  },
+  "compatibility": {
+    "capturedAt": "2026-06-15T12:12:35Z",
+    "status": "discovery_evidence",
+    "command": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+    "exitCode": 0,
+    "classificationReason": "Exact command discovered the remote repository and Codex-target plugin, then stopped at the installer confirmation prompt with no installed Codex state under isolated CODEX_HOME.",
+    "compatibilityEvidence": {
+      "stdoutFile": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.txt",
+      "stderrFile": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.stderr.txt",
+      "exitCodeFile": ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-install.exitcode",
+      "envFile": ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt",
+      "stdoutSignals": {
+        "repository_cloned": true,
+        "found_one_plugin": true,
+        "sealos_listed": true,
+        "targets_codex": true,
+        "interactive_install_prompt": true
+      },
+      "stderrSignals": {
+        "npx_installed_plugins_package": true,
+        "npm_update_notice_only": true
+      },
+      "isolatedPaths": {
+        "NPX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo",
+        "NPX_CACHE": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache",
+        "NPX_CODEX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.codex",
+        "XDG_CACHE_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache",
+        "XDG_CONFIG_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.config"
+      },
+      "installedCodexStateFound": false,
+      "discoveredPluginCachePath": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills"
+    },
+    "packageMetadata": {
+      "command": {
+        "cmd": "npm view plugins name version repository.url homepage bin engines scripts.postinstall --json",
+        "exitCode": 0,
+        "stdout": "{\n  \"name\": \"plugins\",\n  \"version\": \"1.3.1\",\n  \"repository.url\": \"git+https://github.com/vercel-labs/plugins.git\",\n  \"homepage\": \"https://github.com/vercel-labs/plugins#readme\",\n  \"bin\": {\n    \"plugins\": \"dist/index.js\"\n  },\n  \"engines\": {\n    \"node\": \">=18\"\n  }\n}",
+        "stderr": ""
+      },
+      "parsed": {
+        "name": "plugins",
+        "version": "1.3.1",
+        "repository.url": "git+https://github.com/vercel-labs/plugins.git",
+        "homepage": "https://github.com/vercel-labs/plugins#readme",
+        "bin": {
+          "plugins": "dist/index.js"
+        },
+        "engines": {
+          "node": ">=18"
+        }
+      }
+    },
+    "repositoryDiscovery": {
+      "repo_discovered": true,
+      "pluginJson": {},
+      "codexPluginJson": {
+        "name": "sealos",
+        "version": "1.0.0",
+        "description": "Sealos deployment, database, object storage, and app-building skills for Codex.",
+        "author": {
+          "name": "Sealos",
+          "url": "https://sealos.io/"
+        },
+        "homepage": "https://github.com/labring/sealos-skills",
+        "repository": "https://github.com/labring/sealos-skills",
+        "license": "MIT",
+        "keywords": [
+          "sealos",
+          "sealos-cloud",
+          "deployment",
+          "docker",
+          "kubernetes",
+          "codex",
+          "skills",
+          "devops",
+          "desktop-apps",
+          "database",
+          "object-storage",
+          "s3"
+        ],
+        "skills": "./skills/",
+        "interface": {
+          "displayName": "Sealos",
+          "shortDescription": "Deploy apps and connect Sealos cloud services",
+          "longDescription": "Use Sealos in Codex to assess cloud-native readiness, generate production Dockerfiles, build or reuse container images, convert Docker Compose services into Sealos templates, deploy and update workloads on Sealos Cloud, connect cloud databases, configure S3-compatible object storage, and build Sealos Desktop apps with SDK integration guidance. The plugin bundles Sealos Agent Skills under ./skills/ and is invoked as $sealos in Codex or /sealos in Claude Code-compatible hosts.",
+          "developerName": "Sealos",
+          "category": "Coding",
+          "capabilities": [
+            "Interactive",
+            "Read",
+            "Write"
+          ],
+          "websiteURL": "https://sealos.io/",
+          "privacyPolicyURL": "https://sealos.io/docs/msa/privacy-policy/",
+          "termsOfServiceURL": "https://sealos.io/docs/msa/terms-of-service/",
+          "defaultPrompt": [
+            "Deploy this repo to Sealos Cloud.",
+            "Containerize this app and deploy it to Sealos.",
+            "Create private S3 object storage and wire env vars."
+          ],
+          "brandColor": "#15B8A6",
+          "composerIcon": "./assets/logo.svg",
+          "logo": "./assets/logo.svg",
+          "screenshots": []
+        }
+      },
+      "identity": {
+        "name": "sealos",
+        "displayName": null,
+        "skills": "./skills/"
+      }
+    },
+    "readmeProof": {
+      "commandFound": true,
+      "matches": [
+        {
+          "line": 25,
+          "text": "npx plugins add https://github.com/labring/sealos-skills --target codex"
+        }
+      ]
+    },
+    "platformRegistryProof": {
+      "commandFound": true,
+      "matches": [
+        {
+          "platform": null,
+          "field": "alternateInstall",
+          "value": "npx plugins add https://github.com/labring/sealos-skills --target codex"
+        }
+      ]
+    },
+    "validatorProof": {
+      "command": "python3 scripts/validate-codex-plugin.py",
+      "exitCode": 0,
+      "stdout": "PASS: plugin.json contains a JSON object\nPASS: .codex-plugin/plugin.json contains a JSON object\nPASS: .agents/plugins/marketplace.json contains a JSON object\nPASS: marketplace.json contains a JSON object\nPASS: distribution/platforms.json contains a JSON object\nPASS: README.md exists\nPASS: root plugin.json exists\nPASS: Codex plugin manifest exists\nPASS: root marketplace.json exists\nPASS: README includes ### Recommended: install in Codex section\nPASS: README Quick Start includes exact native Codex install block\nPASS: README Quick Start includes exact fallback Codex npx install block\nPASS: README includes canonical identity token: labring/sealos-skills\nPASS: README includes canonical identity token: sealos@sealos\nPASS: README includes canonical identity token: $sealos\nPASS: README includes canonical identity token: Sealos\nPASS: root plugin.json matches .codex-plugin/plugin.json key fields\nPASS: root plugin.json interface is a JSON object\nPASS: root plugin.json uses canonical plugin id\nPASS: root plugin.json uses canonical homepage\nPASS: root plugin.json uses canonical repository\nPASS: root plugin.json points to root skills directory\nPASS: root plugin.json uses canonical display label\nPASS: Codex plugin manifest interface is a JSON object\nPASS: Codex plugin manifest uses canonical plugin id\nPASS: Codex plugin manifest uses canonical homepage\nPASS: Codex plugin manifest uses canonical repository\nPASS: Codex plugin manifest points to root skills directory\nPASS: Codex plugin manifest uses canonical display label\nPASS: Codex marketplace plugin source is a symlink\nPASS: Codex marketplace plugin source resolves to repository root\nPASS: Codex marketplace source payload contains plugin.json\nPASS: Codex marketplace source payload contains .codex-plugin/plugin.json\nPASS: Codex marketplace source payload contains skills/sealos-deploy/SKILL.md\nPASS: Codex marketplace source payload contains skills/sealos-database/SKILL.md\nPASS: Codex marketplace source payload contains skills/sealos-s3/SKILL.md\nPASS: Codex marketplace source payload contains assets/logo.svg\nPASS: Codex plugin name is sealos\nPASS: Codex plugin version is current\nPASS: Codex plugin points to root skills directory\nPASS: skills directory exists\nPASS: Codex plugin interface is a JSON object\nPASS: Codex display name is Sealos\nPASS: Codex category is Coding\nPASS: Codex brand color is set\nPASS: Codex default prompts is a JSON array\nPASS: Codex capabilities is a JSON array\nPASS: Codex default prompts are limited to 3\nPASS: Codex capabilities include Interactive\nPASS: Codex capabilities include Read\nPASS: Codex capabilities include Write\nPASS: composerIcon uses ./ relative path\nPASS: composerIcon target exists: ./assets/logo.svg\nPASS: logo uses ./ relative path\nPASS: logo target exists: ./assets/logo.svg\nPASS: Codex marketplace interface is a JSON object\nPASS: Codex marketplace uses canonical marketplace id\nPASS: Codex marketplace uses canonical display label\nPASS: Codex marketplace plugins is a JSON array\nPASS: Codex marketplace has one plugin entry\nPASS: Codex marketplace plugin entry is a JSON object\nPASS: Codex marketplace entry source is a JSON object\nPASS: Codex marketplace entry policy is a JSON object\nPASS: Codex marketplace entry names Sealos\nPASS: Codex marketplace uses local source\nPASS: Codex marketplace points at repo-root plugin source\nPASS: Codex marketplace installation policy is available\nPASS: Codex marketplace authentication policy is on install\nPASS: Codex marketplace category is Coding\nPASS: root marketplace metadata is a JSON object\nPASS: root marketplace uses canonical marketplace id\nPASS: root marketplace uses canonical repository URL\nPASS: root marketplace plugins is a JSON array\nPASS: root marketplace has one plugin entry\nPASS: root marketplace plugin entry is a JSON object\nPASS: root marketplace entry uses canonical plugin id\nPASS: root marketplace entry points to repository root\nPASS: root marketplace entry points to commands directory\nPASS: root marketplace version matches Codex manifest\nPASS: platform registry uses canonical plugin id\nPASS: platform registry version is current\nPASS: platform registry uses canonical repository URL\nPASS: platform registry platforms is a JSON array\nPASS: platform registry platform entries are JSON objects\nPASS: platform registry includes one Codex entry\nPASS: Codex platform claim is verified\nPASS: Codex platform runtime is plugin\nPASS: Codex platform install command matches native contract\nPASS: Codex platform alternate install matches fallback contract\nPASS: Codex platform invocation names CLI and app plugin entry\nPASS: Codex command support matches platform registry\nPASS: Codex platform evidence records native marketplace proof\nPASS: Codex platform evidence records manifest and repo marketplace\nPASS: Codex platform lastVerified is current\nSealos Codex plugin integration validation passed",
+      "stderr": "",
+      "passed": true
+    },
+    "truthfulLabel": "compatibility discovery evidence: command/package/repository/plugin discovery succeeded; documented command reached interactive confirmation without installed Codex state.",
+    "followUp": "Use the same command in an interactive terminal, approve the prompt, or add a documented installer non-interactive flag after validating host support.",
+    "packageGateApproval": {
+      "type": "autonomous_package_gate_approval",
+      "approved": true,
+      "approvalSource": "User delegated autonomous decisions for interaction gates during Phase 4 execution; agent applied metadata due diligence before isolated compatibility evidence collection.",
+      "approvedScope": "Isolated compatibility evidence only: run the documented npx plugins command with temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths; no persistent Codex, npm, or project source state modification approved.",
+      "package": "plugins",
+      "version": "1.3.1",
+      "repository": "git+https://github.com/vercel-labs/plugins.git",
+      "command": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+      "recordedAt": "2026-06-15T12:31:19.150Z",
+      "metadataDueDiligence": {
+        "package_name_matches": true,
+        "repository_matches_expected": true,
+        "cli_bin_present": true,
+        "no_postinstall_script": true,
+        "registry_integrity_present": true,
+        "tarball_under_npm_registry": true,
+        "node_engine_supported": true
+      },
+      "evidenceFiles": [
+        ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json",
+        ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json",
+        ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt"
+      ]
+    }
+  },
+  "packageAudit": {
+    "disposition": "approved_for_isolated_compatibility_install",
+    "approved": true,
+    "basis": "npm registry metadata identifies the expected package, source repository, CLI bin, engine requirement, registry tarball integrity, and no postinstall script for the tested version.",
+    "checks": {
+      "package_name_matches": true,
+      "repository_matches_expected": true,
+      "homepage_matches_repository": true,
+      "cli_bin_present": true,
+      "node_engine_supported": true,
+      "no_postinstall_script": true,
+      "registry_integrity_present": true,
+      "tarball_under_npm_registry": true
+    },
+    "evidenceLimitations": [
+      "Audit uses npm registry metadata available from commands; compatibility execution remains isolated in a temp HOME, CODEX_HOME, npm cache, and XDG dirs."
+    ],
+    "approvalRecord": {
+      "type": "autonomous_package_gate_approval",
+      "approved": true,
+      "approvalSource": "User delegated autonomous decisions for interaction gates during Phase 4 execution; agent applied metadata due diligence before isolated compatibility evidence collection.",
+      "approvedScope": "Isolated compatibility evidence only: run the documented npx plugins command with temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths; no persistent Codex, npm, or project source state modification approved.",
+      "package": "plugins",
+      "version": "1.3.1",
+      "repository": "git+https://github.com/vercel-labs/plugins.git",
+      "command": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+      "recordedAt": "2026-06-15T12:31:19.150Z",
+      "metadataDueDiligence": {
+        "package_name_matches": true,
+        "repository_matches_expected": true,
+        "cli_bin_present": true,
+        "no_postinstall_script": true,
+        "registry_integrity_present": true,
+        "tarball_under_npm_registry": true,
+        "node_engine_supported": true
+      },
+      "evidenceFiles": [
+        ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json",
+        ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json",
+        ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt"
+      ]
+    }
+  },
+  "validation": {
+    "passed": true,
+    "commands": [
+      {
+        "cmd": "python3 scripts/validate-codex-plugin.py",
+        "exitCode": 0
+      },
+      {
+        "cmd": "python3 -m json.tool .codex-plugin/plugin.json",
+        "exitCode": 0
+      },
+      {
+        "cmd": "python3 -m json.tool plugin.json",
+        "exitCode": 0
+      },
+      {
+        "cmd": "python3 -m json.tool .agents/plugins/marketplace.json",
+        "exitCode": 0
+      },
+      {
+        "cmd": "python3 -m json.tool marketplace.json",
+        "exitCode": 0
+      },
+      {
+        "cmd": "python3 -m json.tool distribution/platforms.json",
+        "exitCode": 0
+      },
+      {
+        "cmd": "git diff -- skills --exit-code",
+        "exitCode": 0
+      }
+    ],
+    "transcript": ".planning/phases/04-install-smoke-and-handoff/evidence/07-validator-and-json-checks.txt",
+    "skillsDiffClean": true,
+    "milestoneSkillsChanges": []
+  },
+  "cleanup": {
+    "cleanup_status": "clean",
+    "captured_at": "2026-06-15T12:16:13Z",
+    "native": {
+      "env_file": ".planning/phases/04-install-smoke-and-handoff/evidence/09-native-smoke-env.txt",
+      "cleanup_status": "removed",
+      "retained_for_debugging": false
+    },
+    "compatibility": {
+      "env_file": ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt",
+      "NPX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo",
+      "exists_before_cleanup": true,
+      "exists_after_cleanup": false,
+      "retained_for_debugging": false,
+      "cleanup_error": null
+    }
+  },
+  "secretScan": {
+    "status": "clean",
+    "findings": [],
+    "evidence": ".planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt"
+  },
+  "handoff": {
+    "present": true,
+    "path": ".planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md",
+    "milestone_base": "9ee2d3ac269b4d5b1c81ba43be979c0c7cdac03b",
+    "milestone_base_source": "git merge-base HEAD upstream/main",
+    "finalRefreshBundleCommittedTogether": true,
+    "phaseCompleteStateBundle": {
+      "present": true,
+      "files": [
+        ".planning/ROADMAP.md",
+        ".planning/STATE.md"
+      ],
+      "status": "phase.complete state pending in the same final closeout commit"
+    }
+  },
+  "verificationReport": {
+    "present": true,
+    "path": ".planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md",
+    "status": "passed",
+    "score": "6/6 must-haves verified",
+    "includedInFinalHandoffCommit": true
+  },
+  "downstreamArtifacts": [
+    ".planning/phases/04-install-smoke-and-handoff/04-VERIFICATION.md",
+    ".planning/phases/04-install-smoke-and-handoff/04-UAT.md"
+  ],
+  "phaseComplete": {
+    "present": true,
+    "roadmap": ".planning/ROADMAP.md",
+    "state": ".planning/STATE.md",
+    "status": "completed",
+    "finalRecommendation": "milestone ready to close"
+  }
+}

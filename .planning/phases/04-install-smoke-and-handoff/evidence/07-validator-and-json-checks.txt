@@ -1,0 +1,388 @@
+captured_at=2026-06-15T12:14:38Z
+
+$ python3 scripts/validate-codex-plugin.py
+exit_code=0
+stdout:
+PASS: plugin.json contains a JSON object
+PASS: .codex-plugin/plugin.json contains a JSON object
+PASS: .agents/plugins/marketplace.json contains a JSON object
+PASS: marketplace.json contains a JSON object
+PASS: distribution/platforms.json contains a JSON object
+PASS: README.md exists
+PASS: root plugin.json exists
+PASS: Codex plugin manifest exists
+PASS: root marketplace.json exists
+PASS: README includes ### Recommended: install in Codex section
+PASS: README Quick Start includes exact native Codex install block
+PASS: README Quick Start includes exact fallback Codex npx install block
+PASS: README includes canonical identity token: labring/sealos-skills
+PASS: README includes canonical identity token: sealos@sealos
+PASS: README includes canonical identity token: $sealos
+PASS: README includes canonical identity token: Sealos
+PASS: root plugin.json matches .codex-plugin/plugin.json key fields
+PASS: root plugin.json interface is a JSON object
+PASS: root plugin.json uses canonical plugin id
+PASS: root plugin.json uses canonical homepage
+PASS: root plugin.json uses canonical repository
+PASS: root plugin.json points to root skills directory
+PASS: root plugin.json uses canonical display label
+PASS: Codex plugin manifest interface is a JSON object
+PASS: Codex plugin manifest uses canonical plugin id
+PASS: Codex plugin manifest uses canonical homepage
+PASS: Codex plugin manifest uses canonical repository
+PASS: Codex plugin manifest points to root skills directory
+PASS: Codex plugin manifest uses canonical display label
+PASS: Codex marketplace plugin source is a symlink
+PASS: Codex marketplace plugin source resolves to repository root
+PASS: Codex marketplace source payload contains plugin.json
+PASS: Codex marketplace source payload contains .codex-plugin/plugin.json
+PASS: Codex marketplace source payload contains skills/sealos-deploy/SKILL.md
+PASS: Codex marketplace source payload contains skills/sealos-database/SKILL.md
+PASS: Codex marketplace source payload contains skills/sealos-s3/SKILL.md
+PASS: Codex marketplace source payload contains assets/logo.svg
+PASS: Codex plugin name is sealos
+PASS: Codex plugin version is current
+PASS: Codex plugin points to root skills directory
+PASS: skills directory exists
+PASS: Codex plugin interface is a JSON object
+PASS: Codex display name is Sealos
+PASS: Codex category is Coding
+PASS: Codex brand color is set
+PASS: Codex default prompts is a JSON array
+PASS: Codex capabilities is a JSON array
+PASS: Codex default prompts are limited to 3
+PASS: Codex capabilities include Interactive
+PASS: Codex capabilities include Read
+PASS: Codex capabilities include Write
+PASS: composerIcon uses ./ relative path
+PASS: composerIcon target exists: ./assets/logo.svg
+PASS: logo uses ./ relative path
+PASS: logo target exists: ./assets/logo.svg
+PASS: Codex marketplace interface is a JSON object
+PASS: Codex marketplace uses canonical marketplace id
+PASS: Codex marketplace uses canonical display label
+PASS: Codex marketplace plugins is a JSON array
+PASS: Codex marketplace has one plugin entry
+PASS: Codex marketplace plugin entry is a JSON object
+PASS: Codex marketplace entry source is a JSON object
+PASS: Codex marketplace entry policy is a JSON object
+PASS: Codex marketplace entry names Sealos
+PASS: Codex marketplace uses local source
+PASS: Codex marketplace points at repo-root plugin source
+PASS: Codex marketplace installation policy is available
+PASS: Codex marketplace authentication policy is on install
+PASS: Codex marketplace category is Coding
+PASS: root marketplace metadata is a JSON object
+PASS: root marketplace uses canonical marketplace id
+PASS: root marketplace uses canonical repository URL
+PASS: root marketplace plugins is a JSON array
+PASS: root marketplace has one plugin entry
+PASS: root marketplace plugin entry is a JSON object
+PASS: root marketplace entry uses canonical plugin id
+PASS: root marketplace entry points to repository root
+PASS: root marketplace entry points to commands directory
+PASS: root marketplace version matches Codex manifest
+PASS: platform registry uses canonical plugin id
+PASS: platform registry version is current
+PASS: platform registry uses canonical repository URL
+PASS: platform registry platforms is a JSON array
+PASS: platform registry platform entries are JSON objects
+PASS: platform registry includes one Codex entry
+PASS: Codex platform claim is verified
+PASS: Codex platform runtime is plugin
+PASS: Codex platform install command matches native contract
+PASS: Codex platform alternate install matches fallback contract
+PASS: Codex platform invocation names CLI and app plugin entry
+PASS: Codex command support matches platform registry
+PASS: Codex platform evidence records native marketplace proof
+PASS: Codex platform evidence records manifest and repo marketplace
+PASS: Codex platform lastVerified is current
+Sealos Codex plugin integration validation passed
+
+$ python3 -m json.tool .codex-plugin/plugin.json
+exit_code=0
+stdout:
+{
+    "name": "sealos",
+    "version": "1.0.0",
+    "description": "Sealos deployment, database, object storage, and app-building skills for Codex.",
+    "author": {
+        "name": "Sealos",
+        "url": "https://sealos.io/"
+    },
+    "homepage": "https://github.com/labring/sealos-skills",
+    "repository": "https://github.com/labring/sealos-skills",
+    "license": "MIT",
+    "keywords": [
+        "sealos",
+        "sealos-cloud",
+        "deployment",
+        "docker",
+        "kubernetes",
+        "codex",
+        "skills",
+        "devops",
+        "desktop-apps",
+        "database",
+        "object-storage",
+        "s3"
+    ],
+    "skills": "./skills/",
+    "interface": {
+        "displayName": "Sealos",
+        "shortDescription": "Deploy apps and connect Sealos cloud services",
+        "longDescription": "Use Sealos in Codex to assess cloud-native readiness, generate production Dockerfiles, build or reuse container images, convert Docker Compose services into Sealos templates, deploy and update workloads on Sealos Cloud, connect cloud databases, configure S3-compatible object storage, and build Sealos Desktop apps with SDK integration guidance. The plugin bundles Sealos Agent Skills under ./skills/ and is invoked as $sealos in Codex or /sealos in Claude Code-compatible hosts.",
+        "developerName": "Sealos",
+        "category": "Coding",
+        "capabilities": [
+            "Interactive",
+            "Read",
+            "Write"
+        ],
+        "websiteURL": "https://sealos.io/",
+        "privacyPolicyURL": "https://sealos.io/docs/msa/privacy-policy/",
+        "termsOfServiceURL": "https://sealos.io/docs/msa/terms-of-service/",
+        "defaultPrompt": [
+            "Deploy this repo to Sealos Cloud.",
+            "Containerize this app and deploy it to Sealos.",
+            "Create private S3 object storage and wire env vars."
+        ],
+        "brandColor": "#15B8A6",
+        "composerIcon": "./assets/logo.svg",
+        "logo": "./assets/logo.svg",
+        "screenshots": []
+    }
+}
+
+$ python3 -m json.tool plugin.json
+exit_code=0
+stdout:
+{
+    "name": "sealos",
+    "version": "1.0.0",
+    "description": "Sealos deployment, database, object storage, and app-building skills for Codex.",
+    "author": {
+        "name": "Sealos",
+        "url": "https://sealos.io/"
+    },
+    "homepage": "https://github.com/labring/sealos-skills",
+    "repository": "https://github.com/labring/sealos-skills",
+    "license": "MIT",
+    "keywords": [
+        "sealos",
+        "sealos-cloud",
+        "deployment",
+        "docker",
+        "kubernetes",
+        "codex",
+        "skills",
+        "devops",
+        "desktop-apps",
+        "database",
+        "object-storage",
+        "s3"
+    ],
+    "skills": "./skills/",
+    "interface": {
+        "displayName": "Sealos",
+        "shortDescription": "Deploy apps and connect Sealos cloud services",
+        "longDescription": "Use Sealos in Codex to assess cloud-native readiness, generate production Dockerfiles, build or reuse container images, convert Docker Compose services into Sealos templates, deploy and update workloads on Sealos Cloud, connect cloud databases, configure S3-compatible object storage, and build Sealos Desktop apps with SDK integration guidance. The plugin bundles Sealos Agent Skills under ./skills/ and is invoked as $sealos in Codex or /sealos in Claude Code-compatible hosts.",
+        "developerName": "Sealos",
+        "category": "Coding",
+        "capabilities": [
+            "Interactive",
+            "Read",
+            "Write"
+        ],
+        "websiteURL": "https://sealos.io/",
+        "privacyPolicyURL": "https://sealos.io/docs/msa/privacy-policy/",
+        "termsOfServiceURL": "https://sealos.io/docs/msa/terms-of-service/",
+        "defaultPrompt": [
+            "Deploy this repo to Sealos Cloud.",
+            "Containerize this app and deploy it to Sealos.",
+            "Create private S3 object storage and wire env vars."
+        ],
+        "brandColor": "#15B8A6",
+        "composerIcon": "./assets/logo.svg",
+        "logo": "./assets/logo.svg",
+        "screenshots": []
+    }
+}
+
+$ python3 -m json.tool .agents/plugins/marketplace.json
+exit_code=0
+stdout:
+{
+    "name": "sealos",
+    "interface": {
+        "displayName": "Sealos"
+    },
+    "plugins": [
+        {
+            "name": "sealos",
+            "source": {
+                "source": "local",
+                "path": "./plugins/sealos"
+            },
+            "policy": {
+                "installation": "AVAILABLE",
+                "authentication": "ON_INSTALL"
+            },
+            "category": "Coding"
+        }
+    ]
+}
+
+$ python3 -m json.tool marketplace.json
+exit_code=0
+stdout:
+{
+    "name": "sealos",
+    "owner": {
+        "name": "Sealos",
+        "url": "https://sealos.io/"
+    },
+    "metadata": {
+        "description": "Sealos Cloud deployment, database, S3 object storage, and Sealos Desktop app skills for AI agents.",
+        "version": "1.0.0",
+        "repository": "https://github.com/labring/sealos-skills"
+    },
+    "plugins": [
+        {
+            "name": "sealos",
+            "source": "./",
+            "description": "Deploy local or GitHub projects to Sealos Cloud, connect cloud databases and S3 object storage, generate Dockerfiles and Sealos templates, assess cloud-native readiness, and build Sealos Desktop apps.",
+            "version": "1.0.0",
+            "category": "coding",
+            "commands": "./commands/",
+            "tags": [
+                "sealos",
+                "sealos-cloud",
+                "deployment",
+                "cloud",
+                "devops",
+                "kubernetes",
+                "docker",
+                "containers",
+                "cloud-native",
+                "app-builder",
+                "database",
+                "object-storage",
+                "s3"
+            ],
+            "skills": [
+                "./skills/sealos-deploy",
+                "./skills/sealos-database",
+                "./skills/sealos-s3",
+                "./skills/sealos-app-builder",
+                "./skills/cloud-native-readiness",
+                "./skills/dockerfile-skill",
+                "./skills/docker-to-sealos"
+            ]
+        }
+    ]
+}
+
+$ python3 -m json.tool distribution/platforms.json
+exit_code=0
+stdout:
+{
+    "name": "sealos",
+    "version": "1.0.0",
+    "repository": "https://github.com/labring/sealos-skills",
+    "lastUpdated": "2026-06-15",
+    "platforms": [
+        {
+            "id": "codex",
+            "name": "Codex CLI / Codex App",
+            "claim": "verified",
+            "runtime": "plugin",
+            "install": "codex plugin marketplace add labring/sealos-skills && codex plugin add sealos@sealos",
+            "alternateInstall": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+            "invoke": "Use $sealos in Codex CLI; select Sealos from Plugins in Codex App",
+            "commands": "supported",
+            "evidence": "Phase 1 native marketplace add/list/install + installed payload assertions + codex_manifest+repo_marketplace",
+            "lastVerified": "2026-06-15"
+        },
+        {
+            "id": "claude-code",
+            "name": "Claude Code",
+            "claim": "install-target",
+            "runtime": "plugin",
+            "install": "npx plugins add https://github.com/labring/sealos-skills --target claude-code",
+            "alternateInstall": "/plugin marketplace add labring/sealos-skills",
+            "invoke": "/sealos",
+            "commands": "supported",
+            "evidence": ".claude-plugin/plugin.json + commands/sealos.md",
+            "lastVerified": "2026-05-20"
+        },
+        {
+            "id": "clawhub-openclaw",
+            "name": "OpenClaw / ClawHub",
+            "claim": "install-target",
+            "runtime": "bundle_or_single_skill",
+            "install": "clawhub install labring/sealos-skills",
+            "manifest": "openclaw.plugin.json",
+            "commands": "supported",
+            "evidence": "openclaw.plugin.json",
+            "lastVerified": "2026-05-20"
+        },
+        {
+            "id": "codebuddy",
+            "name": "CodeBuddy",
+            "claim": "install-target",
+            "runtime": "plugin",
+            "install": "/plugin marketplace add labring/sealos-skills",
+            "manifest": ".codebuddy-plugin/marketplace.json",
+            "commands": "host_dependent",
+            "evidence": ".codebuddy-plugin/marketplace.json",
+            "lastVerified": "2026-05-20"
+        },
+        {
+            "id": "gemini-cli",
+            "name": "Gemini CLI",
+            "claim": "context-only",
+            "runtime": "extension",
+            "install": "gemini extensions install https://github.com/labring/sealos-skills",
+            "manifest": "gemini-extension.json",
+            "commands": "not_claimed",
+            "evidence": "CLAUDE.md context file",
+            "lastVerified": "2026-05-20"
+        },
+        {
+            "id": "qwen-code",
+            "name": "Qwen Code",
+            "claim": "context-only",
+            "runtime": "extension",
+            "install": "qwen extensions install https://github.com/labring/sealos-skills",
+            "manifest": "qwen-extension.json",
+            "commands": "not_claimed",
+            "evidence": "CLAUDE.md context file",
+            "lastVerified": "2026-05-20"
+        },
+        {
+            "id": "skills-npx",
+            "name": "skills.sh / npx skills",
+            "claim": "context-only",
+            "runtime": "agent_skill",
+            "install": "npx skills add labring/sealos-skills",
+            "invoke": "/sealos-deploy, /sealos-database, /sealos-s3",
+            "commands": "not_claimed",
+            "evidence": "root skills/**",
+            "lastVerified": "2026-05-20"
+        },
+        {
+            "id": "amp-kimi-generic",
+            "name": "Amp / Kimi / generic repo importers",
+            "claim": "install-target",
+            "runtime": "repo_import",
+            "install": "Install or import https://github.com/labring/sealos-skills.git in the host tool.",
+            "commands": "host_dependent",
+            "evidence": "root skills/** + CLAUDE.md",
+            "lastVerified": "2026-05-20"
+        }
+    ]
+}
+
+$ git diff -- skills --exit-code
+exit_code=0
