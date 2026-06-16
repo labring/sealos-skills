@@ -145,6 +145,10 @@ def _iter_template_artifact_paths(context: ScanContext) -> Iterable[Path]:
         yield path
 
 
+def _line_number_for_offset(text: str, offset: int) -> int:
+    return text.count("\n", 0, offset) + 1
+
+
 def _is_non_empty_value(value: Any, expected_type: type) -> bool:
     if expected_type is str:
         return isinstance(value, str) and bool(value.strip())
@@ -1682,6 +1686,41 @@ def _template_inputs_by_path(context: ScanContext) -> Dict[Path, Dict[str, str]]
     return inputs_by_path
 
 
+def check_template_input_references_declared(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    inputs_by_path = _template_inputs_by_path(context)
+
+    for path in _iter_template_artifact_paths(context):
+        text = context.file_texts.get(path, "")
+        if not text:
+            continue
+        declared_inputs = inputs_by_path.get(path)
+        if declared_inputs is None:
+            has_template_doc = any(doc.path == path for doc in _iter_template_artifact_documents(context))
+            if not has_template_doc:
+                continue
+            declared_inputs = {}
+
+        seen: set[str] = set()
+        for match in TEMPLATE_INPUT_REF_RE.finditer(text):
+            input_name = match.group(1)
+            if input_name in declared_inputs or input_name in seen:
+                continue
+            seen.add(input_name)
+            violations.append(
+                Violation(
+                    rule_id="R045",
+                    path=path,
+                    line=_line_number_for_offset(text, match.start()),
+                    message=(
+                        f"inputs.{input_name} is referenced but missing from this Template CR spec.inputs"
+                    ),
+                )
+            )
+
+    return violations
+
+
 def _find_branch_end(lines: List[str], start_index: int) -> int:
     depth = 0
     for index in range(start_index, len(lines)):
@@ -2373,6 +2412,7 @@ APP_RULES: Dict[str, Rule] = {
     "R030": Rule("R030", check_configmap_labels_match_name),
     "R043": Rule("R043", check_configmap_file_mount_contract),
     "R044": Rule("R044", check_optional_object_storage_uses_boolean_input),
+    "R045": Rule("R045", check_template_input_references_declared),
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
     "R027": Rule("R027", check_postgres_custom_db_init_job),

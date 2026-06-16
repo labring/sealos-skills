@@ -372,6 +372,14 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires semantic classification of user-supplied versus generated values."
+  - must: "When the user explicitly asks to enter application administrator credentials, declare the administrator username/password in `spec.inputs`, pass them as direct env values, and apply them through the application's documented bootstrap or initialization path. Keep database credentials on KubeBlocks secrets."
+    enforcement:
+      type: manual
+      note: "Requires app-specific bootstrap credential semantics and secret-classification review."
+  - must: "Every `${{ inputs.<name> }}` reference in a template artifact must have a matching `spec.inputs.<name>` declaration in the same Template CR."
+    enforcement:
+      type: rule
+      target: R045
   - must: "`inputs.description` must be in English."
     enforcement:
       type: manual
