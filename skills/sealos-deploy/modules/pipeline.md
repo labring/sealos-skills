@@ -1083,6 +1083,7 @@ Acceptance checklist:
 - Service endpoints are populated.
 - The actual App URL loads from a fresh session.
 - Login-gated apps complete setup/login and one authenticated action.
+- SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` is absent from smoke responses.
 - Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
 - Main business containers keep `command`/`args` short and close to the official entrypoint; repeated file preparation, permission repair, database bootstrap, or compatibility self-healing belongs in initContainers, Jobs, or ConfigMap scripts.
 - Shell wrappers in main containers end with `exec <final-process>` so signal handling remains correct.
