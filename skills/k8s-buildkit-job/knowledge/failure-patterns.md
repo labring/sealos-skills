@@ -103,10 +103,15 @@ Signals:
 - `ImagePullBackOff` for `moby/buildkit`
 - `ErrImagePull`
 - generated BuildKit Job runs as `default` service account instead of the caller's service account
+- admission errors mentioning `privileged`, `hostUsers`, `seccompProfile.type: Unconfined`, or `appArmorProfile.type: Unconfined`
+- `runtime does not support user namespaces`
+- `newuidmap could not write uid_map`
 
 Action:
 
-- For privileged denial, the sandbox policy must allow privileged BuildKit Jobs.
+- For privileged or unconfined-profile denial, confirm the generated manifest does not set privileged, unconfined seccomp, or unconfined AppArmor fields, then check namespace Pod Security labels separately.
+- For `hostUsers` or user namespace runtime errors, confirm the generated manifest does not set `hostUsers: false`.
+- For `newuidmap` errors, confirm the Job is not using `moby/buildkit:master-rootless`; this workflow should use `moby/buildkit:master` without rootlesskit.
 - For image pull issues, confirm the cluster can pull `moby/buildkit:master`.
 - If the wrong service account was used, re-run with the current sandbox service account wired to `serviceAccountName`.
 

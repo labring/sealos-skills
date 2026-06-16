@@ -24,18 +24,18 @@ The BuildKit workflow handles registry credentials. Keep it safe by default.
 
 Before appending command output to logs, redact the exact `GITHUB_TOKEN` value if it is available in the environment.
 
-## Privileged Pods
+## BuildKit Pod Security
 
-The temporary BuildKit daemon Job uses:
+The temporary BuildKit daemon Job must avoid special security settings unless the target runtime explicitly requires and supports them.
 
 ```yaml
+# Do not add these fields by default:
+hostUsers: false
 securityContext:
   privileged: true
 ```
 
-This is a sandbox capability requirement for the current pattern, not a general recommendation for application workloads.
-
-If the cluster denies privileged Pods, do not attempt to bypass policy. Report the blocker and stop.
+Do not add privileged mode, Pod user namespaces, or unconfined seccomp/AppArmor fields to bypass policy. Do not use the rootless BuildKit image as a fallback; it depends on rootlesskit and subuid/subgid support that may not exist on the worker.
 
 ## Kubernetes Identity
 

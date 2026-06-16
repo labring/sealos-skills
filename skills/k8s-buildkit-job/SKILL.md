@@ -1,6 +1,6 @@
 ---
 name: k8s-buildkit-job
-description: Run a temporary BuildKit daemon in the active Kubernetes sandbox namespace, then use sandbox-local buildctl to send the local build context and push a GHCR image. Use after sealos-deploy writes .sealos/build-request.json, or when creating, debugging, or inspecting sandbox BuildKit builds based on moby/buildkit buildkitd and buildctl.
+description: Run a temporary standard BuildKit daemon in the active Kubernetes sandbox namespace, then use sandbox-local buildctl to send the local build context and push a GHCR image. Use after sealos-deploy writes .sealos/build-request.json, or when creating, debugging, or inspecting sandbox BuildKit builds based on moby/buildkit buildkitd and buildctl.
 compatibility: Requires kubectl access through the sandbox-provided kubeconfig and service account. The sandbox identity must be able to create Jobs, Services, and Secrets in the active namespace. Requires buildctl in the sandbox runtime. Requires GITHUB_TOKEN for GHCR push. This MVP supports sandbox-local build contexts and GHCR image output only.
 metadata:
   author: labring
@@ -8,7 +8,7 @@ metadata:
 
 # K8s BuildKit Job
 
-Run a temporary BuildKit daemon in the active Kubernetes sandbox, then use `buildctl` from the sandbox runtime to send the local repository context and push the resulting image to GHCR.
+Run a temporary standard BuildKit daemon in the active Kubernetes sandbox, then use `buildctl` from the sandbox runtime to send the local repository context and push the resulting image to GHCR.
 
 This skill is the build executor for Seakills prepare artifacts:
 
@@ -47,6 +47,8 @@ This skill does not:
 ## Important Model
 
 Each build creates a fresh BuildKit daemon Job and ClusterIP Service in the active sandbox namespace. The sandbox process runs `buildctl --addr tcp://<service>:1234 build` and streams the local context to that daemon. After result collection, the temporary Job and Service can be deleted.
+
+The generated Job uses `moby/buildkit:master` and intentionally avoids special Pod security fields such as `securityContext.privileged` and `hostUsers`. Do not add rootless or Pod user namespace settings unless the target runtime is known to support them.
 
 Do not assume the namespace is `default`, and do not switch to an admin kubeconfig. Resolve the namespace from the active sandbox context or mounted service-account metadata, and carry the current service account onto the temporary Job so the workflow stays inside the caller's permissions.
 

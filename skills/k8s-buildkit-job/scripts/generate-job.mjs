@@ -164,12 +164,9 @@ spec:
     spec:
       restartPolicy: Never
 ${serviceAccount ? `      serviceAccountName: ${serviceAccount}
-` : ''}      hostUsers: false
-      containers:
+` : ''}      containers:
       - name: buildkitd
         image: moby/buildkit:master
-        command:
-        - buildkitd
         args:
         - --addr
         - tcp://0.0.0.0:1234
@@ -179,8 +176,6 @@ ${serviceAccount ? `      serviceAccountName: ${serviceAccount}
         env:
         - name: DOCKER_CONFIG
           value: /root/.docker
-        securityContext:
-          privileged: true
         volumeMounts:
         - name: docker-config
           mountPath: /root/.docker

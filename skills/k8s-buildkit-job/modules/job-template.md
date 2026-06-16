@@ -63,13 +63,16 @@ The local paths must be readable from the sandbox process running `buildctl`; th
 
 If the current sandbox service account was resolved in preflight, set `serviceAccountName` on the generated Job Pod template. Do not let the temporary build Pod silently fall back to the namespace `default` service account.
 
-## Security Context
+## Pod Security Fields
 
-The BuildKit daemon container uses:
+The generated Job uses `moby/buildkit:master` without requesting privileged mode or Pod user namespaces.
+
+The Pod spec must not include:
 
 ```yaml
+hostUsers: false
 securityContext:
   privileged: true
 ```
 
-If the cluster denies privileged Pods, stop and report that this sandbox cannot run the BuildKit daemon pattern without policy changes.
+Do not switch to `moby/buildkit:master-rootless` for this workflow. The rootless image starts rootlesskit and can fail with `newuidmap could not write uid_map` on workers without subuid/subgid support. Do not set `hostUsers: false` unless the target Kubernetes runtime is known to support Pod user namespaces.
