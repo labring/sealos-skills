@@ -51,8 +51,6 @@ claude plugin marketplace add labring/sealos-skills
 claude plugin install sealos@sealos
 ```
 
-This follows the native Claude Code marketplace CLI pattern used by plugin marketplaces such as [phuryn/pm-skills](https://github.com/phuryn/pm-skills).
-
 For compatibility with cross-host plugin installers, install the same plugin with:
 
 ```bash
