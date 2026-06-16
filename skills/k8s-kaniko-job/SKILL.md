@@ -70,7 +70,7 @@ KANIKO_CONTEXT_POSIX_DIR=$WORKSPACE/.versitygw-s3/kaniko-contexts/contexts
 
 `S3_ENDPOINT` is local to the DevBox process. If it is loopback, derive or provide `KANIKO_JOB_S3_ENDPOINT` before generating the Job so kaniko does not try to connect to itself.
 
-The Dockerfile must be inside `build.context_path`. If the Dockerfile sits outside the selected context, stop and fix Phase 3 or the context paths instead of silently widening the context and packaging unrelated files.
+The Dockerfile must be inside `build.context_path`. If the Dockerfile sits outside the selected context, stop and fix Phase 3 or the context paths instead of silently widening the context and packaging unrelated files. A subdirectory Dockerfile can still require a repository-root context; for example, `context_path="."` with `dockerfile_path="apps/www/Dockerfile"` is correct when the Dockerfile copies root workspace files such as `pnpm-lock.yaml`, `package.json`, or `turbo.json`.
 
 Do not assume the namespace is `default`, and do not switch to an admin kubeconfig. Resolve the namespace from the active sandbox context or mounted service-account metadata, and carry the current service account onto the temporary Job so the workflow stays inside the caller's permissions.
 

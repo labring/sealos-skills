@@ -46,11 +46,13 @@ Signals:
 - `build.dockerfile_path must be inside build.context_path`
 - `tar failed`
 - kaniko reports missing files that should have been in the context
+- Dockerfile copies root workspace files but `build.context_path` points at a subdirectory
 
 Action:
 
 - Confirm `build.context_path` and `build.dockerfile_path` are relative to `source.work_dir`.
 - Confirm the Dockerfile is inside the selected context.
+- If a subdirectory Dockerfile copies root files such as `pnpm-lock.yaml`, `package.json`, workspace manifests, `turbo.json`, or sibling packages, set `context_path="."` and keep `dockerfile_path` at the subdirectory Dockerfile.
 - Inspect `.sealos/kaniko-context.json` and `tar -tzf` output.
 
 ## dockerfile
@@ -89,10 +91,12 @@ Signals:
 - `insufficient_scope`
 - `failed to push`
 - registry auth errors for `ghcr.io`
+- `repository can only contain the characters ...`
 
 Action:
 
 - Confirm `target_image` starts with `ghcr.io/<owner>/<package>:<tag>`.
+- Confirm every GHCR repository path component is lowercase. Lowercase display-case GitHub logins before using them as the target owner.
 - Confirm `GITHUB_TOKEN` has `write:packages`.
 - Confirm package owner permissions allow publishing.
 

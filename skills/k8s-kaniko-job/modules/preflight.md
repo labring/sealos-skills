@@ -137,7 +137,7 @@ node "$SKILL_DIR/scripts/check-ghcr-token.mjs" \
   --target-image "$(node -e 'const r=require(process.argv[1]); process.stdout.write(r.image.target_image || r.image.image_ref || "")' "$WORK_DIR/.sealos/build-request.json")"
 ```
 
-Stop if `GITHUB_TOKEN` is missing or the response headers do not include `write:packages`. Record whether the `ghcr.io/<owner>/...` target owner differs from the authenticated GitHub login; organization namespace pushes are valid only when the token is authorized for that namespace. Do this before creating the kaniko Job so common GHCR auth failures are caught in preflight instead of after a long build.
+Stop if `GITHUB_TOKEN` is missing, the response headers do not include `write:packages`, or the `ghcr.io/<owner>/...` target owner contains uppercase characters. GHCR repository path components must be lowercase; if the authenticated GitHub login is display-cased, lowercase it before using it as the default target owner. Record whether the target owner differs from the authenticated GitHub login; organization namespace pushes are valid only when the token is authorized for that namespace. Do this before creating the kaniko Job so common GHCR auth failures are caught in preflight instead of after a long build.
 
 ## Step 6: Record Capability Summary
 

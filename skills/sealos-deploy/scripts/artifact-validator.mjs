@@ -35,12 +35,76 @@ function isSafeRelativePath(value) {
   return normalized !== '..' && !normalized.startsWith('../')
 }
 
+function normalizeRelativePath(value) {
+  return path.posix.normalize(String(value).replaceAll('\\', '/'))
+}
+
+function pathContains(parent, child) {
+  const relative = path.relative(parent, child)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
 function formatPath(pointer, suffix = '') {
   return `${pointer}${suffix}`
 }
 
 function pushError(errors, pointer, message) {
   errors.push({ path: pointer, message })
+}
+
+function stripInlineComment(line) {
+  let quote = null
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+    if ((char === '"' || char === "'") && line[index - 1] !== '\\') {
+      quote = quote === char ? null : quote || char
+    }
+    if (char === '#' && quote === null && (index === 0 || /\s/.test(line[index - 1]))) {
+      return line.slice(0, index)
+    }
+  }
+  return line
+}
+
+function tokenizeDockerInstruction(value) {
+  const tokens = []
+  const pattern = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|(\S+)/g
+  let match
+  while ((match = pattern.exec(value)) !== null) {
+    tokens.push(match[1] ?? match[2] ?? match[3])
+  }
+  return tokens
+}
+
+function parseDockerCopySources(dockerfileContent) {
+  const sources = []
+
+  for (const line of dockerfileContent.split(/\r?\n/)) {
+    const trimmed = stripInlineComment(line).trim()
+    const match = trimmed.match(/^(COPY|ADD)\s+(.+)$/i)
+    if (!match) continue
+
+    const rest = match[2].trim()
+    if (rest.startsWith('[')) {
+      try {
+        const values = JSON.parse(rest)
+        if (Array.isArray(values) && values.length >= 2) {
+          sources.push(...values.slice(0, -1).filter((value) => typeof value === 'string'))
+        }
+      } catch {
+        // Complex or invalid Dockerfile JSON array syntax is left to the build executor.
+      }
+      continue
+    }
+
+    const tokens = tokenizeDockerInstruction(rest)
+      .filter((token) => !token.startsWith('--'))
+    if (tokens.length >= 2) {
+      sources.push(...tokens.slice(0, -1))
+    }
+  }
+
+  return sources
 }
 
 function validateType(expectedType, value) {
@@ -317,6 +381,66 @@ function validateBuildRequestSemantics(data, errors) {
 
   if (!path.isAbsolute(source.work_dir)) {
     pushError(errors, '$.source.work_dir', 'must be an absolute sandbox path')
+  }
+
+  validateBuildContextSemantics({ mode, build, source }, errors)
+}
+
+function validateBuildContextSemantics({ mode, build, source }, errors) {
+  if (mode !== 'build-required') return
+  if (!path.isAbsolute(source.work_dir)) return
+  if (!isSafeRelativePath(build.context_path) || !isSafeRelativePath(build.dockerfile_path)) return
+
+  const workDir = path.resolve(source.work_dir)
+  if (!fs.existsSync(workDir) || !fs.statSync(workDir).isDirectory()) return
+
+  const contextPath = normalizeRelativePath(build.context_path)
+  const dockerfilePath = normalizeRelativePath(build.dockerfile_path)
+  const contextDir = path.resolve(workDir, contextPath)
+  const dockerfileFile = path.resolve(workDir, dockerfilePath)
+
+  if (!fs.existsSync(contextDir) || !fs.statSync(contextDir).isDirectory()) {
+    pushError(errors, '$.build.context_path', 'must exist as a directory under source.work_dir')
+    return
+  }
+  if (!fs.existsSync(dockerfileFile) || !fs.statSync(dockerfileFile).isFile()) {
+    pushError(errors, '$.build.dockerfile_path', 'must exist as a file under source.work_dir')
+    return
+  }
+  if (!pathContains(contextDir, dockerfileFile)) {
+    pushError(errors, '$.build.dockerfile_path', 'must be inside build.context_path')
+    return
+  }
+
+  const dockerfileContent = fs.readFileSync(dockerfileFile, 'utf-8')
+  for (const sourcePath of parseDockerCopySources(dockerfileContent)) {
+    if (
+      sourcePath.startsWith('--') ||
+      sourcePath.includes('$') ||
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(sourcePath)
+    ) {
+      continue
+    }
+
+    const normalizedSourcePath = normalizeRelativePath(sourcePath)
+    if (
+      normalizedSourcePath === '..' ||
+      normalizedSourcePath.startsWith('../') ||
+      path.posix.isAbsolute(normalizedSourcePath)
+    ) {
+      continue
+    }
+
+    const contextCopySource = path.resolve(contextDir, normalizedSourcePath)
+    if (fs.existsSync(contextCopySource) && pathContains(contextDir, contextCopySource)) {
+      continue
+    }
+
+    const workspaceCopySource = path.resolve(workDir, normalizedSourcePath)
+    if (fs.existsSync(workspaceCopySource) && !pathContains(contextDir, workspaceCopySource)) {
+      pushError(errors, '$.build.context_path', `must include Dockerfile COPY source ${sourcePath}`)
+      return
+    }
   }
 }
 

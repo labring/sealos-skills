@@ -59,6 +59,9 @@ async function main() {
     const login = body.login || null
     const targetImage = args['target-image'] || null
     const targetOwner = parseTargetOwner(targetImage)
+    const targetOwnerIsLowercase = targetOwner
+      ? targetOwner === targetOwner.toLowerCase()
+      : null
     const ownerMatchesLogin = targetOwner && login
       ? String(targetOwner).toLowerCase() === String(login).toLowerCase()
       : null
@@ -72,10 +75,11 @@ async function main() {
       target_owner: targetOwner,
       owner_check: targetOwner
         ? {
-            ok: true,
+            ok: targetOwnerIsLowercase !== false,
             owner_matches_login: ownerMatchesLogin,
             authenticated_login: login,
             actual_owner: targetOwner,
+            normalized_owner: targetOwner.toLowerCase(),
             note: ownerMatchesLogin === false
               ? 'target owner differs from authenticated login; GHCR organization pushes require that this token is authorized for the namespace'
               : null,
@@ -85,6 +89,9 @@ async function main() {
 
     if (missingScopes.length > 0) {
       throw new Error(`missing required GHCR scopes: ${missingScopes.join(', ')}`)
+    }
+    if (targetOwnerIsLowercase === false) {
+      throw new Error(`GHCR target owner must be lowercase: use ghcr.io/${targetOwner.toLowerCase()}/... instead of ghcr.io/${targetOwner}/...`)
     }
   } catch (error) {
     console.error(error.message)

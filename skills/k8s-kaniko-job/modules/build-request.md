@@ -57,6 +57,9 @@ Examples:
 ```text
 context_path=.        dockerfile_path=Dockerfile          -> --dockerfile=Dockerfile
 context_path=apps/web dockerfile_path=apps/web/Dockerfile -> --dockerfile=Dockerfile
+context_path=.        dockerfile_path=apps/web/Dockerfile -> --dockerfile=apps/web/Dockerfile
 ```
 
 If the Dockerfile is outside the selected context, stop. Do not silently widen the context because that can package unrelated local files into the S3 tarball.
+
+If a subdirectory Dockerfile reads repository-root workspace files, use the repository root as `context_path`. For example, a monorepo Dockerfile under `apps/www/Dockerfile` that copies `pnpm-lock.yaml`, `package.json`, `pnpm-workspace.yaml`, `turbo.json`, or sibling packages must use `context_path="."` rather than `context_path="apps/www"`.
