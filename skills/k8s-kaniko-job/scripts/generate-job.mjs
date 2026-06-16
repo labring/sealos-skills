@@ -172,6 +172,15 @@ ${serviceAccount ? `      serviceAccountName: ${serviceAccount}
 ` : ''}      containers:
       - name: kaniko
         image: ${kanikoImage}
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "2Gi"
+            ephemeral-storage: "2Gi"
+          limits:
+            cpu: "2"
+            memory: "8Gi"
+            ephemeral-storage: "10Gi"
         args:
         - --dockerfile=${contextMetadata.dockerfile}
         - --context=${contextMetadata.contextUri}

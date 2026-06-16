@@ -123,9 +123,11 @@ export function patchTemplatePullSecret(templateContent, dockerConfigJson, secre
   }
 
   const hasSecret = documents.some((doc) => documentHasPullSecret(doc, secretName))
-  const nextDocuments = hasSecret
-    ? [...documents]
-    : [buildPullSecretYaml(secretName, dockerConfigJson), ...documents]
+  const nextDocuments = hasSecret ? [...documents] : [...documents]
+  if (!hasSecret) {
+    const insertIndex = documentKind(documents[0]) === 'Template' ? 1 : 0
+    nextDocuments.splice(insertIndex, 0, buildPullSecretYaml(secretName, dockerConfigJson))
+  }
 
   const patched = nextDocuments.map((doc) => injectImagePullSecrets(doc, secretName))
   return joinYamlDocuments(patched)

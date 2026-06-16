@@ -285,7 +285,9 @@ Choose the target image in this order:
 
 1. `.sealos/config.json.target_image`
 2. `analysis.json.image_ref` if Phase 2 found a reusable image
-3. `ghcr.io/<owner>/<repo>:prepare-<commit-sha-or-timestamp>` if GitHub repo is known
+3. `ghcr.io/<github-token-login>/<repo>:prepare-<commit-sha-or-timestamp>` when `GITHUB_TOKEN` is available
+
+Do not default to the source repository owner for fresh GHCR pushes. A token with `write:packages` can still fail with `DENIED: permission_denied: create_package` when the target package namespace is an organization or user that the token cannot publish to. Resolve the authenticated login with GitHub `/user`, use that login as the default GHCR owner when no explicit target image is configured, and run the kaniko GHCR preflight against the final `target_image` before creating Kubernetes resources. Explicit organization targets remain valid when the token is authorized for that namespace.
 
 ### 4.2 Write build-request.json
 
@@ -305,7 +307,7 @@ Write `.sealos/build-request.json`:
   "mode": "build-required",
   "image": {
     "image_ref": null,
-    "target_image": "ghcr.io/owner/repo:prepare-<tag>"
+    "target_image": "ghcr.io/<github-token-login>/repo:prepare-<tag>"
   },
   "build": {
     "context_path": "<context path, e.g. . or site>",
@@ -445,7 +447,7 @@ node "<SKILL_DIR>/scripts/patch-template-pull-secret.mjs" \
 
 This script:
 
-- prepends a `kubernetes.io/dockerconfigjson` Secret named `${{ defaults.app_name }}`
+- inserts a `kubernetes.io/dockerconfigjson` Secret named `${{ defaults.app_name }}` immediately after the Template document, because the Template API requires the first YAML document to be `kind: Template`
 - adds `imagePullSecrets` to managed `Deployment` / `StatefulSet` documents
 - uses the same GHCR auth shape as `k8s-kaniko-job/modules/registry-auth.md`
 

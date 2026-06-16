@@ -135,21 +135,51 @@ function assertBuildRequest(request) {
   }
 }
 
-function createContextTar({ contextDir, targetFile }) {
+function toTarExcludePath(relativePath) {
+  const normalized = toPosixPath(relativePath)
+  if (!normalized || normalized === '.') return null
+  return normalized.startsWith('./') ? normalized : `./${normalized}`
+}
+
+function buildRuntimeExcludes({ contextDir, contextRoot }) {
+  const excludes = [
+    './.git',
+    './.git/*',
+    './.sealos',
+    './.sealos/*',
+    './.versitygw-s3',
+    './.versitygw-s3/*',
+    './.versitygw-iam',
+    './.versitygw-iam/*',
+    './.versitygw-versioning',
+    './.versitygw-versioning/*',
+  ]
+
+  const relativeContextRoot = path.relative(contextDir, contextRoot)
+  if (
+    relativeContextRoot &&
+    !relativeContextRoot.startsWith('..') &&
+    !path.isAbsolute(relativeContextRoot)
+  ) {
+    const tarPath = toTarExcludePath(relativeContextRoot)
+    if (tarPath) {
+      excludes.push(tarPath, `${tarPath}/*`)
+    }
+  }
+
+  return [...new Set(excludes)]
+}
+
+function createContextTar({ contextDir, contextRoot, targetFile }) {
   fs.mkdirSync(path.dirname(targetFile), { recursive: true })
   const targetDir = path.dirname(targetFile)
   const tmpDir = fs.mkdtempSync(path.join(targetDir, '.tmp-'))
   const tmpFile = path.join(tmpDir, 'context.tar.gz')
+  const excludeArgs = buildRuntimeExcludes({ contextDir, contextRoot })
+    .flatMap((entry) => ['--exclude', entry])
 
   const result = spawnSync('tar', [
-    '--exclude',
-    './.git',
-    '--exclude',
-    './.git/*',
-    '--exclude',
-    './.sealos',
-    '--exclude',
-    './.sealos/*',
+    ...excludeArgs,
     '-C',
     contextDir,
     '-czf',
@@ -180,6 +210,7 @@ function buildMetadata({ args, request }) {
 
   createContextTar({
     contextDir: build.contextDir,
+    contextRoot,
     targetFile: tarPath,
   })
 

@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+function parseTargetOwner(targetImage) {
+  if (!targetImage) return null
+  const match = String(targetImage).match(/^ghcr\.io\/([^/]+)\/[^:]+(?::.+)?$/i)
+  return match ? match[1] : null
+}
+
 function parseArgs(argv) {
   const args = { requireScope: [] }
   for (let i = 0; i < argv.length; i += 1) {
@@ -50,12 +56,31 @@ async function main() {
     const requiredScopes = args.requireScope.length > 0 ? args.requireScope : ['write:packages']
     const missingScopes = requiredScopes.filter((scope) => !scopes.includes(scope))
     const body = await response.json()
+    const login = body.login || null
+    const targetImage = args['target-image'] || null
+    const targetOwner = parseTargetOwner(targetImage)
+    const ownerMatchesLogin = targetOwner && login
+      ? String(targetOwner).toLowerCase() === String(login).toLowerCase()
+      : null
 
     process.stdout.write(`${JSON.stringify({
       ok: missingScopes.length === 0,
-      login: body.login || null,
+      login,
       scopes,
       missing_scopes: missingScopes,
+      target_image: targetImage,
+      target_owner: targetOwner,
+      owner_check: targetOwner
+        ? {
+            ok: true,
+            owner_matches_login: ownerMatchesLogin,
+            authenticated_login: login,
+            actual_owner: targetOwner,
+            note: ownerMatchesLogin === false
+              ? 'target owner differs from authenticated login; GHCR organization pushes require that this token is authorized for the namespace'
+              : null,
+          }
+        : null,
     }, null, 2)}\n`)
 
     if (missingScopes.length > 0) {

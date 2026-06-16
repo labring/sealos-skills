@@ -120,9 +120,16 @@ function extractDeploySections (content) {
   const lines = content.split('\n')
   const sections = []
   let current = null
+  let inFence = false
 
   for (const line of lines) {
-    if (/^#+\s/.test(line)) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence
+      if (current) current.push(line)
+      continue
+    }
+
+    if (!inFence && /^#+\s/.test(line)) {
       const isDeploy = DEPLOY_SECTION_RES.some(re => re.test(line))
       if (isDeploy) {
         current = [line]
@@ -214,9 +221,8 @@ function analyzeReadmeDeployment (workDir) {
 
   const uniqueImages = dedupeImages(images)
   let deploymentMode = 'unclear'
-  if (buildSignals && uniqueImages.length === 0) deploymentMode = 'build'
+  if (buildSignals) deploymentMode = 'build'
   else if (uniqueImages.length > 0) deploymentMode = 'prebuilt'
-  else if (buildSignals) deploymentMode = 'build'
 
   return { deploymentMode, images: uniqueImages, buildSignals, evidence, deployContent }
 }
@@ -623,18 +629,18 @@ async function detectExistingImage (githubUrl, workDir) {
   const readme = analyzeReadmeDeployment(workDir)
   evidence.push(...readme.evidence)
 
+  // Stage B — evidence tiers: README > Release > CI > compose
+  if (readme.images.length > 0) {
+    const result = await verifyCandidateList(readme.images, 'readme', evidence)
+    if (result) return result
+  }
+
   if (readme.deploymentMode === 'build') {
     return buildBuildRequiredResult(
       'README documents docker build deployment; skipping registry reuse',
       evidence,
       'build',
     )
-  }
-
-  // Stage B — evidence tiers: README > Release > CI > compose
-  if (readme.images.length > 0) {
-    const result = await verifyCandidateList(readme.images, 'readme', evidence)
-    if (result) return result
   }
 
   const releaseRemote = await fetchGithubReleases(owner, repo)
@@ -715,17 +721,12 @@ async function detectWithoutGithubUrl (workDir) {
   const readme = analyzeReadmeDeployment(workDir)
   evidence.push(...readme.evidence)
 
-  if (readme.deploymentMode === 'build') {
-    return buildBuildRequiredResult(
-      'README documents docker build deployment; skipping registry reuse',
-      evidence,
-      'build',
-    )
-  }
+  const releaseLocal = extractImagesFromLocalReleases(workDir)
+  evidence.push(...releaseLocal.evidence)
 
   const tiers = [
     { images: readme.images, source: 'readme' },
-    { images: extractImagesFromLocalReleases(workDir).images, source: 'release' },
+    { images: releaseLocal.images, source: 'release' },
     { images: extractImagesFromWorkflows(workDir), source: 'ci-workflow' },
     { images: extractImagesFromCompose(workDir), source: 'compose' },
   ]
@@ -737,6 +738,14 @@ async function detectWithoutGithubUrl (workDir) {
       result.source = `${result.source}-local`
       return result
     }
+  }
+
+  if (readme.deploymentMode === 'build') {
+    return buildBuildRequiredResult(
+      'README documents docker build deployment; skipping registry reuse',
+      evidence,
+      'build',
+    )
   }
 
   return buildBuildRequiredResult('No reusable amd64 image found', evidence, 'unclear')
