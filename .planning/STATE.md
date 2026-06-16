@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-15)
 
 **Core value:** Codex users can discover, install, and invoke the Sealos plugin through the most native Codex plugin flow, with README instructions and plugin metadata that match the actual repository layout.
-**Current focus:** Phase 04 — install smoke and handoff complete
+**Current focus:** Shipped — PR #44 open against labring/sealos-skills:main
 
 ## Current Position
 
 Phase: 04
 Plan: Not started
-Status: Phase 04 complete — install smoke and handoff evidence complete
-Last activity: 2026-06-15
+Status: Phase 04 shipped — PR #44
+Last activity: 2026-06-16
 
 Progress: [██████████] 100%
 
