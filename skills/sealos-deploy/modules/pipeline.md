@@ -949,6 +949,16 @@ For the public app Service, endpoints must be non-empty before the Ingress can s
 4. Only report the app as usable after the endpoint exists and an HTTP request to the public URL returns a non-5xx response.
 5. Continue to Phase 6.5 before writing deployment state or reporting success.
 
+For templates with KubeBlocks-supported databases, runtime truth must include the database control plane and generated connection surface:
+
+```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  get cluster,component,instanceset,secret,svc -n "$NAMESPACE" \
+  | grep -E '<app-name>|redis|postgres|mysql|mongo|broker'
+```
+
+Acceptance requires the KubeBlocks `Cluster` to be Ready/Running, each expected `Component` and `InstanceSet` to converge, the account Secret to exist, and the application environment to point at the expected Service FQDN. For Redis, verify both `redis` and `redis-sentinel` components, `${APP_NAME}-redis-redis-account-default`, and `${APP_NAME}-redis-redis-redis.${NAMESPACE}.svc.cluster.local`. For MongoDB, verify `${APP_NAME}-mongo-mongodb-account-root` or the matching `mongodb` suffix variant before judging app initialization.
+
 ### 6.4 Fallback: kubectl apply (when Template API is unavailable)
 
 If the Template API returns 503/500 or is unreachable, deploy directly via kubectl using the local kubeconfig.
@@ -1153,6 +1163,8 @@ rm -rf "$WORK_DIR"
 ```
 
 Do NOT clean up if `WORK_DIR` is the user's local project directory.
+
+For test deployments, delete the Sealos `Instance` and application resources before database RBAC. Keep KubeBlocks ServiceAccount, Role, and RoleBinding resources until the database `Cluster` finalizer has converged. When a `Cluster` or `Component` remains in `Deleting` after dependent pods and InstanceSets are gone, inspect the finalizers and use finalizer removal only as the last recovery step after recording the stuck resource and owner references.
 
 ---
 

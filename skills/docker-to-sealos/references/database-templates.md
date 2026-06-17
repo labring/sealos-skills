@@ -614,6 +614,8 @@ Redis default account secrets usually contain:
 - `username`
 - `password`
 
+Redis and MongoDB account secrets can appear after the first component pods report progress. During deployment validation, wait for the KubeBlocks Cluster to reach `Running`/Ready and then poll for the expected account Secret before judging application initialization. For Redis, the Sentinel component may become ready before the primary `redis` component and `${{ defaults.app_name }}-redis-redis-account-default`; validate the final Redis Service FQDN `${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local` plus business registration/login behavior. For MongoDB, poll `${{ defaults.app_name }}-mongo-mongodb-account-root` or the matching `${{ defaults.app_name }}-mongodb-mongodb-account-root` name when the Cluster uses the `mongodb` suffix.
+
 ### Environment Variable Configuration Examples
 
 ```yaml
