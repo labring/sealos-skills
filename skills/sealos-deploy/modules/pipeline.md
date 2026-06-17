@@ -15,6 +15,7 @@ All build-and-prepare outputs are written under `.sealos/` in `WORK_DIR`:
 ```text
 <WORK_DIR>/.sealos/
 ├── config.json               ← optional user configuration overrides
+├── template-match.json       ← Phase 0.5 template fast-path decision
 ├── analysis.json             ← project analysis snapshot
 ├── build-request.json        ← build execution contract
 ├── build-result.json         ← resolved image result from reuse or kaniko
@@ -26,6 +27,7 @@ All build-and-prepare outputs are written under `.sealos/` in `WORK_DIR`:
 JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>/schemas/`:
 
 - `config.schema.json`
+- `template-match.schema.json`
 - `analysis.schema.json`
 - `build-request.schema.json`
 - `delivery-manifest.schema.json`
@@ -70,6 +72,7 @@ All fields are optional. If a field is present, it overrides the corresponding a
 If any of these artifacts already exist:
 
 - `.sealos/analysis.json`
+- `.sealos/template-match.json`
 - `Dockerfile`
 - `.sealos/build-request.json`
 - `.sealos/build-result.json`
@@ -87,10 +90,56 @@ Ask:
 If restart, remove:
 
 - `.sealos/analysis.json`
+- `.sealos/template-match.json`
 - `.sealos/build-request.json`
 - `.sealos/build-result.json`
 - `.sealos/template/index.yaml`
 - `.sealos/delivery-manifest.json`
+
+## Phase 0.5: Template Fast Path
+
+Run this phase after preflight has resolved `WORK_DIR`, `GITHUB_URL`, and `REPO_NAME`, and before Phase 1 assessment.
+
+The goal is to avoid source analysis, Dockerfile generation, and image builds for repositories that are already represented by a known Sealos template.
+
+With Node.js:
+
+```bash
+node "<SKILL_DIR>/scripts/detect-template.mjs" \
+  --github-url "$GITHUB_URL" \
+  --work-dir "$WORK_DIR" \
+  --skill-dir "<SKILL_DIR>"
+```
+
+The script writes `.sealos/template-match.json` every time it runs.
+
+Decision:
+
+- `matched=false` → continue to Phase 1 normally
+- `matched=true` and `materialized=false` → report the recommendation, then continue to Phase 1 normally
+- `matched=true` and `materialized=true` → skip Phase 1, Phase 2, Phase 3, Phase 3.5, Phase 4, and Phase 5; continue directly to Phase 6
+
+`materialized=true` means `.sealos/template/index.yaml` already exists and is complete enough for downstream deployment. Do not skip the build pipeline for a match that only has a template name but no YAML.
+
+Template matches are configured in `<SKILL_DIR>/config.json` under `template_fast_path.templates`. Each entry may include:
+
+```json
+{
+  "name": "memos",
+  "title": "Memos",
+  "source_repos": ["https://github.com/usememos/memos"],
+  "args": {},
+  "template_path": "templates/memos.yaml"
+}
+```
+
+YAML can be supplied by exactly one of these fields:
+
+- `template_yaml` — inline YAML string
+- `template_path` — path relative to `<SKILL_DIR>` or absolute path
+- `template_url` — URL returning YAML
+
+If none is set, the match is useful as a recommendation only and must not short-circuit the pipeline.
 
 ## Phase 1: Assess
 
@@ -472,6 +521,7 @@ Write `.sealos/delivery-manifest.json`:
 {
   "version": "1.0",
   "generated_at": "<ISO timestamp>",
+  "mode": "build-template",
   "artifacts": [
     ".sealos/analysis.json",
     ".sealos/build-request.json",
@@ -485,6 +535,23 @@ Write `.sealos/delivery-manifest.json`:
 }
 ```
 
+For a materialized Phase 0.5 template fast path, write:
+
+```json
+{
+  "version": "1.0",
+  "generated_at": "<ISO timestamp>",
+  "mode": "template-fast-path",
+  "artifacts": [
+    ".sealos/template-match.json",
+    ".sealos/template/index.yaml"
+  ],
+  "template_path": ".sealos/template/index.yaml",
+  "build_request_path": null,
+  "build_result_path": null
+}
+```
+
 Run validation:
 
 ```bash
@@ -493,7 +560,7 @@ node "<SKILL_DIR>/scripts/validate-artifacts.mjs" --dir "$WORK_DIR"
 
 At the end, present:
 
-- whether the project reused an existing image or completed a kaniko job
+- whether the project used a materialized Sealos template fast path, reused an existing image, or completed a kaniko job
 - where `build-request.json` is
 - where `build-result.json` is
 - where `index.yaml` is

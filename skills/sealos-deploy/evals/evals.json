@@ -2,6 +2,18 @@
   "skill_name": "sealos-deploy",
   "evals": [
     {
+      "id": 10,
+      "prompt": "/sealos-deploy https://github.com/usememos/memos",
+      "expected_output": "Detects the configured Sealos template fast path before source analysis; if template YAML is materialized, skips build phases and finishes with template artifacts; otherwise records the template recommendation and continues normal pipeline",
+      "files": [],
+      "assertions": [
+        {"name": "runs-template-fast-path", "description": "Runs Phase 0.5 template fast-path detection before Phase 1 assessment"},
+        {"name": "matches-source-repo", "description": "Matches usememos/memos from the GitHub URL against configured template source_repos"},
+        {"name": "writes-template-match", "description": "Writes .sealos/template-match.json with matched=true"},
+        {"name": "does-not-fake-build", "description": "Does not fabricate build-request/build-result artifacts when using a materialized template fast path"}
+      ]
+    },
+    {
       "id": 0,
       "prompt": "我想把 uptime-kuma 部署到 sealos，GitHub: https://github.com/louislam/uptime-kuma",
       "expected_output": "High readiness score (7+), identifies Node.js project with external services, recommends proceeding with deployment",

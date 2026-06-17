@@ -37,18 +37,22 @@ Skills reference paths with `<SKILL_DIR>` for self and `<SKILL_DIR>/../other-ski
 
 ### Prepare pipeline (sealos-deploy)
 ```text
-Preflight → Assess → Detect Image → Dockerfile → Build/Reuse Image → Template → Finish
+Preflight → Template Fast Path → Assess → Detect Image → Dockerfile → Build/Reuse Image → Template → Finish
+
+Template Fast Path:
+  - configured repo match with materialized template YAML → skip source analysis/build and finish with template artifacts
+  - no match, or match without template YAML → continue normal source-to-image flow
 
 Build/Reuse Image:
   - reusable public image found → write build-result.json with status=skipped
   - no reusable image → write build-request.json and delegate to k8s-kaniko-job
 ```
 
-State is tracked through `.sealos/analysis.json`, `.sealos/build-request.json`, `.sealos/build-result.json`, `.sealos/template/index.yaml`, and `.sealos/delivery-manifest.json`. `.sealos/config.json` remains an optional user override file.
+State is tracked through `.sealos/template-match.json`, `.sealos/analysis.json`, `.sealos/build-request.json`, `.sealos/build-result.json`, `.sealos/template/index.yaml`, and `.sealos/delivery-manifest.json`. `.sealos/config.json` remains an optional user override file.
 
 ## Key paths
 - `skills/sealos-deploy/SKILL.md` — primary entry point for the prepare workflow
 - `skills/sealos-deploy/config.json` — prepare/build defaults
-- `skills/sealos-deploy/scripts/` — scoring, image detection, and artifact validation scripts
+- `skills/sealos-deploy/scripts/` — scoring, template/image detection, and artifact validation scripts
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
 - `skills/k8s-kaniko-job/` — sandbox kaniko executor used when a new image is required

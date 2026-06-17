@@ -157,6 +157,7 @@ At the end of preflight, present:
 - whether VersityGW S3 settings appear to be present
 - whether a later kaniko phase would use the active sandbox namespace and current service account
 - whether a later sandbox kaniko phase would be able to run if the project needs a new image
+- whether Phase 0.5 template fast path can run from the resolved GitHub repo metadata
 
 Example:
 
@@ -171,4 +172,5 @@ Preflight summary:
   - GITHUB_TOKEN: injected
   - Build identity: active sandbox namespace + current service account
   - kaniko readiness: kubectl, VersityGW S3 settings, and GITHUB_TOKEN will only matter if no reusable image is found
+  - Template fast path: will check configured GitHub repo → Sealos template mappings before source analysis
 ```

@@ -13,6 +13,7 @@ const SCHEMA_FILES = {
   analysis: 'analysis.schema.json',
   'build-request': 'build-request.schema.json',
   'build-result': { dir: KANIKO_SCHEMA_DIR, file: 'build-result.schema.json' },
+  'template-match': 'template-match.schema.json',
   'delivery-manifest': 'delivery-manifest.schema.json',
 }
 
@@ -453,12 +454,40 @@ function validateBuildResultSemantics(data, errors) {
 function validateDeliveryManifestSemantics(data, errors) {
   const artifactSet = new Set(data.artifacts)
 
-  for (const requiredArtifact of [
-    '.sealos/analysis.json',
-    '.sealos/build-request.json',
-    '.sealos/build-result.json',
-    '.sealos/template/index.yaml',
-  ]) {
+  const fastPath = data.mode === 'template-fast-path'
+
+  if (fastPath) {
+    if (data.build_request_path !== null) {
+      pushError(errors, '$.build_request_path', 'must be null when mode is template-fast-path')
+    }
+    if (data.build_result_path !== null) {
+      pushError(errors, '$.build_result_path', 'must be null when mode is template-fast-path')
+    }
+    if (artifactSet.has('.sealos/build-request.json') || artifactSet.has('.sealos/build-result.json')) {
+      pushError(errors, '$.artifacts', 'must not include build artifacts when mode is template-fast-path')
+    }
+  } else {
+    if (data.build_request_path !== '.sealos/build-request.json') {
+      pushError(errors, '$.build_request_path', 'must point to .sealos/build-request.json when mode is build-template')
+    }
+    if (data.build_result_path !== '.sealos/build-result.json') {
+      pushError(errors, '$.build_result_path', 'must point to .sealos/build-result.json when mode is build-template')
+    }
+  }
+
+  const requiredArtifacts = fastPath
+    ? [
+        '.sealos/template-match.json',
+        '.sealos/template/index.yaml',
+      ]
+    : [
+        '.sealos/analysis.json',
+        '.sealos/build-request.json',
+        '.sealos/build-result.json',
+        '.sealos/template/index.yaml',
+      ]
+
+  for (const requiredArtifact of requiredArtifacts) {
     if (!artifactSet.has(requiredArtifact)) {
       pushError(errors, '$.artifacts', `must include ${requiredArtifact}`)
     }
@@ -468,12 +497,44 @@ function validateDeliveryManifestSemantics(data, errors) {
     pushError(errors, '$.template_path', 'must be present in artifacts')
   }
 
-  if (!artifactSet.has(data.build_request_path)) {
+  if (data.build_request_path !== null && !artifactSet.has(data.build_request_path)) {
     pushError(errors, '$.build_request_path', 'must be present in artifacts')
   }
 
-  if (!artifactSet.has(data.build_result_path)) {
+  if (data.build_result_path !== null && !artifactSet.has(data.build_result_path)) {
     pushError(errors, '$.build_result_path', 'must be present in artifacts')
+  }
+}
+
+function validateTemplateMatchSemantics(data, errors) {
+  if (!data.matched) {
+    if (data.materialized) {
+      pushError(errors, '$.materialized', 'must be false when matched is false')
+    }
+    if (data.repo !== null || data.template !== null || data.template_path !== null || data.source !== 'none') {
+      pushError(errors, '$', 'unmatched results must not include repo, template, template_path, or a non-none source')
+    }
+    return
+  }
+
+  if (data.repo === null) {
+    pushError(errors, '$.repo', 'must be set when matched is true')
+  }
+
+  if (data.template === null) {
+    pushError(errors, '$.template', 'must be set when matched is true')
+  }
+
+  if (data.source === 'none') {
+    pushError(errors, '$.source', 'must not be none when matched is true')
+  }
+
+  if (data.materialized && data.template_path !== '.sealos/template/index.yaml') {
+    pushError(errors, '$.template_path', 'must point to .sealos/template/index.yaml when materialized is true')
+  }
+
+  if (!data.materialized && data.template_path !== null) {
+    pushError(errors, '$.template_path', 'must be null when materialized is false')
   }
 }
 
@@ -482,6 +543,7 @@ const SEMANTIC_VALIDATORS = {
   analysis: validateAnalysisSemantics,
   'build-request': validateBuildRequestSemantics,
   'build-result': validateBuildResultSemantics,
+  'template-match': validateTemplateMatchSemantics,
   'delivery-manifest': validateDeliveryManifestSemantics,
 }
 
@@ -496,6 +558,8 @@ export function inferArtifactKind(filePath) {
       return 'build-request'
     case 'build-result.json':
       return 'build-result'
+    case 'template-match.json':
+      return 'template-match'
     case 'delivery-manifest.json':
       return 'delivery-manifest'
     default:

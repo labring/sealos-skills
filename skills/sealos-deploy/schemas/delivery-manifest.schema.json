@@ -21,6 +21,13 @@
       "type": "string",
       "format": "date-time"
     },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "build-template",
+        "template-fast-path"
+      ]
+    },
     "artifacts": {
       "type": "array",
       "minItems": 1,
@@ -35,12 +42,26 @@
       "const": ".sealos/template/index.yaml"
     },
     "build_request_path": {
-      "type": "string",
-      "const": ".sealos/build-request.json"
+      "anyOf": [
+        {
+          "type": "string",
+          "const": ".sealos/build-request.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "build_result_path": {
-      "type": "string",
-      "const": ".sealos/build-result.json"
+      "anyOf": [
+        {
+          "type": "string",
+          "const": ".sealos/build-result.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   }
 }

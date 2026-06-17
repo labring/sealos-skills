@@ -1,4 +1,17 @@
 {
   "default_target_registry": "ghcr.io",
-  "default_image_tag_prefix": "prepare"
+  "default_image_tag_prefix": "prepare",
+  "template_fast_path": {
+    "enabled": true,
+    "templates": [
+      {
+        "name": "memos",
+        "title": "Memos",
+        "source_repos": [
+          "https://github.com/usememos/memos"
+        ],
+        "args": {}
+      }
+    ]
+  }
 }

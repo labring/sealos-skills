@@ -33,20 +33,22 @@ You only need a `skills.sh` compatible AI agent and a project to prepare.
 During the prepare flow, Seakills will:
 
 - inspect the project and resolve GitHub metadata
+- check whether the GitHub repository maps to an already-known Sealos template
 - detect reusable Docker Hub or GHCR images
 - reuse, repair, or generate a Dockerfile
 - write `.sealos/build-request.json`
-- run a sandbox BuildKit build only when a reusable image is not available
+- run a sandbox kaniko build only when a reusable image is not available
 - generate `.sealos/template/index.yaml` and `.sealos/delivery-manifest.json`
 
 ## What `/sealos-deploy` Handles
 
 On a typical prepare run, the agent will:
 
-1. Assess the project structure and runtime needs.
-2. Reuse an existing image or build one when needed.
-3. Generate a Sealos template.
-4. Write a delivery manifest listing the generated artifacts.
+1. Check for a materialized Sealos template fast path.
+2. Assess the project structure and runtime needs when no template fast path applies.
+3. Reuse an existing image or build one when needed.
+4. Generate a Sealos template.
+5. Write a delivery manifest listing the generated artifacts.
 
 ## Repository
 

@@ -13,11 +13,12 @@ Prepare the current workspace or a GitHub project for Sealos Cloud.
 Workflow:
 
 1. inspect and score the project
-2. detect reusable container images
-3. reuse, repair, or generate a Dockerfile
-4. write `.sealos/build-request.json`
-5. either reuse an existing image or run a sandbox kaniko build through `k8s-kaniko-job`
-6. generate `.sealos/template/index.yaml`
+2. first check whether the GitHub repo maps to an already-known Sealos template
+3. detect reusable container images
+4. reuse, repair, or generate a Dockerfile
+5. write `.sealos/build-request.json`
+6. either reuse an existing image or run a sandbox kaniko build through `k8s-kaniko-job`
+7. generate `.sealos/template/index.yaml`
 
 ## kubectl Safety Rules
 
@@ -61,6 +62,7 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | Script | Usage | Purpose |
 |--------|-------|---------|
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
+| `detect-template.mjs` | `node detect-template.mjs [--github-url <url>] --work-dir <repo-dir> --skill-dir <SKILL_DIR>` | Detect configured GitHub repo → Sealos template fast-path matches |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker Hub or GHCR images |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `patch-template-pull-secret.mjs` | `node patch-template-pull-secret.mjs --template <index.yaml> --build-result <build-result.json>` | POC: inline GHCR pull Secret and `imagePullSecrets` into the Sealos template |
@@ -85,6 +87,7 @@ This skill references co-installed internal skills on demand:
 | Phase | Action | Skip When |
 |-------|--------|-----------|
 | 0 — Preflight | Capability scan, project resolution, sandbox assumptions | Entry blockers resolved |
+| 0.5 — Template Fast Path | Match GitHub repo to a configured Sealos template | No match, or match cannot materialize template YAML |
 | 1 — Assess | Analyze deployability and write `analysis.json` | Score too low → stop |
 | 2 — Detect | Find reusable amd64 image | Found → build job can be skipped later |
 | 3 — Dockerfile | Reuse or generate Dockerfile | Existing valid Dockerfile can be reused |
@@ -101,6 +104,11 @@ Input (current workspace or GitHub URL)
 [Phase 0] Preflight ── fail → explain blocker and STOP
   │ pass
   ▼
+[Phase 0.5] Template fast path
+  │
+  ├── materialized template match ───────┐
+  │                                      │
+  ▼                                      │
 [Phase 1] Assess ── not suitable → STOP with reason
   │ suitable
   ▼
@@ -117,6 +125,7 @@ Input (current workspace or GitHub URL)
   │
   ▼
 [Phase 5] Generate Sealos template
+  ◄──────────────────────────────────────┘
   │
   ▼
 [Phase 6] Finish with .sealos artifacts
