@@ -432,7 +432,7 @@ def check_business_env_secret_policy(context: ScanContext) -> List[Violation]:
                     path=doc.path,
                     line=line,
                     message=(
-                        "application workload secret references must not use custom secrets unless they reference "
+                        "business workload secret references must not use custom secrets unless they reference "
                         "an approved database or object storage secret"
                     ),
                 )
