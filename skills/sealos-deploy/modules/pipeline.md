@@ -710,6 +710,7 @@ Parse the generated template YAML and categorize all environment variables and i
 
 **Category B — User-required inputs:**
 - Template `inputs` with `required: true` and no sensible default
+- Template `inputs` with `required: true` and `default: ''`; the empty default means the deployer must provide the value before deploy
 - Env vars with empty or placeholder values that the app cannot function without
 - Common examples: admin email, external API keys (OpenAI, SMTP credentials, OAuth client ID/secret)
 
@@ -1049,6 +1050,7 @@ node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$APP_URL"
 ```
 
 For login-gated web applications, identify the first-run, registration, or login flow from upstream docs, source code, the rendered template, or observed network/API behavior. Complete the flow and verify at least one authenticated page or API route.
+If administrator credentials were collected in Phase 5.5, use those exact deploy-time values for the login smoke. Mask the password in command echoes, logs, summaries, and final output.
 
 When credentials and API paths are known, use the helper for the repeatable HTTP portion:
 
@@ -1082,7 +1084,7 @@ Acceptance checklist:
 - Pods and initContainers are complete or ready.
 - Service endpoints are populated.
 - The actual App URL loads from a fresh session.
-- Login-gated apps complete setup/login and one authenticated action.
+- Login-gated apps complete setup/login with deploy-time administrator credentials and one authenticated action. Passwords remain masked in all output.
 - SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` is absent from smoke responses.
 - Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
 - Main business containers keep `command`/`args` short and close to the official entrypoint; repeated file preparation, permission repair, database bootstrap, or compatibility self-healing belongs in initContainers, Jobs, or ConfigMap scripts.

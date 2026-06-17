@@ -3301,6 +3301,255 @@ __MOUNTS__
         )
         self.assertFalse(any(item.rule_id == "R041" for item in violations))
 
+    def test_allows_declared_template_input_references(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "erpnext" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: erpnext
+                spec:
+                  title: ERPNext
+                  url: https://erpnext.com
+                  gitRepo: https://github.com/frappe/erpnext
+                  author: Sealos
+                  description: ERPNext template
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/erpnext/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: ERPNext 模板
+                  categories:
+                    - tool
+                  inputs:
+                    admin_username:
+                      description: Administrator login name
+                      type: string
+                      default: admin
+                      required: true
+                    admin_password:
+                      description: Administrator password
+                      type: string
+                      default: ''
+                      required: true
+                ---
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: erpnext
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: erpnext
+                          env:
+                            - name: ADMIN_USERNAME
+                              value: ${{ inputs.admin_username }}
+                            - name: ADMIN_PASSWORD
+                              value: ${{ inputs.admin_password }}
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/erpnext/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R045" for item in violations))
+
+    def test_detects_undeclared_template_input_reference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "erpnext" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: erpnext
+                spec:
+                  title: ERPNext
+                  url: https://erpnext.com
+                  gitRepo: https://github.com/frappe/erpnext
+                  author: Sealos
+                  description: ERPNext template
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/erpnext/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: ERPNext 模板
+                  categories:
+                    - tool
+                  inputs:
+                    admin_password:
+                      description: Administrator password
+                      type: string
+                      default: ''
+                      required: true
+                ---
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: erpnext
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: erpnext
+                          env:
+                            - name: ADMIN_USERNAME
+                              value: ${{ inputs.admin_username }}
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/erpnext/index.yaml"],
+            )
+            r045 = [item for item in violations if item.rule_id == "R045"]
+            self.assertTrue(r045)
+            self.assertTrue(any("inputs.admin_username" in item.message for item in r045))
+
+    def test_template_input_reference_rule_ignores_defaults_refs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "erpnext" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: erpnext
+                spec:
+                  title: ERPNext
+                  url: https://erpnext.com
+                  gitRepo: https://github.com/frappe/erpnext
+                  author: Sealos
+                  description: ERPNext template
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/erpnext/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: ERPNext 模板
+                  categories:
+                    - tool
+                ---
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: ${{ defaults.app_name }}
+                spec:
+                  selector:
+                    app: ${{ defaults.app_name }}
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/erpnext/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R045" for item in violations))
+
+    def test_detects_undeclared_template_input_reference_in_condition(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "erpnext" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: erpnext
+                spec:
+                  title: ERPNext
+                  url: https://erpnext.com
+                  gitRepo: https://github.com/frappe/erpnext
+                  author: Sealos
+                  description: ERPNext template
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/erpnext/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: ERPNext 模板
+                  categories:
+                    - tool
+                  inputs:
+                    admin_password:
+                      description: Administrator password
+                      type: string
+                      default: ''
+                      required: true
+                ---
+                ${{ if(inputs.enable_signup === 'true') }}
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: erpnext-signup
+                data:
+                  enabled: "true"
+                ---
+                ${{ endif() }}
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/erpnext/index.yaml"],
+            )
+            r045 = [item for item in violations if item.rule_id == "R045"]
+            self.assertTrue(r045)
+            self.assertTrue(any("inputs.enable_signup" in item.message for item in r045))
+
     def test_registry_rule_scope_filters_violations(self):
         rules_yaml = render_registry(
             overrides={
