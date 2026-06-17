@@ -1,0 +1,153 @@
+{
+  "capturedAt": "2026-06-15T12:10:45Z",
+  "package": "plugins",
+  "purpose": "Autonomous npm package legitimacy due-diligence gate before isolated compatibility install.",
+  "commands": {
+    "packageMetadata": {
+      "cmd": "npm view plugins name version repository.url homepage bin engines scripts.postinstall dist.tarball dist.integrity time.created time.modified --json",
+      "exitCode": 0,
+      "stdout": "{\n  \"name\": \"plugins\",\n  \"version\": \"1.3.1\",\n  \"repository.url\": \"git+https://github.com/vercel-labs/plugins.git\",\n  \"homepage\": \"https://github.com/vercel-labs/plugins#readme\",\n  \"bin\": {\n    \"plugins\": \"dist/index.js\"\n  },\n  \"engines\": {\n    \"node\": \">=18\"\n  },\n  \"dist.tarball\": \"https://registry.npmjs.org/plugins/-/plugins-1.3.1.tgz\",\n  \"dist.integrity\": \"sha512-1K+Lxvy00FRMDxtrrTmFICZEYYF2MXbNMGV7848h68K4+HFvjzf5fy0ba+H3KDPhEsKD6ntaEGG5auwak7akcQ==\",\n  \"time.created\": \"2013-10-17T12:44:58.696Z\",\n  \"time.modified\": \"2026-04-12T18:58:19.278Z\"\n}",
+      "stderr": ""
+    },
+    "fullPackageMetadata": {
+      "cmd": "npm view plugins --json",
+      "exitCode": 0,
+      "stdout": "{\n  \"_id\": \"plugins@1.3.1\",\n  \"_rev\": \"50-35a735452781dfd5582c88a170a2a8f4\",\n  \"name\": \"plugins\",\n  \"dist-tags\": {\n    \"canary\": \"1.2.10-canary.5\",\n    \"latest\": \"1.3.1\",\n    \"snapshot\": \"1.3.1-snapshot.0\"\n  },\n  \"versions\": [\n    \"0.1.3\",\n    \"0.2.1\",\n    \"0.3.0\",\n    \"0.3.1\",\n    \"0.4.0\",\n    \"0.4.1\",\n    \"0.4.2\",\n    \"1.0.0\",\n    \"1.0.1\",\n    \"1.1.0\",\n    \"1.1.1\",\n    \"1.1.2\",\n    \"1.1.3\",\n    \"1.1.4\",\n    \"1.1.5\",\n    \"1.2.0\",\n    \"1.2.1\",\n    \"1.2.2\",\n    \"1.2.3\",\n    \"1.2.4\",\n    \"1.2.5\",\n    \"1.2.7\",\n    \"1.2.9\",\n    \"1.2.10-canary.0\",\n    \"1.2.10-canary.1\",\n    \"1.2.10-canary.2\",\n    \"1.2.10-canary.3\",\n    \"1.2.10-canary.4\",\n    \"1.2.10-canary.5\",\n    \"1.3.0\",\n    \"1.3.1-snapshot.0\",\n    \"1.3.1\"\n  ],\n  \"time\": {\n    \"created\": \"2013-10-17T12:44:58.696Z\",\n    \"modified\": \"2026-04-12T18:58:19.278Z\",\n    \"0.1.0\": \"2013-10-17T12:44:59.984Z\",\n    \"0.1.1\": \"2013-11-15T08:35:13.683Z\",\n    \"0.1.2\": \"2013-11-29T18:26:09.947Z\",\n    \"0.1.3\": \"2014-08-22T18:55:28.426Z\",\n    \"0.2.1\": \"2014-08-23T00:11:04.121Z\",\n    \"0.3.0\": \"2014-08-27T09:10:34.019Z\",\n    \"0.3.1\": \"2014-10-01T01:12:42.984Z\",\n    \"0.4.0\": \"2015-08-15T03:39:39.821Z\",\n    \"0.4.1\": \"2015-08-15T03:56:11.594Z\",\n    \"0.4.2\": \"2015-08-15T03:56:26.661Z\",\n    \"1.0.0\": \"2026-03-11T23:53:28.956Z\",\n    \"1.0.1\": \"2026-03-12T18:35:34.765Z\",\n    \"1.1.0\": \"2026-03-17T15:21:59.707Z\",\n    \"1.1.1\": \"2026-03-17T16:14:11.405Z\",\n    \"1.1.2\": \"2026-03-17T16:24:54.880Z\",\n    \"1.1.3\": \"2026-03-17T17:48:56.159Z\",\n    \"1.1.4\": \"2026-03-17T22:49:34.994Z\",\n    \"1.1.5\": \"2026-03-17T23:01:25.797Z\",\n    \"1.2.0\": \"2026-03-17T23:17:22.927Z\",\n    \"1.2.1\": \"2026-03-17T23:18:35.660Z\",\n    \"1.2.2\": \"2026-03-18T01:00:57.793Z\",\n    \"1.2.3\": \"2026-03-18T01:04:25.297Z\",\n    \"1.2.4\": \"2026-03-18T01:19:41.220Z\",\n    \"1.2.5\": \"2026-03-18T17:18:16.981Z\",\n    \"1.2.7\": \"2026-04-02T17:31:30.989Z\",\n    \"1.2.9\": \"2026-04-06T04:05:55.146Z\",\n    \"1.2.10-canary.0\": \"2026-04-09T17:11:39.424Z\",\n    \"1.2.10-canary.1\": \"2026-04-09T17:13:29.144Z\",\n    \"1.2.10-canary.2\": \"2026-04-09T17:31:18.311Z\",\n    \"1.2.10-canary.3\": \"2026-04-09T17:39:49.652Z\",\n    \"1.2.10-canary.4\": \"2026-04-09T21:46:05.808Z\",\n    \"1.2.10-canary.5\": \"2026-04-09T22:09:39.649Z\",\n    \"1.3.0\": \"2026-04-10T04:38:06.227Z\",\n    \"1.3.1-snapshot.0\": \"2026-04-12T00:04:47.280Z\",\n    \"1.3.1\": \"2026-04-12T18:58:19.142Z\"\n  },\n  \"description\": \"Install open-plugin format plugins into agent tools\",\n  \"maintainers\": [\n    \"quuu <qual1337@gmail.com>\"\n  ],\n  \"readmeFilename\": \"README.md\",\n  \"homepage\": \"https://github.com/vercel-labs/plugins#readme\",\n  \"repository\": {\n    \"type\": \"git\",\n    \"url\": \"git+https://github.com/vercel-labs/plugins.git\"\n  },\n  \"bugs\": {\n    \"url\": \"https://github.com/vercel-labs/plugins/issues\"\n  },\n  \"_contentLength\": 47956,\n  \"version\": \"1.3.1\",\n  \"type\": \"module\",\n  \"packageManager\": \"pnpm@10.28.1\",\n  \"engines\": {\n    \"node\": \">=18\"\n  },\n  \"bin\": {\n    \"plugins\": \"dist/index.js\"\n  },\n  \"scripts\": {\n    \"build\": \"tsup\",\n    \"start\": \"node dist/index.js\",\n    \"test\": \"tsx --test test/*.test.ts\",\n    \"format:check\": \"prettier --check \\\"index.ts\\\" \\\"lib/**/*.ts\\\" \\\"test/**/*.ts\\\"\",\n    \"publish:snapshot\": \"npm version prerelease --preid=snapshot --no-git-tag-version && npm publish --tag snapshot\"\n  },\n  \"devDependencies\": {\n    \"prettier\": \"^3\",\n    \"tsx\": \"^4.20.6\",\n    \"tsup\": \"^8\",\n    \"typescript\": \"^5\"\n  },\n  \"gitHead\": \"9837433ad7d48aa16f916f51e13c7b313878c592\",\n  \"_nodeVersion\": \"24.13.0\",\n  \"_npmVersion\": \"11.6.2\",\n  \"dist\": {\n    \"integrity\": \"sha512-1K+Lxvy00FRMDxtrrTmFICZEYYF2MXbNMGV7848h68K4+HFvjzf5fy0ba+H3KDPhEsKD6ntaEGG5auwak7akcQ==\",\n    \"shasum\": \"bb9506e127e9917dddc7743a4ae083274fbcd587\",\n    \"tarball\": \"https://registry.npmjs.org/plugins/-/plugins-1.3.1.tgz\",\n    \"fileCount\": 3,\n    \"unpackedSize\": 64155,\n    \"signatures\": [\n      {\n        \"keyid\": \"SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U\",\n        \"sig\": \"MEYCIQDhKBTSMBwBe7dNjYkjDiycA4bvvWNHkzK2HR4tCjMVyQIhAOd5ScAdLJP8mlOV6tWFN37fCVtP7gNPJ4sGzh6uWg1T\"\n      }\n    ]\n  },\n  \"_npmUser\": \"quuu <qual1337@gmail.com>\",\n  \"directories\": {},\n  \"_npmOperationalInternal\": {\n    \"host\": \"s3://npm-registry-packages-npm-production\",\n    \"tmp\": \"tmp/plugins_1.3.1_1776020299003_0.3840452740933853\"\n  },\n  \"_hasShrinkwrap\": false\n}",
+      "stderr": ""
+    },
+    "nodeVersion": {
+      "cmd": "node --version",
+      "exitCode": 0,
+      "stdout": "v24.13.0",
+      "stderr": ""
+    },
+    "npmVersion": {
+      "cmd": "npm --version",
+      "exitCode": 0,
+      "stdout": "11.6.2",
+      "stderr": ""
+    },
+    "npxVersion": {
+      "cmd": "npx --version",
+      "exitCode": 0,
+      "stdout": "11.6.2",
+      "stderr": ""
+    }
+  },
+  "metadata": {
+    "name": "plugins",
+    "version": "1.3.1",
+    "repositoryUrl": "git+https://github.com/vercel-labs/plugins.git",
+    "homepage": "https://github.com/vercel-labs/plugins#readme",
+    "bin": {
+      "plugins": "dist/index.js"
+    },
+    "engines": {
+      "node": ">=18"
+    },
+    "scripts": {
+      "build": "tsup",
+      "start": "node dist/index.js",
+      "test": "tsx --test test/*.test.ts",
+      "format:check": "prettier --check \"index.ts\" \"lib/**/*.ts\" \"test/**/*.ts\"",
+      "publish:snapshot": "npm version prerelease --preid=snapshot --no-git-tag-version && npm publish --tag snapshot"
+    },
+    "postinstall": null,
+    "dist": {
+      "tarball": "https://registry.npmjs.org/plugins/-/plugins-1.3.1.tgz",
+      "integrity": "sha512-1K+Lxvy00FRMDxtrrTmFICZEYYF2MXbNMGV7848h68K4+HFvjzf5fy0ba+H3KDPhEsKD6ntaEGG5auwak7akcQ==",
+      "shasum": "bb9506e127e9917dddc7743a4ae083274fbcd587",
+      "fileCount": 3,
+      "unpackedSize": 64155
+    },
+    "maintainers": [
+      "quuu <qual1337@gmail.com>"
+    ],
+    "license": null,
+    "description": "Install open-plugin format plugins into agent tools",
+    "time": {
+      "created": "2013-10-17T12:44:58.696Z",
+      "modified": "2026-04-12T18:58:19.278Z",
+      "0.1.0": "2013-10-17T12:44:59.984Z",
+      "0.1.1": "2013-11-15T08:35:13.683Z",
+      "0.1.2": "2013-11-29T18:26:09.947Z",
+      "0.1.3": "2014-08-22T18:55:28.426Z",
+      "0.2.1": "2014-08-23T00:11:04.121Z",
+      "0.3.0": "2014-08-27T09:10:34.019Z",
+      "0.3.1": "2014-10-01T01:12:42.984Z",
+      "0.4.0": "2015-08-15T03:39:39.821Z",
+      "0.4.1": "2015-08-15T03:56:11.594Z",
+      "0.4.2": "2015-08-15T03:56:26.661Z",
+      "1.0.0": "2026-03-11T23:53:28.956Z",
+      "1.0.1": "2026-03-12T18:35:34.765Z",
+      "1.1.0": "2026-03-17T15:21:59.707Z",
+      "1.1.1": "2026-03-17T16:14:11.405Z",
+      "1.1.2": "2026-03-17T16:24:54.880Z",
+      "1.1.3": "2026-03-17T17:48:56.159Z",
+      "1.1.4": "2026-03-17T22:49:34.994Z",
+      "1.1.5": "2026-03-17T23:01:25.797Z",
+      "1.2.0": "2026-03-17T23:17:22.927Z",
+      "1.2.1": "2026-03-17T23:18:35.660Z",
+      "1.2.2": "2026-03-18T01:00:57.793Z",
+      "1.2.3": "2026-03-18T01:04:25.297Z",
+      "1.2.4": "2026-03-18T01:19:41.220Z",
+      "1.2.5": "2026-03-18T17:18:16.981Z",
+      "1.2.7": "2026-04-02T17:31:30.989Z",
+      "1.2.9": "2026-04-06T04:05:55.146Z",
+      "1.2.10-canary.0": "2026-04-09T17:11:39.424Z",
+      "1.2.10-canary.1": "2026-04-09T17:13:29.144Z",
+      "1.2.10-canary.2": "2026-04-09T17:31:18.311Z",
+      "1.2.10-canary.3": "2026-04-09T17:39:49.652Z",
+      "1.2.10-canary.4": "2026-04-09T21:46:05.808Z",
+      "1.2.10-canary.5": "2026-04-09T22:09:39.649Z",
+      "1.3.0": "2026-04-10T04:38:06.227Z",
+      "1.3.1-snapshot.0": "2026-04-12T00:04:47.280Z",
+      "1.3.1": "2026-04-12T18:58:19.142Z"
+    },
+    "gitHead": "9837433ad7d48aa16f916f51e13c7b313878c592"
+  },
+  "autonomousDecision": {
+    "disposition": "approved_for_isolated_compatibility_install",
+    "approved": true,
+    "basis": "npm registry metadata identifies the expected package, source repository, CLI bin, engine requirement, registry tarball integrity, and no postinstall script for the tested version.",
+    "checks": {
+      "package_name_matches": true,
+      "repository_matches_expected": true,
+      "homepage_matches_repository": true,
+      "cli_bin_present": true,
+      "node_engine_supported": true,
+      "no_postinstall_script": true,
+      "registry_integrity_present": true,
+      "tarball_under_npm_registry": true
+    },
+    "evidenceLimitations": [
+      "Audit uses npm registry metadata available from commands; compatibility execution remains isolated in a temp HOME, CODEX_HOME, npm cache, and XDG dirs."
+    ]
+  },
+  "expectedCompatibilityCommand": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+  "approvalRecord": {
+    "type": "autonomous_package_gate_approval",
+    "approved": true,
+    "approvalSource": "User delegated autonomous decisions for interaction gates during Phase 4 execution; agent applied metadata due diligence before isolated compatibility evidence collection.",
+    "approvedScope": "Isolated compatibility evidence only: run the documented npx plugins command with temp HOME, CODEX_HOME, npm cache, XDG cache, and XDG config paths; no persistent Codex, npm, or project source state modification approved.",
+    "package": "plugins",
+    "version": "1.3.1",
+    "repository": "git+https://github.com/vercel-labs/plugins.git",
+    "command": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+    "recordedAt": "2026-06-15T12:31:19.150Z",
+    "metadataDueDiligence": {
+      "package_name_matches": true,
+      "repository_matches_expected": true,
+      "cli_bin_present": true,
+      "no_postinstall_script": true,
+      "registry_integrity_present": true,
+      "tarball_under_npm_registry": true,
+      "node_engine_supported": true
+    },
+    "evidenceFiles": [
+      ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-package-audit.json",
+      ".planning/phases/04-install-smoke-and-handoff/evidence/05-npx-compat-discovery.json",
+      ".planning/phases/04-install-smoke-and-handoff/evidence/10-compat-smoke-env.txt"
+    ]
+  }
+}

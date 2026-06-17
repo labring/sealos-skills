@@ -1,0 +1,24 @@
+captured_at: 2026-06-15T13:20:06Z
+scope: final Phase 4 phase.complete closeout refresh bundle
+
+pre_commit_status:
+```text
+## worktree-agent-phase-01
+ M .planning/ROADMAP.md
+ M .planning/STATE.md
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-final-handoff.md
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-milestone-files.txt
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-phase-4-uncommitted-files.txt
+ M .planning/phases/04-install-smoke-and-handoff/evidence/08-working-tree-status.txt
+ M .planning/phases/04-install-smoke-and-handoff/evidence/11-install-smoke-assertions.json
+ M .planning/phases/04-install-smoke-and-handoff/evidence/12-secret-scan.txt
+```
+
+pre_commit_interpretation: The current uncommitted set is the final Phase 4 closeout refresh bundle. It includes the phase.complete updates in .planning/ROADMAP.md and .planning/STATE.md plus refreshed handoff evidence that now reflects committed 04-UAT.md, 04-VERIFICATION.md, and the complete Phase 4 evidence set.
+
+expected_post_commit_status:
+```text
+## worktree-agent-phase-01
+```
+
+expected_post_commit_interpretation: After committing this final closeout refresh bundle, the working tree should be clean across source, planning, and evidence files.

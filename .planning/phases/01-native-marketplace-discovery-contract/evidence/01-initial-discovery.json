@@ -1,0 +1,65 @@
+{
+  "marketplace_add": {
+    "command": "HOME=\"$SMOKE_HOME\" CODEX_HOME=\"$SMOKE_CODEX_HOME\" codex plugin marketplace add \"$PWD\" --json",
+    "environment": {
+      "TMP_ROOT": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm",
+      "SMOKE_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm/home",
+      "SMOKE_CODEX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm/codex-home"
+    },
+    "result": {
+      "marketplaceName": "sealos",
+      "installedRoot": "/Users/longnv/.codex/worktrees/31e2/sealos-skills",
+      "alreadyAdded": false
+    }
+  },
+  "marketplace_list": {
+    "command": "HOME=\"$SMOKE_HOME\" CODEX_HOME=\"$SMOKE_CODEX_HOME\" codex plugin marketplace list --json",
+    "environment": {
+      "TMP_ROOT": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm",
+      "SMOKE_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm/home",
+      "SMOKE_CODEX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm/codex-home"
+    },
+    "result": {
+      "marketplaces": [
+        {
+          "name": "sealos",
+          "root": "/Users/longnv/.codex/worktrees/31e2/sealos-skills",
+          "marketplaceSource": {
+            "sourceType": "local",
+            "source": "/Users/longnv/.codex/worktrees/31e2/sealos-skills"
+          }
+        }
+      ]
+    }
+  },
+  "plugin_list_available": {
+    "command": "HOME=\"$SMOKE_HOME\" CODEX_HOME=\"$SMOKE_CODEX_HOME\" codex plugin list --available --json",
+    "environment": {
+      "TMP_ROOT": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm",
+      "SMOKE_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm/home",
+      "SMOKE_CODEX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm/codex-home"
+    },
+    "result": {
+      "installed": [],
+      "available": []
+    }
+  },
+  "plugin_add": {
+    "command": "HOME=\"$SMOKE_HOME\" CODEX_HOME=\"$SMOKE_CODEX_HOME\" codex plugin add sealos@sealos --json",
+    "environment": {
+      "TMP_ROOT": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm",
+      "SMOKE_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm/home",
+      "SMOKE_CODEX_HOME": "/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.0KB5SWs7cm/codex-home"
+    },
+    "exit_code": 1,
+    "stderr": "Error: plugin `sealos` was not found in marketplace `sealos`"
+  },
+  "diagnosis": {
+    "codex_version": "codex-cli 0.139.0",
+    "marketplace_add": "marketplace add returned marketplaceName: \"sealos\" for the current repository root.",
+    "marketplace_list": "marketplace list showed the sealos local root.",
+    "plugin_list_available": "available list returned { \"installed\": [], \"available\": [] }.",
+    "plugin_add": "codex plugin add sealos@sealos --json failed with plugin `sealos` was not found in marketplace `sealos`.",
+    "root_cause_hypothesis": "Codex native marketplace discovery resolves source.path \"./\" and expects a direct root plugin.json manifest."
+  }
+}

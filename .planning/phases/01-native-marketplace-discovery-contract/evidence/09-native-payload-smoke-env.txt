@@ -1,0 +1,3 @@
+TMP_ROOT=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.vdTIJDWzle
+SMOKE_HOME=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.vdTIJDWzle/home
+SMOKE_CODEX_HOME=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.vdTIJDWzle/codex-home

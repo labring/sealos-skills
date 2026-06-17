@@ -1,0 +1,6 @@
+npm warn exec The following package was not found and will be installed: plugins@1.3.1
+npm notice
+npm notice New minor version of npm available! 11.6.2 -> 11.17.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.17.0
+npm notice To update run: npm install -g npm@11.17.0
+npm notice

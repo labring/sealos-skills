@@ -111,7 +111,7 @@ spec:
 
 Notes:
 - Omit `imagePullSecrets` for public images. For private-registry images, reference only the app-scoped image pull Secret `${{ defaults.app_name }}`.
-- The downstream deployment environment must provide that Secret before applying workloads that use private or authenticated images.
+- `sealos-deploy` should create or refresh that Secret automatically from local `gh` CLI credentials when deploying private GHCR images.
 - Reusable templates should not expose raw registry credential inputs as user-facing form fields.
 
 ## Port Mapping
@@ -358,6 +358,7 @@ metadata:
   labels:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
 spec:
   revisionHistoryLimit: 1
   template:
@@ -375,6 +376,9 @@ spec:
         annotations:
           path: /app/data
           value: '1'
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
         name: vn-appvn-data
       spec:
         accessModes:
@@ -386,6 +390,9 @@ spec:
         annotations:
           path: /app/config
           value: '1'
+        labels:
+          app: ${{ defaults.app_name }}
+          cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
         name: vn-appvn-config
       spec:
         accessModes:
@@ -412,6 +419,9 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
 data:
   vn-etcvn-nginxvn-nginxvn-conf: |
     server {
@@ -429,17 +439,14 @@ spec:
       containers:
         - name: ${{ defaults.app_name }}
           volumeMounts:
-            - name: vn-etcvn-nginxvn-nginxvn-conf
+            - name: ${{ defaults.app_name }}-cm
               mountPath: /etc/nginx/nginx.conf
-              subPath: ./etc/nginx/nginx.conf
+              subPath: vn-etcvn-nginxvn-nginxvn-conf
       volumes:
-        - name: vn-etcvn-nginxvn-nginxvn-conf
+        - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            items:
-              - key: vn-etcvn-nginxvn-nginxvn-conf
-                path: ./etc/nginx/nginx.conf
-            defaultMode: 420
+            defaultMode: 493
 ```
 
 ## Database Service Mapping
@@ -610,6 +617,10 @@ spec:
 
 ## Command and Arguments Mapping
 
+Main business containers should keep startup behavior close to the image's official entrypoint.
+Use `command`/`args` only for official startup commands, Compose-native parameters, or a short wrapper that fixes one local precondition and then `exec`s the final process.
+Move file preparation, permission repair, database/bootstrap SQL, compatibility views, package installs, and generated config into initContainers, one-shot Jobs, or ConfigMap-mounted scripts.
+
 ### Docker Compose
 ```yaml
 services:
@@ -632,6 +643,43 @@ spec:
           command: ["/app/start.sh"]
           args: ["arg1", "arg2"]
 ```
+
+### Main Container Startup Contract
+
+Use this decision flow before emitting a business container `command`/`args`:
+
+1. If the image already has a valid `ENTRYPOINT`/`CMD`, omit `command` and `args` unless the upstream docs explicitly require parameters.
+2. If Compose provides a simple command or args that are the application entrypoint, keep them.
+3. If a small runtime precondition is required, use `workingDir` plus a short shell wrapper that ends with `exec`, for example:
+
+```yaml
+workingDir: /opt/billionmail/core
+command:
+  - /bin/sh
+  - -ec
+  - mkdir -p template && exec ./billionmail
+```
+
+4. If the startup block copies files, changes ownership/permissions, writes config, runs database clients, creates compatibility objects, installs packages, or spans multiple lines, move that logic out of the main container.
+
+Bad main-container startup:
+
+```yaml
+command:
+  - /bin/sh
+  - -ec
+  - |
+    cp -r /defaults/* /data/
+    chmod -R 777 /data
+    psql -c 'CREATE VIEW ...'
+    exec ./app
+```
+
+Good split:
+
+- Config/data preparation: initContainer or ConfigMap script.
+- Database bootstrap/compatibility: idempotent Job or initContainer.
+- Main container: official entrypoint or short `exec` wrapper only.
 
 ### Volume-Dependent Arguments (Important!)
 
@@ -661,13 +709,13 @@ If the Sealos template does not provision a matching volume, the `/app/logs` dir
 
 ### Built-in Edge Gateway (Traefik) Handling
 
-When Compose includes both Traefik and application services, prefer using the Sealos platform Ingress capability and do not retain Traefik as an in-template workload.
+When Compose includes both Traefik and business services, prefer using the Sealos platform Ingress capability and do not retain Traefik as an in-template workload.
 
 Handling rules:
 
-- If a service name or image is identifiable as Traefik, and at least one non-database application service exists, skip Traefik resource generation.
-- The primary access entry point should target the application service (typically the first application service) via its Service, with the public domain exposed through Sealos Ingress.
-- Only when the application contains only Traefik (no other application services) should Traefik be retained as a fallback, to avoid generating empty workloads.
+- If a service name or image is identifiable as Traefik, and at least one non-database business service exists, skip Traefik resource generation.
+- The primary access entry point should target the business service (typically the first business service) via its Service, with the public domain exposed through Sealos Ingress.
+- Only when the application contains only Traefik (no other business services) should Traefik be retained as a fallback, to avoid generating empty workloads.
 
 Motivation:
 
@@ -746,6 +794,8 @@ spec:
 
 ## Object Storage Mapping
 
+When docs offer local file storage and S3-compatible object storage as a binary choice, model the S3 branch with a boolean input. Use `type: boolean` and conditionals that test `inputs.<name> === 'true'`; do not model the binary local/S3 choice as a `choice` input.
+
 ### Docker Compose (Using Minio)
 ```yaml
 services:
@@ -756,14 +806,24 @@ services:
       - minio-data:/data
 ```
 
-### Sealos Template
+### Sealos Template (Optional Object Storage)
 ```yaml
+inputs:
+  enable_s3_storage:
+    description: "Enable S3 object storage"
+    type: boolean
+    default: "false"
+    required: false
+
+---
+${{ if(inputs.enable_s3_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
   name: ${{ defaults.app_name }}
 spec:
   policy: private
+${{ endif() }}
 
 ---
 # Using object storage in the application
@@ -776,18 +836,18 @@ spec:
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: accessKey
             - name: S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: object-storage-key
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
                   key: secretKey
             - name: S3_BUCKET
-    valueFrom:
-      secretKeyRef:
-        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
-        key: bucket
+              valueFrom:
+                secretKeyRef:
+                  name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+                  key: bucket
 ```
 
 Bucket-scoped object-storage secrets may append an additional lowercase suffix when one app needs multiple bucket values, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`. Env names ending in `_BUCKET` may reference those bucket-scoped secrets.

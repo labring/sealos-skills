@@ -1,0 +1,6 @@
+{
+  "name": "sealos",
+  "version": "1.0.0",
+  "description": "Sealos Cloud deployment, database, S3 object storage, and Sealos Desktop app skills for AI agents. Slash-command exposure is host-dependent and not claimed by this manifest.",
+  "contextFileName": "CLAUDE.md"
+}

@@ -1,0 +1,15 @@
+PLAN_START_TIME=2026-06-15T12:02:24Z
+WORKTREE_PATH=/Users/longnv/.codex/worktrees/31e2/sealos-skills
+SMOKE_HOME=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.D8LZwoRCdO
+SMOKE_CODEX_HOME=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.D8LZwoRCdO/.codex
+commands[0]=codex --version
+commands[1]=HOME="$SMOKE_HOME" CODEX_HOME="$SMOKE_CODEX_HOME" codex plugin marketplace add "$PWD" --json
+commands[2]=HOME="$SMOKE_HOME" CODEX_HOME="$SMOKE_CODEX_HOME" codex plugin marketplace list --json
+commands[3]=HOME="$SMOKE_HOME" CODEX_HOME="$SMOKE_CODEX_HOME" codex plugin list --available --json
+commands[4]=HOME="$SMOKE_HOME" CODEX_HOME="$SMOKE_CODEX_HOME" codex plugin add sealos@sealos --json
+pre_cleanup_smoke_home_exists=true
+cleanup_status=removed
+cleanup_attempted=true
+cleanup_checked_at=2026-06-15T12:03:30Z
+smoke_home_exists_after_cleanup=false
+retained_for_debugging=false

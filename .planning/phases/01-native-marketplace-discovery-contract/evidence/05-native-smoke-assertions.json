@@ -1,0 +1,19 @@
+{
+  "available_contains_sealos_at_sealos": true,
+  "install_reports_sealos_from_sealos": true,
+  "installed_path": "/private/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.vdTIJDWzle/codex-home/plugins/cache/sealos/sealos/1.0.0",
+  "installed_payload_checks": {
+    "plugin.json": true,
+    ".codex-plugin/plugin.json": true,
+    "skills/sealos-deploy/SKILL.md": true,
+    "skills/sealos-database/SKILL.md": true,
+    "skills/sealos-s3/SKILL.md": true,
+    "assets/logo.svg": true
+  },
+  "installed_payload_complete": true,
+  "passed": true,
+  "checked_files": [
+    ".planning/phases/01-native-marketplace-discovery-contract/evidence/03-plugin-list-available.json",
+    ".planning/phases/01-native-marketplace-discovery-contract/evidence/04-plugin-add.json"
+  ]
+}

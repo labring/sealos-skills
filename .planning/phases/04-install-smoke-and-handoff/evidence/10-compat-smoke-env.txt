@@ -1,0 +1,54 @@
+compat_smoke_captured_at=2026-06-15T12:11:34Z
+command=npx plugins add https://github.com/labring/sealos-skills --target codex
+NPX_HOME=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo
+NPX_CACHE=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache
+NPX_CODEX_HOME=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.codex
+XDG_CACHE_HOME=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache
+XDG_CONFIG_HOME=/var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.config
+node_version=v24.13.0
+npm_version=11.6.2
+npx_version=11.6.2
+exit_code=0
+compat_smoke_finished_at=2026-06-15T12:11:38Z
+post_command_tree=
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/.agents
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/.claude-plugin
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/.codebuddy-plugin
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/.codex-plugin
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/.git
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/.gitignore
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/AGENTS.md
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/CLAUDE.md
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/README.md
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/assets
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/commands
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/distribution
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/gemini-extension.json
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/marketplace.json
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/marketplaces
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/openclaw.plugin.json
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/qwen-extension.json
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/scripts
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.cache/plugins/github.com-labring-sealos-skills/skills
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.codex
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.config
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_cacache
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_cacache/content-v2
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_cacache/content-v2/sha512
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_cacache/index-v5
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_cacache/index-v5/54
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_cacache/index-v5/e9
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_cacache/tmp
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_logs
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_logs/2026-06-15T12_11_34_664Z-debug-0.log
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_npx
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_npx/e22da8fc4213ddc6
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_npx/e22da8fc4213ddc6/node_modules
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_npx/e22da8fc4213ddc6/package-lock.json
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_npx/e22da8fc4213ddc6/package.json
+  /var/folders/w8/cxxg_pb971v1l1356hp7wddc0000gn/T/tmp.FQq2ujJKpo/.npm-cache/_update-notifier-last-checked

@@ -1,0 +1,97 @@
+{
+  "name": "sealos",
+  "version": "1.0.0",
+  "repository": "https://github.com/labring/sealos-skills",
+  "lastUpdated": "2026-06-16",
+  "platforms": [
+    {
+      "id": "codex",
+      "name": "Codex CLI / Codex App",
+      "claim": "verified",
+      "runtime": "plugin",
+      "install": "codex plugin marketplace add labring/sealos-skills && codex plugin add sealos@sealos",
+      "alternateInstall": "npx plugins add https://github.com/labring/sealos-skills --target codex",
+      "invoke": "Use $sealos in Codex CLI; select Sealos from Plugins in Codex App",
+      "commands": "supported",
+      "evidence": "Phase 1 native marketplace add/list/install + installed payload assertions + codex_manifest+repo_marketplace",
+      "lastVerified": "2026-06-15"
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "claude plugin marketplace add labring/sealos-skills && claude plugin install sealos@sealos",
+      "alternateInstall": "npx plugins add https://github.com/labring/sealos-skills --target claude-code",
+      "invoke": "/sealos",
+      "commands": "supported",
+      "evidence": ".claude-plugin/plugin.json + .claude-plugin/marketplace.json + marketplace.json + commands/sealos.md + README native CLI contract validation",
+      "lastVerified": "2026-06-16"
+    },
+    {
+      "id": "clawhub-openclaw",
+      "name": "OpenClaw / ClawHub",
+      "claim": "install-target",
+      "runtime": "bundle_or_single_skill",
+      "install": "clawhub install labring/sealos-skills",
+      "manifest": "openclaw.plugin.json",
+      "commands": "supported",
+      "evidence": "openclaw.plugin.json",
+      "lastVerified": "2026-05-20"
+    },
+    {
+      "id": "codebuddy",
+      "name": "CodeBuddy",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "/plugin marketplace add labring/sealos-skills",
+      "manifest": ".codebuddy-plugin/marketplace.json",
+      "commands": "host_dependent",
+      "evidence": ".codebuddy-plugin/marketplace.json",
+      "lastVerified": "2026-05-20"
+    },
+    {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "claim": "context-only",
+      "runtime": "extension",
+      "install": "gemini extensions install https://github.com/labring/sealos-skills",
+      "manifest": "gemini-extension.json",
+      "commands": "not_claimed",
+      "evidence": "CLAUDE.md context file",
+      "lastVerified": "2026-05-20"
+    },
+    {
+      "id": "qwen-code",
+      "name": "Qwen Code",
+      "claim": "context-only",
+      "runtime": "extension",
+      "install": "qwen extensions install https://github.com/labring/sealos-skills",
+      "manifest": "qwen-extension.json",
+      "commands": "not_claimed",
+      "evidence": "CLAUDE.md context file",
+      "lastVerified": "2026-05-20"
+    },
+    {
+      "id": "skills-npx",
+      "name": "skills.sh / npx skills",
+      "claim": "context-only",
+      "runtime": "agent_skill",
+      "install": "npx skills add labring/sealos-skills",
+      "invoke": "/sealos-deploy, /sealos-database, /sealos-s3",
+      "commands": "not_claimed",
+      "evidence": "root skills/**",
+      "lastVerified": "2026-05-20"
+    },
+    {
+      "id": "amp-kimi-generic",
+      "name": "Amp / Kimi / generic repo importers",
+      "claim": "install-target",
+      "runtime": "repo_import",
+      "install": "Install or import https://github.com/labring/sealos-skills.git in the host tool.",
+      "commands": "host_dependent",
+      "evidence": "root skills/** + CLAUDE.md",
+      "lastVerified": "2026-05-20"
+    }
+  ]
+}
