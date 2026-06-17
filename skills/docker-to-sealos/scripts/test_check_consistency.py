@@ -3877,6 +3877,93 @@ __MOUNTS__
             )
             self.assertTrue(any(item.rule_id == "R039" for item in violations))
 
+    def test_detects_raw_database_resources_across_supported_kinds(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps/v1
+                kind: StatefulSet
+                metadata:
+                  name: redis
+                  labels:
+                    app: redis
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: redis
+                          image: redis:7.2.7
+                          imagePullPolicy: IfNotPresent
+                ---
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: postgres
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: postgres
+                          image: postgres:16.4
+                          imagePullPolicy: IfNotPresent
+                ---
+                apiVersion: apps/v1
+                kind: DaemonSet
+                metadata:
+                  name: mysql
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: mysql
+                          image: mysql:8.0.35
+                          imagePullPolicy: IfNotPresent
+                ---
+                apiVersion: batch/v1
+                kind: Job
+                metadata:
+                  name: kafka
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: kafka
+                          image: bitnami/kafka:3.3.2
+                          imagePullPolicy: IfNotPresent
+                ---
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: mongo
+                spec:
+                  selector:
+                    app: mongo
+                  ports:
+                    - name: tcp-27017
+                      port: 27017
+                      targetPort: 27017
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertGreaterEqual(len([item for item in violations if item.rule_id == "R039"]), 5)
+
     def test_allows_stateful_application_workload_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3962,6 +4049,127 @@ __MOUNTS__
                         resources:
                           requests:
                             storage: 1Gi
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R039" for item in violations))
+
+    def test_allows_kubeblocks_redis_cluster_and_app_statefulset_dependency(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps.kubeblocks.io/v1alpha1
+                kind: Cluster
+                metadata:
+                  name: demo-redis
+                  labels:
+                    kb.io/database: redis-7.2.7
+                    sealos-db-provider-cr: demo-redis
+                    clusterdefinition.kubeblocks.io/name: redis
+                spec:
+                  componentSpecs:
+                    - name: redis
+                      resources:
+                        requests:
+                          cpu: 50m
+                          memory: 51Mi
+                        limits:
+                          cpu: 500m
+                          memory: 512Mi
+                    - name: redis-sentinel
+                      resources:
+                        requests:
+                          cpu: 50m
+                          memory: 51Mi
+                        limits:
+                          cpu: 500m
+                          memory: 512Mi
+                ---
+                apiVersion: apps/v1
+                kind: StatefulSet
+                metadata:
+                  name: demo-data
+                  labels:
+                    app: demo-data
+                    cloud.sealos.io/app-deploy-manager: demo-data
+                spec:
+                  revisionHistoryLimit: 1
+                  template:
+                    spec:
+                      automountServiceAccountToken: false
+                      containers:
+                        - name: demo
+                          image: ghcr.io/example/demo:1.0.0
+                          imagePullPolicy: IfNotPresent
+                          env:
+                            - name: REDIS_HOST
+                              value: demo-redis-redis-redis.default.svc.cluster.local
+                            - name: REDIS_PASSWORD
+                              valueFrom:
+                                secretKeyRef:
+                                  name: demo-redis-redis-account-default
+                                  key: password
+                  volumeClaimTemplates:
+                    - metadata:
+                        name: data
+                      spec:
+                        resources:
+                          requests:
+                            storage: 1Gi
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R039" for item in violations))
+
+    def test_allows_database_client_init_jobs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: batch/v1
+                kind: Job
+                metadata:
+                  name: demo-pg-init
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: pg-init
+                          image: postgres:16-alpine
+                          imagePullPolicy: IfNotPresent
                 """,
             )
 

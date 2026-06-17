@@ -40,6 +40,10 @@ This document captures patterns and solutions from actual Sealos deployment expe
 
 ## Consolidated Patterns
 
+### KubeBlocks Redis Readiness Lag
+
+Redis Sentinel can report readiness before the primary Redis component and the default account Secret appear. Treat final Cluster Ready/Running state, `${APP_NAME}-redis-redis-account-default`, `${APP_NAME}-redis-redis-redis.${NAMESPACE}.svc.cluster.local`, and successful application registration/login as the acceptance signal.
+
 ### GHCR Push Succeeds but Cluster Pull Fails (Prevents `ImagePullBackOff`)
 
 ```yaml

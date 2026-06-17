@@ -1000,6 +1000,9 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: ghcr.io/example/demo:1.0.0
                     environment:
                       REDIS_HOST: redis
+                      REDIS_PORT: "6379"
+                      REDIS_PASSWORD: super-secret
+                      REDIS_URL: redis://:super-secret@redis:6379/0
                   redis:
                     image: redis:7.2.7
                 """,
@@ -1019,6 +1022,8 @@ class ComposeToTemplateTests(unittest.TestCase):
 
             cluster = next(doc for doc in docs if doc.get("kind") == "Cluster")
             assert_db_visibility_labels(self, cluster, "redis")
+            component_names = {item["name"] for item in cluster["spec"]["componentSpecs"]}
+            self.assertEqual({"redis", "redis-sentinel"}, component_names)
             redis_comp = next(item for item in cluster["spec"]["componentSpecs"] if item["name"] == "redis")
             redis_data = redis_comp["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
             self.assertEqual("1Gi", redis_data)
@@ -1032,12 +1037,41 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual("50m", sentinel_comp["resources"]["requests"]["cpu"])
             self.assertEqual("51Mi", sentinel_comp["resources"]["requests"]["memory"])
 
+            raw_redis_workloads = []
+            for doc in docs:
+                if doc.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
+                    continue
+                containers = doc.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+                if any(item.get("image", "").split(":", 1)[0].rsplit("/", 1)[-1] == "redis" for item in containers):
+                    raw_redis_workloads.append(doc)
+            self.assertEqual([], raw_redis_workloads)
+
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
-            redis_host = next(item for item in env if item["name"] == "REDIS_HOST")
+            env_by_name = {item["name"]: item for item in env}
+            redis_host = env_by_name["REDIS_HOST"]
             self.assertEqual(
                 "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
                 redis_host.get("value"),
+            )
+            self.assertEqual("6379", env_by_name["REDIS_PORT"].get("value"))
+            self.assertEqual(
+                {
+                    "name": "${{ defaults.app_name }}-redis-redis-account-default",
+                    "key": "password",
+                },
+                env_by_name["REDIS_PASSWORD"]["valueFrom"]["secretKeyRef"],
+            )
+            self.assertEqual(
+                {
+                    "name": "${{ defaults.app_name }}-redis-redis-account-default",
+                    "key": "password",
+                },
+                env_by_name["SEALOS_REDIS_REDIS_PASSWORD"]["valueFrom"]["secretKeyRef"],
+            )
+            self.assertEqual(
+                "redis://:$(SEALOS_REDIS_REDIS_PASSWORD)@$(SEALOS_REDIS_REDIS_HOST):$(SEALOS_REDIS_REDIS_PORT)/0",
+                env_by_name["REDIS_URL"].get("value"),
             )
 
     def test_generates_mysql_cluster_resources_and_secret_env_mapping(self):

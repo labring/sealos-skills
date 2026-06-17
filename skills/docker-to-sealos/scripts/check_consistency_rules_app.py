@@ -97,6 +97,10 @@ DATABASE_WORKLOAD_IMAGE_NAMES = {
     "timescaledb",
     "valkey",
 }
+DATABASE_RAW_WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
+DATABASE_RAW_RESOURCE_KINDS = DATABASE_RAW_WORKLOAD_KINDS | {"Service"}
+DATABASE_CLIENT_JOB_TOKENS = {"init", "migrate", "migration", "bootstrap", "setup", "seed", "backup", "restore"}
+DATABASE_RESOURCE_NAME_TOKENS = {"postgres", "postgresql", "mysql", "mariadb", "mongo", "mongodb", "redis", "kafka"}
 OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, str]] = {
     "goauthentik/server": {
         "liveness_path": "/-/health/live/",
@@ -1509,14 +1513,88 @@ def _is_database_image(image: str) -> bool:
     return _image_repository_basename(image) in DATABASE_WORKLOAD_IMAGE_NAMES
 
 
+def _normalize_database_token(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-")
+
+
+def _iter_mapping_values(value: Any) -> Iterable[str]:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if isinstance(key, str):
+                yield key
+            yield from _iter_mapping_values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_mapping_values(item)
+    elif isinstance(value, str):
+        yield value
+
+
+def _matches_database_resource_name(value: Any) -> bool:
+    return _normalize_database_token(value) in DATABASE_RESOURCE_NAME_TOKENS
+
+
+def _contains_any_database_token(value: Any, tokens: Set[str]) -> bool:
+    normalized = _normalize_database_token(value)
+    if not normalized:
+        return False
+    return bool(set(normalized.split("-")) & tokens)
+
+
+def _is_database_client_job(doc) -> bool:
+    if not isinstance(doc.data, dict) or doc.data.get("kind") not in {"Job", "CronJob"}:
+        return False
+
+    metadata = doc.data.get("metadata")
+    names: List[Any] = []
+    if isinstance(metadata, dict):
+        names.append(metadata.get("name"))
+    for container in iter_containers(doc.data):
+        names.append(container.get("name"))
+
+    return any(_contains_any_database_token(name, DATABASE_CLIENT_JOB_TOKENS) for name in names)
+
+
 def _is_database_like_workload(doc) -> bool:
-    if not is_app_workload_document(doc) or not isinstance(doc.data, dict):
+    if not isinstance(doc.data, dict):
+        return False
+    if doc.data.get("kind") not in DATABASE_RAW_WORKLOAD_KINDS:
+        return False
+    if _is_database_client_job(doc):
         return False
 
     for container in iter_containers(doc.data):
         image = container.get("image")
         if isinstance(image, str) and _is_database_image(image):
             return True
+        if _matches_database_resource_name(container.get("name")):
+            return True
+
+    return False
+
+
+def _is_database_like_service(doc) -> bool:
+    if not isinstance(doc.data, dict) or doc.data.get("kind") != "Service":
+        return False
+
+    metadata = doc.data.get("metadata")
+    if isinstance(metadata, dict):
+        for value in _iter_mapping_values(
+            {
+                "name": metadata.get("name"),
+                "labels": metadata.get("labels"),
+            }
+        ):
+            if _matches_database_resource_name(value):
+                return True
+
+    spec = doc.data.get("spec")
+    if isinstance(spec, dict):
+        selector = spec.get("selector")
+        if isinstance(selector, dict):
+            for value in _iter_mapping_values(selector):
+                if _matches_database_resource_name(value):
+                    return True
 
     return False
 
@@ -1610,18 +1688,21 @@ def check_database_services_use_clusters(context: ScanContext) -> List[Violation
             continue
         if not isinstance(doc.data, dict):
             continue
-        if doc.data.get("kind") not in {"Deployment", "StatefulSet"}:
+        kind = doc.data.get("kind")
+        if kind not in DATABASE_RAW_RESOURCE_KINDS:
             continue
-        if not _is_database_like_workload(doc):
+
+        is_database_resource = _is_database_like_service(doc) if kind == "Service" else _is_database_like_workload(doc)
+        if not is_database_resource:
             continue
 
         add_doc_violation(
             violations,
             rule_id="R039",
             doc=doc,
-            pattern=r"^\s*kind\s*:\s*(?:Deployment|StatefulSet)\s*$",
+            pattern=r"^\s*kind\s*:\s*(?:Deployment|StatefulSet|DaemonSet|Job|CronJob|Service)\s*$",
             default_pattern=r"^\s*kind\s*:",
-            message="database services must use KubeBlocks Cluster resources, not raw Deployment/StatefulSet workloads",
+            message="database services require KubeBlocks Cluster resources; raw Kubernetes resources are invalid",
         )
 
     return violations
