@@ -22,6 +22,10 @@ be available (loaded from `.sealos/analysis.json`).
 | Step 7 (Docker config) | `has_dockerfile` — still check docker-compose.yml and .dockerignore |
 | Step 8 (monorepo) | `complexity_tier` — if L1/L2, skip; if L3, still enumerate workspace packages |
 
+If `analysis.json.build_environment` exists, treat it as secondary build-environment evidence from Railpack. It can refine command and runtime choices, but it must not override `.sealos/config.json`, README instructions, explicit existing Dockerfile behavior, or lockfile facts.
+
+Use Railpack evidence only through the normalized fields in `analysis.json.build_environment`; do not consume `.sealos/railpack-info.json` or `.sealos/railpack-plan.json` directly in this module.
+
 **Always run** (Dockerfile-specific, not in analysis.json):
 Steps 3, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17
 
@@ -58,6 +62,20 @@ bun.lockb      → bun
 ```
 
 ### Step 3: Extract Build and Run Commands
+
+If `analysis.json.build_environment.status == "detected"`, include these candidates before falling back to generic heuristics:
+
+- `build_environment.install_command`
+- `build_environment.build_command`
+- `build_environment.start_command`
+- `build_environment.system_packages`
+
+Command precedence:
+
+1. `.sealos/config.json` explicit command fields
+2. README or existing Dockerfile commands
+3. `analysis.json.build_environment`
+4. generic package-manager defaults
 
 **Node.js**: Read `package.json` scripts:
 ```json

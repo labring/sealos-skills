@@ -321,6 +321,52 @@ function validateAnalysisSemantics(data, errors) {
   if (typeof data.image_ref === 'string' && !data.image_ref.includes(':')) {
     pushError(errors, '$.image_ref', 'must include an explicit image tag')
   }
+
+  if (data.build_environment) {
+    validateBuildEnvironmentSemantics(data.build_environment, errors)
+  }
+}
+
+function validateBuildEnvironmentSemantics(buildEnvironment, errors) {
+  if (buildEnvironment.status === 'detected') {
+    const hasSignal = [
+      buildEnvironment.project_type,
+      buildEnvironment.package_manager,
+      buildEnvironment.port,
+      buildEnvironment.install_command,
+      buildEnvironment.build_command,
+      buildEnvironment.start_command,
+      buildEnvironment.providers?.length > 0,
+      buildEnvironment.system_packages?.length > 0,
+      buildEnvironment.runtime_versions && Object.keys(buildEnvironment.runtime_versions).length > 0,
+      buildEnvironment.env_vars && Object.keys(buildEnvironment.env_vars).length > 0,
+    ].some(Boolean)
+
+    if (!hasSignal) {
+      pushError(errors, '$.build_environment', 'detected Railpack output must include at least one build signal')
+    }
+
+    if (!buildEnvironment.evidence_paths || buildEnvironment.evidence_paths.length === 0) {
+      pushError(errors, '$.build_environment.evidence_paths', 'detected Railpack output must include evidence paths')
+    }
+  }
+
+  if (
+    (buildEnvironment.status === 'skipped' || buildEnvironment.status === 'failed') &&
+    (typeof buildEnvironment.reason !== 'string' || buildEnvironment.reason.length === 0)
+  ) {
+    pushError(errors, '$.build_environment.reason', 'must explain skipped or failed Railpack probes')
+  }
+
+  for (const [key, command] of [
+    ['install_command', buildEnvironment.install_command],
+    ['build_command', buildEnvironment.build_command],
+    ['start_command', buildEnvironment.start_command],
+  ]) {
+    if (typeof command === 'string' && /\r|\n|\0/.test(command)) {
+      pushError(errors, `$.build_environment.${key}`, 'must be a single-line command')
+    }
+  }
 }
 
 function validateBuildRequestSemantics(data, errors) {
@@ -474,6 +520,15 @@ function validateDeliveryManifestSemantics(data, errors) {
 
   if (!artifactSet.has(data.build_result_path)) {
     pushError(errors, '$.build_result_path', 'must be present in artifacts')
+  }
+
+  for (const artifact of data.artifacts) {
+    if (artifact.includes('railpack') && ![
+      '.sealos/railpack-info.json',
+      '.sealos/railpack-plan.json',
+    ].includes(artifact)) {
+      pushError(errors, '$.artifacts', `unsupported Railpack artifact path ${artifact}`)
+    }
   }
 }
 

@@ -1,7 +1,7 @@
 ---
 name: sealos-deploy
-description: Prepare and build the current workspace or a GitHub project for Sealos Cloud inside a sandboxed workflow. The skill assesses readiness, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox kaniko Job when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
-compatibility: git is required. Node.js 18+ is recommended for helper scripts. kubectl, VersityGW S3 settings, and GITHUB_TOKEN are required when the pipeline needs a Kubernetes kaniko build. Build-time Kubernetes access uses the sandbox-provided kubeconfig and current service account in the active namespace.
+description: Prepare and build the current workspace or a GitHub project for Sealos Cloud inside a sandboxed workflow. The skill assesses readiness, optionally uses Railpack to strengthen build-environment detection, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox kaniko Job when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
+compatibility: git is required. Node.js 18+ is recommended for helper scripts. railpack is an optional build-environment detector. kubectl, VersityGW S3 settings, and GITHUB_TOKEN are required when the pipeline needs a Kubernetes kaniko build. Build-time Kubernetes access uses the sandbox-provided kubeconfig and current service account in the active namespace.
 metadata:
   author: labring
 ---
@@ -13,11 +13,12 @@ Prepare the current workspace or a GitHub project for Sealos Cloud.
 Workflow:
 
 1. inspect and score the project
-2. detect reusable container images
-3. reuse, repair, or generate a Dockerfile
-4. write `.sealos/build-request.json`
-5. either reuse an existing image or run a sandbox kaniko build through `k8s-kaniko-job`
-6. generate `.sealos/template/index.yaml`
+2. optionally run Railpack to strengthen build environment detection
+3. detect reusable container images
+4. reuse, repair, or generate a Dockerfile
+5. write `.sealos/build-request.json`
+6. either reuse an existing image or run a sandbox kaniko build through `k8s-kaniko-job`
+7. generate `.sealos/template/index.yaml`
 
 ## kubectl Safety Rules
 
@@ -61,6 +62,7 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | Script | Usage | Purpose |
 |--------|-------|---------|
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
+| `run-railpack-probe.mjs` | `node run-railpack-probe.mjs --work-dir <repo-dir> --analysis <repo-dir>/.sealos/analysis.json` | Optional Railpack build-environment probe and normalized `analysis.json.build_environment` writer |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker Hub or GHCR images |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `patch-template-pull-secret.mjs` | `node patch-template-pull-secret.mjs --template <index.yaml> --build-result <build-result.json>` | POC: inline GHCR pull Secret and `imagePullSecrets` into the Sealos template |
@@ -86,6 +88,7 @@ This skill references co-installed internal skills on demand:
 |-------|--------|-----------|
 | 0 — Preflight | Capability scan, project resolution, sandbox assumptions | Entry blockers resolved |
 | 1 — Assess | Analyze deployability and write `analysis.json` | Score too low → stop |
+| 1.5 — Railpack Probe | Optional build environment detection | Railpack missing or Phase 1 stopped |
 | 2 — Detect | Find reusable amd64 image | Found → build job can be skipped later |
 | 3 — Dockerfile | Reuse or generate Dockerfile | Existing valid Dockerfile can be reused |
 | 4 — Build | Write `build-request.json` and resolve `build-result.json` | Existing image writes `status=skipped` without a Job |
@@ -103,6 +106,9 @@ Input (current workspace or GitHub URL)
   ▼
 [Phase 1] Assess ── not suitable → STOP with reason
   │ suitable
+  ▼
+[Phase 1.5] Railpack build environment probe ── unavailable → continue with existing heuristics
+  │
   ▼
 [Phase 2] Detect existing image
   │
