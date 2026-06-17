@@ -8,6 +8,8 @@ Generate production-ready Dockerfile based on analysis results.
 
 Project analysis from `analyze.md` module.
 
+When invoked through `sealos-deploy`, the analysis may include `build_environment` from Railpack. Use it only as normalized evidence for runtime versions, package manager, install/build/start commands, env hints, and system packages. Railpack does not output a Dockerfile; do not copy `railpack-plan.json` as Dockerfile instructions or switch the build path to `railpack build`.
+
 ## Generation Rules
 
 ### Rule 1: Select Base Template

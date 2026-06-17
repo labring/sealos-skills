@@ -1,6 +1,6 @@
 # Build And Prepare Pipeline
 
-After preflight passes, execute Phase 1–6 in order.
+After preflight passes, execute Phase 0.5–6 in order.
 
 `SKILL_DIR` refers to the directory containing this skill's `SKILL.md`. Sibling skills are at `<SKILL_DIR>/../`.
 
@@ -17,6 +17,8 @@ All build-and-prepare outputs are written under `.sealos/` in `WORK_DIR`:
 ├── config.json               ← optional user configuration overrides
 ├── template-match.json       ← Phase 0.5 template fast-path decision
 ├── analysis.json             ← project analysis snapshot
+├── railpack-info.json        ← optional raw Railpack project info evidence
+├── railpack-plan.json        ← optional raw Railpack build plan evidence
 ├── build-request.json        ← build execution contract
 ├── build-result.json         ← resolved image result from reuse or kaniko
 ├── delivery-manifest.json    ← manifest of generated workflow artifacts
@@ -188,6 +190,23 @@ After Phase 1, write `.sealos/analysis.json`:
   "databases": ["<detected database types>"],
   "runtime_version": { "<language>": "<major version>", "source": "<detection source>" },
   "env_vars": {},
+  "build_environment": {
+    "source": "railpack",
+    "status": "detected",
+    "project_type": "<railpack project type>",
+    "providers": ["<detected providers>"],
+    "runtime_versions": { "<runtime>": "<version>" },
+    "package_manager": "<package manager>",
+    "port": 3000,
+    "install_command": "<install command>",
+    "build_command": "<build command>",
+    "start_command": "<start command>",
+    "system_packages": ["<system packages>"],
+    "env_vars": {},
+    "confidence": "high",
+    "evidence_paths": [".sealos/railpack-info.json", ".sealos/railpack-plan.json"],
+    "config_overrides": ["<fields overridden by .sealos/config.json>"]
+  },
   "has_dockerfile": false,
   "complexity_tier": "<L1|L2|L3>",
   "image_ref": null
@@ -195,6 +214,71 @@ After Phase 1, write `.sealos/analysis.json`:
 ```
 
 If `.sealos/config.json` exists, apply user overrides.
+
+## Phase 1.5: Railpack Build Environment Probe
+
+Railpack is an optional detector for build environment facts. Use it to improve Dockerfile and template inputs, not to build images.
+
+Do not run this phase when Phase 1 stops with `score < 4`.
+
+If `ENV.railpack` is available and Node.js is available, run:
+
+```bash
+node "<SKILL_DIR>/scripts/run-railpack-probe.mjs" \
+  --work-dir "$WORK_DIR" \
+  --analysis "$WORK_DIR/.sealos/analysis.json" \
+  --config "$WORK_DIR/.sealos/config.json"
+```
+
+The helper may write:
+
+- `.sealos/railpack-info.json`
+- `.sealos/railpack-plan.json`
+
+It must also normalize any usable result into `analysis.json.build_environment`.
+
+If Railpack is missing or fails, keep the pipeline moving and record:
+
+```json
+{
+  "build_environment": {
+    "source": "railpack",
+    "status": "skipped",
+    "reason": "railpack binary is not available",
+    "confidence": "low",
+    "evidence_paths": []
+  }
+}
+```
+
+### 1.5.1 Consumption rules
+
+Downstream phases consume only `analysis.json.build_environment`, not raw Railpack JSON. Raw files are evidence for debugging.
+
+Apply precedence in this order:
+
+1. `.sealos/config.json`
+2. explicit repository instructions, README, or existing Dockerfile
+3. `analysis.json.build_environment`
+4. existing deterministic heuristics
+
+Railpack fields may inform:
+
+- package manager
+- runtime version
+- install command
+- build command
+- start command
+- port
+- system packages
+- build-time env var hints
+
+Railpack fields must not:
+
+- override `.sealos/config.json`
+- switch Phase 4 back to BuildKit
+- replace `Dockerfile + k8s-kaniko-job`
+- make `railpack build` part of this workflow
 
 ## Phase 2: Detect Existing Image
 
@@ -261,6 +345,14 @@ After Phase 2:
 ## Phase 3: Dockerfile
 
 Reuse, repair, or generate a Dockerfile.
+
+Before invoking or applying the dockerfile skill, read `analysis.json.build_environment` when present. Use it as supporting evidence for build inputs:
+
+- prefer `build_environment.package_manager` only when `.sealos/config.json` and lockfiles do not give a stronger answer
+- use `build_environment.runtime_versions` to refine base runtime versions unless config overrides exist
+- use `build_environment.install_command`, `build_environment.build_command`, and `build_environment.start_command` as candidate commands, but keep README or existing Dockerfile commands when they are explicit
+- include `build_environment.system_packages` when they explain native build requirements
+- never copy raw `railpack-plan.json` instructions into Dockerfile without checking that they fit Dockerfile + kaniko semantics
 
 Use internal dockerfile skill references as needed:
 
@@ -534,6 +626,8 @@ Write `.sealos/delivery-manifest.json`:
   "build_result_path": ".sealos/build-result.json"
 }
 ```
+
+If `.sealos/railpack-info.json` or `.sealos/railpack-plan.json` exist during the build-template path, include those paths in `artifacts` as optional evidence files.
 
 For a materialized Phase 0.5 template fast path, write:
 

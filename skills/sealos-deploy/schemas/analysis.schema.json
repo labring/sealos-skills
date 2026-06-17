@@ -215,6 +215,135 @@
       },
       "additionalProperties": false
     },
+    "build_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "status",
+        "confidence",
+        "evidence_paths"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "const": "railpack"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "detected",
+            "skipped",
+            "failed"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "project_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "providers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "runtime_versions": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "package_manager": {
+          "type": "string",
+          "enum": [
+            "npm",
+            "yarn",
+            "pnpm",
+            "bun",
+            "pip",
+            "pipenv",
+            "go",
+            "cargo",
+            "maven",
+            "gradle",
+            "composer",
+            "bundler"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "install_command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "build_command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "system_packages": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "env_vars": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "evidence_paths": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              ".sealos/railpack-info.json",
+              ".sealos/railpack-plan.json"
+            ]
+          }
+        },
+        "config_overrides": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "port",
+              "runtime_versions",
+              "start_command",
+              "build_command",
+              "system_packages",
+              "env_vars"
+            ]
+          }
+        }
+      }
+    },
     "has_dockerfile": {
       "type": "boolean"
     },

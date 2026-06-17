@@ -13,6 +13,7 @@ python3 --version 2>/dev/null
 curl --version 2>/dev/null | head -1
 which jq 2>/dev/null
 kubectl version --client 2>/dev/null || true
+railpack --version 2>/dev/null || true
 printenv GITHUB_TOKEN >/dev/null
 printenv S3_ENDPOINT >/dev/null || printenv AWS_ENDPOINT_URL_S3 >/dev/null || printenv AWS_ENDPOINT_URL >/dev/null
 printenv AWS_SECRET_ACCESS_KEY >/dev/null || printenv SEALOS_DEVBOX_JWT_SECRET >/dev/null || printenv DEVBOX_JWT_SECRET >/dev/null
@@ -27,6 +28,7 @@ ENV.python
 ENV.curl
 ENV.jq
 ENV.kubectl
+ENV.railpack
 ENV.github_token
 ENV.s3_endpoint
 ENV.s3_secret
@@ -40,6 +42,7 @@ Notes:
 - `kubectl` may be available in the sandbox for a later kaniko phase, but it is not an entry prerequisite.
 - `GITHUB_TOKEN` may exist in the sandbox for a later source materialization or kaniko phase, but this skill does not prompt for or refresh GitHub auth.
 - `S3_ENDPOINT` and the S3 secret may exist in the DevBox runtime for a later kaniko phase, but they are conditional blockers only when a new image must be built.
+- `railpack` is an optional build-environment detector. It strengthens Dockerfile generation inputs when available, but it must not become an entry blocker.
 
 ## Step 2: Capability Classification
 
@@ -76,6 +79,7 @@ Record but do not stop:
 
 - `python3` missing
 - `jq` missing
+- `railpack` missing
 
 ## Step 3: Resolve Project Context
 
@@ -155,6 +159,7 @@ At the end of preflight, present:
 - whether assessment and image detection can run
 - whether sandbox helpers like `kubectl` and `GITHUB_TOKEN` are present
 - whether VersityGW S3 settings appear to be present
+- whether Railpack build-environment probing is available
 - whether a later kaniko phase would use the active sandbox namespace and current service account
 - whether a later sandbox kaniko phase would be able to run if the project needs a new image
 - whether Phase 0.5 template fast path can run from the resolved GitHub repo metadata
