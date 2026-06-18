@@ -5,6 +5,7 @@ import path from 'path'
 import { spawnSync } from 'child_process'
 import test from 'node:test'
 import { fileURLToPath } from 'url'
+import { detectExistingImage, detectWithoutGithubUrl, extractImageRefsFromText } from './detect-image.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const script = path.join(__dirname, 'detect-image.mjs')
@@ -18,6 +19,168 @@ function runDetect(workDir) {
     encoding: 'utf8',
   })
 }
+
+test('does not double-count ghcr docker run references as dockerhub images', () => {
+  const images = extractImageRefsFromText([
+    'docker run -d --name it-tools -p 8080:80 ghcr.io/corentinth/it-tools:latest',
+  ].join('\n'))
+
+  assert.deepEqual(images, [
+    { registry: 'ghcr', owner: 'corentinth', repo: 'it-tools', tag: 'latest' },
+  ])
+})
+
+test('extracts explicit and implicit dockerhub run and pull references', () => {
+  const images = extractImageRefsFromText([
+    'docker run --rm corentinth/it-tools:latest',
+    'docker pull docker.io/corentinth/it-tools:2024.10.22-7ca5933',
+  ].join('\n'))
+
+  assert.deepEqual(images, [
+    { registry: 'dockerhub', owner: 'corentinth', repo: 'it-tools', tag: 'latest' },
+  ])
+})
+
+test('does not treat arbitrary registries as dockerhub references', () => {
+  const images = extractImageRefsFromText([
+    'docker run quay.io/example/web:1.0.0',
+    'docker pull registry.example.com/team/web:2.0.0',
+  ].join('\n'))
+
+  assert.deepEqual(images, [])
+})
+
+test('prefers package version when README only documents a floating ghcr tag', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run ghcr.io/example/web:latest',
+    '```',
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(workDir, 'package.json'), JSON.stringify({
+    version: '1.2.3',
+  }))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/token?')) {
+      return new Response(JSON.stringify({ token: 'test-token' }), { status: 200 })
+    }
+    if (href.endsWith('/tags/list')) {
+      return new Response(JSON.stringify({ tags: ['latest', '1.2.3'] }), { status: 200 })
+    }
+    if (href.endsWith('/manifests/1.2.3')) {
+      return new Response(JSON.stringify({
+        manifests: [
+          { platform: { os: 'linux', architecture: 'amd64' } },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectExistingImage('https://github.com/example/web.git', workDir)
+
+  assert.equal(payload.mode, 'reuse-image')
+  assert.equal(payload.image, 'ghcr.io/example/web')
+  assert.equal(payload.tag, '1.2.3')
+})
+
+test('local detection also prefers package version for floating ghcr tags', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run ghcr.io/example/web:latest',
+    '```',
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(workDir, 'package.json'), JSON.stringify({
+    version: '1.2.3',
+  }))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/token?')) {
+      return new Response(JSON.stringify({ token: 'test-token' }), { status: 200 })
+    }
+    if (href.endsWith('/tags/list')) {
+      return new Response(JSON.stringify({ tags: ['latest', '1.2.3'] }), { status: 200 })
+    }
+    if (href.endsWith('/manifests/1.2.3')) {
+      return new Response(JSON.stringify({
+        manifests: [
+          { platform: { os: 'linux', architecture: 'amd64' } },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectWithoutGithubUrl(workDir)
+
+  assert.equal(payload.mode, 'reuse-image')
+  assert.equal(payload.image, 'ghcr.io/example/web')
+  assert.equal(payload.tag, '1.2.3')
+  assert.equal(payload.source, 'readme-local')
+})
+
+test('does not duplicate root README aliases on case-insensitive filesystems', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run ghcr.io/example/web:latest',
+    '```',
+    '',
+  ].join('\n'))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/token?')) {
+      return new Response(JSON.stringify({ token: 'test-token' }), { status: 200 })
+    }
+    if (href.endsWith('/tags/list')) {
+      return new Response(JSON.stringify({ tags: ['latest'] }), { status: 200 })
+    }
+    if (href.endsWith('/manifests/latest')) {
+      return new Response(JSON.stringify({
+        manifests: [
+          { platform: { os: 'linux', architecture: 'amd64' } },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectExistingImage('https://github.com/example/web.git', workDir)
+  const readmeSignals = payload.evidence.filter((entry) => entry.signal.includes('README'))
+
+  assert.equal(readmeSignals.length, 1)
+})
 
 test('treats docker compose build inside fenced README blocks as build-required', () => {
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
