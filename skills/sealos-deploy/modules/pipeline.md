@@ -2,6 +2,8 @@
 
 After preflight passes, execute Phase 1–6 in order.
 
+Before Phase 1, execute Phase 0.5 Template Fast Path when a GitHub repository reference is available.
+
 `SKILL_DIR` refers to the directory containing this skill's SKILL.md. Sibling skills are at `<SKILL_DIR>/../`.
 
 Use `ENV` from preflight to choose between script mode (Node.js available) and fallback mode (AI-native).
@@ -13,6 +15,7 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ```
 <WORK_DIR>/.sealos/
 ├── config.json                   ← user configuration overrides (manual, committed to git)
+├── template-match.json           ← Phase 0.5 template fast-path decision
 ├── state.json                    ← deployment state (auto-maintained after Phase 6)
 ├── analysis.json                 ← project analysis snapshot (regenerated each deploy)
 ├── build/                        ← created only if Phase 4 actually runs
@@ -30,6 +33,7 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 
 JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>/schemas/`:
 - `config.schema.json`
+- `template-match.schema.json`
 - `analysis.schema.json`
 - `build-result.schema.json`
 - `state.schema.json`
@@ -173,6 +177,46 @@ If any artifacts exist, report to user:
 Ask: `"Resume from where it left off? Or restart from Phase 1?"`
 
 If restart → remove `.sealos/analysis.json`, `.sealos/build/`, `.sealos/template/index.yaml` and start fresh.
+
+---
+
+## Phase 0.5: Template Fast Path
+
+Run this phase after preflight has resolved `WORK_DIR`, `GITHUB_URL`, and `REPO_NAME`, and before Phase 1 assessment.
+
+The goal is to avoid source analysis, Dockerfile generation, image builds, and template generation for repositories that are already represented by a known Sealos template.
+
+With Node.js:
+
+```bash
+node "<SKILL_DIR>/scripts/detect-template.mjs" \
+  --github-url "$GITHUB_URL" \
+  --work-dir "$WORK_DIR" \
+  --skill-dir "<SKILL_DIR>"
+```
+
+The script writes `.sealos/template-match.json` every time it runs.
+
+Decision:
+
+- `matched=false` → continue to Phase 1 normally.
+- `matched=true` and `materialized=false` → report the matched template name and continue to Phase 1 normally; this is only a recommendation because no deployable template YAML was available.
+- `matched=true` and `materialized=true` → skip Phase 1 through Phase 5 because `.sealos/template/index.yaml` already exists. Continue with Phase 5.5 configuration and Phase 6 deployment.
+
+The fast path is configured in `<SKILL_DIR>/config.json` under `template_fast_path.templates`. A template entry must include `name` and `source_repos`; it materializes only when it also provides valid Sealos Template YAML through one of:
+
+- `template_yaml`
+- `template_path`
+- `template_url`
+
+Template YAML must include:
+
+```yaml
+apiVersion: app.sealos.io/v1
+kind: Template
+```
+
+If a matched entry cannot materialize YAML, do not treat it as a deployable result and do not skip build or template generation.
 
 ---
 

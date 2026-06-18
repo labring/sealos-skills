@@ -171,10 +171,12 @@ At the end of preflight, explicitly tell the user:
 - which items are ready
 - which items are warnings only
 - which later path each warning would block
+- whether Phase 0.5 template fast path can run from the resolved GitHub repo metadata
 
 Example:
 - "Docker is not ready. This will block Phase 4 local build, but we can still continue to detect whether an existing image can be reused."
 - "`kubectl` is missing. Fresh deploy can continue, but UPDATE mode and rollout verification will be blocked until it is installed."
+- "Template fast path will check configured GitHub repo → Sealos template mappings before source analysis."
 
 ## Step 3: Project Context
 

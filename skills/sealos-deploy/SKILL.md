@@ -138,6 +138,7 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | Script | Usage | Purpose |
 |--------|-------|---------|
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
+| `detect-template.mjs` | `node detect-template.mjs [--github-url <url>] --work-dir <repo-dir> --skill-dir <SKILL_DIR>` | Detect configured GitHub repo → Sealos template fast-path matches |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |
 | `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build amd64 image & push to the selected registry (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
@@ -176,6 +177,7 @@ Paths used in pipeline.md follow the pattern:
 | Phase | Action | Skip When |
 |-------|--------|-----------|
 | 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
+| 0.5 — Template Fast Path | Match GitHub repo to a configured Sealos template | No match, or match cannot materialize template YAML |
 | 1 — Assess | Clone repo (or use current project), analyze deployability | Score too low → stop |
 | 2 — Detect | Find existing image (Docker Hub / GHCR / README) | Found → jump to Phase 5 |
 | 3 — Dockerfile | Generate Dockerfile if missing | Already has one → skip |
@@ -194,6 +196,11 @@ Input (GitHub URL / local path)
 [Phase 0] Preflight ── fail → guide user to fix and STOP
   │ pass
   ▼
+[Phase 0.5] Template fast path
+  │
+  ├── materialized template match ───────┐
+  │                                      │
+  ▼                                      │
 [Phase 1] Assess ── not suitable → STOP with reason
   │ suitable
   ▼
@@ -211,6 +218,7 @@ Input (GitHub URL / local path)
   │
   ▼
 [Phase 5] Generate Sealos Template
+  ◄──────────────────────────────────────┘
   │
   ▼
 [Phase 5.5] Configure ── present env vars → ask user for inputs → confirm
