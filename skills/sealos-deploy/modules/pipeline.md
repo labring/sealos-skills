@@ -525,6 +525,19 @@ References:
 
 If required env vars need user input, collect them here and apply them to the template.
 
+After `index.yaml` is generated, validate it with the sibling `docker-to-sealos` checker before continuing:
+
+```bash
+PYTHON_BIN="$(command -v python3 || command -v python)"
+"$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/check_consistency.py" \
+  --skill "<SKILL_DIR>/../docker-to-sealos/SKILL.md" \
+  --references "<SKILL_DIR>/../docker-to-sealos/references" \
+  --rules-file "<SKILL_DIR>/../docker-to-sealos/references/rules-registry.yaml" \
+  --artifacts "$WORK_DIR/.sealos/template/index.yaml"
+```
+
+Fix any failures before running the GHCR pull-secret patcher or writing the delivery manifest.
+
 ### 5.1 Inline GHCR pull Secret (POC)
 
 When `.sealos/build-result.json` indicates a freshly built private GHCR image, inline the sandbox GitHub token into the template so the cluster can pull the image without a separate deploy step.

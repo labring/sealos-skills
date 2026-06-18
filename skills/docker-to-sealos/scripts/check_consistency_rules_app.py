@@ -811,6 +811,47 @@ def check_service_ports_have_names(context: ScanContext) -> List[Violation]:
     return violations
 
 
+def _is_valid_service_port_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535
+
+
+def check_service_ports_are_numeric(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    for doc in iter_documents_by_kind(context, "Service"):
+        if doc.path.suffix.lower() not in TEMPLATE_ARTIFACT_SUFFIXES:
+            continue
+        if doc.path.name != "index.yaml":
+            continue
+        spec = doc.data.get("spec") if isinstance(doc.data, dict) else None
+        ports = spec.get("ports") if isinstance(spec, dict) else None
+        if not isinstance(ports, list):
+            continue
+        for entry in ports:
+            if not isinstance(entry, dict):
+                continue
+            for field in ("port", "targetPort"):
+                value = entry.get(field)
+                if _is_valid_service_port_number(value):
+                    continue
+                pattern = (
+                    rf"^\s*{re.escape(field)}\s*:\s*{re.escape(str(value))}\s*$"
+                    if value is not None
+                    else r"^\s*ports\s*:"
+                )
+                add_doc_violation(
+                    violations,
+                    rule_id="R046",
+                    doc=doc,
+                    pattern=pattern,
+                    default_pattern=r"^\s*ports\s*:",
+                    message=(
+                        "Service spec.ports entries must define explicit numeric "
+                        "port and targetPort values between 1 and 65535"
+                    ),
+                )
+    return violations
+
+
 def check_service_labels_match_selector_app(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     cloud_label_key = "cloud.sealos.io/app-deploy-manager"
@@ -2489,6 +2530,7 @@ APP_RULES: Dict[str, Rule] = {
     "R036": Rule("R036", check_cronjob_required_labels),
     "R015": Rule("R015", check_origin_image_name_matches_container),
     "R020": Rule("R020", check_service_ports_have_names),
+    "R046": Rule("R046", check_service_ports_are_numeric),
     "R029": Rule("R029", check_service_labels_match_selector_app),
     "R030": Rule("R030", check_configmap_labels_match_name),
     "R043": Rule("R043", check_configmap_file_mount_contract),

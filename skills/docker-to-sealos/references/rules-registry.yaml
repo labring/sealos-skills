@@ -85,6 +85,9 @@ rules:
   - id: R020
     description: Service spec.ports entries must define non-empty name fields in template artifacts.
     severity: error
+  - id: R046
+    description: Service spec.ports entries must define numeric port and targetPort values between 1 and 65535 in template artifacts.
+    severity: error
   - id: R026
     description: HTTP Ingress resources in template artifacts must include the required nginx annotations with expected values.
     severity: error
