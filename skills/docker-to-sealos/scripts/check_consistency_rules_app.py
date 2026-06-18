@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from check_consistency_models import LATEST_IMAGE_PATTERN, TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation, YamlDocument
 from check_consistency_helpers_violations import (
@@ -75,6 +75,15 @@ HTTP_INGRESS_REQUIRED_ANNOTATIONS: Dict[str, str] = {
         "}"
     ),
 }
+WEBSOCKET_INGRESS_REQUIRED_ANNOTATIONS: Dict[str, str] = {
+    "kubernetes.io/ingress.class": "nginx",
+    "nginx.ingress.kubernetes.io/proxy-body-size": "32m",
+    "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
+    "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
+    "nginx.ingress.kubernetes.io/backend-protocol": "WS",
+    "nginx.ingress.kubernetes.io/ssl-redirect": "true",
+}
+WEBSOCKET_PORT_NAME_TOKENS = {"websocket", "ws", "wss"}
 CRONJOB_LABEL_KEY = "cloud.sealos.io/cronjob"
 CRONJOB_REQUIRED_LABELS: Dict[str, str] = {
     "cronjob-launchpad-name": "",
@@ -1447,6 +1456,80 @@ def _normalize_annotation_value(value: Any) -> Optional[str]:
     return str(value).strip()
 
 
+def _is_websocket_port_name(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    normalized = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return normalized in WEBSOCKET_PORT_NAME_TOKENS or any(
+        token in WEBSOCKET_PORT_NAME_TOKENS for token in normalized.split("-")
+    )
+
+
+def _service_port_key(value: Any) -> Optional[str]:
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _collect_service_websocket_ports(context: ScanContext) -> Dict[str, Set[str]]:
+    ports_by_service: Dict[str, Set[str]] = {}
+    for doc in iter_documents_by_kind(context, "Service"):
+        if doc.path.suffix.lower() not in TEMPLATE_ARTIFACT_SUFFIXES:
+            continue
+        if doc.path.name != "index.yaml":
+            continue
+        if not isinstance(doc.data, dict):
+            continue
+        metadata = doc.data.get("metadata")
+        service_name = metadata.get("name") if isinstance(metadata, dict) else None
+        if not isinstance(service_name, str) or not service_name.strip():
+            continue
+        spec = doc.data.get("spec")
+        ports = spec.get("ports") if isinstance(spec, dict) else None
+        if not isinstance(ports, list):
+            continue
+        for port in ports:
+            if not isinstance(port, dict):
+                continue
+            if not _is_websocket_port_name(port.get("name")):
+                continue
+            for key in ("name", "port", "targetPort"):
+                port_key = _service_port_key(port.get(key))
+                if port_key is None:
+                    continue
+                ports_by_service.setdefault(service_name.strip(), set()).add(port_key)
+    return ports_by_service
+
+
+def _iter_ingress_backend_service_ports(data: Mapping[str, Any]) -> Iterable[Tuple[str, str]]:
+    spec = data.get("spec")
+    rules = spec.get("rules") if isinstance(spec, dict) else None
+    if not isinstance(rules, list):
+        return
+
+    for rule in rules:
+        http = rule.get("http") if isinstance(rule, dict) else None
+        paths = http.get("paths") if isinstance(http, dict) else None
+        if not isinstance(paths, list):
+            continue
+        for path in paths:
+            backend = path.get("backend") if isinstance(path, dict) else None
+            service = backend.get("service") if isinstance(backend, dict) else None
+            if not isinstance(service, dict):
+                continue
+            name = service.get("name")
+            port = service.get("port")
+            if not isinstance(name, str) or not isinstance(port, dict):
+                continue
+            port_key = _service_port_key(port.get("name"))
+            if port_key is None:
+                port_key = _service_port_key(port.get("number"))
+            if port_key is not None:
+                yield name.strip(), port_key
+
+
 def check_http_ingress_annotations(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in iter_documents_by_kind(context, "Ingress"):
@@ -1489,6 +1572,62 @@ def check_http_ingress_annotations(context: ScanContext) -> List[Violation]:
                 default_pattern=r"^\s*annotations\s*:",
                 message=f"Ingress annotation '{key}' must match the required HTTP default",
             )
+    return violations
+
+
+def check_websocket_ingress_annotations(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    service_websocket_ports = _collect_service_websocket_ports(context)
+    for doc in iter_documents_by_kind(context, "Ingress"):
+        if doc.path.suffix.lower() not in TEMPLATE_ARTIFACT_SUFFIXES:
+            continue
+        if doc.path.name != "index.yaml":
+            continue
+        if not isinstance(doc.data, dict):
+            continue
+
+        metadata = doc.data.get("metadata")
+        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+        backend_protocol = None
+        if isinstance(annotations, dict):
+            backend_protocol = _normalize_annotation_value(
+                annotations.get("nginx.ingress.kubernetes.io/backend-protocol")
+            )
+
+        routes_websocket_port = any(
+            port_key in service_websocket_ports.get(service_name, set())
+            for service_name, port_key in _iter_ingress_backend_service_ports(doc.data)
+        )
+        declares_websocket = backend_protocol is not None and backend_protocol.upper() == "WS"
+
+        if not declares_websocket and not routes_websocket_port:
+            continue
+
+        if not isinstance(annotations, dict):
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=r"^\s*annotations\s*:",
+                default_pattern=r"^\s*metadata\s*:",
+                message="WebSocket Ingress metadata.annotations must define the required WS annotation set",
+            )
+            continue
+
+        for key, expected in WEBSOCKET_INGRESS_REQUIRED_ANNOTATIONS.items():
+            actual_normalized = _normalize_annotation_value(annotations.get(key))
+            expected_normalized = _normalize_annotation_value(expected)
+            if actual_normalized == expected_normalized:
+                continue
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=re.escape(key),
+                default_pattern=r"^\s*annotations\s*:",
+                message=f"Ingress annotation '{key}' must match the required WebSocket default",
+            )
+
     return violations
 
 
@@ -2496,6 +2635,7 @@ APP_RULES: Dict[str, Rule] = {
     "R045": Rule("R045", check_template_input_references_declared),
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
+    "R046": Rule("R046", check_websocket_ingress_annotations),
     "R027": Rule("R027", check_postgres_custom_db_init_job),
     "R037": Rule("R037", check_postgres_secret_refs_match_cluster_name),
     "R039": Rule("R039", check_database_services_use_clusters),

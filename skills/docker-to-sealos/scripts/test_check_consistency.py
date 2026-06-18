@@ -1832,6 +1832,137 @@ __MOUNTS__
             )
             self.assertFalse(any(item.rule_id == "R026" for item in violations))
 
+    def test_detects_websocket_ingress_using_http_protocol_in_artifact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: demo
+                  labels:
+                    app: demo
+                    cloud.sealos.io/app-deploy-manager: demo
+                spec:
+                  selector:
+                    app: demo
+                  ports:
+                    - name: websocket
+                      port: 3000
+                      targetPort: 3000
+                      protocol: TCP
+                ---
+                apiVersion: networking.k8s.io/v1
+                kind: Ingress
+                metadata:
+                  name: demo
+                  annotations:
+                    kubernetes.io/ingress.class: nginx
+                    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+                    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+                    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+                    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+                    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+                spec:
+                  rules:
+                    - host: demo.example.com
+                      http:
+                        paths:
+                          - pathType: Prefix
+                            path: /
+                            backend:
+                              service:
+                                name: demo
+                                port:
+                                  number: 3000
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertTrue(any(item.rule_id == "R046" for item in violations))
+
+    def test_allows_required_websocket_ingress_annotations_in_artifact(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: demo
+                  labels:
+                    app: demo
+                    cloud.sealos.io/app-deploy-manager: demo
+                spec:
+                  selector:
+                    app: demo
+                  ports:
+                    - name: websocket
+                      port: 3000
+                      targetPort: 3000
+                      protocol: TCP
+                ---
+                apiVersion: networking.k8s.io/v1
+                kind: Ingress
+                metadata:
+                  name: demo
+                  annotations:
+                    kubernetes.io/ingress.class: nginx
+                    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+                    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600'
+                    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+                    nginx.ingress.kubernetes.io/backend-protocol: WS
+                    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+                spec:
+                  rules:
+                    - host: demo.example.com
+                      http:
+                        paths:
+                          - pathType: Prefix
+                            path: /
+                            backend:
+                              service:
+                                name: demo
+                                port:
+                                  number: 3000
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R026" for item in violations))
+            self.assertFalse(any(item.rule_id == "R046" for item in violations))
+
     def test_detects_missing_pg_init_job_for_custom_postgres_database(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
