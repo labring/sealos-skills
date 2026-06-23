@@ -79,8 +79,8 @@ metadata:
 
 ## Image Mapping
 
-Warning: Example images must use a pinned version, preferring an exact version tag (e.g., `v2.2.0`); only use a digest when a stable version tag cannot be determined. Using `:latest` is prohibited.
-Warning: Compose variable image expressions (e.g., `${IMAGE}`, `${IMAGE:-ghcr.io/example/app}`) must not be retained in the final template; they must be resolved to concrete image references during the conversion phase.
+Warning: Example images should prefer an explicit concrete version tag (e.g., `v2.2.0`) when one can be verified. Use a digest when the source is already digest-pinned or when no explicit floating tag is available. If an explicit floating tag (e.g., `latest`, `stable`, `v2`) is provided and no matching concrete version can be verified, keep the explicit floating tag as fallback.
+Warning: Compose variable image expressions (e.g., `${IMAGE}`, `${IMAGE:-ghcr.io/example/app}`) must not be retained in the final template; they must be resolved during conversion to a tagged image reference, digest, or explicit floating fallback. Untagged image references are not acceptable for template artifacts.
 
 ### Docker Compose
 ```yaml

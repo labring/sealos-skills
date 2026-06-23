@@ -125,12 +125,12 @@
     {
       "id": 10,
       "prompt": "/sealos-deploy https://github.com/CorentinTh/it-tools",
-      "expected_output": "Detects the published IT Tools image without misclassifying ghcr.io as Docker Hub, prefers a verified concrete version tag over latest, and generates a template from the reusable image path",
+      "expected_output": "Detects the published IT Tools image without misclassifying ghcr.io as Docker Hub, prefers a verified concrete version tag when package metadata provides one, and generates a template from the reusable image path",
       "files": [],
       "assertions": [
         {"name": "detects-ghcr-image", "description": "Detects ghcr.io/corentinth/it-tools as a reusable image candidate"},
         {"name": "does-not-emit-fake-dockerhub-ghcr", "description": "Does not report docker.io/ghcr.io/corentinth or otherwise treat ghcr.io as a Docker Hub namespace"},
-        {"name": "prefers-concrete-tag", "description": "Uses a verified concrete version tag such as 2024.10.22-7ca5933 instead of latest when package metadata provides that version"},
+        {"name": "prefers-concrete-tag", "description": "Uses a verified concrete version tag such as 2024.10.22-7ca5933 when package metadata provides that version, while allowing explicit floating tags only as fallback"},
         {"name": "uses-reuse-image-path", "description": "Writes reuse-image build artifacts and skips unnecessary image build work"}
       ]
     }

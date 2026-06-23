@@ -95,7 +95,16 @@ function dedupeImages (images) {
 }
 
 function isFloatingTag (tag) {
-  return tag === 'latest' || tag === 'stable' || tag === 'nightly' || tag === 'edge'
+  return (
+    tag === 'latest' ||
+    tag === 'stable' ||
+    tag === 'main' ||
+    tag === 'master' ||
+    tag === 'edge' ||
+    tag === 'nightly' ||
+    tag === 'dev' ||
+    /^v?\d+(?:\.\d+)?$/.test(tag)
+  )
 }
 
 function extractImageRefsFromText (text) {
@@ -250,7 +259,7 @@ function analyzeReadmeDeployment (workDir) {
 
 // ── Docker Hub ─────────────────────────────────────────────
 
-async function checkDockerHub (namespace, repoName, preferredTag = null) {
+async function checkDockerHub (namespace, repoName, preferredTag = null, fallbackTag = null) {
   const url = `https://hub.docker.com/v2/namespaces/${namespace}/repositories/${repoName}/tags?page_size=10`
   try {
     const controller = new AbortController()
@@ -265,13 +274,16 @@ async function checkDockerHub (namespace, repoName, preferredTag = null) {
 
     const versionTagRe = /^v?\d+\.\d+/
 
-    if (preferredTag) {
-      const entry = data.results.find(e => e.name === preferredTag)
+    const priorityTags = [preferredTag, fallbackTag]
+      .filter((tag, index, tags) => tag && tags.indexOf(tag) === index)
+
+    for (const tag of priorityTags) {
+      const entry = data.results.find(e => e.name === tag)
       if (entry?.images?.some(img => img.architecture === 'amd64')) {
         const platforms = entry.images
           .map(img => `${img.os}/${img.architecture}`)
           .filter((v, i, a) => a.indexOf(v) === i)
-        return { source: 'dockerhub', image: `${namespace}/${repoName}`, tag: preferredTag, platforms }
+        return { source: 'dockerhub', image: `${namespace}/${repoName}`, tag, platforms }
       }
     }
 
@@ -298,7 +310,7 @@ async function checkDockerHub (namespace, repoName, preferredTag = null) {
 
 // ── GHCR ───────────────────────────────────────────────────
 
-async function checkGhcr (owner, repo, preferredTag = null) {
+async function checkGhcr (owner, repo, preferredTag = null, fallbackTag = null) {
   try {
     const tokenController = new AbortController()
     const tokenTimer = setTimeout(() => tokenController.abort(), 10000)
@@ -323,16 +335,7 @@ async function checkGhcr (owner, repo, preferredTag = null) {
     const { tags } = await tagsResp.json()
     if (!tags || tags.length === 0) return null
 
-    const versionTagRe = /^v?\d+\.\d+/
-    const ordered = preferredTag && tags.includes(preferredTag)
-      ? [preferredTag, ...tags.filter(t => t !== preferredTag)]
-      : [...tags].sort((a, b) => {
-        const aVer = versionTagRe.test(a) ? 1 : 0
-        const bVer = versionTagRe.test(b) ? 1 : 0
-        return bVer - aVer
-      })
-
-    for (const tag of ordered.slice(0, 5)) {
+    const verifyTag = async (tag) => {
       try {
         const mfController = new AbortController()
         const mfTimer = setTimeout(() => mfController.abort(), 10000)
@@ -348,7 +351,7 @@ async function checkGhcr (owner, repo, preferredTag = null) {
         )
         clearTimeout(mfTimer)
 
-        if (!mfResp.ok) continue
+        if (!mfResp.ok) return null
 
         const manifest = await mfResp.json()
         let platforms = []
@@ -357,15 +360,36 @@ async function checkGhcr (owner, repo, preferredTag = null) {
           platforms = manifest.manifests
             .filter(m => m.platform)
             .map(m => `${m.platform.os}/${m.platform.architecture}`)
-          if (!platforms.some(p => p.includes('amd64'))) continue
+          if (!platforms.some(p => p.includes('amd64'))) return null
         } else {
           platforms = ['linux/amd64']
         }
 
         return { source: 'ghcr', image: `ghcr.io/${owner}/${repo}`, tag, platforms }
       } catch {
-        continue
+        return null
       }
+    }
+
+    const priorityTags = [preferredTag, fallbackTag]
+      .filter((tag, index, candidates) => tag && candidates.indexOf(tag) === index)
+
+    for (const tag of priorityTags) {
+      if (!tags.includes(tag)) continue
+      const verified = await verifyTag(tag)
+      if (verified) return verified
+    }
+
+    const versionTagRe = /^v?\d+\.\d+/
+    const ordered = [...tags].sort((a, b) => {
+      const aVer = versionTagRe.test(a) ? 1 : 0
+      const bVer = versionTagRe.test(b) ? 1 : 0
+      return bVer - aVer
+    })
+
+    for (const tag of ordered.filter(t => !priorityTags.includes(t)).slice(0, 5)) {
+      const verified = await verifyTag(tag)
+      if (verified) return verified
     }
 
     return null
@@ -375,11 +399,12 @@ async function checkGhcr (owner, repo, preferredTag = null) {
 }
 
 async function verifyImageRef (img, preferredTag = null) {
-  const tag = img.tag && isFloatingTag(img.tag) ? preferredTag || null : img.tag
+  const fallbackTag = img.tag && isFloatingTag(img.tag) ? img.tag : null
+  const tag = fallbackTag ? preferredTag || fallbackTag : img.tag
   if (img.registry === 'ghcr') {
-    return checkGhcr(img.owner, img.repo, tag)
+    return checkGhcr(img.owner, img.repo, tag, fallbackTag)
   }
-  return checkDockerHub(img.owner, img.repo, tag)
+  return checkDockerHub(img.owner, img.repo, tag, fallbackTag)
 }
 
 // ── Docker Compose Image Extraction ────────────────────────

@@ -95,6 +95,223 @@ test('prefers package version when README only documents a floating ghcr tag', a
   assert.equal(payload.tag, '1.2.3')
 })
 
+test('falls back to README floating ghcr tag when package version is absent', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run ghcr.io/example/web:latest',
+    '```',
+    '',
+  ].join('\n'))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/token?')) {
+      return new Response(JSON.stringify({ token: 'test-token' }), { status: 200 })
+    }
+    if (href.endsWith('/tags/list')) {
+      return new Response(JSON.stringify({ tags: ['latest'] }), { status: 200 })
+    }
+    if (href.endsWith('/manifests/latest')) {
+      return new Response(JSON.stringify({
+        manifests: [
+          { platform: { os: 'linux', architecture: 'amd64' } },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectExistingImage('https://github.com/example/web.git', workDir)
+
+  assert.equal(payload.mode, 'reuse-image')
+  assert.equal(payload.image, 'ghcr.io/example/web')
+  assert.equal(payload.tag, 'latest')
+})
+
+test('falls back to documented floating ghcr tag when no concrete tag is usable', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run ghcr.io/example/web:stable',
+    '```',
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(workDir, 'package.json'), JSON.stringify({
+    version: '1.2.3',
+  }))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/token?')) {
+      return new Response(JSON.stringify({ token: 'test-token' }), { status: 200 })
+    }
+    if (href.endsWith('/tags/list')) {
+      return new Response(JSON.stringify({ tags: ['latest', 'stable'] }), { status: 200 })
+    }
+    if (href.endsWith('/manifests/latest') || href.endsWith('/manifests/stable')) {
+      return new Response(JSON.stringify({
+        manifests: [
+          { platform: { os: 'linux', architecture: 'amd64' } },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectExistingImage('https://github.com/example/web.git', workDir)
+
+  assert.equal(payload.mode, 'reuse-image')
+  assert.equal(payload.image, 'ghcr.io/example/web')
+  assert.equal(payload.tag, 'stable')
+})
+
+test('prefers package version when README documents numeric floating ghcr tag', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run ghcr.io/example/web:v2',
+    '```',
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(workDir, 'package.json'), JSON.stringify({
+    version: '2.2.0',
+  }))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/token?')) {
+      return new Response(JSON.stringify({ token: 'test-token' }), { status: 200 })
+    }
+    if (href.endsWith('/tags/list')) {
+      return new Response(JSON.stringify({ tags: ['v2', '2.2.0'] }), { status: 200 })
+    }
+    if (href.endsWith('/manifests/v2') || href.endsWith('/manifests/2.2.0')) {
+      return new Response(JSON.stringify({
+        manifests: [
+          { platform: { os: 'linux', architecture: 'amd64' } },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectExistingImage('https://github.com/example/web.git', workDir)
+
+  assert.equal(payload.mode, 'reuse-image')
+  assert.equal(payload.image, 'ghcr.io/example/web')
+  assert.equal(payload.tag, '2.2.0')
+})
+
+test('falls back to documented numeric floating ghcr tag when no concrete tag is usable', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run ghcr.io/example/web:v2',
+    '```',
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(workDir, 'package.json'), JSON.stringify({
+    version: '2.2.0',
+  }))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/token?')) {
+      return new Response(JSON.stringify({ token: 'test-token' }), { status: 200 })
+    }
+    if (href.endsWith('/tags/list')) {
+      return new Response(JSON.stringify({ tags: ['v2'] }), { status: 200 })
+    }
+    if (href.endsWith('/manifests/v2')) {
+      return new Response(JSON.stringify({
+        manifests: [
+          { platform: { os: 'linux', architecture: 'amd64' } },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectExistingImage('https://github.com/example/web.git', workDir)
+
+  assert.equal(payload.mode, 'reuse-image')
+  assert.equal(payload.image, 'ghcr.io/example/web')
+  assert.equal(payload.tag, 'v2')
+})
+
+test('falls back to documented floating dockerhub tag when no concrete tag is usable', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run example/web:stable',
+    '```',
+    '',
+  ].join('\n'))
+  fs.writeFileSync(path.join(workDir, 'package.json'), JSON.stringify({
+    version: '1.2.3',
+  }))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('hub.docker.com/v2/namespaces/example/repositories/web/tags')) {
+      return new Response(JSON.stringify({
+        results: [
+          { name: 'latest', images: [{ os: 'linux', architecture: 'amd64' }] },
+          { name: 'stable', images: [{ os: 'linux', architecture: 'amd64' }] },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectExistingImage('https://github.com/example/web.git', workDir)
+
+  assert.equal(payload.mode, 'reuse-image')
+  assert.equal(payload.image, 'example/web')
+  assert.equal(payload.tag, 'stable')
+})
+
 test('local detection also prefers package version for floating ghcr tags', async (t) => {
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
   fs.writeFileSync(path.join(workDir, 'README.md'), [
@@ -138,6 +355,49 @@ test('local detection also prefers package version for floating ghcr tags', asyn
   assert.equal(payload.mode, 'reuse-image')
   assert.equal(payload.image, 'ghcr.io/example/web')
   assert.equal(payload.tag, '1.2.3')
+  assert.equal(payload.source, 'readme-local')
+})
+
+test('local detection falls back to README floating ghcr tag when package version is absent', async (t) => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-image-'))
+  fs.writeFileSync(path.join(workDir, 'README.md'), [
+    '# Example',
+    '',
+    '### Docker',
+    '',
+    '```console',
+    'docker run ghcr.io/example/web:latest',
+    '```',
+    '',
+  ].join('\n'))
+
+  const originalFetch = globalThis.fetch
+  t.after(() => {
+    globalThis.fetch = originalFetch
+  })
+  globalThis.fetch = async (url) => {
+    const href = String(url)
+    if (href.includes('/token?')) {
+      return new Response(JSON.stringify({ token: 'test-token' }), { status: 200 })
+    }
+    if (href.endsWith('/tags/list')) {
+      return new Response(JSON.stringify({ tags: ['latest'] }), { status: 200 })
+    }
+    if (href.endsWith('/manifests/latest')) {
+      return new Response(JSON.stringify({
+        manifests: [
+          { platform: { os: 'linux', architecture: 'amd64' } },
+        ],
+      }), { status: 200 })
+    }
+    return new Response('', { status: 404 })
+  }
+
+  const payload = await detectWithoutGithubUrl(workDir)
+
+  assert.equal(payload.mode, 'reuse-image')
+  assert.equal(payload.image, 'ghcr.io/example/web')
+  assert.equal(payload.tag, 'latest')
   assert.equal(payload.source, 'readme-local')
 })
 

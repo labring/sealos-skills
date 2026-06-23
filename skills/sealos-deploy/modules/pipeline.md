@@ -259,7 +259,7 @@ Decision:
 - `found=true` and `mode=reuse-image` → later build mode becomes `reuse-image`
 - `mode=build-required` → later build mode becomes `build-required`, even if a registry happens to host a similarly named image
 - README documents docker build / compose `--build` deployment with no prebuilt image reference → always `build-required`
-- floating README tags such as `latest` should be verified as concrete package/version tags when local metadata provides a matching version; do not prefer floating tags for Sealos templates when a verified concrete tag is available
+- floating README tags such as `latest` should be resolved to concrete package/version tags when local metadata provides a matching version; if no matching concrete version can be verified, keep the explicit floating tag as fallback rather than emitting an untagged or variable image reference
 
 Example output:
 

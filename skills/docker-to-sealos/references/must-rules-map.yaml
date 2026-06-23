@@ -140,22 +140,22 @@ must_rules:
     enforcement:
       type: manual
       note: "Conflict resolution depends on semantic comparison plus platform/security guardrails."
-  - must: "Do not use `:latest`."
+  - must: "Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback."
     enforcement:
-      type: rule
-      target: R001
-  - must: "Resolve versions with `crane`: prefer an explicit version tag (for example `v2.2.0`), and fallback to digest pin only when a deterministic version tag is unavailable."
+      type: manual
+      note: "Requires live image resolution behavior and package/registry metadata, not derivable from static snippets alone."
+  - must: "Resolve versions with `crane`: prefer an explicit concrete version tag (for example `v2.2.0`); optionally use a digest when the source is already digest-pinned or when no explicit floating tag is available; if an explicit floating tag is provided and no matching concrete version can be verified, keep the explicit floating tag as fallback."
     enforcement:
       type: manual
       note: "Requires live image resolution behavior, not derivable from static snippets alone."
-  - must: "Avoid floating tags (for example `:v2`, `:2.1`, `:stable`); use an explicit version tag or digest."
-    enforcement:
-      type: rule
-      target: R016
-  - must: "Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag or digest before emitting template artifacts."
+  - must: "Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag, digest, or explicit floating fallback before emitting template artifacts."
     enforcement:
       type: rule
       target: R018
+  - must: "Managed workload image references must not be untagged."
+    enforcement:
+      type: rule
+      target: R047
   - must: "Application `originImageName` must match container image."
     enforcement:
       type: rule

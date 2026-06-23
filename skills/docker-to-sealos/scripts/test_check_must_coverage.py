@@ -25,7 +25,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback.
                 - `revisionHistoryLimit: 1`
                 ## Validation Commands
                 """,
@@ -35,10 +35,10 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback."
                     enforcement:
-                      type: rule
-                      target: R001
+                      type: manual
+                      note: "Requires live registry/package metadata resolution."
                   - must: "`revisionHistoryLimit: 1`"
                     enforcement:
                       type: rule
@@ -50,9 +50,6 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 rules:
-                  - id: R001
-                    description: test
-                    severity: error
                   - id: R009
                     description: test
                     severity: error
@@ -73,7 +70,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback.
                 - `revisionHistoryLimit: 1`
                 ## Validation Commands
                 """,
@@ -83,10 +80,10 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback."
                     enforcement:
-                      type: rule
-                      target: R001
+                      type: manual
+                      note: "Requires live registry/package metadata resolution."
                 """,
             )
             write_file(
@@ -94,9 +91,6 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 rules:
-                  - id: R001
-                    description: test
-                    severity: error
                   - id: R009
                     description: test
                     severity: error
@@ -117,7 +111,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback.
                 ## Validation Commands
                 """,
             )
@@ -126,7 +120,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback."
                     enforcement:
                       type: rule
                       target: R999
@@ -137,7 +131,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 rules:
-                  - id: R001
+                  - id: R009
                     description: test
                     severity: error
                 """,
@@ -157,7 +151,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback.
                 ## Validation Commands
                 """,
             )
@@ -166,10 +160,10 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback."
                     enforcement:
-                      type: rule
-                      target: R001
+                      type: manual
+                      note: "Requires live registry/package metadata resolution."
                 """,
             )
             write_file(
@@ -177,7 +171,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 rules:
-                  - id: R001
+                  - id: R009
                     description: test
                     severity: error
                 """,
@@ -204,7 +198,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback.
                 ## Validation Commands
                 """,
             )
@@ -213,10 +207,10 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback."
                     enforcement:
-                      type: rule
-                      target: R001
+                      type: manual
+                      note: "Requires live registry/package metadata resolution."
                 """,
             )
             write_file(
@@ -224,7 +218,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 rules:
-                  - id: R001
+                  - id: R009
                     description: test
                     severity: error
                 """,

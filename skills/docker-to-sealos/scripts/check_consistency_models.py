@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     from check_consistency_line_locator import LineLocator
 
 
-LATEST_IMAGE_PATTERN = re.compile(r"\b(?:image|originImageName)\s*:\s*['\"]?[^#\s'\"]*:latest\b")
 TEMPLATE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$")
 NEGATIVE_MARKERS = ("wrong example", "❌", "invalid example")
 WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
