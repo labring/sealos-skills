@@ -812,7 +812,7 @@ class CheckConsistencyTests(unittest.TestCase):
             )
             self.assertTrue(any(item.rule_id == "R015" for item in violations))
 
-    def test_detects_latest_tag(self):
+    def test_allows_explicit_latest_tag_fallback(self):
         violations = self.run_checker(
             """
             ```yaml
@@ -828,9 +828,9 @@ class CheckConsistencyTests(unittest.TestCase):
             ```
             """
         )
-        self.assertTrue(any(item.rule_id == "R001" for item in violations))
+        self.assertEqual([], violations)
 
-    def test_detects_floating_tag_for_managed_workload(self):
+    def test_allows_explicit_floating_tag_fallback_for_managed_workload(self):
         violations = self.run_checker(
             """
             ```yaml
@@ -840,6 +840,7 @@ class CheckConsistencyTests(unittest.TestCase):
               name: demo
               labels:
                 cloud.sealos.io/app-deploy-manager: demo
+                app: demo
               annotations:
                 originImageName: ghcr.io/example/demo:v2
             spec:
@@ -854,7 +855,7 @@ class CheckConsistencyTests(unittest.TestCase):
             ```
             """
         )
-        self.assertTrue(any(item.rule_id == "R016" for item in violations))
+        self.assertEqual([], violations)
 
     def test_allows_explicit_version_tag_for_managed_workload(self):
         violations = self.run_checker(
@@ -866,6 +867,7 @@ class CheckConsistencyTests(unittest.TestCase):
               name: demo
               labels:
                 cloud.sealos.io/app-deploy-manager: demo
+                app: demo
               annotations:
                 originImageName: ghcr.io/example/demo:v2.2.0
             spec:
@@ -880,7 +882,223 @@ class CheckConsistencyTests(unittest.TestCase):
             ```
             """
         )
-        self.assertFalse(any(item.rule_id == "R016" for item in violations))
+        self.assertEqual([], violations)
+
+    def test_allows_digest_pinned_image_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: ghcr.io/example/demo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/demo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertEqual([], violations)
+
+    def test_allows_registry_port_with_explicit_tag_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: localhost:5000/app:1.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: localhost:5000/app:1.0
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertEqual([], violations)
+
+    def test_detects_untagged_image_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: nginx
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R047" for item in violations))
+
+    def test_detects_registry_port_without_tag_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: localhost:5000/app
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: localhost:5000/app
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R047" for item in violations))
+
+    def test_detects_malformed_digest_image_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: nginx@
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx@
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R047" for item in violations))
+
+    def test_detects_short_sha256_digest_image_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: nginx@sha256:abc
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx@sha256:abc
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R047" for item in violations))
+
+    def test_detects_tagged_image_with_short_sha256_digest_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: repo/app:1.0@sha256:abc
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: repo/app:1.0@sha256:abc
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R047" for item in violations))
+
+    def test_detects_empty_tag_image_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: "nginx:"
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: "nginx:"
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R047" for item in violations))
 
     def test_detects_compose_image_variables_for_managed_workload(self):
         violations = self.run_checker(
@@ -907,6 +1125,66 @@ class CheckConsistencyTests(unittest.TestCase):
             """
         )
         self.assertTrue(any(item.rule_id == "R018" for item in violations))
+
+    def test_detects_compose_image_variables_in_init_container_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: ghcr.io/example/demo:1.2.3
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  initContainers:
+                    - name: init
+                      image: ${INIT_IMAGE:-busybox:1.36}
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/demo:1.2.3
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R018" for item in violations))
+
+    def test_detects_untagged_init_container_image_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+                app: demo
+              annotations:
+                originImageName: ghcr.io/example/demo:1.2.3
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  initContainers:
+                    - name: init
+                      image: busybox
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/demo:1.2.3
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R047" for item in violations))
 
     def test_detects_service_ports_missing_names_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2237,7 +2515,7 @@ __MOUNTS__
         )
         self.assertFalse(any(item.rule_id == "R036" for item in violations))
 
-    def test_ignores_latest_tag_in_negative_example_block(self):
+    def test_ignores_compose_image_variables_in_negative_example_block(self):
         violations = self.run_checker(
             """
             wrong example
@@ -2249,12 +2527,12 @@ __MOUNTS__
                 spec:
                   containers:
                     - name: demo
-                      image: nginx:latest
+                      image: ${APP_IMAGE:-nginx:latest}
                       imagePullPolicy: IfNotPresent
             ```
             """
         )
-        self.assertFalse(any(item.rule_id == "R001" for item in violations))
+        self.assertFalse(any(item.rule_id == "R018" for item in violations))
 
     def test_detects_empty_dir(self):
         violations = self.run_checker(
@@ -3635,7 +3913,7 @@ __MOUNTS__
     def test_registry_rule_scope_filters_violations(self):
         rules_yaml = render_registry(
             overrides={
-                "R001": {
+                "R003": {
                     "include_paths": ["references/*.md"],
                 }
             }
@@ -3643,23 +3921,22 @@ __MOUNTS__
         violations = self.run_checker(
             """
             ```yaml
-            apiVersion: apps/v1
-            kind: Deployment
+            apiVersion: app.sealos.io/v1
+            kind: App
+            metadata:
+              name: demo
             spec:
-              template:
-                spec:
-                  containers:
-                    - name: demo
-                      image: nginx:latest
-                      imagePullPolicy: IfNotPresent
+              data: {}
+              displayType: normal
+              type: link
             ```
             """,
             refs_text="# clean refs\n",
             rules_override=rules_yaml,
         )
-        self.assertFalse(any(item.rule_id == "R001" for item in violations))
+        self.assertFalse(any(item.rule_id == "R003" for item in violations))
 
-    def test_detects_violations_in_generated_yaml_artifact(self):
+    def test_allows_explicit_latest_tag_fallback_in_generated_yaml_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -3678,13 +3955,27 @@ __MOUNTS__
                 kind: Deployment
                 metadata:
                   name: demo
+                  labels:
+                    cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
+                  annotations:
+                    originImageName: nginx:latest
                 spec:
+                  revisionHistoryLimit: 1
                   template:
                     spec:
+                      automountServiceAccountToken: false
                       containers:
                         - name: demo
                           image: nginx:latest
                           imagePullPolicy: IfNotPresent
+                          resources:
+                            limits:
+                              cpu: 100m
+                              memory: 128Mi
+                            requests:
+                              cpu: 10m
+                              memory: 12Mi
                 """,
             )
 
@@ -3694,9 +3985,7 @@ __MOUNTS__
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
-            latest_violations = [item for item in violations if item.rule_id == "R001"]
-            self.assertEqual(1, len(latest_violations))
-            self.assertEqual(artifact_file.resolve(), latest_violations[0].path.resolve())
+            self.assertEqual([], violations)
 
     def test_detects_invalid_database_component_resources_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -5029,14 +5318,14 @@ __MOUNTS__
                 rules_override="""
                 version: 1
                 rules:
-                  - id: R001
+                  - id: R003
                     description: test
                     severity: error
                 """,
             )
 
     def test_registry_invalid_severity_raises(self):
-        broken = render_registry(overrides={"R001": {"severity": "critical"}})
+        broken = render_registry(overrides={"R003": {"severity": "critical"}})
         with self.assertRaises(ValueError):
             self.run_checker("# ok", rules_override=broken)
 

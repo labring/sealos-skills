@@ -812,7 +812,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 pvcs[0]["metadata"]["labels"]["cloud.sealos.io/deploy-on-sealos"],
             )
 
-    def test_rejects_latest_image_tag(self):
+    def test_accepts_explicit_latest_image_tag(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose = root / "docker-compose.yml"
@@ -821,15 +821,103 @@ class ComposeToTemplateTests(unittest.TestCase):
                 """
                 services:
                   app:
-                    image: nginx:latest
+                    image: ghcr.io/example/demo:latest
                 """,
             )
-            with self.assertRaises(ValueError):
+            with mock.patch("compose_to_template.resolve_image_reference", return_value="ghcr.io/example/demo:latest"):
+                index_path, _ = convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("demo"),
+                )
+
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"})
+            container = workload["spec"]["template"]["spec"]["containers"][0]
+            self.assertEqual("ghcr.io/example/demo:latest", container["image"])
+            self.assertEqual("ghcr.io/example/demo:latest", workload["metadata"]["annotations"]["originImageName"])
+
+    def test_rejects_untagged_image_reference(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: nginx
+                """,
+            )
+            with self.assertRaisesRegex(ValueError, "unpinned image"):
                 convert_compose_to_template(
                     compose_path=compose,
                     output_root=root / "template",
                     meta=self._meta("demo"),
                 )
+
+    def test_rejects_empty_image_tag(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: "nginx:"
+                """,
+            )
+            with self.assertRaisesRegex(ValueError, "unpinned image"):
+                convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("demo"),
+                )
+
+    def test_rejects_malformed_image_digest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: "nginx@sha256:abc"
+                """,
+            )
+            with self.assertRaisesRegex(ValueError, "unpinned image"):
+                convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("demo"),
+                )
+
+    def test_accepts_valid_image_digest(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            digest = "sha256:" + ("a" * 64)
+            image = f"nginx@{digest}"
+            write_file(
+                compose,
+                f"""
+                services:
+                  app:
+                    image: "{image}"
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"})
+            container = workload["spec"]["template"]["spec"]["containers"][0]
+            self.assertEqual(image, container["image"])
 
     def test_resolves_compose_image_default_expressions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1349,14 +1437,14 @@ class ComposeToTemplateTests(unittest.TestCase):
         )
         self.assertEqual("开源身份与访问管理平台，提供认证与授权能力。", zh_description)
 
-    def test_resolve_image_reference_promotes_floating_tag_to_precise_version(self):
-        image = "ghcr.io/example/demo:v2"
+    def test_resolve_image_reference_promotes_floating_latest_tag_to_precise_version(self):
+        image = "ghcr.io/example/demo:latest"
 
         def fake_run(command, capture_output=True, text=True):  # noqa: ANN001
-            if command[-2:] == ["digest", "ghcr.io/example/demo:v2"]:
+            if command[-2:] == ["digest", "ghcr.io/example/demo:latest"]:
                 return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
             if command[-2:] == ["ls", "ghcr.io/example/demo"]:
-                return CompletedProcess(command, 0, stdout="v2\nv2.2.0\nv2.1.9\n", stderr="")
+                return CompletedProcess(command, 0, stdout="latest\nv2.2.0\nv2.1.9\n", stderr="")
             if command[-2:] == ["digest", "ghcr.io/example/demo:v2.2.0"]:
                 return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
             if command[-2:] == ["digest", "ghcr.io/example/demo:v2.1.9"]:
@@ -1369,7 +1457,7 @@ class ComposeToTemplateTests(unittest.TestCase):
 
         self.assertEqual("ghcr.io/example/demo:v2.2.0", resolved)
 
-    def test_resolve_image_reference_falls_back_to_digest_when_no_precise_tag_matches(self):
+    def test_resolve_image_reference_falls_back_to_original_floating_tag_when_no_precise_tag_matches(self):
         image = "ghcr.io/example/demo:v2"
 
         def fake_run(command, capture_output=True, text=True):  # noqa: ANN001
@@ -1385,7 +1473,35 @@ class ComposeToTemplateTests(unittest.TestCase):
             with mock.patch("compose_to_template.subprocess.run", side_effect=fake_run):
                 resolved = resolve_image_reference(image)
 
-        self.assertEqual("ghcr.io/example/demo@sha256:abc", resolved)
+        self.assertEqual("ghcr.io/example/demo:v2", resolved)
+
+    def test_resolve_image_reference_falls_back_to_original_latest_tag_when_no_precise_tag_matches(self):
+        image = "ghcr.io/example/demo:latest"
+
+        def fake_run(command, capture_output=True, text=True):  # noqa: ANN001
+            if command[-2:] == ["digest", "ghcr.io/example/demo:latest"]:
+                return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
+            if command[-2:] == ["ls", "ghcr.io/example/demo"]:
+                return CompletedProcess(command, 0, stdout="latest\nv2.2.0\n", stderr="")
+            if command[-2:] == ["digest", "ghcr.io/example/demo:v2.2.0"]:
+                return CompletedProcess(command, 0, stdout="sha256:def\n", stderr="")
+            return CompletedProcess(command, 1, stdout="", stderr="unexpected command")
+
+        with mock.patch("compose_to_template.shutil.which", return_value="/usr/local/bin/crane"):
+            with mock.patch("compose_to_template.subprocess.run", side_effect=fake_run):
+                resolved = resolve_image_reference(image)
+
+        self.assertEqual("ghcr.io/example/demo:latest", resolved)
+
+    def test_resolve_image_reference_falls_back_to_original_explicit_floating_tag_without_crane(self):
+        image = "ghcr.io/example/demo:latest"
+
+        with mock.patch("compose_to_template.shutil.which", return_value=None):
+            with mock.patch("compose_to_template.subprocess.run") as run:
+                resolved = resolve_image_reference(image)
+
+        self.assertEqual(image, resolved)
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

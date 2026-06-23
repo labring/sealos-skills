@@ -19,6 +19,7 @@
 import fs from 'fs'
 import path from 'path'
 import { execSync } from 'child_process'
+import { pathToFileURL } from 'url'
 
 const BUILD_SIGNAL_RES = [
   /\bdocker\s+build\b/i,
@@ -93,6 +94,19 @@ function dedupeImages (images) {
   })
 }
 
+function isFloatingTag (tag) {
+  return (
+    tag === 'latest' ||
+    tag === 'stable' ||
+    tag === 'main' ||
+    tag === 'master' ||
+    tag === 'edge' ||
+    tag === 'nightly' ||
+    tag === 'dev' ||
+    /^v?\d+(?:\.\d+)?$/.test(tag)
+  )
+}
+
 function extractImageRefsFromText (text) {
   const images = []
 
@@ -100,9 +114,12 @@ function extractImageRefsFromText (text) {
     images.push({ registry: 'ghcr', owner: m[1], repo: m[2], tag: m[3] || null })
   }
 
-  for (const m of text.matchAll(/docker\s+(?:run|pull)\s+[^\n]*?(?:docker\.io\/)?([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)(?::([a-zA-Z0-9_.-]+))?/g)) {
-    if (m[1] === 'io') continue
-    images.push({ registry: 'dockerhub', owner: m[1], repo: m[2], tag: m[3] || null })
+  for (const m of text.matchAll(/docker\s+(?:run|pull)\s+([^\n]+)/g)) {
+    const commandTail = m[1]
+    for (const token of commandTail.split(/\s+/)) {
+      const ref = parseImageRef(token)
+      if (ref) images.push(ref)
+    }
   }
 
   for (const m of text.matchAll(/hub\.docker\.com\/r\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/g)) {
@@ -148,22 +165,35 @@ function extractDeploySections (content) {
 
 function collectReadmeFiles (workDir) {
   const files = []
+  const seen = new Set()
   const rootNames = ['README.md', 'readme.md', 'README.MD', 'Readme.md']
+
+  const pushFile = (file) => {
+    let key
+    try {
+      key = fs.realpathSync.native(file)
+    } catch {
+      key = path.resolve(file)
+    }
+    if (seen.has(key)) return
+    seen.add(key)
+    files.push(file)
+  }
 
   for (const name of rootNames) {
     const p = path.join(workDir, name)
-    if (fs.existsSync(p)) files.push(p)
+    if (fs.existsSync(p)) pushFile(p)
   }
 
   const docsDir = path.join(workDir, 'docs')
   if (fs.existsSync(docsDir)) {
-    walkDocs(docsDir, files)
+    walkDocs(docsDir, pushFile)
   }
 
-  return [...new Set(files)]
+  return files
 }
 
-function walkDocs (dir, out) {
+function walkDocs (dir, pushFile) {
   let entries
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true })
@@ -174,7 +204,7 @@ function walkDocs (dir, out) {
   for (const entry of entries) {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) {
-      walkDocs(full, out)
+      walkDocs(full, pushFile)
       continue
     }
     if (!entry.name.endsWith('.md')) continue
@@ -185,7 +215,7 @@ function walkDocs (dir, out) {
       lower.includes('deploy') ||
       lower.includes('docker')
     ) {
-      out.push(full)
+      pushFile(full)
     }
   }
 }
@@ -229,7 +259,7 @@ function analyzeReadmeDeployment (workDir) {
 
 // ── Docker Hub ─────────────────────────────────────────────
 
-async function checkDockerHub (namespace, repoName, preferredTag = null) {
+async function checkDockerHub (namespace, repoName, preferredTag = null, fallbackTag = null) {
   const url = `https://hub.docker.com/v2/namespaces/${namespace}/repositories/${repoName}/tags?page_size=10`
   try {
     const controller = new AbortController()
@@ -244,13 +274,16 @@ async function checkDockerHub (namespace, repoName, preferredTag = null) {
 
     const versionTagRe = /^v?\d+\.\d+/
 
-    if (preferredTag) {
-      const entry = data.results.find(e => e.name === preferredTag)
+    const priorityTags = [preferredTag, fallbackTag]
+      .filter((tag, index, tags) => tag && tags.indexOf(tag) === index)
+
+    for (const tag of priorityTags) {
+      const entry = data.results.find(e => e.name === tag)
       if (entry?.images?.some(img => img.architecture === 'amd64')) {
         const platforms = entry.images
           .map(img => `${img.os}/${img.architecture}`)
           .filter((v, i, a) => a.indexOf(v) === i)
-        return { source: 'dockerhub', image: `${namespace}/${repoName}`, tag: preferredTag, platforms }
+        return { source: 'dockerhub', image: `${namespace}/${repoName}`, tag, platforms }
       }
     }
 
@@ -277,7 +310,7 @@ async function checkDockerHub (namespace, repoName, preferredTag = null) {
 
 // ── GHCR ───────────────────────────────────────────────────
 
-async function checkGhcr (owner, repo, preferredTag = null) {
+async function checkGhcr (owner, repo, preferredTag = null, fallbackTag = null) {
   try {
     const tokenController = new AbortController()
     const tokenTimer = setTimeout(() => tokenController.abort(), 10000)
@@ -302,16 +335,7 @@ async function checkGhcr (owner, repo, preferredTag = null) {
     const { tags } = await tagsResp.json()
     if (!tags || tags.length === 0) return null
 
-    const versionTagRe = /^v?\d+\.\d+/
-    const ordered = preferredTag && tags.includes(preferredTag)
-      ? [preferredTag, ...tags.filter(t => t !== preferredTag)]
-      : [...tags].sort((a, b) => {
-        const aVer = versionTagRe.test(a) ? 1 : 0
-        const bVer = versionTagRe.test(b) ? 1 : 0
-        return bVer - aVer
-      })
-
-    for (const tag of ordered.slice(0, 5)) {
+    const verifyTag = async (tag) => {
       try {
         const mfController = new AbortController()
         const mfTimer = setTimeout(() => mfController.abort(), 10000)
@@ -327,7 +351,7 @@ async function checkGhcr (owner, repo, preferredTag = null) {
         )
         clearTimeout(mfTimer)
 
-        if (!mfResp.ok) continue
+        if (!mfResp.ok) return null
 
         const manifest = await mfResp.json()
         let platforms = []
@@ -336,15 +360,36 @@ async function checkGhcr (owner, repo, preferredTag = null) {
           platforms = manifest.manifests
             .filter(m => m.platform)
             .map(m => `${m.platform.os}/${m.platform.architecture}`)
-          if (!platforms.some(p => p.includes('amd64'))) continue
+          if (!platforms.some(p => p.includes('amd64'))) return null
         } else {
           platforms = ['linux/amd64']
         }
 
         return { source: 'ghcr', image: `ghcr.io/${owner}/${repo}`, tag, platforms }
       } catch {
-        continue
+        return null
       }
+    }
+
+    const priorityTags = [preferredTag, fallbackTag]
+      .filter((tag, index, candidates) => tag && candidates.indexOf(tag) === index)
+
+    for (const tag of priorityTags) {
+      if (!tags.includes(tag)) continue
+      const verified = await verifyTag(tag)
+      if (verified) return verified
+    }
+
+    const versionTagRe = /^v?\d+\.\d+/
+    const ordered = [...tags].sort((a, b) => {
+      const aVer = versionTagRe.test(a) ? 1 : 0
+      const bVer = versionTagRe.test(b) ? 1 : 0
+      return bVer - aVer
+    })
+
+    for (const tag of ordered.filter(t => !priorityTags.includes(t)).slice(0, 5)) {
+      const verified = await verifyTag(tag)
+      if (verified) return verified
     }
 
     return null
@@ -353,11 +398,13 @@ async function checkGhcr (owner, repo, preferredTag = null) {
   }
 }
 
-async function verifyImageRef (img) {
+async function verifyImageRef (img, preferredTag = null) {
+  const fallbackTag = img.tag && isFloatingTag(img.tag) ? img.tag : null
+  const tag = fallbackTag ? preferredTag || fallbackTag : img.tag
   if (img.registry === 'ghcr') {
-    return checkGhcr(img.owner, img.repo, img.tag)
+    return checkGhcr(img.owner, img.repo, tag, fallbackTag)
   }
-  return checkDockerHub(img.owner, img.repo, img.tag)
+  return checkDockerHub(img.owner, img.repo, tag, fallbackTag)
 }
 
 // ── Docker Compose Image Extraction ────────────────────────
@@ -601,9 +648,9 @@ function buildBuildRequiredResult (reason, evidence = [], deploymentMode = 'buil
   }
 }
 
-async function verifyCandidateList (candidates, source, evidence) {
+async function verifyCandidateList (candidates, source, evidence, preferredTag = null) {
   for (const img of candidates) {
-    const verified = await verifyImageRef(img)
+    const verified = await verifyImageRef(img, preferredTag)
     if (verified) {
       return buildReuseResult(verified, source, evidence)
     }
@@ -628,10 +675,13 @@ async function detectExistingImage (githubUrl, workDir) {
   // Stage A — README intent (local, no network)
   const readme = analyzeReadmeDeployment(workDir)
   evidence.push(...readme.evidence)
+  const packageHints = extractPackageHints(workDir)
+  evidence.push(...packageHints.evidence)
+  const preferredTag = packageHints.version
 
   // Stage B — evidence tiers: README > Release > CI > compose
   if (readme.images.length > 0) {
-    const result = await verifyCandidateList(readme.images, 'readme', evidence)
+    const result = await verifyCandidateList(readme.images, 'readme', evidence, preferredTag)
     if (result) return result
   }
 
@@ -663,9 +713,6 @@ async function detectExistingImage (githubUrl, workDir) {
     const result = await verifyCandidateList(workflowImages, 'ci-workflow', evidence)
     if (result) return result
   }
-
-  extractPackageHints(workDir).evidence.forEach(e => evidence.push(e))
-
   const composeImages = extractImagesFromCompose(workDir)
   if (composeImages.length > 0) {
     evidence.push({ source: 'compose', signal: `${composeImages.length} compose image reference(s)` })
@@ -720,6 +767,9 @@ async function detectWithoutGithubUrl (workDir) {
   const evidence = []
   const readme = analyzeReadmeDeployment(workDir)
   evidence.push(...readme.evidence)
+  const packageHints = extractPackageHints(workDir)
+  evidence.push(...packageHints.evidence)
+  const preferredTag = packageHints.version
 
   const releaseLocal = extractImagesFromLocalReleases(workDir)
   evidence.push(...releaseLocal.evidence)
@@ -733,7 +783,7 @@ async function detectWithoutGithubUrl (workDir) {
 
   for (const tier of tiers) {
     if (tier.images.length === 0) continue
-    const result = await verifyCandidateList(tier.images, tier.source, evidence)
+    const result = await verifyCandidateList(tier.images, tier.source, evidence, preferredTag)
     if (result) {
       result.source = `${result.source}-local`
       return result
@@ -761,27 +811,39 @@ function getGithubUrlFromGitRemote (dir) {
   return null
 }
 
+export { detectExistingImage, detectWithoutGithubUrl, extractImageRefsFromText, parseImageRef }
+
 // ── CLI ────────────────────────────────────────────────────
 
-const [, , arg1, arg2] = process.argv
-
-if (!arg1) {
-  console.error('Usage: node detect-image.mjs <github-url> [work-dir]')
-  console.error('       node detect-image.mjs <work-dir>')
-  process.exit(1)
+function isCliEntrypoint () {
+  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 }
 
-let githubUrl, workDir
-if (/^https?:\/\//.test(arg1) || arg1.startsWith('git@')) {
-  githubUrl = arg1
-  workDir = arg2 || '.'
-} else {
-  workDir = arg1
-  githubUrl = getGithubUrlFromGitRemote(workDir)
+async function main () {
+  const [, , arg1, arg2] = process.argv
+
+  if (!arg1) {
+    console.error('Usage: node detect-image.mjs <github-url> [work-dir]')
+    console.error('       node detect-image.mjs <work-dir>')
+    process.exit(1)
+  }
+
+  let githubUrl, workDir
+  if (/^https?:\/\//.test(arg1) || arg1.startsWith('git@')) {
+    githubUrl = arg1
+    workDir = arg2 || '.'
+  } else {
+    workDir = arg1
+    githubUrl = getGithubUrlFromGitRemote(workDir)
+  }
+
+  const result = githubUrl
+    ? await detectExistingImage(githubUrl, workDir)
+    : await detectWithoutGithubUrl(workDir)
+
+  console.log(JSON.stringify(result, null, 2))
 }
 
-const result = githubUrl
-  ? await detectExistingImage(githubUrl, workDir)
-  : await detectWithoutGithubUrl(workDir)
-
-console.log(JSON.stringify(result, null, 2))
+if (isCliEntrypoint()) {
+  await main()
+}

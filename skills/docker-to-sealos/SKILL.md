@@ -148,10 +148,10 @@ If validation fails, fix template/rules/examples first.
 
 ### Images and pull policy
 
-- Do not use `:latest`.
-- Resolve versions with `crane`: prefer an explicit version tag (for example `v2.2.0`), and fallback to digest pin only when a deterministic version tag is unavailable.
-- Avoid floating tags (for example `:v2`, `:2.1`, `:stable`); use an explicit version tag or digest.
-- Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag or digest before emitting template artifacts.
+- Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback.
+- Resolve versions with `crane`: prefer an explicit concrete version tag (for example `v2.2.0`); optionally use a digest when the source is already digest-pinned or when no explicit floating tag is available; if an explicit floating tag is provided and no matching concrete version can be verified, keep the explicit floating tag as fallback.
+- Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag, digest, or explicit floating fallback before emitting template artifacts.
+- Managed workload image references must not be untagged.
 - Application `originImageName` must match container image.
 - Public-image managed app workloads must omit `template.spec.imagePullSecrets`; private-registry workloads may reference only the app-scoped pull Secret `${{ defaults.app_name }}`.
 - The registry pull Secret is supplied by the active delivery workflow for private GHCR images. In this lite preview branch, `sealos-deploy` may inline an app-scoped pull Secret during template preparation; do not expose raw registry credential inputs in generated templates.

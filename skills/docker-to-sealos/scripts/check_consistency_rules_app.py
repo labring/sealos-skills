@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-from check_consistency_models import LATEST_IMAGE_PATTERN, TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation, YamlDocument
+from check_consistency_models import TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation, YamlDocument
 from check_consistency_helpers_violations import (
     add_doc_violation,
     check_managed_workload_setting,
@@ -37,9 +37,8 @@ TEMPLATE_REQUIRED_SPEC_FIELDS = {
     "i18n": dict,
     "categories": list,
 }
-FLOATING_TAG_ALIASES = {"latest", "stable", "main", "master", "edge", "nightly", "dev"}
-FLOATING_NUMERIC_TAG_RE = re.compile(r"^v?\d+(?:\.\d+)?$")
 COMPOSE_VAR_IN_IMAGE_RE = re.compile(r"\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)")
+IMAGE_SHA256_DIGEST_RE = re.compile(r"@sha256:[0-9a-fA-F]{64}$")
 ZH_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
 ALLOWED_TEMPLATE_CATEGORIES = {
     "tool",
@@ -173,87 +172,30 @@ def _extract_template_directory_name(path: Path) -> str:
     return parts[index + 1]
 
 
-def check_no_latest_tags(context: ScanContext) -> List[Violation]:
-    violations: List[Violation] = []
-    for doc in context.yaml_documents:
-        if doc.skip_checks:
-            continue
-        for line_no, line in enumerate(doc.source.splitlines(), start=doc.start_line):
-            if LATEST_IMAGE_PATTERN.search(line):
-                violations.append(
-                    Violation(
-                        rule_id="R001",
-                        path=doc.path,
-                        line=line_no,
-                        message="forbidden ':latest' image tag",
-                    )
-                )
-    return violations
+def _iter_managed_workload_image_values(doc: YamlDocument) -> Iterable[tuple[str, str]]:
+    metadata = doc.data.get("metadata") if isinstance(doc.data, dict) else None
+    annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+    origin_image = annotations.get("originImageName") if isinstance(annotations, dict) else None
+    if isinstance(origin_image, str) and origin_image.strip():
+        yield ("originImageName", origin_image.strip())
+
+    for container in iter_containers(doc.data):
+        image = container.get("image")
+        if isinstance(image, str) and image.strip():
+            yield ("image", image.strip())
 
 
-def _extract_image_tag(image: str) -> Optional[str]:
+def _image_reference_has_tag_or_digest(image: str) -> bool:
     text = image.strip()
-    if not text or "@sha256:" in text:
-        return None
-    without_digest = text.split("@", 1)[0]
-    last_segment = without_digest.rsplit("/", 1)[-1]
+    if not text:
+        return False
+    if "@" in text:
+        return IMAGE_SHA256_DIGEST_RE.search(text) is not None
+    last_segment = text.rsplit("/", 1)[-1]
     if ":" not in last_segment:
-        return None
-    return last_segment.rsplit(":", 1)[-1].strip()
-
-
-def _is_floating_tag(tag: str) -> bool:
-    normalized = tag.strip().lower()
-    if normalized in FLOATING_TAG_ALIASES:
-        return True
-    return FLOATING_NUMERIC_TAG_RE.fullmatch(normalized) is not None
-
-
-def check_no_floating_image_tags(context: ScanContext) -> List[Violation]:
-    violations: List[Violation] = []
-    for doc in context.yaml_documents:
-        if doc.skip_checks or not isinstance(doc.data, dict):
-            continue
-        if not is_app_workload_document(doc):
-            continue
-        if not has_managed_workload_marker(doc.data):
-            continue
-
-        metadata = doc.data.get("metadata")
-        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
-        origin_image = annotations.get("originImageName") if isinstance(annotations, dict) else None
-        values: List[tuple[str, str]] = []
-        if isinstance(origin_image, str) and origin_image.strip():
-            values.append(("originImageName", origin_image.strip()))
-
-        template_spec = get_template_spec(doc.data)
-        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
-        if isinstance(containers, list):
-            for container in containers:
-                if not isinstance(container, dict):
-                    continue
-                image = container.get("image")
-                if isinstance(image, str) and image.strip():
-                    values.append(("image", image.strip()))
-
-        for field_name, image_value in values:
-            tag = _extract_image_tag(image_value)
-            if tag is None or not _is_floating_tag(tag):
-                continue
-            pattern = r"originImageName" if field_name == "originImageName" else r"^\s*image\s*:"
-            add_doc_violation(
-                violations,
-                rule_id="R016",
-                doc=doc,
-                pattern=pattern,
-                default_pattern=r"^\s*metadata\s*:" if field_name == "originImageName" else r"^\s*containers\s*:",
-                message=(
-                    f"floating image tag '{tag}' is not allowed; "
-                    "use an explicit version tag (e.g. v2.2.0) or digest"
-                ),
-            )
-
-    return violations
+        return False
+    tag = last_segment.rsplit(":", 1)[-1]
+    return bool(tag)
 
 
 def check_no_compose_image_variables(context: ScanContext) -> List[Violation]:
@@ -266,24 +208,7 @@ def check_no_compose_image_variables(context: ScanContext) -> List[Violation]:
         if not has_managed_workload_marker(doc.data):
             continue
 
-        metadata = doc.data.get("metadata")
-        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
-        origin_image = annotations.get("originImageName") if isinstance(annotations, dict) else None
-        values: List[tuple[str, str]] = []
-        if isinstance(origin_image, str) and origin_image.strip():
-            values.append(("originImageName", origin_image.strip()))
-
-        template_spec = get_template_spec(doc.data)
-        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
-        if isinstance(containers, list):
-            for container in containers:
-                if not isinstance(container, dict):
-                    continue
-                image = container.get("image")
-                if isinstance(image, str) and image.strip():
-                    values.append(("image", image.strip()))
-
-        for field_name, image_value in values:
+        for field_name, image_value in _iter_managed_workload_image_values(doc):
             if COMPOSE_VAR_IN_IMAGE_RE.search(image_value) is None:
                 continue
             pattern = r"originImageName" if field_name == "originImageName" else r"^\s*image\s*:"
@@ -295,9 +220,35 @@ def check_no_compose_image_variables(context: ScanContext) -> List[Violation]:
                 default_pattern=r"^\s*metadata\s*:" if field_name == "originImageName" else r"^\s*containers\s*:",
                 message=(
                     "image references must be concrete and must not contain Compose-style variables; "
-                    "resolve to explicit tag or digest before emitting template artifacts"
+                    "resolve to explicit tag, digest, or explicit floating fallback before emitting template artifacts"
                 ),
             )
+    return violations
+
+
+def check_no_untagged_managed_workload_images(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if not is_app_workload_document(doc):
+            continue
+        if not has_managed_workload_marker(doc.data):
+            continue
+
+        for field_name, image_value in _iter_managed_workload_image_values(doc):
+            if _image_reference_has_tag_or_digest(image_value):
+                continue
+            pattern = r"originImageName" if field_name == "originImageName" else r"^\s*image\s*:"
+            add_doc_violation(
+                violations,
+                rule_id="R047",
+                doc=doc,
+                pattern=pattern,
+                default_pattern=r"^\s*metadata\s*:" if field_name == "originImageName" else r"^\s*containers\s*:",
+                message="managed workload image references must include an explicit tag or digest",
+            )
+
     return violations
 
 
@@ -2511,9 +2462,8 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
 
 
 APP_RULES: Dict[str, Rule] = {
-    "R001": Rule("R001", check_no_latest_tags),
-    "R016": Rule("R016", check_no_floating_image_tags),
     "R018": Rule("R018", check_no_compose_image_variables),
+    "R047": Rule("R047", check_no_untagged_managed_workload_images),
     "R002": Rule("R002", check_app_no_spec_template),
     "R003": Rule("R003", check_app_has_spec_data_url),
     "R032": Rule("R032", check_app_display_type_normal),
