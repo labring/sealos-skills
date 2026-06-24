@@ -991,6 +991,93 @@ class CheckConsistencyTests(unittest.TestCase):
         r018_violations = [item for item in violations if item.rule_id == "R018"]
         self.assertEqual(2, len(r018_violations))
 
+    def test_detects_compose_image_variables_in_init_container(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: ghcr.io/example/demo:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  initContainers:
+                    - name: init-demo
+                      image: ${INIT_IMAGE:-busybox:1.36}
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/demo:1.0.0
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R018" for item in violations))
+
+    def test_detects_untagged_image_in_init_container(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: ghcr.io/example/demo:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  initContainers:
+                    - name: init-demo
+                      image: busybox
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/demo:1.0.0
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R018" for item in violations))
+
+    def test_detects_floating_tag_in_init_container(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: ghcr.io/example/demo:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  initContainers:
+                    - name: init-demo
+                      image: busybox:stable
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/demo:1.0.0
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R016" for item in violations))
+
     def test_detects_service_ports_missing_names_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

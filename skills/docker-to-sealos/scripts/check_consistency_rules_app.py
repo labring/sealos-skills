@@ -216,6 +216,21 @@ def _is_floating_tag(tag: str) -> bool:
     return FLOATING_NUMERIC_TAG_RE.fullmatch(normalized) is not None
 
 
+def _collect_managed_workload_image_values(doc: YamlDocument) -> List[tuple[str, str]]:
+    metadata = doc.data.get("metadata")
+    annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+    origin_image = annotations.get("originImageName") if isinstance(annotations, dict) else None
+    values: List[tuple[str, str]] = []
+    if isinstance(origin_image, str) and origin_image.strip():
+        values.append(("originImageName", origin_image.strip()))
+
+    for container in iter_containers(doc.data):
+        image = container.get("image")
+        if isinstance(image, str) and image.strip():
+            values.append(("image", image.strip()))
+    return values
+
+
 def check_no_floating_image_tags(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in context.yaml_documents:
@@ -226,24 +241,7 @@ def check_no_floating_image_tags(context: ScanContext) -> List[Violation]:
         if not has_managed_workload_marker(doc.data):
             continue
 
-        metadata = doc.data.get("metadata")
-        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
-        origin_image = annotations.get("originImageName") if isinstance(annotations, dict) else None
-        values: List[tuple[str, str]] = []
-        if isinstance(origin_image, str) and origin_image.strip():
-            values.append(("originImageName", origin_image.strip()))
-
-        template_spec = get_template_spec(doc.data)
-        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
-        if isinstance(containers, list):
-            for container in containers:
-                if not isinstance(container, dict):
-                    continue
-                image = container.get("image")
-                if isinstance(image, str) and image.strip():
-                    values.append(("image", image.strip()))
-
-        for field_name, image_value in values:
+        for field_name, image_value in _collect_managed_workload_image_values(doc):
             tag = _extract_image_tag(image_value)
             if tag is None or not _is_floating_tag(tag):
                 continue
@@ -273,24 +271,7 @@ def check_managed_workload_images_are_concrete(context: ScanContext) -> List[Vio
         if not has_managed_workload_marker(doc.data):
             continue
 
-        metadata = doc.data.get("metadata")
-        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
-        origin_image = annotations.get("originImageName") if isinstance(annotations, dict) else None
-        values: List[tuple[str, str]] = []
-        if isinstance(origin_image, str) and origin_image.strip():
-            values.append(("originImageName", origin_image.strip()))
-
-        template_spec = get_template_spec(doc.data)
-        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
-        if isinstance(containers, list):
-            for container in containers:
-                if not isinstance(container, dict):
-                    continue
-                image = container.get("image")
-                if isinstance(image, str) and image.strip():
-                    values.append(("image", image.strip()))
-
-        for field_name, image_value in values:
+        for field_name, image_value in _collect_managed_workload_image_values(doc):
             has_compose_variable = COMPOSE_VAR_IN_IMAGE_RE.search(image_value) is not None
             is_untagged = _extract_image_tag(image_value) is None and not _is_digest_image_reference(image_value)
             if not has_compose_variable and not is_untagged:
