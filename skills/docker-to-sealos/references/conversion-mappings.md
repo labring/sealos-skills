@@ -111,7 +111,7 @@ spec:
 
 Notes:
 - Omit `imagePullSecrets` for public images. For private-registry images, reference only the app-scoped image pull Secret `${{ defaults.app_name }}`.
-- `sealos-deploy` should create or refresh that Secret automatically from local `gh` CLI credentials when deploying private GHCR images.
+- The referenced Secret must be supplied later by a prepare, handoff, or operator path before the workload is applied.
 - Reusable templates should not expose raw registry credential inputs as user-facing form fields.
 
 ## Port Mapping

@@ -154,7 +154,7 @@ If validation fails, fix template/rules/examples first.
 - Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag or digest before emitting template artifacts.
 - Application `originImageName` must match container image.
 - Public-image managed app workloads must omit `template.spec.imagePullSecrets`; private-registry workloads may reference only the app-scoped pull Secret `${{ defaults.app_name }}`.
-- The registry pull Secret is runtime-managed by `sealos-deploy` using local `gh` CLI credentials for private GHCR images; do not expose raw registry credential inputs in generated templates.
+- Reusable templates must not expose raw registry credential inputs as user-facing form fields; any app-scoped pull Secret referenced for private-registry images must be supplied later by a prepare, handoff, or operator path.
 - All containers must explicitly set `imagePullPolicy: IfNotPresent`.
 
 ### Storage
@@ -259,7 +259,7 @@ Run all checks before final response:
 6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml`
 7. `python scripts/check_must_coverage.py --skill SKILL.md --mapping references/must-rules-map.yaml --rules-file references/rules-registry.yaml`
 8. (CI / one-shot) `python scripts/quality_gate.py` (requires `template/*/index.yaml` by default; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
-9. Live deploy acceptance: after `sealos-deploy` creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, expected database objects, and full resource footprint before reporting success.
+9. Downstream live validation, when a later workflow applies the generated template, should verify the actual App URL, login/setup flow for web apps, recent logs, expected database objects, and full resource footprint before reporting runtime success.
 
 `check_consistency.py` is registry-driven. Keep `references/rules-registry.yaml` in sync with implemented rules.
 Registry rule entries support `severity` and optional `scope.include_paths` metadata.

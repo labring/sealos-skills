@@ -876,8 +876,8 @@ All application Deployments or StatefulSets must include the following configura
 Recommended registry pull Secret model:
 
 - Public-image managed workloads omit `imagePullSecrets`
-- For private GHCR images, `sealos-deploy` creates or refreshes `${{ defaults.app_name }}` from local `gh` CLI credentials and the workload may reference it through `imagePullSecrets`
-- If a private-registry template is deployed outside `sealos-deploy`, the operator must create the Secret manually before applying the workload
+- Private-registry workloads may reference only the app-scoped pull Secret `${{ defaults.app_name }}` through `imagePullSecrets`
+- The referenced Secret must be supplied later by a prepare, handoff, or operator path before the workload is applied
 
 ```yaml
 apiVersion: apps/v1
