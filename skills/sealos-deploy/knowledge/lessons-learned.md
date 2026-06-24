@@ -194,3 +194,24 @@ runtime_truth:
   - "Login smoke uses the exact admin username/password collected during deploy"
   - "Password values are masked in logs, summaries, and final output"
 ```
+
+### Multi-Component Runtime Bundle Drift (Prevents Post-Login Route Mismatch)
+
+```yaml
+detection:
+  trigger:
+    - "Login or registration succeeds, then the browser lands on a 404/route mismatch page"
+    - "Browser network logs show API route 404/5xx after authentication"
+
+  root_causes:
+    - "Console/frontend image comes from a different official release than the API image"
+    - "An official frontend/console service was omitted from the deployed topology"
+    - "Ingress or gateway routes do not cover the official public entry paths"
+    - "Public URL or endpoint env/config no longer matches the exposed route"
+
+fixes:
+  preferred:
+    - "Lock API, console/frontend, workers, realtime, and gateway components to one official compose/release source"
+    - "Expose each official public entry path through the matching Service and Ingress rule"
+    - "Verify login with final URL, page title, visible authenticated content, network 4xx/5xx list, and backend route logs"
+```

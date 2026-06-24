@@ -29,6 +29,54 @@ When the official Kubernetes method conflicts with Compose:
 - For all other application behavior, default to aligning with the official Kubernetes method
 - Record key decisions in the output (only record items with ambiguity)
 
+## Runtime Bundle Consistency
+
+When official compose/docs define multiple cooperating runtime services, treat the service set as a single versioned runtime bundle. Use one official release, compose file, or docs artifact as the evidence source for API, frontend/console, worker, realtime, gateway, and other required components.
+
+Do not upgrade one bundle component independently. Keep component image tags, public entry routes, and critical env vars aligned with the same evidence source.
+
+Record the evidence contract in a separate validator-only YAML file, such as `.sealos/runtime-bundle-evidence.yaml`. Do not write this evidence into `template/<app>/index.yaml`.
+
+```yaml
+apiVersion: docker-to-sealos/v1
+kind: RuntimeBundleEvidence
+metadata:
+  name: demo-runtime-bundle
+spec:
+  appName: demo
+  source: https://example.com/releases/v1/docker-compose.yml
+  images:
+    - ghcr.io/example/api:1.0.0
+    - ghcr.io/example/console:1.0.0
+  components:
+    - ${{ defaults.app_name }}
+    - ${{ defaults.app_name }}-console
+  routes:
+    - path: /
+      service: ${{ defaults.app_name }}
+    - path: /console
+      service: ${{ defaults.app_name }}-console
+  env:
+    - PUBLIC_ENDPOINT
+```
+
+Evidence contract:
+
+- `spec.appName`: Template `metadata.name` that this evidence validates.
+- `spec.source`: official compose/docs/release artifact URL or identifier.
+- `spec.images`: exact image refs expected from that source.
+- `spec.components`: workload names that must be emitted as managed app workloads.
+- `spec.routes`: `path` plus `service` entries that must appear in Service and Ingress resources.
+- `spec.env`: critical env var names that must remain present on managed workloads.
+
+Run validation with both files included:
+
+```bash
+python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/demo/index.yaml,.sealos/runtime-bundle-evidence.yaml
+```
+
+For web consoles or frontends, keep the official public entry path reachable through an explicit Service and Ingress rule. A frontend/console component may be merged into the API workload only when the official image embeds that entry and runtime validation proves the route works after login.
+
 ## Core Concept Mapping
 
 ### Docker Compose Service → Sealos Resources

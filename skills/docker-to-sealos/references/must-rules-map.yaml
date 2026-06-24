@@ -136,6 +136,14 @@ must_rules:
     enforcement:
       type: manual
       note: "Conflict resolution depends on semantic comparison plus platform/security guardrails."
+  - must: "When official compose/docs provide a multi-component runtime bundle, template artifacts must preserve runtime-required components, public entry routes, critical env vars, and image versions from the same official release/compose source."
+    enforcement:
+      type: rule
+      target: R046
+  - must: "Templates using official multi-component runtime evidence must provide a separate `RuntimeBundleEvidence` YAML file during validation, while final Sealos Template artifacts stay free of runtime-bundle validator metadata."
+    enforcement:
+      type: rule
+      target: R046
   - must: "Do not use `:latest`."
     enforcement:
       type: rule
