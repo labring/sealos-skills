@@ -195,6 +195,29 @@ def is_mongodb_service_port(value: str) -> bool:
     return value.strip() == "27017"
 
 
+def is_mongodb_host_from_env(
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    resolved = resolve_env_value(env_item.get("value"), env_items_by_name)
+    return isinstance(resolved, str) and is_mongodb_service_host(resolved)
+
+
+def is_mongodb_port_from_env(
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    resolved = resolve_env_value(env_item.get("value"), env_items_by_name)
+    return isinstance(resolved, str) and is_mongodb_service_port(resolved)
+
+
+def has_mongodb_service_host_env(env_items_by_name: Dict[str, Dict[str, object]]) -> bool:
+    for item in env_items_by_name.values():
+        if is_mongodb_host_from_env(item, env_items_by_name):
+            return True
+    return False
+
+
 def is_redis_host_from_env(
     env_item: Dict[str, object],
     env_items_by_name: Dict[str, Dict[str, object]],
@@ -369,6 +392,26 @@ def is_allowed_redis_service_env(
     return False
 
 
+def is_allowed_mongodb_service_env(
+    env_name: str,
+    expected_key: str,
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    normalized = normalize_env_name(env_name)
+    is_mongodb_named = "MONGO" in normalized
+
+    if expected_key == "host":
+        return is_mongodb_host_from_env(env_item, env_items_by_name)
+    if expected_key == "port":
+        return is_mongodb_port_from_env(env_item, env_items_by_name) and (
+            is_mongodb_named or has_mongodb_service_host_env(env_items_by_name)
+        )
+    if expected_key == "endpoint":
+        return is_composed_mongodb_endpoint_from_service(env_item, env_items_by_name)
+    return False
+
+
 def _find_secret_ref_line(doc, source: str, secret_name: str, env_name: Optional[str]) -> int:
     if source == "env" and isinstance(env_name, str):
         return find_line(doc, rf"^\s*-\s*name\s*:\s*{re.escape(env_name)}\s*$")
@@ -477,6 +520,8 @@ def check_db_connection_env_secret_requirements(context: ScanContext) -> List[Vi
                 secret_ref = extract_secret_ref(env_item)
                 if secret_ref is None:
                     if is_allowed_redis_service_env(env_name, expected_key, env_item, env_items_by_name):
+                        continue
+                    if is_allowed_mongodb_service_env(env_name, expected_key, env_item, env_items_by_name):
                         continue
                     if expected_key == "endpoint" and is_composed_mongodb_endpoint_from_service(
                         env_item, env_items_by_name

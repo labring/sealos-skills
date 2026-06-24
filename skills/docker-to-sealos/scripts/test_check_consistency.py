@@ -2943,6 +2943,53 @@ __MOUNTS__
         self.assertFalse(any(item.rule_id == "R007" for item in violations))
         self.assertFalse(any(item.rule_id == "R017" for item in violations))
 
+    def test_allows_mongodb_service_host_port_with_credential_secret(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  initContainers:
+                    - name: wait-for-data-store
+                      image: busybox:1.36.1
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: MONGO_HOST
+                          value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+                        - name: MONGO_PORT
+                          value: "27017"
+                  containers:
+                    - name: demo
+                      image: appwrite/appwrite:1.9.0
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: _APP_DB_ADAPTER
+                          value: mongodb
+                        - name: _APP_DB_HOST
+                          value: ${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local
+                        - name: _APP_DB_PORT
+                          value: "27017"
+                        - name: _APP_DB_USER
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                              key: username
+                        - name: _APP_DB_PASS
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-mongo-mongodb-account-root
+                              key: password
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R007" for item in violations))
+        self.assertFalse(any(item.rule_id == "R017" for item in violations))
+
     def test_ignores_known_non_database_connection_env_names(self):
         violations = self.run_checker(
             """
