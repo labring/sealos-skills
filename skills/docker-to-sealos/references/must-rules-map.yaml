@@ -63,7 +63,7 @@ must_rules:
   - must: "SSR/Next.js/React server apps must not use a path that renders a server-side exception as the App URL or HTTP probe. Treat visible `Application error`, `server-side exception`, `Internal Server Error`, or `Unhandled Runtime Error` text as a failed entry path even if the HTTP status is 2xx/3xx."
     enforcement:
       type: manual
-      note: "Requires HTTP body/runtime smoke inspection from the downstream deployment workflow."
+      note: "Requires HTTP body/runtime smoke inspection, covered by sealos-live-smoke failure signals."
   - must: "Never use `spec.template` in App resource."
     enforcement:
       type: rule
@@ -140,22 +140,22 @@ must_rules:
     enforcement:
       type: manual
       note: "Conflict resolution depends on semantic comparison plus platform/security guardrails."
-  - must: "Prefer explicit version tags for image references; when no matching concrete version can be verified, an explicit floating tag may be used as fallback."
+  - must: "Do not use `:latest`."
     enforcement:
-      type: manual
-      note: "Requires live image resolution behavior and package/registry metadata, not derivable from static snippets alone."
-  - must: "Resolve versions with `crane`: prefer an explicit concrete version tag (for example `v2.2.0`); optionally use a digest when the source is already digest-pinned or when no explicit floating tag is available; if an explicit floating tag is provided and no matching concrete version can be verified, keep the explicit floating tag as fallback."
+      type: rule
+      target: R001
+  - must: "Resolve versions with `crane`: prefer an explicit version tag (for example `v2.2.0`), and fallback to digest pin only when a deterministic version tag is unavailable."
     enforcement:
       type: manual
       note: "Requires live image resolution behavior, not derivable from static snippets alone."
-  - must: "Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag, digest, or explicit floating fallback before emitting template artifacts."
+  - must: "Avoid floating tags (for example `:v2`, `:2.1`, `:stable`); use an explicit version tag or digest."
+    enforcement:
+      type: rule
+      target: R016
+  - must: "Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag or digest before emitting template artifacts."
     enforcement:
       type: rule
       target: R018
-  - must: "Managed workload image references must not be untagged."
-    enforcement:
-      type: rule
-      target: R047
   - must: "Application `originImageName` must match container image."
     enforcement:
       type: rule
@@ -164,7 +164,7 @@ must_rules:
     enforcement:
       type: rule
       target: R035
-  - must: "The registry pull Secret is supplied by the active delivery workflow for private GHCR images. In this lite preview branch, `sealos-deploy` may inline an app-scoped pull Secret during template preparation; do not expose raw registry credential inputs in generated templates."
+  - must: "The registry pull Secret is runtime-managed by `sealos-deploy` using local `gh` CLI credentials for private GHCR images; do not expose raw registry credential inputs in generated templates."
     enforcement:
       type: manual
       note: "Requires deploy-path behavior that cannot be validated from static template snippets alone."

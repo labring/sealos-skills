@@ -91,7 +91,6 @@ EXPLICIT_VERSION_TAG_RE = re.compile(
 )
 FLOATING_NUMERIC_TAG_RE = re.compile(r"^v?\d+(?:\.\d+)?$")
 FLOATING_ALIAS_TAGS = {"latest", "stable", "main", "master", "edge", "nightly", "dev"}
-SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9A-Fa-f]{64}$")
 COMPOSE_BRACED_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 COMPOSE_SIMPLE_VAR_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 SEALOS_CPU_REQUEST_BY_LIMIT = {
@@ -415,13 +414,20 @@ def has_pinned_image(image: str) -> bool:
     text = image.strip()
     if not text:
         return False
-    if "@" in text:
-        repository, _, digest = split_image_reference(text)
-        return bool(repository and digest and SHA256_DIGEST_RE.fullmatch(digest))
-    last_segment = text.rsplit("/", 1)[-1]
+    if "@sha256:" in text:
+        return True
+    without_digest = text.split("@", 1)[0]
+    last_segment = without_digest.rsplit("/", 1)[-1]
+    return ":" in last_segment
+
+
+def is_latest_image(image: str) -> bool:
+    without_digest = image.strip().split("@", 1)[0]
+    last_segment = without_digest.rsplit("/", 1)[-1]
     if ":" not in last_segment:
         return False
-    return bool(last_segment.rsplit(":", 1)[-1])
+    tag = last_segment.rsplit(":", 1)[-1].lower()
+    return tag == "latest"
 
 
 def split_image_reference(image: str) -> Tuple[str, Optional[str], Optional[str]]:
@@ -496,6 +502,8 @@ def resolve_image_reference(
         return image.strip()
     if not repository or not tag:
         return image.strip()
+    if is_latest_image(image):
+        return image.strip()
     if is_explicit_version_tag(tag):
         return image.strip()
     if not is_floating_tag(tag):
@@ -503,10 +511,7 @@ def resolve_image_reference(
 
     digest_cache = digest_cache if digest_cache is not None else {}
     tag_cache = tag_cache if tag_cache is not None else {}
-    try:
-        crane_bin = require_crane_binary()
-    except ValueError:
-        return image.strip()
+    crane_bin = require_crane_binary()
 
     source_image = f"{repository}:{tag}"
     source_digest = digest_cache.get(source_image)
@@ -538,7 +543,7 @@ def resolve_image_reference(
         best_tag = select_best_version_tag(matched_tags)
         return f"{repository}:{best_tag}"
 
-    return image.strip()
+    return f"{repository}@{source_digest}"
 
 
 def detect_db_type(image: str) -> Optional[str]:
@@ -2387,6 +2392,8 @@ def validate_images(compose_data: Mapping[str, Any]) -> Dict[str, str]:
             raise ValueError(f"service {service_name!r} must define image")
         normalized = normalize_image_reference(image, service_name)
         normalized_images[service_name] = normalized
+        if is_latest_image(normalized):
+            raise ValueError(f"service {service_name!r} uses forbidden ':latest' tag")
         if not has_pinned_image(normalized):
             raise ValueError(
                 f"service {service_name!r} uses unpinned image {normalized!r}; provide a fixed tag or digest"

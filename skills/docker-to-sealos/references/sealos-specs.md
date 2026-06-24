@@ -517,7 +517,7 @@ spec:
    - `${{ defaults.app_name }}-ml`
    - `${{ defaults.app_name }}-redis`
 5. Application Service must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and `metadata.name`, both labels, and `spec.selector.app` must be exactly the same
-6. Application Service `spec.ports[*].port` and `spec.ports[*].targetPort` must be numeric values from 1 to 65535. Do not use named `targetPort` values in Sealos template artifacts.
+6. Service `spec.ports[*].port` and `spec.ports[*].targetPort` must both be explicit numeric values between 1 and 65535; do not use named `targetPort` values in Sealos template artifacts.
 7. Runtime component-level ConfigMap must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and both must be consistent with `metadata.name`; ConfigMaps used only by init containers to copy initial config into persistent storage must not include either label
 8. Root-path Ingress rules (`pathType: Prefix`, `path: /`) must keep `metadata.name` consistent with `metadata.labels.cloud.sealos.io/app-deploy-manager` and backend `service.name`; non-root or non-Prefix Ingress rules may use a distinct Ingress name and backend service
 
@@ -876,7 +876,7 @@ All application Deployments or StatefulSets must include the following configura
 Recommended registry pull Secret model:
 
 - Public-image managed workloads omit `imagePullSecrets`
-- For private GHCR images, the active delivery workflow creates, refreshes, or inlines `${{ defaults.app_name }}` and the workload may reference it through `imagePullSecrets`
+- For private GHCR images, `sealos-deploy` creates or refreshes `${{ defaults.app_name }}` from local `gh` CLI credentials and the workload may reference it through `imagePullSecrets`
 - If a private-registry template is deployed outside `sealos-deploy`, the operator must create the Secret manually before applying the workload
 
 ```yaml

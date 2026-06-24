@@ -7,11 +7,14 @@ scope:
     - references/database-templates.md
     - references/example-guide.md
 rules:
+  - id: R001
+    description: Disallow :latest tags in image/originImageName fields.
+    severity: error
+  - id: R016
+    description: Disallow floating image tags (for example v2, 2.1, stable) on managed app workloads.
+    severity: error
   - id: R018
     description: Disallow Compose-style variable expressions in managed workload image/originImageName fields.
-    severity: error
-  - id: R047
-    description: Disallow untagged managed workload image/originImageName fields.
     severity: error
   - id: R002
     description: App resources must not use spec.template.
