@@ -202,6 +202,10 @@ def _extract_image_tag(image: str) -> Optional[str]:
     return last_segment.rsplit(":", 1)[-1].strip()
 
 
+def _is_digest_image_reference(image: str) -> bool:
+    return re.search(r"@sha256:[0-9a-fA-F]{64}$", image.strip()) is not None
+
+
 def _is_floating_tag(tag: str) -> bool:
     normalized = tag.strip().lower()
     if normalized in FLOATING_TAG_ALIASES:
@@ -256,7 +260,7 @@ def check_no_floating_image_tags(context: ScanContext) -> List[Violation]:
     return violations
 
 
-def check_no_compose_image_variables(context: ScanContext) -> List[Violation]:
+def check_managed_workload_images_are_concrete(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in context.yaml_documents:
         if doc.skip_checks or not isinstance(doc.data, dict):
@@ -284,19 +288,28 @@ def check_no_compose_image_variables(context: ScanContext) -> List[Violation]:
                     values.append(("image", image.strip()))
 
         for field_name, image_value in values:
-            if COMPOSE_VAR_IN_IMAGE_RE.search(image_value) is None:
+            has_compose_variable = COMPOSE_VAR_IN_IMAGE_RE.search(image_value) is not None
+            is_untagged = _extract_image_tag(image_value) is None and not _is_digest_image_reference(image_value)
+            if not has_compose_variable and not is_untagged:
                 continue
             pattern = r"originImageName" if field_name == "originImageName" else r"^\s*image\s*:"
+            if has_compose_variable:
+                message = (
+                    "image references must be concrete and must not contain Compose-style variables; "
+                    "resolve to explicit tag or digest before emitting template artifacts"
+                )
+            else:
+                message = (
+                    "image references must be concrete; use an explicit version tag "
+                    "(e.g. nginx:1.27.2) or digest"
+                )
             add_doc_violation(
                 violations,
                 rule_id="R018",
                 doc=doc,
                 pattern=pattern,
                 default_pattern=r"^\s*metadata\s*:" if field_name == "originImageName" else r"^\s*containers\s*:",
-                message=(
-                    "image references must be concrete and must not contain Compose-style variables; "
-                    "resolve to explicit tag or digest before emitting template artifacts"
-                ),
+                message=message,
             )
     return violations
 
@@ -2559,7 +2572,7 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
 APP_RULES: Dict[str, Rule] = {
     "R001": Rule("R001", check_no_latest_tags),
     "R016": Rule("R016", check_no_floating_image_tags),
-    "R018": Rule("R018", check_no_compose_image_variables),
+    "R018": Rule("R018", check_managed_workload_images_are_concrete),
     "R002": Rule("R002", check_app_no_spec_template),
     "R003": Rule("R003", check_app_has_spec_data_url),
     "R032": Rule("R032", check_app_display_type_normal),

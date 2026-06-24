@@ -881,6 +881,34 @@ class CheckConsistencyTests(unittest.TestCase):
             """
         )
         self.assertFalse(any(item.rule_id == "R016" for item in violations))
+        self.assertFalse(any(item.rule_id == "R018" for item in violations))
+
+    def test_allows_digest_reference_for_managed_workload(self):
+        digest = "a" * 64
+        violations = self.run_checker(
+            f"""
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: nginx@sha256:{digest}
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx@sha256:{digest}
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R018" for item in violations))
 
     def test_detects_compose_image_variables_for_managed_workload(self):
         violations = self.run_checker(
@@ -907,6 +935,33 @@ class CheckConsistencyTests(unittest.TestCase):
             """
         )
         self.assertTrue(any(item.rule_id == "R018" for item in violations))
+
+    def test_detects_untagged_images_for_managed_workload(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: nginx
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        r018_violations = [item for item in violations if item.rule_id == "R018"]
+        self.assertEqual(2, len(r018_violations))
 
     def test_detects_service_ports_missing_names_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
