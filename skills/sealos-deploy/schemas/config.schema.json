@@ -9,6 +9,16 @@
       "type": "string",
       "minLength": 1
     },
+    "default_target_registry": {
+      "type": "string",
+      "enum": [
+        "ghcr.io"
+      ]
+    },
+    "default_image_tag_prefix": {
+      "type": "string",
+      "minLength": 1
+    },
     "port": {
       "type": "integer",
       "minimum": 1,
