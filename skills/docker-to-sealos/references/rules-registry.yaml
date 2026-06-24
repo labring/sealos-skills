@@ -14,7 +14,7 @@ rules:
     description: Disallow floating image tags (for example v2, 2.1, stable) on managed app workloads.
     severity: error
   - id: R018
-    description: Disallow Compose-style variable expressions in managed workload image/originImageName fields.
+    description: Require concrete tagged or digest managed workload images and disallow Compose-style variables in image/originImageName fields.
     severity: error
   - id: R002
     description: App resources must not use spec.template.

@@ -203,7 +203,10 @@ def _extract_image_tag(image: str) -> Optional[str]:
 
 
 def _is_digest_image_reference(image: str) -> bool:
-    return re.search(r"@sha256:[0-9a-fA-F]{64}$", image.strip()) is not None
+    repository, separator, digest = image.strip().partition("@")
+    if not separator or not repository:
+        return False
+    return re.fullmatch(r"sha256:[0-9a-fA-F]{64}", digest) is not None
 
 
 def _is_floating_tag(tag: str) -> bool:
