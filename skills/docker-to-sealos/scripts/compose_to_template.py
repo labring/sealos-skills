@@ -74,6 +74,7 @@ OBJECT_STORAGE_BUCKET_ENV_NAME = "S3_BUCKET"
 TEMPLATE_DEPLOY_KEY = "cloud.sealos.io/deploy-on-sealos"
 COMPOSE_REFERENCE_RE = re.compile(r"\$\{[^}]+\}")
 INVALID_NAME_RE = re.compile(r"[^a-z0-9]+")
+SHA256_DIGEST_RE = re.compile(r"sha256:[0-9a-fA-F]{64}")
 MODE_SUFFIXES = {"ro", "rw", "z", "Z", "cached", "delegated", "consistent"}
 TLS_TERMINATION_PORT = 443
 TLS_CERT_DIR_NAMES = {"ssl", "cert", "certs", "tls"}
@@ -414,11 +415,13 @@ def has_pinned_image(image: str) -> bool:
     text = image.strip()
     if not text:
         return False
-    if "@sha256:" in text:
-        return True
-    without_digest = text.split("@", 1)[0]
-    last_segment = without_digest.rsplit("/", 1)[-1]
-    return ":" in last_segment
+    if "@" in text:
+        repository, _, digest = split_image_reference(text)
+        return bool(repository and digest and SHA256_DIGEST_RE.fullmatch(digest))
+    last_segment = text.rsplit("/", 1)[-1]
+    if ":" not in last_segment:
+        return False
+    return bool(last_segment.rsplit(":", 1)[-1])
 
 
 def is_latest_image(image: str) -> bool:

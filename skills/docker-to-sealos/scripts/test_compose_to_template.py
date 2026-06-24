@@ -18,6 +18,7 @@ from compose_to_template import (
     build_zh_description,
     convert_compose_to_template,
     find_svgl_logo_url,
+    has_pinned_image,
     infer_metadata,
     parse_args,
     resolve_image_reference,
@@ -830,6 +831,29 @@ class ComposeToTemplateTests(unittest.TestCase):
                     output_root=root / "template",
                     meta=self._meta("demo"),
                 )
+
+    def test_has_pinned_image_rejects_empty_tag_and_malformed_digests(self):
+        invalid_images = [
+            "",
+            "   ",
+            "nginx:",
+            "nginx@sha256:abc",
+            "repo/app:1.0@sha256:abc",
+        ]
+        for image in invalid_images:
+            with self.subTest(image=image):
+                self.assertFalse(has_pinned_image(image))
+
+    def test_has_pinned_image_accepts_fixed_tag_or_sha256_digest(self):
+        valid_digest = "sha256:" + ("a" * 64)
+        valid_images = [
+            "nginx:1.27.2",
+            f"nginx@{valid_digest}",
+            f"repo/app:1.0@{valid_digest}",
+        ]
+        for image in valid_images:
+            with self.subTest(image=image):
+                self.assertTrue(has_pinned_image(image))
 
     def test_resolves_compose_image_default_expressions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
