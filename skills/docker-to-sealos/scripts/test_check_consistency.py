@@ -1087,6 +1087,58 @@ class CheckConsistencyTests(unittest.TestCase):
             self.assertIn("targetPort", line)
             self.assertIn('"8080"', line)
 
+    def test_reports_duplicate_named_target_ports_on_distinct_lines(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: v1
+                kind: Service
+                metadata:
+                  name: demo
+                  labels:
+                    app: demo
+                    cloud.sealos.io/app-deploy-manager: demo
+                spec:
+                  ports:
+                    - name: a
+                      port: 8080
+                      targetPort: http
+                      protocol: TCP
+                    - name: b
+                      port: 8081
+                      targetPort: http
+                      protocol: TCP
+                  selector:
+                    app: demo
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            r046 = [item for item in violations if item.rule_id == "R046"]
+            self.assertEqual(2, len(r046))
+            self.assertEqual(2, len({item.line for item in r046}))
+            lines = artifact_file.read_text(encoding="utf-8").splitlines()
+            for item in r046:
+                line = lines[item.line - 1]
+                self.assertIn("targetPort", line)
+                self.assertIn("http", line)
+
     def test_detects_service_zero_port_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

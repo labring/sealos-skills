@@ -824,6 +824,18 @@ def _service_port_value_pattern(field: str, value: Any) -> str:
     return rf"^\s*{re.escape(field)}\s*:\s*{quote}{value_text}{quote}\s*$"
 
 
+def _find_nth_service_port_line(doc: YamlDocument, pattern: str, occurrence_index: int) -> int:
+    regex = re.compile(pattern)
+    matches_seen = 0
+    for offset, line in enumerate(doc.source.splitlines(), start=doc.start_line):
+        if regex.search(line) is None:
+            continue
+        if matches_seen == occurrence_index:
+            return offset
+        matches_seen += 1
+    return doc.start_line
+
+
 def check_service_ports_are_numeric(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in iter_documents_by_kind(context, "Service"):
@@ -835,6 +847,7 @@ def check_service_ports_are_numeric(context: ScanContext) -> List[Violation]:
         ports = spec.get("ports") if isinstance(spec, dict) else None
         if not isinstance(ports, list):
             continue
+        invalid_pattern_counts: Dict[str, int] = {}
         for entry in ports:
             if not isinstance(entry, dict):
                 add_doc_violation(
@@ -855,16 +868,27 @@ def check_service_ports_are_numeric(context: ScanContext) -> List[Violation]:
                 continue
             invalid_field = "port" if not _is_valid_service_port_number(port_value) else "targetPort"
             invalid_value = entry.get(invalid_field)
-            pattern = (
-                _service_port_value_pattern(invalid_field, invalid_value)
-                if invalid_field in entry
-                else r"^\s*ports\s*:"
-            )
+            if invalid_field in entry:
+                pattern = _service_port_value_pattern(invalid_field, invalid_value)
+                occurrence_index = invalid_pattern_counts.get(pattern, 0)
+                invalid_pattern_counts[pattern] = occurrence_index + 1
+                violations.append(
+                    Violation(
+                        rule_id="R046",
+                        path=doc.path,
+                        line=_find_nth_service_port_line(doc, pattern, occurrence_index),
+                        message=(
+                            "Service spec.ports entries must define explicit numeric port and targetPort "
+                            "values between 1 and 65535"
+                        ),
+                    )
+                )
+                continue
             add_doc_violation(
                 violations,
                 rule_id="R046",
                 doc=doc,
-                pattern=pattern,
+                pattern=r"^\s*ports\s*:",
                 default_pattern=r"^\s*ports\s*:",
                 message=(
                     "Service spec.ports entries must define explicit numeric port and targetPort "
