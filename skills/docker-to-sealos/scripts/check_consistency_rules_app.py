@@ -817,7 +817,7 @@ def _is_valid_service_port_number(value: Any) -> bool:
 
 def _service_port_value_pattern(field: str, value: Any) -> str:
     value_text = re.escape(str(value))
-    quote = r"""['"]?""" if isinstance(value, str) else ""
+    quote = r"""['"]""" if isinstance(value, str) else ""
     return rf"^\s*{re.escape(field)}\s*:\s*{quote}{value_text}{quote}\s*$"
 
 

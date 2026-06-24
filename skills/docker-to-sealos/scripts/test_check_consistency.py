@@ -1034,7 +1034,7 @@ class CheckConsistencyTests(unittest.TestCase):
             self.assertEqual(1, len(r046))
             self.assertIn("targetPort", artifact_file.read_text(encoding="utf-8").splitlines()[r046[0].line - 1])
 
-    def test_reports_repeated_service_quoted_target_port_on_invalid_value_line(self):
+    def test_reports_repeated_service_quoted_target_port_on_invalid_quoted_line(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -1062,9 +1062,9 @@ class CheckConsistencyTests(unittest.TestCase):
                       port: 8080
                       targetPort: 8080
                       protocol: TCP
-                    - name: tcp-9443
+                    - name: tcp-8080-alt
                       port: 9443
-                      targetPort: "9443"
+                      targetPort: "8080"
                       protocol: TCP
                   selector:
                     app: demo
@@ -1081,7 +1081,7 @@ class CheckConsistencyTests(unittest.TestCase):
             self.assertEqual(1, len(r046))
             line = artifact_file.read_text(encoding="utf-8").splitlines()[r046[0].line - 1]
             self.assertIn("targetPort", line)
-            self.assertIn('"9443"', line)
+            self.assertIn('"8080"', line)
 
     def test_detects_service_zero_port_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
