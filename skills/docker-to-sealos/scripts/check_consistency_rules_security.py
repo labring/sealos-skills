@@ -155,6 +155,40 @@ def is_composed_db_endpoint_from_secret(
     return has_endpoint or (has_host and has_port)
 
 
+def is_composed_db_host_from_secret(
+    env_item: Dict[str, object],
+    env_items_by_name: Dict[str, Dict[str, object]],
+) -> bool:
+    value = env_item.get("value")
+    if not isinstance(value, str):
+        return False
+
+    ref_names = ENV_VALUE_REF_RE.findall(value)
+    if not ref_names:
+        return False
+
+    has_host = False
+    has_port = False
+    for ref_name in ref_names:
+        ref_env = env_items_by_name.get(ref_name)
+        if not isinstance(ref_env, dict):
+            return False
+        ref_secret = extract_secret_ref(ref_env)
+        if ref_secret is None:
+            return False
+        if not is_approved_db_secret_name(ref_secret["name"]):
+            return False
+        ref_key = ref_secret["key"]
+        if ref_key == "host":
+            has_host = True
+        elif ref_key == "port":
+            has_port = True
+        else:
+            return False
+
+    return has_host and has_port
+
+
 def resolve_env_value(value: object, env_items_by_name: Dict[str, Dict[str, object]], depth: int = 0) -> Optional[str]:
     if not isinstance(value, str):
         return None
@@ -530,6 +564,8 @@ def check_db_connection_env_secret_requirements(context: ScanContext) -> List[Vi
                     if expected_key == "endpoint" and is_composed_db_endpoint_from_secret(
                         env_item, env_items_by_name
                     ):
+                        continue
+                    if expected_key == "host" and is_composed_db_host_from_secret(env_item, env_items_by_name):
                         continue
                     line = find_line(doc, rf"^\s*-\s*name\s*:\s*{re.escape(env_name)}\s*$")
                     violations.append(
