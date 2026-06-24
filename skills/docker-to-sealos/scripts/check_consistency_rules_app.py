@@ -844,10 +844,10 @@ def check_service_ports_are_numeric(context: ScanContext) -> List[Violation]:
             target_port_value = entry.get("targetPort")
             if _is_valid_service_port_number(port_value) and _is_valid_service_port_number(target_port_value):
                 continue
-            pattern_value = port_value if not _is_valid_service_port_number(port_value) else target_port_value
+            invalid_field = "port" if not _is_valid_service_port_number(port_value) else "targetPort"
             pattern = (
-                rf"^\s*(?:port|targetPort)\s*:\s*{re.escape(str(pattern_value))}\s*$"
-                if pattern_value is not None
+                rf"^\s*{re.escape(invalid_field)}\s*:"
+                if invalid_field in entry
                 else r"^\s*ports\s*:"
             )
             add_doc_violation(
