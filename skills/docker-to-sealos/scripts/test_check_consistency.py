@@ -989,7 +989,11 @@ class CheckConsistencyTests(unittest.TestCase):
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
-            self.assertTrue(any(item.rule_id == "R046" for item in violations))
+            r046 = [item for item in violations if item.rule_id == "R046"]
+            self.assertEqual(1, len(r046))
+            line = artifact_file.read_text(encoding="utf-8").splitlines()[r046[0].line - 1]
+            self.assertIn("targetPort", line)
+            self.assertIn("http", line)
 
     def test_reports_service_quoted_target_port_on_target_port_line(self):
         with tempfile.TemporaryDirectory() as temp_dir:
