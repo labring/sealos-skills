@@ -2539,8 +2539,8 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
         image_pull_secrets = template_spec.get("imagePullSecrets") if isinstance(template_spec, dict) else None
 
         # Public images should omit imagePullSecrets entirely. When a private-registry
-        # workload does declare pull secrets, only the app-scoped runtime-managed
-        # secret is allowed so templates do not depend on undeclared custom secrets.
+        # workload does declare pull secrets, only the app-scoped secret is allowed so
+        # templates do not depend on undeclared custom secrets.
         if image_pull_secrets is None:
             continue
 
