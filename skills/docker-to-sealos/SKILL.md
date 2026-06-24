@@ -174,7 +174,7 @@ If validation fails, fix template/rules/examples first.
 ### Env and secrets
 
 - Non-database sensitive values/inputs use direct `env[].value`.
-- Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only.
+- Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB `host`/`port` or connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only.
 - Business containers must not use custom env/volume `Secret` references except approved Kubeblocks database secrets and object storage secrets.
 - A dedicated app-scoped registry pull Secret is allowed only for private-registry images and must be referenced only through `template.spec.imagePullSecrets`; public images must not add pull secrets.
 - Database connection/bootstrap may use Kubeblocks-provided secrets, and reserved Kubeblocks database secret names must not be redefined by custom `Secret` resources.

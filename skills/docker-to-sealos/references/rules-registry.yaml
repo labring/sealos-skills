@@ -74,7 +74,7 @@ rules:
     description: Env/volume Secret usage must follow approved database/object-storage policy, including database secret naming variants and bucket-scoped object-storage secrets, and Kubeblocks reserved database secret names must not be overridden.
     severity: error
   - id: R017
-    description: Database connection env fields (endpoint/host/port/username/password) in business workloads must use approved Kubeblocks database secretKeyRef entries, except Redis host/port may use Sealos Redis Service FQDN and port 6379, MongoDB URLs may use Sealos MongoDB Service FQDN and port 27017, and endpoint/URL fields may compose values from approved DB secretKeyRef env vars.
+    description: Database connection env fields (endpoint/host/port/username/password) in business workloads must use approved Kubeblocks database secretKeyRef entries, except Redis host/port may use Sealos Redis Service FQDN and port 6379, MongoDB host/port or URLs may use Sealos MongoDB Service FQDN and port 27017, and endpoint/URL fields may compose values from approved DB secretKeyRef env vars.
     severity: error
   - id: R019
     description: Database cluster component resources must use limits cpu=500m/memory=512Mi and requests cpu=50m/memory=51Mi.
