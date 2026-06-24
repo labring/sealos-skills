@@ -35,6 +35,7 @@ Extract from Docker Compose/docs:
 - multi-service web roles: browser entry, REST API, OpenAI/API gateway, docs, workers, and one-shot jobs
 - resource limits/requests and health checks
 - if official Kubernetes installation docs/manifests are available, also extract app-runtime behavior from them (bootstrap admin fields, external endpoint/protocol assumptions, health probes, startup/init flow, migration ordering)
+- if official compose/docs provide multiple cooperating services, record the official runtime bundle source, component list, image versions, public entry routes, and critical env vars
 
 ### Step 2: Infer metadata
 
@@ -70,6 +71,7 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - URL topology: browser-facing env vars must use public HTTPS URLs, while server-to-server env vars must use Kubernetes Service FQDNs unless the app explicitly requires public callbacks
 - prefer `scripts/compose_to_template.py --kompose-mode always` as deterministic conversion entrypoint (require `kompose` for reproducible workload shaping)
 - when official Kubernetes installation docs/manifests exist, perform a dual-source merge: use Compose as baseline topology, then align app-runtime semantics with official Kubernetes guidance
+- when official compose/docs define a multi-component runtime bundle, keep runtime-required components, entry routes, critical env vars, and component image versions aligned to one official release/compose source
 
 ### Step 5: Apply database strategy
 
@@ -144,6 +146,8 @@ If validation fails, fix template/rules/examples first.
 
 - If official Kubernetes installation docs/manifests are available, conversion must reference them and align critical runtime settings before emitting template artifacts.
 - When official Kubernetes docs/manifests and Compose differ, prefer official Kubernetes runtime semantics for app behavior (bootstrap admin fields, external endpoint/env/protocol, health probes), unless doing so violates higher-priority Sealos MUST/security constraints.
+- When official compose/docs provide a multi-component runtime bundle, template artifacts must preserve runtime-required components, public entry routes, critical env vars, and image versions from the same official release/compose source.
+- Templates using official multi-component runtime evidence must provide a separate `RuntimeBundleEvidence` YAML file during validation, while final Sealos Template artifacts stay free of runtime-bundle validator metadata.
 
 ### Images and pull policy
 

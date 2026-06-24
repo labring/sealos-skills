@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from check_consistency_models import LATEST_IMAGE_PATTERN, TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation, YamlDocument
 from check_consistency_helpers_violations import (
@@ -132,6 +132,12 @@ OBJECT_STORAGE_BRANCH_MARKER_RE = re.compile(
 TEMPLATE_IF_RE = re.compile(r"\$\{\{\s*if\s*\((.*?)\)\s*\}\}")
 TEMPLATE_ENDIF_RE = re.compile(r"\$\{\{\s*endif\(\)\s*\}\}")
 TEMPLATE_INPUT_REF_RE = re.compile(r"\binputs\.([A-Za-z_][A-Za-z0-9_]*)\b")
+RUNTIME_BUNDLE_EVIDENCE_KIND = "RuntimeBundleEvidence"
+RUNTIME_BUNDLE_SOURCE_FIELD = "source"
+RUNTIME_BUNDLE_IMAGES_FIELD = "images"
+RUNTIME_BUNDLE_COMPONENTS_FIELD = "components"
+RUNTIME_BUNDLE_ROUTES_FIELD = "routes"
+RUNTIME_BUNDLE_ENVS_FIELD = "env"
 
 
 def _iter_template_artifact_documents(context: ScanContext) -> Iterable:
@@ -151,6 +157,148 @@ def _iter_template_artifact_paths(context: ScanContext) -> Iterable[Path]:
 
 def _line_number_for_offset(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
+
+
+def _metadata_annotations(data: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = data.get("metadata")
+    annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+    return annotations if isinstance(annotations, dict) else {}
+
+
+def _split_runtime_bundle_values(value: Any) -> List[str]:
+    if isinstance(value, list):
+        raw = "\n".join(str(item) for item in value if item is not None)
+    elif value is None:
+        raw = ""
+    else:
+        raw = str(value)
+    return [item.strip() for item in re.split(r"[\n,]+", raw) if item.strip()]
+
+
+def _parse_runtime_bundle_route_string(value: str) -> Tuple[str, str]:
+    if "->" in value:
+        path, service = value.split("->", 1)
+    elif "=" in value:
+        path, service = value.split("=", 1)
+    else:
+        path, service = value, ""
+    return path.strip(), service.strip()
+
+
+def _parse_runtime_bundle_routes(value: Any) -> List[Tuple[str, str]]:
+    routes: List[Tuple[str, str]] = []
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict):
+                path = item.get("path")
+                service = item.get("service")
+                routes.append(
+                    (
+                        path.strip() if isinstance(path, str) else "",
+                        service.strip() if isinstance(service, str) else "",
+                    )
+                )
+                continue
+            routes.append(_parse_runtime_bundle_route_string(str(item)))
+        return routes
+    for item in _split_runtime_bundle_values(value):
+        routes.append(_parse_runtime_bundle_route_string(item))
+    return routes
+
+
+def _iter_runtime_bundle_evidence_documents(context: ScanContext) -> Iterable[YamlDocument]:
+    for doc in iter_documents_by_kind(context, RUNTIME_BUNDLE_EVIDENCE_KIND):
+        if doc.path.suffix.lower() in TEMPLATE_ARTIFACT_SUFFIXES:
+            yield doc
+
+
+def _runtime_bundle_spec(doc: YamlDocument) -> Dict[str, Any]:
+    data = doc.data
+    spec = data.get("spec") if isinstance(data, dict) else None
+    return spec if isinstance(spec, dict) else {}
+
+
+def _template_artifacts_by_name(context: ScanContext) -> Dict[str, YamlDocument]:
+    templates: Dict[str, YamlDocument] = {}
+    for doc in _iter_template_artifact_documents(context):
+        if not isinstance(doc.data, dict):
+            continue
+        name = _metadata_name(doc.data)
+        if name:
+            templates[name] = doc
+    return templates
+
+
+def _iter_ingress_routes(data: Dict[str, Any]) -> Iterable[Tuple[str, str]]:
+    spec = data.get("spec")
+    rules = spec.get("rules") if isinstance(spec, dict) else None
+    if not isinstance(rules, list):
+        return
+    for rule in rules:
+        http = rule.get("http") if isinstance(rule, dict) else None
+        paths = http.get("paths") if isinstance(http, dict) else None
+        if not isinstance(paths, list):
+            continue
+        for path_entry in paths:
+            if not isinstance(path_entry, dict):
+                continue
+            path_value = path_entry.get("path")
+            backend = path_entry.get("backend")
+            service = backend.get("service") if isinstance(backend, dict) else None
+            service_name = service.get("name") if isinstance(service, dict) else None
+            if isinstance(path_value, str) and isinstance(service_name, str):
+                routes_tuple = (path_value.strip(), service_name.strip())
+                if routes_tuple[0] and routes_tuple[1]:
+                    yield routes_tuple
+
+
+def _collect_runtime_bundle_state(context: ScanContext, artifact_path: Path) -> Dict[str, set]:
+    state = {
+        "images": set(),
+        "workloads": set(),
+        "services": set(),
+        "routes": set(),
+        "envs": set(),
+    }
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if doc.path != artifact_path:
+            continue
+        if doc.path.suffix.lower() not in TEMPLATE_ARTIFACT_SUFFIXES:
+            continue
+
+        kind = doc.data.get("kind")
+        name = _metadata_name(doc.data)
+        if kind == "Service" and name:
+            state["services"].add(name)
+        elif kind == "Ingress":
+            state["routes"].update(_iter_ingress_routes(doc.data))
+
+        if not is_app_workload_document(doc) or not has_managed_workload_marker(doc.data):
+            continue
+        if name:
+            state["workloads"].add(name)
+
+        annotations = _metadata_annotations(doc.data)
+        origin_image = annotations.get("originImageName")
+        if isinstance(origin_image, str) and origin_image.strip():
+            state["images"].add(origin_image.strip())
+
+        for container in iter_containers(doc.data):
+            image = container.get("image")
+            if isinstance(image, str) and image.strip():
+                state["images"].add(image.strip())
+            env_list = container.get("env")
+            if not isinstance(env_list, list):
+                continue
+            for env_item in env_list:
+                if not isinstance(env_item, dict):
+                    continue
+                env_name = env_item.get("name")
+                if isinstance(env_name, str) and env_name.strip():
+                    state["envs"].add(env_name.strip())
+    return state
 
 
 def _is_non_empty_value(value: Any, expected_type: type) -> bool:
@@ -2255,6 +2403,135 @@ def check_official_health_probes(context: ScanContext) -> List[Violation]:
     return violations
 
 
+def check_runtime_bundle_consistency(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    templates = _template_artifacts_by_name(context)
+
+    for doc in _iter_runtime_bundle_evidence_documents(context):
+        spec = _runtime_bundle_spec(doc)
+        source = spec.get(RUNTIME_BUNDLE_SOURCE_FIELD)
+        if not isinstance(source, str) or not source.strip():
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=rf"^\s*{re.escape(RUNTIME_BUNDLE_SOURCE_FIELD)}\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message="runtime bundle evidence must declare spec.source",
+            )
+            continue
+
+        app_name = spec.get("appName")
+        if not isinstance(app_name, str) or not app_name.strip():
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=r"^\s*appName\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message="runtime bundle evidence must declare spec.appName matching Template metadata.name",
+            )
+            continue
+
+        template_doc = templates.get(app_name.strip())
+        if template_doc is None:
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=r"^\s*appName\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message=(
+                    "runtime bundle evidence spec.appName must match a Template metadata.name "
+                    "in the scanned artifacts"
+                ),
+            )
+            continue
+
+        state = _collect_runtime_bundle_state(context, template_doc.path)
+        expected_images = _split_runtime_bundle_values(spec.get(RUNTIME_BUNDLE_IMAGES_FIELD))
+        expected_components = _split_runtime_bundle_values(spec.get(RUNTIME_BUNDLE_COMPONENTS_FIELD))
+        expected_routes = _parse_runtime_bundle_routes(spec.get(RUNTIME_BUNDLE_ROUTES_FIELD))
+        expected_envs = _split_runtime_bundle_values(spec.get(RUNTIME_BUNDLE_ENVS_FIELD))
+
+        if not any((expected_images, expected_components, expected_routes, expected_envs)):
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=r"^\s*spec\s*:",
+                message=(
+                    "runtime bundle evidence must declare expected images, "
+                    "components, routes, or env vars"
+                ),
+            )
+            continue
+
+        missing_images = [image for image in expected_images if image not in state["images"]]
+        if missing_images:
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=rf"^\s*{re.escape(RUNTIME_BUNDLE_IMAGES_FIELD)}\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message=(
+                    "runtime bundle image versions must match one official compose/release source; "
+                    f"missing expected image(s): {', '.join(missing_images)}"
+                ),
+            )
+
+        missing_components = [component for component in expected_components if component not in state["workloads"]]
+        if missing_components:
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=rf"^\s*{re.escape(RUNTIME_BUNDLE_COMPONENTS_FIELD)}\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message=(
+                    "runtime bundle components must be emitted as explicit managed workloads; "
+                    f"missing component(s): {', '.join(missing_components)}"
+                ),
+            )
+
+        missing_routes: List[str] = []
+        for route_path, service_name in expected_routes:
+            if not route_path or not service_name:
+                missing_routes.append(f"{route_path or '<missing-path>'}=<missing-service>")
+                continue
+            if service_name not in state["services"] or (route_path, service_name) not in state["routes"]:
+                missing_routes.append(f"{route_path}={service_name}")
+        if missing_routes:
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=rf"^\s*{re.escape(RUNTIME_BUNDLE_ROUTES_FIELD)}\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message=(
+                    "runtime bundle routes must expose official entry paths through matching Services "
+                    f"and Ingress rules; missing route(s): {', '.join(missing_routes)}"
+                ),
+            )
+
+        missing_envs = [env_name for env_name in expected_envs if env_name not in state["envs"]]
+        if missing_envs:
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=rf"^\s*{re.escape(RUNTIME_BUNDLE_ENVS_FIELD)}\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message=(
+                    "runtime bundle critical env vars must remain present on managed workloads; "
+                    f"missing env var(s): {', '.join(missing_envs)}"
+                ),
+            )
+
+    return violations
+
+
 def check_cronjob_required_labels(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
 
@@ -2486,6 +2763,7 @@ APP_RULES: Dict[str, Rule] = {
     "R022": Rule("R022", check_template_i18n_zh_title_absent),
     "R023": Rule("R023", check_template_categories_allowed),
     "R024": Rule("R024", check_official_health_probes),
+    "R046": Rule("R046", check_runtime_bundle_consistency),
     "R036": Rule("R036", check_cronjob_required_labels),
     "R015": Rule("R015", check_origin_image_name_matches_container),
     "R020": Rule("R020", check_service_ports_have_names),

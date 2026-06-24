@@ -55,6 +55,9 @@ rules:
   - id: R024
     description: Workloads with official health checks must define livenessProbe/readinessProbe and startupProbe using official endpoints/commands.
     severity: error
+  - id: R046
+    description: Official multi-component RuntimeBundleEvidence must match emitted images, components, routes, and critical env vars.
+    severity: error
   - id: R036
     description: CronJob resources must define cloud.sealos.io/cronjob, cronjob-launchpad-name, and cronjob-type labels with required values.
     severity: error

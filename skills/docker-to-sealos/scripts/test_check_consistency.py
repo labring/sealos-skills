@@ -85,6 +85,32 @@ class CheckConsistencyTests(unittest.TestCase):
                 additional_include_paths=additional_include_paths,
             )
 
+    def run_artifact_checker(self, artifact_text: str, evidence_text: str = ""):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+            include_paths = ["template/demo/index.yaml"]
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(artifact_file, artifact_text)
+            if evidence_text:
+                evidence_file = root / ".sealos" / "runtime-bundle-evidence.yaml"
+                write_file(evidence_file, evidence_text)
+                include_paths.append(".sealos/runtime-bundle-evidence.yaml")
+
+            return CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=include_paths,
+            )
+
     def test_detects_app_spec_template_with_long_gap(self):
         long_gap = "x" * 1200
         violations = self.run_checker(
@@ -768,6 +794,533 @@ class CheckConsistencyTests(unittest.TestCase):
             """
         )
         self.assertTrue(any(item.rule_id == "R024" for item in violations))
+
+    def test_detects_runtime_bundle_image_version_mismatch(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+              url: https://example.com
+              gitRepo: https://github.com/example/demo
+              author: example
+              description: demo
+              icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/logo.png
+              templateType: inline
+              locale: en
+              i18n:
+                zh:
+                  description: 演示应用模板
+              categories:
+                - tool
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-api
+              labels:
+                app: demo-api
+                cloud.sealos.io/app-deploy-manager: demo-api
+              annotations:
+                originImageName: ghcr.io/example/bundle-api:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  imagePullSecrets:
+                    - name: ${{ defaults.app_name }}
+                  containers:
+                    - name: demo-api
+                      image: ghcr.io/example/bundle-api:1.0.0
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: PUBLIC_ENDPOINT
+                          value: https://example.com
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-console
+              labels:
+                app: demo-console
+                cloud.sealos.io/app-deploy-manager: demo-console
+              annotations:
+                originImageName: ghcr.io/example/bundle-console:2.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  imagePullSecrets:
+                    - name: ${{ defaults.app_name }}
+                  containers:
+                    - name: demo-console
+                      image: ghcr.io/example/bundle-console:2.0.0
+                      imagePullPolicy: IfNotPresent
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: demo-api
+              labels:
+                app: demo-api
+                cloud.sealos.io/app-deploy-manager: demo-api
+            spec:
+              selector:
+                app: demo-api
+              ports:
+                - name: http
+                  port: 3000
+                  targetPort: 3000
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: demo-console
+              labels:
+                app: demo-console
+                cloud.sealos.io/app-deploy-manager: demo-console
+            spec:
+              selector:
+                app: demo-console
+              ports:
+                - name: http
+                  port: 80
+                  targetPort: 80
+            ---
+            apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: demo-api
+            spec:
+              rules:
+                - http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: demo-api
+                            port:
+                              number: 3000
+                      - path: /console
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: demo-console
+                            port:
+                              number: 80
+            """
+            ,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: RuntimeBundleEvidence
+            metadata:
+              name: demo-runtime-bundle
+            spec:
+              appName: demo
+              source: https://example.com/releases/v1/docker-compose.yml
+              images:
+                - ghcr.io/example/bundle-api:1.0.0
+                - ghcr.io/example/bundle-console:1.0.0
+              components:
+                - demo-api
+                - demo-console
+              routes:
+                - path: /
+                  service: demo-api
+                - path: /console
+                  service: demo-console
+              env:
+                - PUBLIC_ENDPOINT
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R046" for item in violations))
+
+    def test_detects_missing_runtime_bundle_console_component_and_route(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+              url: https://example.com
+              gitRepo: https://github.com/example/demo
+              author: example
+              description: demo
+              icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/logo.png
+              templateType: inline
+              locale: en
+              i18n:
+                zh:
+                  description: 演示应用模板
+              categories:
+                - tool
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-api
+              labels:
+                app: demo-api
+                cloud.sealos.io/app-deploy-manager: demo-api
+              annotations:
+                originImageName: ghcr.io/example/bundle-api:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  imagePullSecrets:
+                    - name: ${{ defaults.app_name }}
+                  containers:
+                    - name: demo-api
+                      image: ghcr.io/example/bundle-api:1.0.0
+                      imagePullPolicy: IfNotPresent
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: demo-api
+              labels:
+                app: demo-api
+                cloud.sealos.io/app-deploy-manager: demo-api
+            spec:
+              selector:
+                app: demo-api
+              ports:
+                - name: http
+                  port: 3000
+                  targetPort: 3000
+            ---
+            apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: demo-api
+            spec:
+              rules:
+                - http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: demo-api
+                            port:
+                              number: 3000
+            """
+            ,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: RuntimeBundleEvidence
+            metadata:
+              name: demo-runtime-bundle
+            spec:
+              appName: demo
+              source: https://example.com/releases/v1/docker-compose.yml
+              images:
+                - ghcr.io/example/bundle-api:1.0.0
+                - ghcr.io/example/bundle-console:1.0.0
+              components:
+                - demo-api
+                - demo-console
+              routes:
+                - path: /
+                  service: demo-api
+                - path: /console
+                  service: demo-console
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R046" for item in violations))
+
+    def test_allows_runtime_bundle_with_matching_images_components_routes_and_envs(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+              url: https://example.com
+              gitRepo: https://github.com/example/demo
+              author: example
+              description: demo
+              icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/logo.png
+              templateType: inline
+              locale: en
+              i18n:
+                zh:
+                  description: 演示应用模板
+              categories:
+                - tool
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-api
+              labels:
+                app: demo-api
+                cloud.sealos.io/app-deploy-manager: demo-api
+              annotations:
+                originImageName: ghcr.io/example/bundle-api:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  imagePullSecrets:
+                    - name: ${{ defaults.app_name }}
+                  containers:
+                    - name: demo-api
+                      image: ghcr.io/example/bundle-api:1.0.0
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: PUBLIC_ENDPOINT
+                          value: https://example.com
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-console
+              labels:
+                app: demo-console
+                cloud.sealos.io/app-deploy-manager: demo-console
+              annotations:
+                originImageName: ghcr.io/example/bundle-console:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  imagePullSecrets:
+                    - name: ${{ defaults.app_name }}
+                  containers:
+                    - name: demo-console
+                      image: ghcr.io/example/bundle-console:1.0.0
+                      imagePullPolicy: IfNotPresent
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: demo-api
+              labels:
+                app: demo-api
+                cloud.sealos.io/app-deploy-manager: demo-api
+            spec:
+              selector:
+                app: demo-api
+              ports:
+                - name: http
+                  port: 3000
+                  targetPort: 3000
+            ---
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: demo-console
+              labels:
+                app: demo-console
+                cloud.sealos.io/app-deploy-manager: demo-console
+            spec:
+              selector:
+                app: demo-console
+              ports:
+                - name: http
+                  port: 80
+                  targetPort: 80
+            ---
+            apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: demo-api
+            spec:
+              rules:
+                - http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: demo-api
+                            port:
+                              number: 3000
+                      - path: /console
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: demo-console
+                            port:
+                              number: 80
+            """
+            ,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: RuntimeBundleEvidence
+            metadata:
+              name: demo-runtime-bundle
+            spec:
+              appName: demo
+              source: https://example.com/releases/v1/docker-compose.yml
+              images:
+                - ghcr.io/example/bundle-api:1.0.0
+                - ghcr.io/example/bundle-console:1.0.0
+              components:
+                - demo-api
+                - demo-console
+              routes:
+                - path: /
+                  service: demo-api
+                - path: /console
+                  service: demo-console
+              env:
+                - PUBLIC_ENDPOINT
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R046" for item in violations))
+
+    def test_allows_single_component_artifact_without_runtime_bundle_metadata(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+              url: https://example.com
+              gitRepo: https://github.com/example/demo
+              author: example
+              description: demo
+              icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/logo.png
+              templateType: inline
+              locale: en
+              i18n:
+                zh:
+                  description: 演示应用模板
+              categories:
+                - tool
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                app: demo
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: ghcr.io/example/demo:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                spec:
+                  automountServiceAccountToken: false
+                  imagePullSecrets:
+                    - name: ${{ defaults.app_name }}
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/demo:1.0.0
+                      imagePullPolicy: IfNotPresent
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R046" for item in violations))
+
+    def test_runtime_bundle_check_is_scoped_to_same_artifact_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            demo_artifact = root / "template" / "demo" / "index.yaml"
+            other_artifact = root / "template" / "other" / "index.yaml"
+            evidence_file = root / ".sealos" / "runtime-bundle-evidence.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                demo_artifact,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: demo
+                spec:
+                  title: Demo
+                  url: https://example.com
+                  gitRepo: https://github.com/example/demo
+                  author: example
+                  description: demo
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: 演示应用模板
+                  categories:
+                    - tool
+                """,
+            )
+            write_file(
+                other_artifact,
+                """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: demo-api
+                  labels:
+                    app: demo-api
+                    cloud.sealos.io/app-deploy-manager: demo-api
+                  annotations:
+                    originImageName: ghcr.io/example/bundle-api:1.0.0
+                spec:
+                  revisionHistoryLimit: 1
+                  template:
+                    spec:
+                      automountServiceAccountToken: false
+                      imagePullSecrets:
+                        - name: ${{ defaults.app_name }}
+                      containers:
+                        - name: demo-api
+                          image: ghcr.io/example/bundle-api:1.0.0
+                          imagePullPolicy: IfNotPresent
+                """,
+            )
+            write_file(
+                evidence_file,
+                """
+                apiVersion: docker-to-sealos/v1
+                kind: RuntimeBundleEvidence
+                metadata:
+                  name: demo-runtime-bundle
+                spec:
+                  appName: demo
+                  source: https://example.com/releases/v1/docker-compose.yml
+                  images:
+                    - ghcr.io/example/bundle-api:1.0.0
+                  components:
+                    - demo-api
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=[
+                    "template/demo/index.yaml",
+                    "template/other/index.yaml",
+                    ".sealos/runtime-bundle-evidence.yaml",
+                ],
+            )
+            self.assertTrue(any(item.rule_id == "R046" for item in violations))
 
     def test_detects_origin_image_name_mismatch_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:

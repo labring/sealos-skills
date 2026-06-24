@@ -1003,6 +1003,24 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 
 Acceptance requires the KubeBlocks `Cluster` to be Ready/Running, each expected `Component` and `InstanceSet` to converge, the account Secret to exist, and the application environment to point at the expected Service FQDN. For Redis, verify both `redis` and `redis-sentinel` components, `${APP_NAME}-redis-redis-account-default`, and `${APP_NAME}-redis-redis-redis.${NAMESPACE}.svc.cluster.local`. For MongoDB, verify `${APP_NAME}-mongo-mongodb-account-root` or the matching `mongodb` suffix variant before judging app initialization.
 
+### 6.3.2 Runtime Truth Pass for Authenticated Apps
+
+For web apps with login or registration, verify the authenticated runtime state after the readiness checks pass:
+
+1. Complete login or registration through the real browser form or the documented login API.
+2. Capture the final browser URL, document title, and key visible text from the authenticated page.
+3. Record browser network requests with HTTP 4xx/5xx status, including method, URL path, status, and response summary.
+4. Check backend logs for the same failing route paths and status codes.
+5. Mark the runtime pass successful only when the authenticated page loads, expected post-login content is visible, and app API requests complete without new 4xx/5xx failures.
+
+For login success followed by 404, route mismatch, or SDK endpoint errors:
+
+1. Record the exact failing URL and API path from browser network logs.
+2. Compare the failing path with backend logs to confirm the service that answered it.
+3. Compare the template against the official runtime bundle source: component image versions, console/frontend service, API service, gateway/Ingress path, and public URL env/config.
+4. Repair the template by aligning the bundle versions, restoring the missing route/service, or correcting reverse-proxy path handling.
+5. Redeploy and rerun the browser login pass.
+
 ### 6.4 Fallback: kubectl apply (when Template API is unavailable)
 
 If the Template API returns 503/500 or is unreachable, deploy directly via kubectl using the local kubeconfig.
