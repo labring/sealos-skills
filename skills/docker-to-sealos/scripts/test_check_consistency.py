@@ -3108,6 +3108,39 @@ __MOUNTS__
         )
         self.assertFalse(any(item.rule_id == "R017" for item in violations))
 
+    def test_allows_composed_database_host_with_secret_derived_host_port(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: PG_HOST
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-pg-conn-credential
+                              key: host
+                        - name: PG_PORT
+                          valueFrom:
+                            secretKeyRef:
+                              name: ${{ defaults.app_name }}-pg-conn-credential
+                              key: port
+                        - name: GF_DATABASE_HOST
+                          value: $(PG_HOST):$(PG_PORT)
+            ```
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R017" for item in violations))
+
     def test_detects_composed_database_endpoint_with_non_secret_dependency(self):
         violations = self.run_checker(
             """
@@ -4773,6 +4806,69 @@ __MOUNTS__
                             requests:
                               cpu: 30m
                               memory: 160Mi
+                            limits:
+                              cpu: 300m
+                              memory: 384Mi
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertTrue(any(item.rule_id == "R038" for item in violations))
+
+    def test_detects_invalid_resource_ladder_with_template_conditionals(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps/v1
+                kind: StatefulSet
+                metadata:
+                  name: demo
+                  labels:
+                    cloud.sealos.io/app-deploy-manager: demo
+                    app: demo
+                  annotations:
+                    originImageName: grafana/grafana:12.0.2
+                spec:
+                  selector:
+                    matchLabels:
+                      app: demo
+                  template:
+                    spec:
+                      automountServiceAccountToken: false
+                      imagePullSecrets:
+                        - name: demo
+                      containers:
+                        - name: demo
+                          image: grafana/grafana:12.0.2
+                          imagePullPolicy: IfNotPresent
+                          env:
+                            ${{ if(inputs.use_postgresql === 'true') }}
+                            - name: PG_HOST
+                              valueFrom:
+                                secretKeyRef:
+                                  name: demo-pg-conn-credential
+                                  key: host
+                            ${{ endif() }}
+                          resources:
+                            requests:
+                              cpu: 50m
+                              memory: 96Mi
                             limits:
                               cpu: 300m
                               memory: 384Mi
