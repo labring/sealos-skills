@@ -815,6 +815,12 @@ def _is_valid_service_port_number(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535
 
 
+def _service_port_value_pattern(field: str, value: Any) -> str:
+    value_text = re.escape(str(value))
+    quote = r"""['"]?""" if isinstance(value, str) else ""
+    return rf"^\s*{re.escape(field)}\s*:\s*{quote}{value_text}{quote}\s*$"
+
+
 def check_service_ports_are_numeric(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in iter_documents_by_kind(context, "Service"):
@@ -845,8 +851,9 @@ def check_service_ports_are_numeric(context: ScanContext) -> List[Violation]:
             if _is_valid_service_port_number(port_value) and _is_valid_service_port_number(target_port_value):
                 continue
             invalid_field = "port" if not _is_valid_service_port_number(port_value) else "targetPort"
+            invalid_value = entry.get(invalid_field)
             pattern = (
-                rf"^\s*{re.escape(invalid_field)}\s*:"
+                _service_port_value_pattern(invalid_field, invalid_value)
                 if invalid_field in entry
                 else r"^\s*ports\s*:"
             )
