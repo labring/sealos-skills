@@ -164,7 +164,8 @@ If validation fails, fix template/rules/examples first.
 
 - Do not use `emptyDir`.
 - Use persistent storage patterns (`volumeClaimTemplates`) where storage is needed.
-- StatefulSet resources with `volumeClaimTemplates` must set `metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` and every `volumeClaimTemplates[].metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` so Template can track and clean PVCs.
+- StatefulSet resources with `volumeClaimTemplates` must keep standard workload labels such as `app` and `cloud.sealos.io/app-deploy-manager`, and omit only `cloud.sealos.io/deploy-on-sealos` from both StatefulSet `metadata.labels` and `volumeClaimTemplates[].metadata.labels`.
+- `volumeClaimTemplates[].metadata` should include `name` and `annotations`.
 - PVC request must be `<= 1Gi` unless source spec explicitly requires less.
 - ConfigMap data keys must follow vn naming (`scripts/path_converter.py`), including `/`, `-`, `.`, and other special characters.
 - ConfigMaps mounted by managed Deployment/StatefulSet workloads must use `metadata.name == workload.metadata.name`.

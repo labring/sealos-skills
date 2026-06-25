@@ -142,6 +142,3 @@ rules:
   - id: R011
     description: All PVC storage requests must be concrete values and less than or equal to 1Gi.
     severity: error
-  - id: R041
-    description: StatefulSet resources with volumeClaimTemplates must label the StatefulSet and every volumeClaimTemplate with cloud.sealos.io/deploy-on-sealos for Template PVC tracking.
-    severity: error
