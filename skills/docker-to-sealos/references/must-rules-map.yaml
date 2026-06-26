@@ -184,10 +184,14 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires intent-level storage-need inference for each service."
-  - must: "StatefulSet resources with `volumeClaimTemplates` must set `metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` and every `volumeClaimTemplates[].metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` so Template can track and clean PVCs."
+  - must: "StatefulSet resources with `volumeClaimTemplates` must keep standard workload labels such as `app` and `cloud.sealos.io/app-deploy-manager`, and omit only `cloud.sealos.io/deploy-on-sealos` from both StatefulSet `metadata.labels` and `volumeClaimTemplates[].metadata.labels`."
     enforcement:
-      type: rule
-      target: R041
+      type: manual
+      note: "Generation behavior is covered by compose_to_template regression tests; static validation allows legacy labels in existing artifacts."
+  - must: "`volumeClaimTemplates[].metadata` should include `name` and `annotations`."
+    enforcement:
+      type: manual
+      note: "Generation behavior is covered by compose_to_template regression tests."
   - must: "PVC request must be `<= 1Gi` unless source spec explicitly requires less."
     enforcement:
       type: rule

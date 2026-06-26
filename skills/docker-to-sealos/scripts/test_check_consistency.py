@@ -3851,7 +3851,7 @@ __MOUNTS__
         )
         self.assertTrue(any(item.rule_id == "R011" for item in violations))
 
-    def test_detects_statefulset_volume_claim_template_missing_template_deploy_label(self):
+    def test_allows_statefulset_volume_claim_template_without_storage_tracking_labels(self):
         violations = self.run_checker(
             """
             ```yaml
@@ -3862,7 +3862,6 @@ __MOUNTS__
               labels:
                 app: demo
                 cloud.sealos.io/app-deploy-manager: demo
-                cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
             spec:
               revisionHistoryLimit: 1
               selector:
@@ -3881,8 +3880,6 @@ __MOUNTS__
               volumeClaimTemplates:
                 - metadata:
                     name: data
-                    labels:
-                      app: demo
                   spec:
                     resources:
                       requests:
@@ -3890,49 +3887,7 @@ __MOUNTS__
             ```
             """
         )
-        self.assertTrue(any(item.rule_id == "R041" for item in violations))
-
-    def test_allows_statefulset_volume_claim_template_template_deploy_label(self):
-        violations = self.run_checker(
-            """
-            ```yaml
-            apiVersion: apps/v1
-            kind: StatefulSet
-            metadata:
-              name: demo
-              labels:
-                app: demo
-                cloud.sealos.io/app-deploy-manager: demo
-                cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-            spec:
-              revisionHistoryLimit: 1
-              selector:
-                matchLabels:
-                  app: demo
-              template:
-                metadata:
-                  labels:
-                    app: demo
-                spec:
-                  automountServiceAccountToken: false
-                  containers:
-                    - name: demo
-                      image: nginx:1.27.2
-                      imagePullPolicy: IfNotPresent
-              volumeClaimTemplates:
-                - metadata:
-                    name: data
-                    labels:
-                      app: demo
-                      cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
-                  spec:
-                    resources:
-                      requests:
-                        storage: 1Gi
-            ```
-            """
-        )
-        self.assertFalse(any(item.rule_id == "R041" for item in violations))
+        self.assertFalse(violations)
 
     def test_allows_declared_template_input_references(self):
         with tempfile.TemporaryDirectory() as temp_dir:
