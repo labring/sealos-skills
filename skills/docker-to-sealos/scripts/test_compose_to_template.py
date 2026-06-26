@@ -512,7 +512,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 [
                     {
                         "name": "${{ defaults.app_name }}-cm",
-                        "configMap": {"name": "${{ defaults.app_name }}", "defaultMode": 493},
+                        "configMap": {"name": "${{ defaults.app_name }}"},
                     }
                 ],
                 pod_spec["volumes"],

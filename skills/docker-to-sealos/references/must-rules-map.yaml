@@ -100,6 +100,10 @@ must_rules:
     enforcement:
       type: rule
       target: R043
+  - must: "Omit ConfigMap volume `defaultMode` unless the application explicitly needs a non-default mode. ConfigMap scripts invoked through `/bin/sh /path/script` do not need executable bits."
+    enforcement:
+      type: rule
+      target: R043
   - must: "Avoid long inline startup scripts or heredocs in `command`/`args`; place initialization/start scripts in ConfigMap files and invoke them with a short command."
     enforcement:
       type: manual
