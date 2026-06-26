@@ -2244,7 +2244,6 @@ def build_workload(
                 "name": f"{workload_name}-cm",
                 "configMap": {
                     "name": workload_name,
-                    "defaultMode": 493,
                 },
             }
         )

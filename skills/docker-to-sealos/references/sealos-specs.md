@@ -432,6 +432,7 @@ data:
 ### Volume Mount Specification
 
 Create one ConfigMap volume per workload. The volume name must be `<workload metadata.name>-cm`. Every ConfigMap `data` key must have its own `volumeMount`, and `volumeMount.subPath` must exactly equal the ConfigMap `data` key.
+Omit `defaultMode` for ConfigMap volumes unless the application explicitly requires a non-default file mode.
 
 ```yaml
 volumes:
@@ -499,7 +500,6 @@ spec:
         - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            defaultMode: 493
 ```
 
 ## Labels and Naming Specification
