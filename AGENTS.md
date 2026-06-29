@@ -28,6 +28,9 @@ direct skills.sh entry points
   └→ sealos-s3       (direct entry point: /sealos-s3)
 ```
 
+### Branch-specific constraints
+- **BRAIN-C1:** The `brain-deploy` and `brain-deploy-preview` branches are prepare-only branches and must not include `skills/sealos-canvas/`. If an agent finds `skills/sealos-canvas/` on either branch, stop and tell the user that the canvas skill belongs to the full deploy/runtime workflow, not the prepare-only branch.
+
 ### Skill module pattern
 Each skill follows the same structure:
 - `SKILL.md` — entry point with YAML frontmatter (name, version, allowed-tools, compatibility)
