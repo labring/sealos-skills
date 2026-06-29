@@ -30,6 +30,7 @@ direct skills.sh entry points
 
 ### Branch-specific constraints
 - **BRAIN-C1:** The `brain-deploy` and `brain-deploy-preview` branches are prepare-only branches and must not include `skills/sealos-canvas/`. If an agent finds `skills/sealos-canvas/` on either branch, stop and tell the user that the canvas skill belongs to the full deploy/runtime workflow, not the prepare-only branch.
+- **BRAIN-C2:** Railpack probing is specific to the `brain-deploy` and `brain-deploy-preview` prepare flow. Do not copy the Railpack probe step into `main` unless the user explicitly decides to add it to the full deploy/runtime workflow. In brain branches, Railpack output may only be consumed through normalized `analysis.json.build_environment` evidence; do not use raw `.sealos/railpack-info.json` or `.sealos/railpack-plan.json`, and do not replace the Dockerfile plus `k8s-kaniko-job` build path with `railpack build`.
 
 ### Skill module pattern
 Each skill follows the same structure:
