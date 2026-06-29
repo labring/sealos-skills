@@ -106,6 +106,7 @@ README authoring is out of scope for this skill. If the Template CR requires REA
 Run validator and self-tests before delivering template output.
 If validation fails, fix template/rules/examples first.
 For web applications, live validation must include runtime log hygiene: inspect init and main container logs after first readiness, after login or setup, and after one random missing-path HTTP request. Recurring traceback-style warnings are template failures even when pods are Ready.
+For login-gated web applications, live validation must prove the real credential/session flow with one authenticated API or page before resource tuning or cleanup.
 
 ## MUST Rules (Condensed)
 
@@ -266,7 +267,7 @@ Run all checks before final response:
 5. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml`
 6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml`
 7. `python scripts/check_must_coverage.py --skill SKILL.md --mapping references/must-rules-map.yaml --rules-file references/rules-registry.yaml`
-8. (CI / one-shot) `python scripts/quality_gate.py` (requires `template/*/index.yaml` by default; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
+8. (CI / one-shot) `python scripts/quality_gate.py --artifacts /abs/path/template/<app-name>/index.yaml` or `DOCKER_TO_SEALOS_ARTIFACTS=/abs/path/template/<app-name>/index.yaml python scripts/quality_gate.py` (without explicit artifacts, it scans `template/*/index.yaml`; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
 9. Live deploy acceptance: after `sealos-deploy` creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, a random missing-path 404 without noisy traceback logs, expected database objects, and full resource footprint before reporting success.
 
 `check_consistency.py` is registry-driven. Keep `references/rules-registry.yaml` in sync with implemented rules.
