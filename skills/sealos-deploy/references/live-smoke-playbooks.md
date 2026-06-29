@@ -119,3 +119,35 @@ Minimum smoke:
 6. Scan logs after the authenticated action and missing-path request.
 
 For apps with path-based entrances, visit the exact path configured in the App resource and the root URL. Pick the App URL that succeeds from a fresh browser session.
+
+### Cookie + Dynamic CSRF Login
+
+Use `scripts/sealos-live-smoke.mjs --login-method cookie-json` for apps whose root page sets a CSRF cookie and whose login API expects a matching dynamic header.
+
+Example:
+
+```bash
+node scripts/sealos-live-smoke.mjs \
+  --url "https://<app>.<domain>" \
+  --login-method cookie-json \
+  --csrf-cookie-prefix "CSRF-Token-" \
+  --csrf-header-prefix "X-CSRF-Token-" \
+  --login-path "/rest/noauth/auth/password" \
+  --username "$GUI_USERNAME" \
+  --password "$GUI_PASSWORD" \
+  --auth-path "/rest/system/status,/rest/system/connections"
+```
+
+The helper loads the root page, stores cookies, maps `CSRF-Token-<id>` to `X-CSRF-Token-<id>`, posts JSON credentials, keeps the session cookie, and reuses the dynamic CSRF header on authenticated paths.
+
+### Syncthing GUI
+
+Runtime acceptance:
+
+- `/rest/noauth/health` returns HTTP 200.
+- Root HTML exposes the login form.
+- `POST /rest/noauth/auth/password` returns HTTP 204 with the deploy-time GUI username/password.
+- Authenticated `/rest/system/status` and `/rest/system/connections` return HTTP 200.
+- One authenticated missing path returns HTTP 404.
+- Logs stay clear after login and the missing-path request.
+- A 60-second stability check keeps the Pod `1/1 Running` with zero restarts.

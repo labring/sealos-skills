@@ -55,6 +55,43 @@ When the image default UID is verified as non-root through image metadata, upstr
 
 When the image requires root or extra capabilities, document the runtime reason in template comments or review notes and keep the security context aligned with the verified image contract.
 
+## Root Entrypoint With Non-Root Handoff
+
+Some public images start as root, prepare storage, then switch identity through `su-exec`, `gosu`, `setpriv`, or a similar helper. Dropping all capabilities while leaving that handoff path active can break cold start with errors such as `setgroups(...): Operation not permitted`.
+
+Preferred template pattern:
+
+- Verify the final runtime UID/GID from image docs, image metadata, or a live container.
+- Run the Pod directly as that UID/GID with `runAsNonRoot`, `runAsUser`, `runAsGroup`, `fsGroup`, and `fsGroupChangePolicy: OnRootMismatch` when persistent storage needs ownership-compatible writes.
+- Move first-run config generation, permission preparation, and storage bootstrap into initContainers when the app provides an official offline command.
+- Keep the main container close to the official entrypoint or a short `exec` wrapper.
+- Validate both the first boot logs and the authenticated user flow before accepting the capability policy.
+
+Use a narrower root/capability exception only when the image's documented runtime requires it after the direct UID/GID pattern is tested.
+
+## Official Offline Config Generation
+
+When an application ships an official command that can generate initial configuration without starting the server, prefer an initContainer that writes the generated files to persistent storage. Pass deployer credentials through declared inputs or env vars, keep the generated config on the PVC, and start the main container with the normal server command.
+
+This pattern is useful for GUI apps with bootstrap credentials because it makes first-run state deterministic and keeps the main process startup small.
+
+## Syncthing Case Study
+
+Observed failure:
+
+- Main container crashed on first boot.
+- Logs included `chown: /var/syncthing: Operation not permitted`.
+- Logs included `su-exec: setgroups(1000): Operation not permitted`.
+
+Accepted fix:
+
+- Use the verified Syncthing UID/GID `1000`.
+- Set Pod security context with `runAsNonRoot: true`, `runAsUser: 1000`, `runAsGroup: 1000`, `fsGroup: 1000`, `fsGroupChangePolicy: OnRootMismatch`, and `seccompProfile.type: RuntimeDefault`.
+- Generate GUI config in an initContainer with the official Syncthing command before the server starts.
+- Keep the main container on the official server startup path.
+- Validate `/rest/noauth/health`, login, an authenticated `/rest/system/status` call, a random authenticated 404, recent logs, and a 60-second stability window.
+- The validated minimum app resources were `limits.cpu=100m`, `limits.memory=128Mi`, `requests.cpu=10m`, and `requests.memory=12Mi`.
+
 ## Fix Loop
 
 1. Capture pod status, init logs, main logs, and current App URL behavior.
