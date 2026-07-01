@@ -22,6 +22,7 @@ REPOSITORY_URL = "https://github.com/labring/sealos-skills"
 PLUGIN_ID = "sealos"
 PLUGIN_SELECTOR = "sealos@sealos"
 DISPLAY_LABEL = "Sealos"
+CURRENT_VERSION = "1.1.0"
 SKILLS_SOURCE = "./skills/"
 CODEX_MARKETPLACE_SOURCE = "./plugins/sealos"
 ROOT_MARKETPLACE_SOURCE = "./"
@@ -146,7 +147,6 @@ def require_manifest_parity(root_plugin: dict, codex_plugin: dict) -> None:
         if root_plugin.get(key) != codex_plugin.get(key)
     ]
     require(not mismatched, "root plugin.json matches .codex-plugin/plugin.json key fields")
-
 
 def section_after_heading(text: str, heading: str) -> str:
     start = text.find(heading)
@@ -285,7 +285,7 @@ def require_claude_plugin_contract(claude_plugin: dict, claude_marketplace: dict
 
 def require_platform_codex_contract(platforms: dict) -> None:
     require(platforms.get("name") == PLUGIN_ID, "platform registry uses canonical plugin id")
-    require(platforms.get("version") == "1.0.0", "platform registry version is current")
+    require(platforms.get("version") == CURRENT_VERSION, "platform registry version is current")
     require(platforms.get("repository") == REPOSITORY_URL, "platform registry uses canonical repository URL")
     platform_entries = require_platform_entries(platforms)
     codex_entries = [platform for platform in platform_entries if platform.get("id") == CODEX_PLATFORM_ID]
@@ -348,7 +348,7 @@ def main() -> int:
     require_plugin_source_link()
     require_plugin_payload(PLUGIN_SOURCE_LINK, "Codex marketplace source")
     require(plugin.get("name") == PLUGIN_ID, "Codex plugin name is sealos")
-    require(plugin.get("version") == "1.0.0", "Codex plugin version is current")
+    require(plugin.get("version") == CURRENT_VERSION, "Codex plugin version is current")
     require(plugin.get("skills") == SKILLS_SOURCE, "Codex plugin points to root skills directory")
     require((ROOT / "skills").is_dir(), "skills directory exists")
 
