@@ -208,7 +208,7 @@ must_rules:
     enforcement:
       type: rule
       target: R011
-  - must: "When object storage is required and Sealos can satisfy it, create `ObjectStorageBucket` and inject Sealos object-storage secrets; external S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` evidence, and must not coexist with `ObjectStorageBucket`."
+  - must: "When object storage is required and Sealos can satisfy it, create `ObjectStorageBucket` and inject Sealos object-storage secrets; managed Sealos toggles such as `use_sealos_objectstorage` may control the `ObjectStorageBucket` branch; external S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` evidence, and must not coexist with `ObjectStorageBucket`."
     enforcement:
       type: rule
       target: R047
