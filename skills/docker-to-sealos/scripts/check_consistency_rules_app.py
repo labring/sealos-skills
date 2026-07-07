@@ -137,6 +137,15 @@ EXTERNAL_OBJECT_STORAGE_INPUT_RE = re.compile(
     r"SECRET_ACCESS_KEY|ENDPOINT|BUCKET|REGION)(?:$|_)",
     re.IGNORECASE,
 )
+MANAGED_OBJECT_STORAGE_TOGGLE_NAMES = {
+    "ENABLE_OBJECT_STORAGE",
+    "ENABLE_S3_STORAGE",
+    "ENABLE_SEALOS_OBJECT_STORAGE",
+    "ENABLE_SEALOS_OBJECTSTORAGE",
+    "USE_OBJECT_STORAGE",
+    "USE_SEALOS_OBJECT_STORAGE",
+    "USE_SEALOS_OBJECTSTORAGE",
+}
 TEMPLATE_IF_RE = re.compile(r"\$\{\{\s*if\s*\((.*?)\)\s*\}\}")
 TEMPLATE_ENDIF_RE = re.compile(r"\$\{\{\s*endif\(\)\s*\}\}")
 TEMPLATE_INPUT_REF_RE = re.compile(r"\binputs\.([A-Za-z_][A-Za-z0-9_]*)\b")
@@ -2132,7 +2141,10 @@ def _external_object_storage_input_names(doc: YamlDocument) -> List[str]:
     for key in inputs.keys():
         if not isinstance(key, str):
             continue
-        if EXTERNAL_OBJECT_STORAGE_INPUT_RE.search(_normalize_template_input_name(key)):
+        normalized = _normalize_template_input_name(key)
+        if normalized in MANAGED_OBJECT_STORAGE_TOGGLE_NAMES:
+            continue
+        if EXTERNAL_OBJECT_STORAGE_INPUT_RE.search(normalized):
             names.append(key)
     return names
 
@@ -2164,8 +2176,8 @@ def check_external_object_storage_inputs(context: ScanContext) -> List[Violation
                 pattern=rf"^\s*{re.escape(input_names[0])}\s*:",
                 default_pattern=r"^\s*inputs\s*:",
                 message=(
-                    "templates must choose managed ObjectStorageBucket or external object-storage inputs; "
-                    "remove the external S3/object-storage input surface when ObjectStorageBucket is present"
+                    "templates with managed ObjectStorageBucket resources must not expose external "
+                    "S3/object-storage credential inputs"
                 ),
             )
             continue

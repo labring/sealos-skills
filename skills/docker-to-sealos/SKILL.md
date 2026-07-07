@@ -176,7 +176,7 @@ For login-gated web applications, live validation must prove the real credential
 - ConfigMap workload volumes must use `<workload-name>-cm`, and every ConfigMap `data` key must be mounted as its own `volumeMount` with `subPath` exactly equal to that key.
 - Omit ConfigMap volume `defaultMode` unless the application explicitly needs a non-default mode. ConfigMap scripts invoked through `/bin/sh /path/script` do not need executable bits.
 - Avoid long inline startup scripts or heredocs in `command`/`args`; place initialization/start scripts in ConfigMap files and invoke them with a short command.
-- When object storage is required and Sealos can satisfy it, create `ObjectStorageBucket` and inject Sealos object-storage secrets; external S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` evidence, and must not coexist with `ObjectStorageBucket`.
+- When object storage is required and Sealos can satisfy it, create `ObjectStorageBucket` and inject Sealos object-storage secrets; managed Sealos toggles such as `use_sealos_objectstorage` may control the `ObjectStorageBucket` branch; external S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` evidence, and must not coexist with `ObjectStorageBucket`.
 
 ### Env and secrets
 
