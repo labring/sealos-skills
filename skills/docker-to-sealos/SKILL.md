@@ -199,6 +199,7 @@ For login-gated web applications, live validation must prove the real credential
 ### Database-specific constraints
 
 - Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services.
+- Database client images may be used in app `initContainers` and init/migration/bootstrap Jobs for readiness and bootstrap gates.
 - PostgreSQL version: `postgresql-16.4.0`.
 - PostgreSQL API: `apps.kubeblocks.io/v1alpha1`.
 - PostgreSQL RBAC unified naming: `${{ defaults.app_name }}-pg`.
