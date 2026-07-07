@@ -3468,6 +3468,64 @@ __MOUNTS__
             )
             self.assertTrue(any(item.rule_id == "R047" for item in violations))
 
+    def test_allows_managed_sealos_objectstorage_toggle_with_object_storage_bucket(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: demo
+                spec:
+                  title: Demo
+                  url: https://example.com
+                  gitRepo: https://github.com/example/demo
+                  author: example
+                  description: demo
+                  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/logo.png
+                  templateType: inline
+                  locale: en
+                  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/README.md
+                  i18n:
+                    zh:
+                      description: demo
+                      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/demo/README_zh.md
+                  categories:
+                    - tool
+                  inputs:
+                    use_sealos_objectstorage:
+                      description: Use Sealos Object Storage
+                      type: boolean
+                      default: 'true'
+                ---
+                apiVersion: objectstorage.sealos.io/v1
+                kind: ObjectStorageBucket
+                metadata:
+                  name: ${{ defaults.app_name }}
+                spec:
+                  policy: private
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R047" for item in violations))
+
     def test_detects_external_s3_inputs_without_source_annotation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -3630,7 +3688,7 @@ __MOUNTS__
             )
             self.assertFalse(any(item.rule_id == "R047" for item in violations))
 
-    def test_allows_registry_pull_secret_via_image_pull_secrets(self):
+    def test_allows_private_registry_pull_secret_via_image_pull_secrets(self):
         violations = self.run_checker(
             """
             ```yaml
@@ -3650,7 +3708,7 @@ __MOUNTS__
                 app: demo
                 cloud.sealos.io/app-deploy-manager: demo
               annotations:
-                originImageName: nginx:1.27.2
+                originImageName: ghcr.io/example/demo:1.0.0
             spec:
               revisionHistoryLimit: 1
               template:
@@ -3663,7 +3721,7 @@ __MOUNTS__
                     - name: ${{ defaults.app_name }}
                   containers:
                     - name: demo
-                      image: nginx:1.27.2
+                      image: ghcr.io/example/demo:1.0.0
                       imagePullPolicy: IfNotPresent
             ```
             """
@@ -3700,6 +3758,38 @@ __MOUNTS__
         )
         self.assertFalse(any(item.rule_id == "R035" for item in violations))
 
+    def test_detects_public_image_pull_secret_reference(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                app: demo
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: nginx:1.27.2
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                metadata:
+                  labels:
+                    app: demo
+                spec:
+                  automountServiceAccountToken: false
+                  imagePullSecrets:
+                    - name: ${{ defaults.app_name }}
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R035" for item in violations))
+
     def test_detects_invalid_registry_pull_secret_reference(self):
         violations = self.run_checker(
             """
@@ -3726,6 +3816,36 @@ __MOUNTS__
                   containers:
                     - name: demo
                       image: registry.example.com/private/demo:1.0.0
+                      imagePullPolicy: IfNotPresent
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R035" for item in violations))
+
+    def test_detects_missing_private_registry_pull_secret_reference(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                app: demo
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: ghcr.io/example/demo:1.0.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                metadata:
+                  labels:
+                    app: demo
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/demo:1.0.0
                       imagePullPolicy: IfNotPresent
             ```
             """

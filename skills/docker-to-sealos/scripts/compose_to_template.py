@@ -92,6 +92,7 @@ FLOATING_NUMERIC_TAG_RE = re.compile(r"^v?\d+(?:\.\d+)?$")
 FLOATING_ALIAS_TAGS = {"latest", "stable", "main", "master", "edge", "nightly", "dev"}
 COMPOSE_BRACED_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 COMPOSE_SIMPLE_VAR_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
+PRIVATE_IMAGE_REGISTRY_PREFIXES = ("ghcr.io/",)
 SEALOS_CPU_REQUEST_BY_LIMIT = {
     "100m": "10m",
     "200m": "20m",
@@ -418,6 +419,10 @@ def has_pinned_image(image: str) -> bool:
     without_digest = text.split("@", 1)[0]
     last_segment = without_digest.rsplit("/", 1)[-1]
     return ":" in last_segment
+
+
+def requires_image_pull_secret(image: str) -> bool:
+    return any(image.strip().startswith(prefix) for prefix in PRIVATE_IMAGE_REGISTRY_PREFIXES)
 
 
 def is_latest_image(image: str) -> bool:
@@ -2180,6 +2185,8 @@ def build_workload(
             }
         ],
     }
+    if requires_image_pull_secret(image):
+        template_spec["imagePullSecrets"] = [{"name": "${{ defaults.app_name }}"}]
     container = template_spec["containers"][0]
     if ports:
         container["ports"] = [{"containerPort": p} for p in ports]
