@@ -134,6 +134,14 @@ MAIN_CONTAINER_SHELLS = {"sh", "/bin/sh", "bash", "/bin/bash", "ash", "/bin/ash"
 MAIN_CONTAINER_MAX_SCRIPT_CHARS = 160
 MAIN_CONTAINER_MAX_SCRIPT_COMMANDS = 2
 CONFIGMAP_DATA_KEY_RE = re.compile(r"^vn-[a-z0-9]+(?:vn-[a-z0-9]+)*$")
+OBJECT_STORAGE_INPUT_TEXT_RE = re.compile(
+    r"\b(?:object\s*storage|objectstorage|s3|s3-compatible|bucket|binary\s+data|external\s+storage)\b",
+    re.IGNORECASE,
+)
+LICENSE_GATED_TEXT_RE = re.compile(
+    r"\b(?:enterprise|paid|commercial|premium|subscription|license|licensed|licence|licenced)\b",
+    re.IGNORECASE,
+)
 OBJECT_STORAGE_BRANCH_MARKER_RE = re.compile(
     r"\b(?:ObjectStorageBucket|object-storage-key|object\s+storage|s3[_-]|aws_access_key_id|"
     r"aws_secret_access_key|storage_s3|s3-compatible|bucket|bucket_name|minio)\b",
@@ -152,9 +160,13 @@ MANAGED_OBJECT_STORAGE_TOGGLE_NAMES = {
     "ENABLE_S3_STORAGE",
     "ENABLE_SEALOS_OBJECT_STORAGE",
     "ENABLE_SEALOS_OBJECTSTORAGE",
+    "ENABLE_S3",
     "USE_OBJECT_STORAGE",
+    "USE_MANAGED_OBJECT_STORAGE",
+    "USE_MANAGED_S3",
     "USE_SEALOS_OBJECT_STORAGE",
     "USE_SEALOS_OBJECTSTORAGE",
+    "USE_SEALOS_S3",
 }
 TEMPLATE_IF_RE = re.compile(r"\$\{\{\s*if\s*\((.*?)\)\s*\}\}")
 TEMPLATE_ENDIF_RE = re.compile(r"\$\{\{\s*endif\(\)\s*\}\}")
@@ -2295,6 +2307,105 @@ def _external_object_storage_source(doc: YamlDocument) -> str:
     return value.strip() if isinstance(value, str) else ""
 
 
+def _iter_template_inputs(spec: Dict[str, Any]) -> Iterable[Tuple[str, Any]]:
+    inputs = spec.get("inputs")
+    if isinstance(inputs, dict):
+        for name, input_spec in inputs.items():
+            if isinstance(name, str):
+                yield name, input_spec
+        return
+    if isinstance(inputs, list):
+        for item in inputs:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            if isinstance(name, str):
+                yield name, item
+
+
+def _template_input_text(name: str, input_spec: Any) -> str:
+    parts = [name]
+    if isinstance(input_spec, dict):
+        for key in ("label", "title", "description", "default", "value"):
+            value = input_spec.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+    elif isinstance(input_spec, str):
+        parts.append(input_spec)
+    return "\n".join(parts)
+
+
+def _object_storage_branch_inputs_by_path(context: ScanContext) -> Dict[Path, set[str]]:
+    inputs_by_path: Dict[Path, set[str]] = {}
+    for path in _iter_template_artifact_paths(context):
+        text = context.file_texts.get(path, "")
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            match = TEMPLATE_IF_RE.search(line)
+            if match is None:
+                continue
+            input_names = _condition_input_refs(match.group(1))
+            if not input_names:
+                continue
+            branch_end = _find_branch_end(lines, index)
+            branch_text = "\n".join(lines[index: branch_end + 1])
+            if not _branch_uses_object_storage(branch_text):
+                continue
+            inputs_by_path.setdefault(path, set()).update(input_names)
+    return inputs_by_path
+
+
+def _input_declaration_line(doc: YamlDocument, input_name: str) -> int:
+    escaped = re.escape(input_name)
+    inputs_line = doc.line_locator.find(r"^\s*inputs\s*:", default=doc.start_line)
+    list_name_line = doc.line_locator.find(
+        rf"^\s*name\s*:\s*['\"]?{escaped}['\"]?\s*$",
+        default=inputs_line,
+    )
+    return doc.line_locator.find(rf"^\s*{escaped}\s*:", default=list_name_line)
+
+
+def check_license_gated_object_storage_options(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    object_storage_branch_inputs = _object_storage_branch_inputs_by_path(context)
+
+    for doc in _iter_template_artifact_documents(context):
+        spec = doc.data.get("spec") if isinstance(doc.data, dict) else None
+        if not isinstance(spec, dict):
+            continue
+        branch_inputs = object_storage_branch_inputs.get(doc.path, set())
+
+        for input_name, input_spec in _iter_template_inputs(spec):
+            input_text = _template_input_text(input_name, input_spec)
+            if LICENSE_GATED_TEXT_RE.search(input_text) is None:
+                continue
+
+            normalized_name = _normalize_template_input_name(input_name)
+            is_object_storage_input = (
+                input_name in branch_inputs
+                or normalized_name in MANAGED_OBJECT_STORAGE_TOGGLE_NAMES
+                or EXTERNAL_OBJECT_STORAGE_INPUT_RE.search(normalized_name) is not None
+                or OBJECT_STORAGE_INPUT_TEXT_RE.search(input_text) is not None
+            )
+            if not is_object_storage_input:
+                continue
+
+            violations.append(
+                Violation(
+                    rule_id="R049",
+                    path=doc.path,
+                    line=_input_declaration_line(doc, input_name),
+                    message=(
+                        "license-gated object storage/S3 features must not be exposed as standard "
+                        "public-template inputs; use the community-supported filesystem/PVC mode "
+                        "or create a dedicated enterprise template only when explicitly requested"
+                    ),
+                )
+            )
+
+    return violations
+
+
 def check_external_object_storage_inputs(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     object_storage_paths = {
@@ -3095,6 +3206,7 @@ APP_RULES: Dict[str, Rule] = {
     "R044": Rule("R044", check_optional_object_storage_uses_boolean_input),
     "R045": Rule("R045", check_template_input_references_declared),
     "R047": Rule("R047", check_external_object_storage_inputs),
+    "R049": Rule("R049", check_license_gated_object_storage_options),
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
     "R048": Rule("R048", check_websocket_ingress_annotations),

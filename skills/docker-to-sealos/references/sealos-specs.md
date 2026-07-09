@@ -593,6 +593,8 @@ metadata:
 
 ## Object Storage Configuration
 
+Use ObjectStorage only for application features available in the upstream self-hosted/community edition. If S3/object-storage support requires Enterprise, paid, commercial, subscription, or license activation, the public template must keep the supported filesystem/PVC storage path and must not expose an `ObjectStorageBucket` or S3 toggle for that feature.
+
 ### Environment Variable Settings
 
 Object storage environment variable configuration must follow this format:

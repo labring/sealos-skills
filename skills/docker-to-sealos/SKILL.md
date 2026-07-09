@@ -180,6 +180,7 @@ For login-gated web applications, live validation must prove the real credential
 - Omit ConfigMap volume `defaultMode` unless the application explicitly needs a non-default mode. ConfigMap scripts invoked through `/bin/sh /path/script` do not need executable bits.
 - Avoid long inline startup scripts or heredocs in `command`/`args`; place initialization/start scripts in ConfigMap files and invoke them with a short command.
 - When object storage is required and Sealos can satisfy it, create `ObjectStorageBucket` and inject Sealos object-storage secrets; managed Sealos toggles such as `use_sealos_objectstorage` may control the `ObjectStorageBucket` branch; external S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` evidence, and must not coexist with `ObjectStorageBucket`.
+- If object storage/S3 integration is Enterprise, paid, commercial, subscription, or license-gated in the upstream application, keep the public template on the community-supported storage path (for example filesystem/PVC) and expose no standard `ObjectStorageBucket` or S3 input for that feature.
 
 ### Env and secrets
 
