@@ -393,6 +393,11 @@ class ComposeToTemplateTests(unittest.TestCase):
             ports = service["spec"]["ports"]
             self.assertEqual("tcp-9000", ports[0]["name"])
             self.assertEqual("tcp-9443", ports[1]["name"])
+            workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            self.assertEqual(
+                [{"name": "${{ defaults.app_name }}"}],
+                workload["spec"]["template"]["spec"]["imagePullSecrets"],
+            )
 
     def test_drops_https_port_when_http_port_exists(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -463,7 +468,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 """
                 services:
                   app:
-                    image: ghcr.io/example/demo:1.0.0
+                    image: nginx:1.27.2
                     configs:
                       - source: app_config
                         target: /opt/demo/app-config.yaml

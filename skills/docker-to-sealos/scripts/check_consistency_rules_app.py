@@ -101,6 +101,7 @@ DATABASE_RAW_WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", 
 DATABASE_RAW_RESOURCE_KINDS = DATABASE_RAW_WORKLOAD_KINDS | {"Service"}
 DATABASE_CLIENT_JOB_TOKENS = {"init", "migrate", "migration", "bootstrap", "setup", "seed", "backup", "restore"}
 DATABASE_RESOURCE_NAME_TOKENS = {"postgres", "postgresql", "mysql", "mariadb", "mongo", "mongodb", "redis", "kafka"}
+PRIVATE_IMAGE_REGISTRY_PREFIXES = ("ghcr.io/",)
 OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, str]] = {
     "goauthentik/server": {
         "liveness_path": "/-/health/live/",
@@ -2883,12 +2884,6 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
         template_spec = get_template_spec(doc.data)
         image_pull_secrets = template_spec.get("imagePullSecrets") if isinstance(template_spec, dict) else None
 
-        # Public images should omit imagePullSecrets entirely. When a private-registry
-        # workload does declare pull secrets, only the app-scoped runtime-managed
-        # secret is allowed so templates do not depend on undeclared custom secrets.
-        if image_pull_secrets is None:
-            continue
-
         referenced_names: List[str] = []
         if isinstance(image_pull_secrets, list):
             for item in image_pull_secrets:
@@ -2898,8 +2893,22 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
                 if isinstance(name, str) and name.strip():
                     referenced_names.append(name.strip())
 
-        if referenced_names == ["${{ defaults.app_name }}"]:
+        requires_pull_secret = any(_container_requires_image_pull_secret(container) for container in iter_containers(doc.data))
+        has_pull_secret = len(referenced_names) > 0
+        has_only_app_pull_secret = referenced_names == ["${{ defaults.app_name }}"]
+
+        if requires_pull_secret and has_only_app_pull_secret:
             continue
+        if not requires_pull_secret and not has_pull_secret:
+            continue
+
+        if requires_pull_secret:
+            message = (
+                "private-registry managed app workloads must reference only the app-scoped image pull secret "
+                "`${{ defaults.app_name }}` via template.spec.imagePullSecrets"
+            )
+        else:
+            message = "public-image managed app workloads must omit template.spec.imagePullSecrets"
 
         add_doc_violation(
             violations,
@@ -2907,14 +2916,17 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
             doc=doc,
             pattern=r"^\s*imagePullSecrets\s*:",
             default_pattern=r"^\s*template\s*:",
-            message=(
-                "imagePullSecrets may be omitted for public images; if declared for "
-                "private-registry workloads, it must reference only the app-scoped "
-                "secret `${{ defaults.app_name }}`"
-            ),
+            message=message,
         )
 
     return violations
+
+
+def _container_requires_image_pull_secret(container: Dict[str, Any]) -> bool:
+    image = container.get("image")
+    if not isinstance(image, str):
+        return False
+    return any(image.strip().startswith(prefix) for prefix in PRIVATE_IMAGE_REGISTRY_PREFIXES)
 
 
 APP_RULES: Dict[str, Rule] = {
