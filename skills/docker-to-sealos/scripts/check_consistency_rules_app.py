@@ -1822,7 +1822,7 @@ def check_websocket_ingress_annotations(context: ScanContext) -> List[Violation]
         if not isinstance(annotations, dict):
             add_doc_violation(
                 violations,
-                rule_id="R046",
+                rule_id="R048",
                 doc=doc,
                 pattern=r"^\s*annotations\s*:",
                 default_pattern=r"^\s*metadata\s*:",
@@ -1837,7 +1837,7 @@ def check_websocket_ingress_annotations(context: ScanContext) -> List[Violation]
                 continue
             add_doc_violation(
                 violations,
-                rule_id="R046",
+                rule_id="R048",
                 doc=doc,
                 pattern=re.escape(key),
                 default_pattern=r"^\s*annotations\s*:",
@@ -3097,7 +3097,7 @@ APP_RULES: Dict[str, Rule] = {
     "R047": Rule("R047", check_external_object_storage_inputs),
     "R031": Rule("R031", check_ingress_name_matches_backends),
     "R026": Rule("R026", check_http_ingress_annotations),
-    "R046": Rule("R046", check_websocket_ingress_annotations),
+    "R048": Rule("R048", check_websocket_ingress_annotations),
     "R027": Rule("R027", check_postgres_custom_db_init_job),
     "R037": Rule("R037", check_postgres_secret_refs_match_cluster_name),
     "R039": Rule("R039", check_database_services_use_clusters),

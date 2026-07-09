@@ -46,6 +46,23 @@ Use quiet success behavior:
 - Print the install log only when the command exits non-zero.
 - Keep successful boot logs focused on app readiness and actionable warnings.
 
+## Image-Bundled Dependency Paths
+
+A Ready pod can still have a broken dependency setup when a template mounts an empty PVC over a path that the image already populates.
+
+Detection signals:
+
+- Logs contain `failed to setup runner dependencies`.
+- Logs mention a missing file under a relative or mounted dependency path, such as `dependencies/python-requirements.txt`.
+- `kubectl exec` shows the mounted path contains only filesystem bootstrap entries like `lost+found`.
+
+Fix pattern:
+
+1. Check the official image, source tree, or release tag for the missing file.
+2. If the image provides the file, remove the PVC/volumeMount for that path.
+3. Keep PVCs for real user data and writable runtime state.
+4. Redeploy fresh and re-run setup/login plus log scan.
+
 ## Restricted-Compatible Security Context
 
 When the image default UID is verified as non-root through image metadata, upstream docs, or `id` inside a live container, set restricted-compatible security context on managed app workloads and init Jobs:

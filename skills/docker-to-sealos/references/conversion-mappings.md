@@ -443,6 +443,14 @@ Notes:
 
 **Important**: Sealos does not support emptyDir; all storage must be persistent.
 
+Before creating a PVC for a host-directory mount, classify the target path:
+
+- Use persistent storage for user data, uploads, model caches, database-adjacent state, and writable runtime state.
+- Use ConfigMap mounts for source-controlled config files or scripts.
+- Leave the path unmounted when the image already ships required dependency manifests, config defaults, or bootstrap metadata at the same path.
+
+Dify sandbox is the failure pattern: official Compose mounts `./volumes/sandbox/dependencies:/dependencies`, while `langgenius/dify-sandbox:0.2.15` expects `dependencies/python-requirements.txt` to exist in the image/repo runtime path. A fresh Sealos PVC mounted at `/dependencies` contains only `lost+found`, hides the required file, and produces `failed to setup runner dependencies`.
+
 #### Docker Compose
 ```yaml
 services:
@@ -979,6 +987,11 @@ metadata:
 
 ### Persistent Storage
 - Docker volumes → StatefulSet + volumeClaimTemplates
+
+### Existing Template Resource Tuning
+- Tune CPU and memory through the Sealos resource ladder.
+- Preserve existing `ephemeral-storage` requests and limits exactly during template refreshes.
+- Change `ephemeral-storage` only when runtime evidence shows `EphemeralStorage`, eviction, or disk-pressure failures for that workload.
 
 ### Configuration Files
 - Docker config files → ConfigMap (using vn- naming convention)

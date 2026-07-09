@@ -2540,7 +2540,7 @@ __MOUNTS__
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
-            self.assertTrue(any(item.rule_id == "R046" for item in violations))
+            self.assertTrue(any(item.rule_id == "R048" for item in violations))
 
     def test_allows_required_websocket_ingress_annotations_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2606,7 +2606,7 @@ __MOUNTS__
                 additional_include_paths=["template/demo/index.yaml"],
             )
             self.assertFalse(any(item.rule_id == "R026" for item in violations))
-            self.assertFalse(any(item.rule_id == "R046" for item in violations))
+            self.assertFalse(any(item.rule_id == "R048" for item in violations))
 
     def test_detects_missing_pg_init_job_for_custom_postgres_database(self):
         with tempfile.TemporaryDirectory() as temp_dir:

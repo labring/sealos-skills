@@ -91,7 +91,7 @@ rules:
   - id: R026
     description: HTTP Ingress resources in template artifacts must include the required nginx annotations with expected values.
     severity: error
-  - id: R046
+  - id: R048
     description: WebSocket Ingress resources in template artifacts must use backend-protocol WS with 3600 read/send timeouts and the required nginx annotations.
     severity: error
   - id: R027
