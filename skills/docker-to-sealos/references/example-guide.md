@@ -1339,10 +1339,10 @@ spec:
       resources:
         limits:
           cpu: "1"
-          memory: 1Gi
+          memory: 1024Mi
         requests:
           cpu: "1"
-          memory: 1Gi
+          memory: 102Mi
       rsmTransformPolicy: ToSts
       serviceAccountName: ${{ defaults.app_name }}-weaviate
       volumeClaimTemplates:
