@@ -484,10 +484,10 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 102Mi
+              memory: 100Mi
             limits:
               cpu: 1000m
-              memory: 1024Mi
+              memory: 1Gi
           command: []
           args: []
           ports:
@@ -658,10 +658,10 @@ spec:
       resources:
         limits:
           cpu: 1000m
-          memory: 1024Mi
+          memory: 1Gi
         requests:
           cpu: 100m
-          memory: 102Mi
+          memory: 100Mi
       serviceAccountName: ${{ defaults.app_name }}-mongo
       serviceVersion: 8.0.4
       volumeClaimTemplates:
@@ -757,10 +757,10 @@ spec:
       resources:
         limits:
           cpu: 1000m
-          memory: 1024Mi
+          memory: 1Gi
         requests:
           cpu: 100m
-          memory: 102Mi
+          memory: 100Mi
       serviceAccountName: ${{ defaults.app_name }}-pg
       switchPolicy:
         type: Noop
@@ -854,10 +854,10 @@ spec:
       resources:
         limits:
           cpu: 1000m
-          memory: 1024Mi
+          memory: 1Gi
         requests:
           cpu: 100m
-          memory: 102Mi
+          memory: 100Mi
       serviceAccountName: ${{ defaults.app_name }}-mysql
       switchPolicy:
         type: Noop
@@ -956,10 +956,10 @@ spec:
       resources:
         limits:
           cpu: 1000m
-          memory: 1024Mi
+          memory: 1Gi
         requests:
           cpu: 100m
-          memory: 102Mi
+          memory: 100Mi
       serviceAccountName: ${{ defaults.app_name }}-redis
       serviceVersion: 7.2.7
       switchPolicy:
@@ -1109,10 +1109,10 @@ spec:
       resources:
         limits:
           cpu: 1000m
-          memory: 1024Mi
+          memory: 1Gi
         requests:
           cpu: 100m
-          memory: 102Mi
+          memory: 100Mi
       volumeClaimTemplates:
         - name: metadata
           spec:
@@ -1163,10 +1163,10 @@ spec:
       resources:
         limits:
           cpu: 1000m
-          memory: 1024Mi
+          memory: 1Gi
         requests:
           cpu: 100m
-          memory: 102Mi
+          memory: 100Mi
       volumeClaimTemplates:
         - name: data
           spec:
@@ -1272,10 +1272,10 @@ spec:
       resources:
         limits:
           cpu: 1000m
-          memory: 1024Mi
+          memory: 1Gi
         requests:
           cpu: 100m
-          memory: 102Mi
+          memory: 100Mi
       serviceAccountName: ${{ defaults.app_name }}-clickhouse
       volumeClaimTemplates:
         - name: data

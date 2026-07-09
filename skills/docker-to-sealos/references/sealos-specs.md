@@ -953,11 +953,11 @@ Allowed `limits.memory` values:
 - `128Mi`
 - `256Mi`
 - `512Mi`
-- `1024Mi`
-- `2048Mi`
-- `4096Mi`
-- `8192Mi`
-- `16384Mi`
+- `1Gi`
+- `2Gi`
+- `4Gi`
+- `8Gi`
+- `16Gi`
 
 `requests` must be derived from `limits` by dropping the last numeric digit:
 
@@ -974,11 +974,11 @@ Allowed `limits.memory` values:
 | `memory: 128Mi` | `memory: 12Mi` |
 | `memory: 256Mi` | `memory: 25Mi` |
 | `memory: 512Mi` | `memory: 51Mi` |
-| `memory: 1024Mi` | `memory: 102Mi` |
-| `memory: 2048Mi` | `memory: 204Mi` |
-| `memory: 4096Mi` | `memory: 409Mi` |
-| `memory: 8192Mi` | `memory: 819Mi` |
-| `memory: 16384Mi` | `memory: 1638Mi` |
+| `memory: 1Gi` | `memory: 100Mi` |
+| `memory: 2Gi` | `memory: 200Mi` |
+| `memory: 4Gi` | `memory: 400Mi` |
+| `memory: 8Gi` | `memory: 800Mi` |
+| `memory: 16Gi` | `memory: 1600Mi` |
 
 **Default lightweight application quota:**
 
@@ -1010,10 +1010,10 @@ resources:
 resources:
   requests:
     cpu: 200m
-    memory: 204Mi
+    memory: 200Mi
   limits:
     cpu: 2
-    memory: 2048Mi
+    memory: 2Gi
 ```
 
 **Invalid examples:**
@@ -1035,9 +1035,9 @@ resources:
     memory: 256Mi
   limits:
     cpu: 1
-    memory: 1024Mi
+    memory: 1Gi
 
-# Incorrect: G/Gi forms can make Sealos Template API quota preview parse memory as 0; use Mi ladder values
+# Incorrect: decimal G form sits outside the canonical Gi ladder and can make Sealos Template API quota preview parse memory as 0
 resources:
   requests:
     cpu: 200m

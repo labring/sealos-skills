@@ -4541,10 +4541,10 @@ __MOUNTS__
                       resources:
                         limits:
                           cpu: 1000m
-                          memory: 1024Mi
+                          memory: 1Gi
                         requests:
                           cpu: 100m
-                          memory: 102Mi
+                          memory: 100Mi
                 """,
             )
 
@@ -5354,7 +5354,7 @@ __MOUNTS__
                               memory: 256Mi
                             limits:
                               cpu: 1
-                              memory: 1024Mi
+                              memory: 1G
                 """,
             )
 
@@ -5457,10 +5457,10 @@ __MOUNTS__
                           resources:
                             requests:
                               cpu: 100m
-                              memory: 102Mi
+                              memory: 100Mi
                             limits:
                               cpu: 1
-                              memory: 1024Mi
+                              memory: 1Gi
                 """,
             )
 
@@ -5526,7 +5526,7 @@ __MOUNTS__
             )
             self.assertTrue(any(item.rule_id == "R038" for item in violations))
 
-    def test_passes_4096mi_managed_workload_resource_ladder(self):
+    def test_passes_4gi_managed_workload_resource_ladder(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -5564,10 +5564,10 @@ __MOUNTS__
                           resources:
                             requests:
                               cpu: 50m
-                              memory: 409Mi
+                              memory: 400Mi
                             limits:
                               cpu: 500m
-                              memory: 4096Mi
+                              memory: 4Gi
                 """,
             )
 

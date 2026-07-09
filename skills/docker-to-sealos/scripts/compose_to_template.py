@@ -106,11 +106,11 @@ SEALOS_MEMORY_REQUEST_BY_LIMIT = {
     "128Mi": "12Mi",
     "256Mi": "25Mi",
     "512Mi": "51Mi",
-    "1024Mi": "102Mi",
-    "2048Mi": "204Mi",
-    "4096Mi": "409Mi",
-    "8192Mi": "819Mi",
-    "16384Mi": "1638Mi",
+    "1Gi": "100Mi",
+    "2Gi": "200Mi",
+    "4Gi": "400Mi",
+    "8Gi": "800Mi",
+    "16Gi": "1600Mi",
 }
 DEFAULT_RESOURCE_LIMITS = {"cpu": "200m", "memory": "256Mi"}
 DEFAULT_RESOURCE_REQUESTS = {
