@@ -128,6 +128,10 @@ must_rules:
     enforcement:
       type: rule
       target: R026
+  - must: "WebSocket Ingress must include required nginx annotations (`kubernetes.io/ingress.class`, `nginx.ingress.kubernetes.io/proxy-body-size`, `nginx.ingress.kubernetes.io/proxy-read-timeout`, `nginx.ingress.kubernetes.io/proxy-send-timeout`, `nginx.ingress.kubernetes.io/backend-protocol`, `nginx.ingress.kubernetes.io/ssl-redirect`) with `backend-protocol: WS` and `3600` read/send timeouts."
+    enforcement:
+      type: rule
+      target: R046
   - must: "CronJob resources must define labels `cloud.sealos.io/cronjob`, `cronjob-launchpad-name`, and `cronjob-type`; `cloud.sealos.io/cronjob` must equal `metadata.name`, `cronjob-launchpad-name` must be `\"\"`, and `cronjob-type` must be `image`."
     enforcement:
       type: rule
