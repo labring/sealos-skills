@@ -991,7 +991,9 @@ metadata:
 ### Existing Template Resource Tuning
 - Tune CPU and memory through the Sealos resource ladder.
 - Preserve existing `ephemeral-storage` requests and limits exactly during template refreshes.
-- Change `ephemeral-storage` only when runtime evidence shows `EphemeralStorage`, eviction, or disk-pressure failures for that workload.
+- Change `ephemeral-storage` only when live evidence shows `EphemeralStorage`, eviction, or disk-pressure failures for that workload.
+- Adjust `requests.ephemeral-storage` and `limits.ephemeral-storage` together for the same container.
+- Choose the smallest common Mi value that covers observed writable-layer usage plus startup margin; Dify sandbox uses `512Mi` after `300Mi` eviction and observed runner expansion under `/opt` and `/var/sandbox`.
 
 ### Configuration Files
 - Docker config files → ConfigMap (using vn- naming convention)
