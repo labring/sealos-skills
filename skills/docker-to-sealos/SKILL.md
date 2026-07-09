@@ -211,7 +211,7 @@ For login-gated web applications, live validation must prove the real credential
 - MySQL cluster must follow upgraded structure (`kb.io/database: ac-mysql-8.0.30-1`, `clusterDefinitionRef: apecloud-mysql`, `clusterVersionRef: ac-mysql-8.0.30-1`, `tolerations: []`).
 - Redis cluster must follow upgraded structure (`componentDef: redis-7`, `componentDef: redis-sentinel-7`, `serviceVersion: 7.2.7`, main data PVC `1Gi`, topology `replication`).
 - Database cluster component resources must use `limits(cpu=500m,memory=512Mi)` and `requests(cpu=50m,memory=51Mi)` unless source docs explicitly require otherwise.
-- All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1Gi/2Gi/4Gi/8Gi/16Gi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1Gi→100Mi`, `4Gi→400Mi`). Do not invent non-ladder values, and never use `1G/2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0.
+- All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0.
 - Secret naming:
   - MongoDB: `${{ defaults.app_name }}-mongo-mongodb-account-root` (or `${{ defaults.app_name }}-mongodb-mongodb-account-root` when the MongoDB cluster name uses `-mongodb`)
   - Redis: `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)
@@ -242,11 +242,11 @@ For browser, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or remote-desktop-
 
 Example:
 - Bad: Chrome passes a short smoke at `512Mi` but reaches `503Mi`; shipping `512Mi` as the stable minimum is unsafe.
-- Good: raise to `1Gi`, set request to `100Mi`, rerun smoke and stability checks.
+- Good: raise to `1024Mi`, set request to `102Mi`, rerun smoke and stability checks.
 
 For Chrome + Xvfb + Selkies with 4K max display, use at least:
-- limits: `cpu=200m`, `memory=1Gi`
-- requests: `cpu=20m`, `memory=100Mi`
+- limits: `cpu=200m`, `memory=1024Mi`
+- requests: `cpu=20m`, `memory=102Mi`
 
 ### Defaults vs inputs
 
