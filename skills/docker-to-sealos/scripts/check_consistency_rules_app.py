@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from urllib.parse import unquote_plus, urlsplit
 
 from check_consistency_models import LATEST_IMAGE_PATTERN, TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation, YamlDocument
 from check_consistency_helpers_violations import (
@@ -147,14 +149,118 @@ OBJECT_STORAGE_BRANCH_MARKER_RE = re.compile(
     r"aws_secret_access_key|storage_s3|s3-compatible|bucket|bucket_name|minio)\b",
     re.IGNORECASE,
 )
-EXTERNAL_OBJECT_STORAGE_SOURCE_ANNOTATION = "docker-to-sealos.external-object-storage-source"
-EXTERNAL_OBJECT_STORAGE_INPUT_RE = re.compile(
-    r"(?:^|_)(?:EXTERNAL_S3|EXTERNAL_MINIO|EXTERNAL_OBJECT_STORAGE|USE_EXTERNAL_S3|"
-    r"USE_EXTERNAL_MINIO|USE_EXTERNAL_OBJECT_STORAGE)(?:$|_)|"
-    r"(?:^|_)(?:S3|MINIO|OBJECT_STORAGE)(?:_.*)?_(?:ACCESS_KEY|ACCESS_KEY_ID|SECRET|SECRET_KEY|"
-    r"SECRET_ACCESS_KEY|ENDPOINT|BUCKET|REGION)(?:$|_)",
+OBJECT_STORAGE_PROVIDER_VALUE_RE = re.compile(
+    r"\b(?:s3|s3 compatible|object storage|minio|sealos objectstorage|sealos object storage|aws s3|external s3)\b",
     re.IGNORECASE,
 )
+OBJECT_STORAGE_PROVIDER_DECISION_VALUE_RE = re.compile(
+    r"\b(?:aws\s+s3|sealos\s+object\s*storage|managed\s+(?:s3|object\s*storage)|bundled\s+minio)\b",
+    re.IGNORECASE,
+)
+OBJECT_STORAGE_INPUT_TEXT_MAX_ITEMS = 32
+OBJECT_STORAGE_INPUT_TEXT_MAX_VALUE_CHARS = 512
+OBJECT_STORAGE_INPUT_TEXT_MAX_CHARS = 4096
+OBJECT_STORAGE_UNSAFE_INPUT_MARKER = "object storage provider"
+OBJECT_STORAGE_SELECTOR_TOKENS = {"PROVIDER", "BACKEND", "TYPE", "MODE", "DRIVER"}
+OBJECT_STORAGE_PROVIDER_DECISION_TOKENS = {"USE", "ENABLE", "ENABLED", "DISABLE", "DISABLED"}
+OBJECT_STORAGE_CONFIG_TOKENS = {
+    "ACCESS",
+    "BUCKET",
+    "CAPACITY",
+    "CLASS",
+    "DOMAIN",
+    "ENDPOINT",
+    "KEY",
+    "PASSWORD",
+    "POLICY",
+    "REGION",
+    "SECURE",
+    "SECRET",
+    "SIZE",
+    "SSL",
+    "TLS",
+    "URL",
+    "USER",
+    "USERNAME",
+}
+OBJECT_STORAGE_PROXY_ROLE_TOKENS = {"ADAPTER", "COMPAT", "COMPATIBILITY", "GATEWAY", "PROXY"}
+OBJECT_STORAGE_PROXY_HELPER_TOKENS = {"CHECK", "INIT", "PROBE", "WAIT"}
+PERSISTENT_VOLUME_SOURCE_KEYS = {
+    "awsElasticBlockStore",
+    "azureDisk",
+    "azureFile",
+    "cephfs",
+    "cinder",
+    "csi",
+    "fc",
+    "flexVolume",
+    "flocker",
+    "gcePersistentDisk",
+    "glusterfs",
+    "hostPath",
+    "iscsi",
+    "nfs",
+    "persistentVolumeClaim",
+    "photonPersistentDisk",
+    "portworxVolume",
+    "quobyte",
+    "rbd",
+    "scaleIO",
+    "storageos",
+    "vsphereVolume",
+}
+MINIO_SERVER_IMAGE_RE = re.compile(
+    r"(?:^|/)(?:minio/minio|bitnami(?:legacy)?/minio)(?::|@|$)",
+    re.IGNORECASE,
+)
+EXTERNAL_OBJECT_STORAGE_SOURCE_ANNOTATION = "docker-to-sealos.external-object-storage-source"
+OBJECT_STORAGE_COMPATIBILITY_PROXY_SOURCE_ANNOTATION = (
+    "docker-to-sealos.object-storage-compatibility-proxy-source"
+)
+OBJECT_STORAGE_USER_REQUEST_EVIDENCE_RE = re.compile(
+    r"user-request:[A-Za-z0-9][A-Za-z0-9._/-]*"
+)
+OBJECT_STORAGE_SOURCE_EVIDENCE_MAX_CHARS = 2048
+OBJECT_STORAGE_SOURCE_SENSITIVE_QUERY_TOKENS = {
+    "access",
+    "auth",
+    "authorization",
+    "apikey",
+    "credential",
+    "key",
+    "password",
+    "secret",
+    "sig",
+    "signature",
+    "token",
+}
+AWS_OBJECT_STORAGE_INPUT_RE = re.compile(
+    r"^AWS_(?:ACCESS_KEY(?:_ID)?|SECRET(?:_ACCESS)?_KEY|SESSION_TOKEN|"
+    r"ENDPOINT(?:_URL)?(?:_S3)?|REGION|DEFAULT_REGION|S3_BUCKET(?:_NAME)?|BUCKET(?:_NAME)?)$",
+    re.IGNORECASE,
+)
+AWS_OBJECT_STORAGE_CONTEXT_RE = re.compile(
+    r"\b(?:s3|object\s*storage|minio|external\s*storage)\b",
+    re.IGNORECASE,
+)
+EXTERNAL_OBJECT_STORAGE_DESCRIPTION_RE = re.compile(
+    r"\b(?:s3|object\s*storage|minio)\b",
+    re.IGNORECASE,
+)
+EXTERNAL_OBJECT_STORAGE_CONFIG_TOKENS = {
+    "BUCKET",
+    "CREDENTIAL",
+    "CREDENTIALS",
+    "ENDPOINT",
+    "KEY",
+    "PASSWORD",
+    "REGION",
+    "SECRET",
+    "TOKEN",
+    "URL",
+    "USER",
+    "USERNAME",
+}
 MANAGED_OBJECT_STORAGE_TOGGLE_NAMES = {
     "ENABLE_OBJECT_STORAGE",
     "ENABLE_S3_STORAGE",
@@ -2165,6 +2271,23 @@ def _template_inputs_by_path(context: ScanContext) -> Dict[Path, Dict[str, str]]
     return inputs_by_path
 
 
+def _template_input_specs_by_path(context: ScanContext) -> Dict[Path, Dict[str, Dict[str, Any]]]:
+    inputs_by_path: Dict[Path, Dict[str, Dict[str, Any]]] = {}
+    for doc in _iter_template_artifact_documents(context):
+        if not isinstance(doc.data, dict):
+            continue
+        spec = doc.data.get("spec")
+        inputs = spec.get("inputs") if isinstance(spec, dict) else None
+        if not isinstance(inputs, dict):
+            continue
+
+        input_specs = inputs_by_path.setdefault(doc.path, {})
+        for input_name, input_spec in inputs.items():
+            if isinstance(input_name, str) and isinstance(input_spec, dict):
+                input_specs[input_name] = input_spec
+    return inputs_by_path
+
+
 def check_template_input_references_declared(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     inputs_by_path = _template_inputs_by_path(context)
@@ -2223,12 +2346,299 @@ def _condition_input_refs(condition: str) -> List[str]:
 
 def _condition_uses_true_comparison(condition: str, input_name: str) -> bool:
     escaped = re.escape(input_name)
-    return re.search(rf"\binputs\.{escaped}\s*===\s*['\"]true['\"]", condition) is not None
+    return re.fullmatch(
+        rf"\s*inputs\.{escaped}\s*===\s*['\"]true['\"]\s*",
+        condition,
+    ) is not None
 
 
-def check_optional_object_storage_uses_boolean_input(context: ScanContext) -> List[Violation]:
+def _bounded_object_storage_input_text(
+    input_spec: Dict[str, Any],
+    *,
+    include_description: bool,
+) -> str:
+    values: List[str] = []
+    unsafe_input = False
+    total_chars = 0
+
+    def append_scalar(value: Any) -> None:
+        nonlocal total_chars, unsafe_input
+        if not isinstance(value, (str, int, float, bool)):
+            if value is not None:
+                unsafe_input = True
+            return
+        remaining = OBJECT_STORAGE_INPUT_TEXT_MAX_CHARS - total_chars
+        if remaining <= 0:
+            unsafe_input = True
+            return
+        text = str(value)
+        allowed = min(OBJECT_STORAGE_INPUT_TEXT_MAX_VALUE_CHARS, remaining)
+        if len(text) > allowed:
+            unsafe_input = True
+        bounded_text = text[:allowed]
+        values.append(bounded_text)
+        total_chars += len(bounded_text)
+
+    if include_description:
+        append_scalar(input_spec.get("description"))
+    append_scalar(input_spec.get("default"))
+    options = input_spec.get("options")
+    if isinstance(options, list):
+        if len(options) > OBJECT_STORAGE_INPUT_TEXT_MAX_ITEMS:
+            unsafe_input = True
+        for item in options[:OBJECT_STORAGE_INPUT_TEXT_MAX_ITEMS]:
+            append_scalar(item)
+    else:
+        append_scalar(options)
+
+    if unsafe_input:
+        values.insert(0, OBJECT_STORAGE_UNSAFE_INPUT_MARKER)
+    return re.sub(r"[_-]+", " ", " ".join(values))[:OBJECT_STORAGE_INPUT_TEXT_MAX_CHARS]
+
+
+def _object_storage_input_text(input_spec: Dict[str, Any]) -> str:
+    return _bounded_object_storage_input_text(input_spec, include_description=True)
+
+
+def _object_storage_input_value_text(input_spec: Dict[str, Any]) -> str:
+    return _bounded_object_storage_input_text(input_spec, include_description=False)
+
+
+def _tokens_have_object_storage_identity(tokens: Set[str]) -> bool:
+    return (
+        bool(tokens.intersection({"S3", "MINIO", "OBJECTSTORAGE"}))
+        or {"OBJECT", "STORAGE"}.issubset(tokens)
+    )
+
+
+def _container_has_object_storage_env(container: Dict[str, Any]) -> bool:
+    env = container.get("env")
+    if not isinstance(env, list):
+        return False
+    for item in env:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str):
+            continue
+        tokens = set(_normalize_template_input_name(name).split("_"))
+        if _tokens_have_object_storage_identity(tokens):
+            return True
+    return False
+
+
+def _is_object_storage_provider_selector(input_name: str, input_spec: Dict[str, Any]) -> bool:
+    normalized = _normalize_template_input_name(input_name)
+    tokens = set(normalized.split("_"))
+    raw_input_type = input_spec.get("type")
+    input_type = raw_input_type.strip().lower() if isinstance(raw_input_type, str) else ""
+    has_selector_name = bool(tokens.intersection(OBJECT_STORAGE_SELECTOR_TOKENS))
+    has_object_storage_name = (
+        "S3" in tokens
+        or "MINIO" in tokens
+        or "OBJECTSTORAGE" in tokens
+        or {"OBJECT", "STORAGE"}.issubset(tokens)
+    )
+    is_provider_decision = has_object_storage_name and (
+        bool(tokens.intersection({"MANAGED", "SEALOS"}))
+        or (
+            "AWS" in tokens
+            and bool(tokens.intersection(OBJECT_STORAGE_PROVIDER_DECISION_TOKENS))
+        )
+    )
+    if is_provider_decision:
+        return True
+    if tokens.intersection(OBJECT_STORAGE_CONFIG_TOKENS) and not has_selector_name:
+        return False
+    is_numeric_capacity = input_type in {"integer", "number"} and (
+        bool(tokens.intersection({"CAPACITY", "SIZE"}))
+        or {"MINIO", "STORAGE"}.issubset(tokens)
+    )
+    if is_numeric_capacity and not has_selector_name:
+        return False
+
+    if "MINIO" in tokens and (
+        len(tokens) == 1 or bool(tokens.intersection(OBJECT_STORAGE_PROVIDER_DECISION_TOKENS))
+    ):
+        return True
+
+    if has_selector_name and has_object_storage_name:
+        return True
+    if has_selector_name and "STORAGE" in tokens:
+        return True
+
+    input_text = _object_storage_input_text(input_spec)
+    input_value_text = _object_storage_input_value_text(input_spec)
+    has_object_storage_text = OBJECT_STORAGE_PROVIDER_VALUE_RE.search(input_text) is not None
+    has_object_storage_value = OBJECT_STORAGE_PROVIDER_VALUE_RE.search(input_value_text) is not None
+    if has_selector_name and has_object_storage_text:
+        return True
+    if "USE" in tokens and OBJECT_STORAGE_PROVIDER_DECISION_VALUE_RE.search(input_text) is not None:
+        return True
+    if input_type in {"choice", "select"} and has_object_storage_value:
+        return True
+    if input_type in {"integer", "number"} and "STORAGE" in tokens and has_object_storage_text:
+        return True
+    return input_type == "string" and "STORAGE" in tokens and has_object_storage_value
+
+
+def _is_minio_server_image(image: str) -> bool:
+    return MINIO_SERVER_IMAGE_RE.search(image.strip()) is not None
+
+
+def _is_valid_object_storage_hostname(hostname: str) -> bool:
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        pass
+
+    try:
+        ascii_hostname = hostname.encode("idna").decode("ascii")
+    except UnicodeError:
+        return False
+    if len(ascii_hostname) > 253 or ascii_hostname.strip(".") != ascii_hostname:
+        return False
+    labels = ascii_hostname.split(".")
+    return all(
+        re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label) is not None
+        for label in labels
+    )
+
+
+def _is_sensitive_object_storage_source_key(key: str) -> bool:
+    separated_key = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key)
+    normalized_key = re.sub(r"[^a-z0-9]+", "_", separated_key.lower()).strip("_")
+    query_tokens = set(normalized_key.split("_"))
+    compact_key = normalized_key.replace("_", "")
+    return bool(
+        query_tokens.intersection(OBJECT_STORAGE_SOURCE_SENSITIVE_QUERY_TOKENS)
+        or compact_key in OBJECT_STORAGE_SOURCE_SENSITIVE_QUERY_TOKENS
+    )
+
+
+def _object_storage_source_parameter_keys(
+    component: str,
+    *,
+    require_assignment: bool = False,
+) -> List[str]:
+    fields = re.split(r"[&;]", unquote_plus(component))
+    if len(fields) > 64:
+        raise ValueError("too many URL parameters")
+    return [
+        field.partition("=")[0]
+        for field in fields
+        if field and (not require_assignment or "=" in field)
+    ]
+
+
+def _is_valid_object_storage_source_evidence(value: str) -> bool:
+    value = value.strip()
+    if (
+        not value
+        or len(value) > OBJECT_STORAGE_SOURCE_EVIDENCE_MAX_CHARS
+        or any(character.isspace() for character in value)
+    ):
+        return False
+    if OBJECT_STORAGE_USER_REQUEST_EVIDENCE_RE.fullmatch(value):
+        return True
+
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        if parsed.scheme.lower() != "https" or not hostname:
+            return False
+        if not _is_valid_object_storage_hostname(hostname):
+            return False
+        if parsed.username is not None or parsed.password is not None:
+            return False
+        _ = parsed.port
+        parameter_keys = _object_storage_source_parameter_keys(
+            parsed.query
+        ) + _object_storage_source_parameter_keys(parsed.fragment, require_assignment=True)
+    except ValueError:
+        return False
+
+    for key in parameter_keys:
+        if _is_sensitive_object_storage_source_key(key):
+            return False
+    return True
+
+
+def _compatibility_proxy_image(doc: YamlDocument) -> Optional[str]:
+    metadata = doc.data.get("metadata") if isinstance(doc.data, dict) else None
+    resource_name = metadata.get("name") if isinstance(metadata, dict) else None
+    normalized_name = _normalize_template_input_name(resource_name) if isinstance(resource_name, str) else ""
+    name_tokens = set(normalized_name.split("_"))
+    containers = list(iter_containers(doc.data))
+    resource_has_role = bool(name_tokens.intersection(OBJECT_STORAGE_PROXY_ROLE_TOKENS))
+    resource_has_object_storage = _tokens_have_object_storage_identity(name_tokens)
+    for container in containers:
+        image = container.get("image")
+        container_name = container.get("name")
+        container_tokens = (
+            set(_normalize_template_input_name(container_name).split("_"))
+            if isinstance(container_name, str)
+            else set()
+        )
+        if container_tokens.intersection(OBJECT_STORAGE_PROXY_HELPER_TOKENS):
+            continue
+        has_role = resource_has_role or bool(
+            container_tokens.intersection(OBJECT_STORAGE_PROXY_ROLE_TOKENS)
+        )
+        has_object_storage = (
+            resource_has_object_storage
+            or _tokens_have_object_storage_identity(container_tokens)
+            or _container_has_object_storage_env(container)
+        )
+        if has_role and has_object_storage and isinstance(image, str) and image.strip():
+            return image
+    return None
+
+
+def _compatibility_proxy_uses_persistent_storage(data: Dict[str, Any]) -> bool:
+    spec = data.get("spec")
+    if isinstance(spec, dict):
+        claim_templates = spec.get("volumeClaimTemplates")
+        if isinstance(claim_templates, list) and claim_templates:
+            return True
+
+    template_spec = get_template_spec(data)
+    if not isinstance(template_spec, dict):
+        return False
+    volumes = template_spec.get("volumes")
+    if not isinstance(volumes, list):
+        return False
+    return any(
+        isinstance(volume, dict) and bool(set(volume).intersection(PERSISTENT_VOLUME_SOURCE_KEYS))
+        for volume in volumes
+    )
+
+
+def check_object_storage_input_contract(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     inputs_by_path = _template_inputs_by_path(context)
+    input_specs_by_path = _template_input_specs_by_path(context)
+    provider_inputs_by_path: Dict[Path, Set[str]] = {}
+
+    for doc in _iter_template_artifact_documents(context):
+        input_specs = input_specs_by_path.get(doc.path, {})
+        provider_inputs = provider_inputs_by_path.setdefault(doc.path, set())
+        for input_name, input_spec in input_specs.items():
+            if not _is_object_storage_provider_selector(input_name, input_spec):
+                continue
+            provider_inputs.add(input_name)
+            violations.append(
+                Violation(
+                    rule_id="R044",
+                    path=doc.path,
+                    line=find_line(doc, rf"^\s*{re.escape(input_name)}\s*:"),
+                    message=(
+                        f"object storage provider/backend selector inputs.{input_name} must be resolved "
+                        "during conversion; expose only an application-level enable/disable boolean"
+                    ),
+                )
+            )
 
     for path in _iter_template_artifact_paths(context):
         text = context.file_texts.get(path, "")
@@ -2251,6 +2661,8 @@ def check_optional_object_storage_uses_boolean_input(context: ScanContext) -> Li
                 continue
 
             for input_name in input_names:
+                if input_name in provider_inputs_by_path.get(path, set()):
+                    continue
                 input_type = input_types.get(input_name)
                 if input_type == "boolean" and _condition_uses_true_comparison(condition, input_name):
                     continue
@@ -2276,11 +2688,113 @@ def check_optional_object_storage_uses_boolean_input(context: ScanContext) -> Li
                     )
                 )
 
+    artifact_paths = set(_iter_template_artifact_paths(context))
+    object_storage_paths = {
+        doc.path
+        for doc in context.yaml_documents
+        if not doc.skip_checks
+        and isinstance(doc.data, dict)
+        and doc.data.get("kind") == "ObjectStorageBucket"
+        and doc.path in artifact_paths
+    }
+    reported_minio_paths: Set[Path] = set()
+    for doc in context.yaml_documents:
+        if doc.path not in object_storage_paths or doc.path in reported_minio_paths:
+            continue
+        if doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if doc.data.get("kind") not in DATABASE_RAW_WORKLOAD_KINDS:
+            continue
+        for container in iter_containers(doc.data):
+            image = container.get("image")
+            if not isinstance(image, str) or not _is_minio_server_image(image):
+                continue
+            reported_minio_paths.add(doc.path)
+            violations.append(
+                Violation(
+                    rule_id="R044",
+                    path=doc.path,
+                    line=find_line(doc, rf"^\s*image\s*:\s*['\"]?{re.escape(image)}['\"]?\s*$"),
+                    message=(
+                        "managed ObjectStorageBucket must be the sole object-store data plane; "
+                        f"remove bundled MinIO server image {image}"
+                    ),
+                )
+            )
+            break
+
+    compatibility_proxy_sources = {
+        doc.path: _metadata_annotations(doc.data).get(
+            OBJECT_STORAGE_COMPATIBILITY_PROXY_SOURCE_ANNOTATION,
+            "",
+        )
+        for doc in _iter_template_artifact_documents(context)
+    }
+    for doc in context.yaml_documents:
+        if doc.path not in artifact_paths or doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if doc.data.get("kind") not in DATABASE_RAW_WORKLOAD_KINDS:
+            continue
+        proxy_image = _compatibility_proxy_image(doc)
+        if proxy_image is None:
+            continue
+
+        source = compatibility_proxy_sources.get(doc.path, "")
+        if not isinstance(source, str) or not _is_valid_object_storage_source_evidence(source):
+            violations.append(
+                Violation(
+                    rule_id="R044",
+                    path=doc.path,
+                    line=find_line(doc, rf"^\s*image\s*:\s*['\"]?{re.escape(proxy_image)}['\"]?\s*$"),
+                    message=(
+                        "object-storage compatibility proxies require metadata.annotations."
+                        f"{OBJECT_STORAGE_COMPATIBILITY_PROXY_SOURCE_ANNOTATION} with a credential-free "
+                        "HTTPS source URL or user-request:<reference> evidence"
+                    ),
+                )
+            )
+            continue
+
+        if _compatibility_proxy_uses_persistent_storage(doc.data):
+            violations.append(
+                Violation(
+                    rule_id="R044",
+                    path=doc.path,
+                    line=find_line(doc, r"^\s*(?:persistentVolumeClaim|volumeClaimTemplates)\s*:"),
+                    message=(
+                        "object-storage compatibility proxies must remain stateless and must not "
+                        "use persistent storage"
+                    ),
+                )
+            )
+
     return violations
 
 
 def _normalize_template_input_name(value: str) -> str:
-    return re.sub(r"[^A-Z0-9]+", "_", value.upper()).strip("_")
+    separated = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", value)
+    separated = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", separated)
+    return re.sub(r"[^A-Z0-9]+", "_", separated.upper()).strip("_")
+
+
+def _tokens_have_external_object_storage_config(tokens: Set[str]) -> bool:
+    return bool(tokens.intersection(EXTERNAL_OBJECT_STORAGE_CONFIG_TOKENS))
+
+
+def _is_explicit_external_object_storage_input_name(normalized: str) -> bool:
+    tokens = set(normalized.split("_"))
+    has_object_storage = _tokens_have_object_storage_identity(tokens)
+    return has_object_storage and (
+        "EXTERNAL" in tokens or _tokens_have_external_object_storage_config(tokens)
+    )
+
+
+def _is_described_external_object_storage_input(input_name: str, input_spec: Any) -> bool:
+    input_text = _template_input_text(input_name, input_spec)
+    if EXTERNAL_OBJECT_STORAGE_DESCRIPTION_RE.search(input_text) is None:
+        return False
+    tokens = set(_normalize_template_input_name(input_name).split("_"))
+    return _tokens_have_external_object_storage_config(tokens)
 
 
 def _external_object_storage_input_names(doc: YamlDocument) -> List[str]:
@@ -2289,14 +2803,39 @@ def _external_object_storage_input_names(doc: YamlDocument) -> List[str]:
     if not isinstance(inputs, dict):
         return []
 
-    names: List[str] = []
-    for key in inputs.keys():
-        if not isinstance(key, str):
-            continue
+    input_items = [(key, value) for key, value in inputs.items() if isinstance(key, str)]
+    explicit_names: Set[str] = set()
+    for key, input_spec in input_items:
         normalized = _normalize_template_input_name(key)
         if normalized in MANAGED_OBJECT_STORAGE_TOGGLE_NAMES:
             continue
-        if EXTERNAL_OBJECT_STORAGE_INPUT_RE.search(normalized):
+        if _is_explicit_external_object_storage_input_name(
+            normalized
+        ) or _is_described_external_object_storage_input(key, input_spec):
+            explicit_names.add(key)
+
+    has_aws_named_s3_context = False
+    for key, _ in input_items:
+        normalized = _normalize_template_input_name(key)
+        if AWS_OBJECT_STORAGE_INPUT_RE.fullmatch(normalized) and "S3" in set(normalized.split("_")):
+            has_aws_named_s3_context = True
+            break
+    has_aws_described_s3_context = any(
+        AWS_OBJECT_STORAGE_INPUT_RE.fullmatch(_normalize_template_input_name(key))
+        and AWS_OBJECT_STORAGE_CONTEXT_RE.search(_template_input_text(key, input_spec)) is not None
+        for key, input_spec in input_items
+    )
+    has_aws_object_storage_context = (
+        bool(explicit_names) or has_aws_named_s3_context or has_aws_described_s3_context
+    )
+    names: List[str] = []
+    for key, _ in input_items:
+        normalized = _normalize_template_input_name(key)
+        if normalized in MANAGED_OBJECT_STORAGE_TOGGLE_NAMES:
+            continue
+        if key in explicit_names or (
+            has_aws_object_storage_context and AWS_OBJECT_STORAGE_INPUT_RE.fullmatch(normalized)
+        ):
             names.append(key)
     return names
 
@@ -2384,7 +2923,7 @@ def check_license_gated_object_storage_options(context: ScanContext) -> List[Vio
             is_object_storage_input = (
                 input_name in branch_inputs
                 or normalized_name in MANAGED_OBJECT_STORAGE_TOGGLE_NAMES
-                or EXTERNAL_OBJECT_STORAGE_INPUT_RE.search(normalized_name) is not None
+                or _is_explicit_external_object_storage_input_name(normalized_name)
                 or OBJECT_STORAGE_INPUT_TEXT_RE.search(input_text) is not None
             )
             if not is_object_storage_input:
@@ -2433,7 +2972,8 @@ def check_external_object_storage_inputs(context: ScanContext) -> List[Violation
             )
             continue
 
-        if _external_object_storage_source(doc):
+        source = _external_object_storage_source(doc)
+        if source and _is_valid_object_storage_source_evidence(source):
             continue
 
         add_doc_violation(
@@ -2443,8 +2983,9 @@ def check_external_object_storage_inputs(context: ScanContext) -> List[Violation
             pattern=rf"^\s*{re.escape(input_names[0])}\s*:",
             default_pattern=r"^\s*inputs\s*:",
             message=(
-                f"external S3/object-storage inputs require metadata.annotations."
-                f"{EXTERNAL_OBJECT_STORAGE_SOURCE_ANNOTATION} with source or user-request evidence"
+                f"external S3/object-storage input {input_names[0]} requires metadata.annotations."
+                f"{EXTERNAL_OBJECT_STORAGE_SOURCE_ANNOTATION} with a credential-free HTTPS source URL or "
+                "user-request:<reference> evidence"
             ),
         )
 
@@ -3203,7 +3744,7 @@ APP_RULES: Dict[str, Rule] = {
     "R029": Rule("R029", check_service_labels_match_selector_app),
     "R030": Rule("R030", check_configmap_labels_match_name),
     "R043": Rule("R043", check_configmap_file_mount_contract),
-    "R044": Rule("R044", check_optional_object_storage_uses_boolean_input),
+    "R044": Rule("R044", check_object_storage_input_contract),
     "R045": Rule("R045", check_template_input_references_declared),
     "R047": Rule("R047", check_external_object_storage_inputs),
     "R049": Rule("R049", check_license_gated_object_storage_options),

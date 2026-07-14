@@ -179,8 +179,14 @@ For login-gated web applications, live validation must prove the real credential
 - ConfigMap workload volumes must use `<workload-name>-cm`, and every ConfigMap `data` key must be mounted as its own `volumeMount` with `subPath` exactly equal to that key.
 - Omit ConfigMap volume `defaultMode` unless the application explicitly needs a non-default mode. ConfigMap scripts invoked through `/bin/sh /path/script` do not need executable bits.
 - Avoid long inline startup scripts or heredocs in `command`/`args`; place initialization/start scripts in ConfigMap files and invoke them with a short command.
-- When object storage is required and Sealos can satisfy it, create `ObjectStorageBucket` and inject Sealos object-storage secrets; managed Sealos toggles such as `use_sealos_objectstorage` may control the `ObjectStorageBucket` branch; external S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` evidence, and must not coexist with `ObjectStorageBucket`.
+- Classify object storage from official application docs before generating inputs: required capability, application-level optional capability, or externally managed storage.
 - If object storage/S3 integration is Enterprise, paid, commercial, subscription, or license-gated in the upstream application, keep the public template on the community-supported storage path (for example filesystem/PVC) and expose no standard `ObjectStorageBucket` or S3 input for that feature.
+- When object storage is required and Sealos S3 compatibility satisfies the application contract, create unconditional `ObjectStorageBucket` resources for the documented bucket topology and inject Sealos object-storage secrets.
+- A template with managed `ObjectStorageBucket` must use it as the sole object-store data plane and omit bundled MinIO server workloads, Services, Ingresses, PVCs, and local object-storage credentials.
+- Resolve object-storage provider/backend selector inputs during conversion, and do not combine a managed `ObjectStorageBucket` with bundled `minio/minio`, `bitnami/minio`, or `bitnamilegacy/minio` server images.
+- Use a compatibility proxy only when official protocol evidence requires request adaptation.
+- An object-storage compatibility proxy must declare `metadata.annotations.docker-to-sealos.object-storage-compatibility-proxy-source` as a credential-free HTTPS source URL or `user-request:<reference>`, remain stateless, and omit persistent volumes.
+- External S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` as a credential-free HTTPS source URL or `user-request:<reference>`, and must not coexist with `ObjectStorageBucket`.
 
 ### Env and secrets
 
@@ -262,7 +268,8 @@ For Chrome + Xvfb + Selkies with 4K max display, use at least:
 - `inputs.description` must be in English.
 - Startup-critical `inputs[*].default` values must satisfy the application's documented startup validation. For admin/bootstrap passwords with complexity rules, do not use `''`, weak examples, or bare `${{ random(n) }}` because generated characters may not include required classes; include deterministic required classes around the random segment, for example `"AppName@${{ random(16) }}!1"`.
 - If an application exits when a required input is weak or empty, treat the input default as part of the runtime contract. Live validation must include the first boot logs and login/setup path with the generated default value.
-- For binary object storage choices, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`.
+- For application-level optional object storage documented by the official source, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`. Resolve provider/backend/type/mode/driver selection during conversion and keep those selectors out of `spec.inputs`.
+- The false branch of an optional object-storage input must configure the storage-disabled/local mode documented by the official source.
 
 ## Validation Commands
 

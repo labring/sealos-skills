@@ -212,7 +212,31 @@ must_rules:
     enforcement:
       type: rule
       target: R011
-  - must: "When object storage is required and Sealos can satisfy it, create `ObjectStorageBucket` and inject Sealos object-storage secrets; managed Sealos toggles such as `use_sealos_objectstorage` may control the `ObjectStorageBucket` branch; external S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` evidence, and must not coexist with `ObjectStorageBucket`."
+  - must: "Classify object storage from official application docs before generating inputs: required capability, application-level optional capability, or externally managed storage."
+    enforcement:
+      type: manual
+      note: "Requires semantic review of official application storage modes."
+  - must: "When object storage is required and Sealos S3 compatibility satisfies the application contract, create unconditional `ObjectStorageBucket` resources for the documented bucket topology and inject Sealos object-storage secrets."
+    enforcement:
+      type: manual
+      note: "Requires application-specific compatibility review and object-storage env mapping."
+  - must: "A template with managed `ObjectStorageBucket` must use it as the sole object-store data plane and omit bundled MinIO server workloads, Services, Ingresses, PVCs, and local object-storage credentials."
+    enforcement:
+      type: manual
+      note: "Requires application-specific topology and credential review beyond statically identifiable MinIO server images."
+  - must: "Resolve object-storage provider/backend selector inputs during conversion, and do not combine a managed `ObjectStorageBucket` with bundled `minio/minio`, `bitnami/minio`, or `bitnamilegacy/minio` server images."
+    enforcement:
+      type: rule
+      target: R044
+  - must: "Use a compatibility proxy only when official protocol evidence requires request adaptation."
+    enforcement:
+      type: manual
+      note: "Requires semantic review of the official protocol contract."
+  - must: "An object-storage compatibility proxy must declare `metadata.annotations.docker-to-sealos.object-storage-compatibility-proxy-source` as a credential-free HTTPS source URL or `user-request:<reference>`, remain stateless, and omit persistent volumes."
+    enforcement:
+      type: rule
+      target: R044
+  - must: "External S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` as a credential-free HTTPS source URL or `user-request:<reference>`, and must not coexist with `ObjectStorageBucket`."
     enforcement:
       type: rule
       target: R047
@@ -436,7 +460,11 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires runtime first-boot validation evidence."
-  - must: "For binary object storage choices, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`."
+  - must: "For application-level optional object storage documented by the official source, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`. Resolve provider/backend/type/mode/driver selection during conversion and keep those selectors out of `spec.inputs`."
     enforcement:
       type: rule
       target: R044
+  - must: "The false branch of an optional object-storage input must configure the storage-disabled/local mode documented by the official source."
+    enforcement:
+      type: manual
+      note: "Requires semantic comparison with the application's official storage-mode documentation."

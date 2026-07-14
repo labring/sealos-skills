@@ -235,7 +235,7 @@ inputs:
 - ✅ Custom domain name
 - ✅ API Key for external services (needs to be provided by the user)
 - ✅ Feature toggles (enable/disable certain features)
-- ✅ Binary optional object storage/S3 toggles, with `type: boolean` and conditions such as `inputs.use_object_storage === 'true'`
+- ✅ Application-level optional object storage/S3 features documented by the official source, with `type: boolean` and conditions such as `inputs.enable_object_storage === 'true'`
 - ❌ Randomly generated secret keys (should be placed in defaults)
 - ❌ Automatically generated configurations (should be placed in defaults)
 
@@ -595,6 +595,16 @@ metadata:
 
 Use ObjectStorage only for application features available in the upstream self-hosted/community edition. If S3/object-storage support requires Enterprise, paid, commercial, subscription, or license activation, the public template must keep the supported filesystem/PVC storage path and must not expose an `ObjectStorageBucket` or S3 toggle for that feature.
 
+### Mode Selection
+
+1. Required capability: create the unconditional `ObjectStorageBucket` resources required by the documented bucket topology, inject their managed Secret values, and use Sealos ObjectStorage as the sole object-store data plane.
+2. Application-level optional capability: use a boolean enable/disable input only when official docs provide a functional storage-disabled or local-filesystem mode, and configure that documented mode in the false branch.
+3. Externally managed storage: expose credential inputs only with a credential-free HTTPS source URL or `user-request:<reference>` in `docker-to-sealos.external-object-storage-source`, and use the external provider as the sole data plane.
+
+A bundled MinIO service is an S3-compatible provider implementation. Convert it to an unconditional Sealos bucket when the application requires S3-compatible storage. Keep provider/backend/type/mode/driver selectors out of `spec.inputs`.
+
+A compatibility proxy may adapt requests when official protocol evidence requires it. Record that evidence as a credential-free HTTPS source URL or `user-request:<reference>` in `docker-to-sealos.object-storage-compatibility-proxy-source`, keep the proxy stateless, and omit persistent volumes.
+
 ### Environment Variable Settings
 
 Object storage environment variable configuration must follow this format:
@@ -604,12 +614,12 @@ env:
   - name: S3_ACCESS_KEY_ID
     valueFrom:
       secretKeyRef:
-        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+        name: object-storage-key
         key: accessKey
   - name: S3_SECRET_ACCESS_KEY
     valueFrom:
       secretKeyRef:
-        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+        name: object-storage-key
         key: secretKey
   - name: S3_BUCKET
     valueFrom:
@@ -621,7 +631,7 @@ env:
   - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
     valueFrom:
       secretKeyRef:
-        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+        name: object-storage-key
         key: external
   - name: S3_PUBLIC_DOMAIN
     value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
@@ -631,8 +641,8 @@ env:
 
 ### Notes
 
-1. Prefer the bucket-scoped secret: `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}`.
-2. Bucket-scoped variants may append a lowercase suffix, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`.
+1. Use `object-storage-key` for the shared `accessKey`, `secretKey`, `external`, and `internal` values.
+2. Use `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}` for the bucket value. Bucket-scoped variants may append a lowercase suffix, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`.
 3. S3_ENDPOINT and S3_PUBLIC_DOMAIN use environment variable references: `$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)`.
 4. S3_ENABLE_PATH_STYLE must be set to "1".
 

@@ -1435,18 +1435,31 @@ spec:
 
 #### `Object Storage`
 
-Use a boolean input when object storage has only enabled and disabled states:
+When the application requires S3-compatible storage, create the Sealos bucket unconditionally:
+
+```yaml
+apiVersion: objectstorage.sealos.io/v1
+kind: ObjectStorageBucket
+metadata:
+  name: ${{ defaults.app_name }}
+spec:
+  policy: private
+```
+
+Replace bundled MinIO server workloads, Services, Ingresses, PVCs, local credentials, and provider selectors with the managed bucket. A compatibility proxy may remain for documented protocol adaptation when it records a credential-free HTTPS source URL or `user-request:<reference>` in `docker-to-sealos.object-storage-compatibility-proxy-source`, stays stateless, and omits persistent volumes.
+
+Use a boolean condition only when the official application docs provide a functional storage-disabled or local-filesystem mode:
 
 ```yaml
 inputs:
-  enable_s3_storage:
-    description: "Enable S3 object storage"
+  enable_object_storage:
+    description: "Enable the optional object storage feature"
     type: boolean
     default: "false"
     required: false
 
 ---
-${{ if(inputs.enable_s3_storage === 'true') }}
+${{ if(inputs.enable_object_storage === 'true') }}
 apiVersion: objectstorage.sealos.io/v1
 kind: ObjectStorageBucket
 metadata:
@@ -1455,6 +1468,8 @@ spec:
   policy: private
 ${{ endif() }}
 ```
+
+Configure the documented storage-disabled or local mode in the false branch. Resolve Sealos, MinIO, AWS S3, and other provider choices during conversion, outside `spec.inputs`.
 
 The policy has three types: private (private bucket, not open), publicRead (shared bucket, open for public read), and publicReadwrite (shared bucket, open for public read and write).
 
@@ -1472,22 +1487,22 @@ spec:
         - name: ACCESS_KEY
           valueFrom:
             secretKeyRef:
-              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              name: object-storage-key
               key: accessKey
         - name: SECRET_KEY
           valueFrom:
             secretKeyRef:
-              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              name: object-storage-key
               key: secretKey
         - name: EXTERNAL_ENDPOINT
           valueFrom:
             secretKeyRef:
-              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              name: object-storage-key
               key: external
         - name: INTERNAL_ENDPOINT
           valueFrom:
             secretKeyRef:
-              name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+              name: object-storage-key
               key: internal
         - name: BUCKET_NAME
           valueFrom:
