@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from check_consistency_line_locator import LineLocator
 from check_consistency_rule_helpers import iter_containers as legacy_iter_containers
 from check_consistency_helpers_workload import iter_containers
+import check_consistency_rules_app as APP_RULES_MODULE
 
 
 MODULE_PATH = Path(__file__).resolve().parent / "check_consistency.py"
@@ -3599,7 +3600,7 @@ __MOUNTS__
             )
             self.assertTrue(any(item.rule_id == "R047" for item in violations))
 
-    def test_allows_managed_sealos_objectstorage_toggle_with_object_storage_bucket(self):
+    def test_managed_sealos_toggle_stays_out_of_r047_with_bucket(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -3655,6 +3656,7 @@ __MOUNTS__
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
+            self.assertTrue(any(item.rule_id == "R044" for item in violations))
             self.assertFalse(any(item.rule_id == "R047" for item in violations))
 
     def test_detects_license_gated_managed_object_storage_toggle(self):
@@ -3849,7 +3851,7 @@ __MOUNTS__
                 metadata:
                   name: demo
                   annotations:
-                    docker-to-sealos.external-object-storage-source: official chart requires managed S3
+                    docker-to-sealos.external-object-storage-source: https://docs.example.com/storage/s3
                 spec:
                   title: Demo
                   url: https://example.com
@@ -3878,9 +3880,299 @@ __MOUNTS__
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
+            self.assertFalse(any(item.rule_id == "R044" for item in violations))
             self.assertFalse(any(item.rule_id == "R047" for item in violations))
 
-    def test_allows_sealos_objectstorage_toggle_with_object_storage_bucket(self):
+    def test_rejects_external_s3_inputs_with_unstructured_source_annotation(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.external-object-storage-source: x
+            spec:
+              inputs:
+                external_s3_endpoint:
+                  description: External S3 endpoint
+            """
+        )
+
+        r047 = [item for item in violations if item.rule_id == "R047"]
+        self.assertEqual(1, len(r047))
+        self.assertTrue(any("credential-free HTTPS source URL" in item.message for item in r047))
+
+    def test_rejects_external_s3_evidence_urls_with_credentials(self):
+        unsafe_sources = (
+            "https://.",
+            "https://bad host/storage/s3",
+            "https://docs.example.com:bad/storage/s3",
+            "https://docs.example.com:99999/storage/s3",
+            "https://ACCESS:SECRET@docs.example.com/storage/s3",
+            "https://docs.example.com/storage/s3?access_key=SECRET",
+            "https://docs.example.com/storage/s3?apiKey=SECRET",
+            "https://docs.example.com/storage/s3?apikey=SECRET",
+            "https://docs.example.com/storage/s3?auth=SECRET",
+            "https://docs.example.com/storage/s3?sig=SECRET",
+            "https://docs.example.com/storage/s3?ref=docs;sig=SECRET",
+            "https://docs.example.com/storage/s3?X-Amz-Security-Token=SECRET",
+            "https://docs.example.com/storage/s3#access_token=SECRET",
+            "https://docs.example.com/storage/s3#sig=SECRET",
+            "https://docs.example.com/storage/s3#sig%3DSECRET",
+            "https://docs.example.com/storage/s3#docs%3Bsig%3DSECRET",
+        )
+
+        for source in unsafe_sources:
+            with self.subTest(source=source):
+                violations = self.run_artifact_checker(
+                    f"""
+                    apiVersion: app.sealos.io/v1
+                    kind: Template
+                    metadata:
+                      name: demo
+                      annotations:
+                        docker-to-sealos.external-object-storage-source: '{source}'
+                    spec:
+                      inputs:
+                        external_s3_endpoint:
+                          description: External S3 endpoint
+                    """
+                )
+
+                self.assertTrue(any(item.rule_id == "R047" for item in violations))
+
+    def test_allows_external_s3_inputs_with_user_request_evidence(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.external-object-storage-source: user-request:42
+            spec:
+              inputs:
+                external_s3_endpoint:
+                  description: External S3 endpoint
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R047" for item in violations))
+
+    def test_allows_external_s3_evidence_url_with_document_anchor(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.external-object-storage-source: https://docs.example.com/storage/s3#access-key-id
+            spec:
+              inputs:
+                external_s3_endpoint:
+                  description: External S3 endpoint
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R047" for item in violations))
+
+    def test_detects_aws_s3_inputs_without_source_annotation(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                AWS_ACCESS_KEY_ID:
+                  description: AWS access key
+                AWS_SECRET_ACCESS_KEY:
+                  description: AWS secret key
+                AWS_ENDPOINT_URL_S3:
+                  description: AWS endpoint URL
+            """
+        )
+
+        r047 = [item for item in violations if item.rule_id == "R047"]
+        self.assertEqual(1, len(r047))
+        self.assertTrue(any("AWS_ACCESS_KEY_ID" in item.message for item in r047))
+
+    def test_detects_described_external_s3_inputs_without_source_annotation(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                storage_endpoint:
+                  description: External S3 endpoint
+                storage_access_key:
+                  description: External S3 access key
+                storage_secret_key:
+                  description: External S3 secret key
+            """
+        )
+
+        r047 = [item for item in violations if item.rule_id == "R047"]
+        self.assertEqual(1, len(r047))
+        self.assertTrue(any("storage_endpoint" in item.message for item in r047))
+
+    def test_rejects_managed_bucket_with_described_external_s3_inputs(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.external-object-storage-source: user-request:external-s3
+            spec:
+              inputs:
+                storage_endpoint:
+                  description: External S3 endpoint
+                storage_access_key:
+                  description: External S3 access key
+                storage_secret_key:
+                  description: External S3 secret key
+            ---
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            """
+        )
+
+        r047 = [item for item in violations if item.rule_id == "R047"]
+        self.assertEqual(1, len(r047))
+        self.assertTrue(any("managed ObjectStorageBucket" in item.message for item in r047))
+
+    def test_rejects_managed_bucket_with_generically_named_s3_inputs(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.external-object-storage-source: user-request:external-s3
+            spec:
+              inputs:
+                endpoint:
+                  description: S3 endpoint URL
+                access_key:
+                  description: S3 access key ID
+                secret_key:
+                  description: S3 secret access key
+                bucket:
+                  description: S3 bucket name
+            ---
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            """
+        )
+
+        r047 = [item for item in violations if item.rule_id == "R047"]
+        self.assertEqual(1, len(r047))
+        self.assertTrue(any("managed ObjectStorageBucket" in item.message for item in r047))
+
+    def test_rejects_managed_bucket_with_camel_case_external_s3_inputs(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.external-object-storage-source: user-request:external-s3
+            spec:
+              inputs:
+                externalS3Endpoint:
+                  description: S3 endpoint URL
+                externalS3AccessKey:
+                  description: S3 access key ID
+                externalS3SecretKey:
+                  description: S3 secret access key
+            ---
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            """
+        )
+
+        r047 = [item for item in violations if item.rule_id == "R047"]
+        self.assertEqual(1, len(r047))
+        self.assertTrue(any("managed ObjectStorageBucket" in item.message for item in r047))
+
+    def test_rejects_managed_bucket_with_aws_s3_inputs(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.external-object-storage-source: user-request:external-s3
+            spec:
+              inputs:
+                AWS_ACCESS_KEY_ID:
+                  description: AWS access key for external S3
+                AWS_SECRET_ACCESS_KEY:
+                  description: AWS secret key for external S3
+                AWS_S3_BUCKET:
+                  description: External S3 bucket
+            ---
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            """
+        )
+
+        r047 = [item for item in violations if item.rule_id == "R047"]
+        self.assertEqual(1, len(r047))
+        self.assertTrue(any("managed ObjectStorageBucket" in item.message for item in r047))
+
+    def test_unrelated_aws_credentials_do_not_inherit_s3_context(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                enable_s3_storage:
+                  description: Enable the optional S3 feature
+                  type: boolean
+                  default: 'false'
+                AWS_ACCESS_KEY_ID:
+                  description: AWS access key for SES
+                AWS_SECRET_ACCESS_KEY:
+                  description: AWS secret key for SES
+                AWS_REGION:
+                  description: AWS region for SES
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R047" for item in violations))
+
+    def test_conditional_managed_sealos_toggle_stays_out_of_r047(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -3940,6 +4232,7 @@ __MOUNTS__
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
+            self.assertTrue(any(item.rule_id == "R044" for item in violations))
             self.assertFalse(any(item.rule_id == "R047" for item in violations))
 
     def test_allows_private_registry_pull_secret_via_image_pull_secrets(self):
@@ -6304,6 +6597,35 @@ __MOUNTS__
             )
             self.assertFalse(any(item.rule_id == "R044" for item in violations))
 
+    def test_optional_object_storage_boolean_with_extra_clause_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                enable_object_storage:
+                  description: Enable optional object storage
+                  type: boolean
+                  default: 'false'
+            ---
+            ${{ if(inputs.enable_object_storage === 'true' || true) }}
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            ${{ endif() }}
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("condition must test" in item.message for item in r044))
+
     def test_optional_object_storage_boolean_without_true_comparison_fails(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -6365,6 +6687,679 @@ __MOUNTS__
             r044 = [item for item in violations if item.rule_id == "R044"]
             self.assertTrue(r044)
             self.assertTrue(any("condition must test" in item.message for item in r044))
+
+    def test_object_storage_provider_toggle_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                use_sealos_objectstorage:
+                  description: Use Sealos Object Storage instead of bundled MinIO
+                  type: boolean
+                  default: 'false'
+                  required: false
+            ---
+            ${{ if(inputs.use_sealos_objectstorage === 'true') }}
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            ${{ endif() }}
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("provider/backend selector" in item.message for item in r044))
+
+    def test_managed_object_storage_provider_toggles_fail(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                use_managed_object_storage:
+                  description: Use managed object storage
+                  type: boolean
+                  default: 'false'
+                use_managed_s3:
+                  description: Use managed S3
+                  type: boolean
+                  default: 'false'
+                use_aws_s3:
+                  description: Use AWS S3
+                  type: boolean
+                  default: 'false'
+                use_managed_s3_bucket:
+                  description: Use the managed S3 bucket
+                  type: boolean
+                  default: 'false'
+                use_aws:
+                  description: Use AWS S3
+                  type: boolean
+                  default: 'false'
+                use_managed:
+                  description: Use managed object storage
+                  type: boolean
+                  default: 'false'
+                useManagedS3:
+                  description: Use managed S3
+                  type: boolean
+                  default: 'false'
+            ---
+            ${{ if(inputs.use_managed_object_storage === 'true') }}
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}-object-storage
+            spec:
+              policy: private
+            ${{ endif() }}
+            ---
+            ${{ if(inputs.use_managed_s3 === 'true') }}
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}-s3
+            spec:
+              policy: private
+            ${{ endif() }}
+            ---
+            ${{ if(inputs.use_aws_s3 === 'true') }}
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}-aws
+            spec:
+              policy: private
+            ${{ endif() }}
+            ---
+            ${{ if(inputs.use_managed_s3_bucket === 'true') }}
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}-managed-bucket
+            spec:
+              policy: private
+            ${{ endif() }}
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(7, len(r044))
+        self.assertTrue(any("inputs.use_managed_object_storage" in item.message for item in r044))
+        self.assertTrue(any("inputs.use_managed_s3" in item.message for item in r044))
+        self.assertTrue(any("inputs.use_aws_s3" in item.message for item in r044))
+        self.assertTrue(any("inputs.use_managed_s3_bucket" in item.message for item in r044))
+        self.assertTrue(any("inputs.use_aws" in item.message for item in r044))
+        self.assertTrue(any("inputs.use_managed" in item.message for item in r044))
+        self.assertTrue(any("inputs.useManagedS3" in item.message for item in r044))
+
+    def test_numeric_object_storage_provider_selectors_fail(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                object_storage_provider:
+                  description: Object storage provider
+                  type: number
+                  default: '0'
+                storage_backend:
+                  description: Storage backend
+                  type: integer
+                  default: '0'
+                use_managed_s3:
+                  description: Use managed S3
+                  type: number
+                  default: '0'
+                storage:
+                  description: 0=local, 1=S3
+                  type: number
+                  default: '0'
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(4, len(r044))
+        self.assertTrue(any("inputs.object_storage_provider" in item.message for item in r044))
+        self.assertTrue(any("inputs.storage_backend" in item.message for item in r044))
+        self.assertTrue(any("inputs.use_managed_s3" in item.message for item in r044))
+        self.assertTrue(any("inputs.storage" in item.message for item in r044))
+
+    def test_string_object_storage_provider_values_fail(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                file_storage:
+                  description: File storage implementation
+                  type: string
+                  default: s3
+                data_storage:
+                  description: Data storage implementation
+                  type: string
+                  options:
+                    - [local, s3]
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(2, len(r044))
+        self.assertTrue(any("inputs.file_storage" in item.message for item in r044))
+        self.assertTrue(any("inputs.data_storage" in item.message for item in r044))
+
+    def test_choice_description_that_only_mentions_s3_passes(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                backup_format:
+                  description: Archive format for files stored in S3
+                  type: choice
+                  default: zip
+                  options:
+                    - zip
+                    - tar
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R044" for item in violations))
+
+    def test_unconditional_local_s3_storage_selector_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                storage_backend:
+                  description: Storage backend
+                  type: choice
+                  default: local
+                  options:
+                    - local
+                    - s3
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertTrue(r044)
+        self.assertTrue(any("inputs.storage_backend" in item.message for item in r044))
+
+    def test_bare_storage_backend_selector_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                storage_backend:
+                  description: Storage backend
+                  type: string
+                  default: local
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertTrue(r044)
+        self.assertTrue(any("inputs.storage_backend" in item.message for item in r044))
+
+    def test_managed_bucket_with_minio_server_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            ---
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: ${{ defaults.app_name }}-minio
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: ${{ defaults.app_name }}-minio
+                      image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+                      imagePullPolicy: IfNotPresent
+                    - name: ${{ defaults.app_name }}-minio-secondary
+                      image: bitnami/minio:2025.7.23
+                      imagePullPolicy: IfNotPresent
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("bundled MinIO server" in item.message for item in r044))
+
+    def test_managed_bucket_with_bitnami_legacy_minio_server_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${{ defaults.app_name }}-minio
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: ${{ defaults.app_name }}-minio
+                      image: docker.io/bitnamilegacy/minio:2025.7.23
+                      imagePullPolicy: IfNotPresent
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("bitnamilegacy/minio" in item.message for item in r044))
+
+    def test_required_object_storage_with_compatibility_proxy_passes(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.object-storage-compatibility-proxy-source: https://docs.example.com/storage/proxy
+            spec: {}
+            ---
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${{ defaults.app_name }}-s3-gateway
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: ${{ defaults.app_name }}-s3-gateway
+                      image: envoyproxy/envoy:v1.34.1
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: APPFLOWY_S3_MINIO_URL
+                          value: http://${{ defaults.app_name }}-s3-proxy:9000
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R044" for item in violations))
+
+    def test_object_storage_compatibility_proxy_requires_source_evidence(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${{ defaults.app_name }}-s3-proxy
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: ${{ defaults.app_name }}-s3-proxy
+                      image: openresty/openresty:1.27.1.2-alpine
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: APPFLOWY_S3_MINIO_URL
+                          value: http://${{ defaults.app_name }}-s3-proxy:9000
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("compatibility-proxy-source" in item.message for item in r044))
+
+    def test_compatibility_gateway_with_s3_env_requires_source_evidence(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${{ defaults.app_name }}-compatibility-gateway
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: gateway
+                      image: envoyproxy/envoy:v1.34.1
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: S3_ENDPOINT
+                          value: https://storage.example.com
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("compatibility-proxy-source" in item.message for item in r044))
+
+    def test_s3_proxy_sidecar_with_pvc_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.object-storage-compatibility-proxy-source: https://docs.example.com/storage/proxy
+            spec: {}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${{ defaults.app_name }}-api
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: api
+                      image: example/api:1.0.0
+                      imagePullPolicy: IfNotPresent
+                    - name: s3-proxy
+                      image: envoyproxy/envoy:v1.34.1
+                      imagePullPolicy: IfNotPresent
+                  volumes:
+                    - name: proxy-data
+                      persistentVolumeClaim:
+                        claimName: ${{ defaults.app_name }}-s3-proxy
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("persistent storage" in item.message for item in r044))
+
+    def test_object_storage_compatibility_proxy_with_pvc_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.object-storage-compatibility-proxy-source: https://docs.example.com/storage/proxy
+            spec: {}
+            ---
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: ${{ defaults.app_name }}
+            spec:
+              policy: private
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${{ defaults.app_name }}-s3-proxy
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: ${{ defaults.app_name }}-s3-proxy
+                      image: nginx:1.27.5-alpine
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: S3_ENDPOINT
+                          value: http://${{ defaults.app_name }}-s3-proxy:9000
+                  volumes:
+                    - name: proxy-data
+                      persistentVolumeClaim:
+                        claimName: ${{ defaults.app_name }}-s3-proxy
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("persistent storage" in item.message for item in r044))
+
+    def test_external_object_storage_compatibility_proxy_with_pvc_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.external-object-storage-source: https://docs.example.com/storage/s3
+                docker-to-sealos.object-storage-compatibility-proxy-source: https://docs.example.com/storage/proxy
+            spec:
+              inputs:
+                external_s3_endpoint:
+                  description: External S3 endpoint
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${{ defaults.app_name }}-s3-gateway
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: ${{ defaults.app_name }}-s3-gateway
+                      image: envoyproxy/envoy:v1.34.1
+                      imagePullPolicy: IfNotPresent
+                  volumes:
+                    - name: proxy-data
+                      persistentVolumeClaim:
+                        claimName: ${{ defaults.app_name }}-s3-proxy
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("persistent storage" in item.message for item in r044))
+
+    def test_object_storage_compatibility_proxy_with_nfs_fails(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+              annotations:
+                docker-to-sealos.object-storage-compatibility-proxy-source: https://docs.example.com/storage/proxy
+            spec: {}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: ${{ defaults.app_name }}-s3-proxy
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: ${{ defaults.app_name }}-s3-proxy
+                      image: nginx:1.27.5-alpine
+                      imagePullPolicy: IfNotPresent
+                  volumes:
+                    - name: proxy-data
+                      nfs:
+                        server: storage.example.com
+                        path: /exports/s3-proxy
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("persistent storage" in item.message for item in r044))
+
+    def test_non_storage_provider_input_passes_object_storage_rule(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                database_provider:
+                  description: Database provider
+                  type: choice
+                  default: postgres
+                  options:
+                    - postgres
+                    - mysql
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R044" for item in violations))
+
+    def test_minio_storage_size_input_passes_object_storage_rule(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                minio_storage:
+                  description: Storage size for MinIO in Gi
+                  type: number
+                  default: '5'
+                  required: true
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R044" for item in violations))
+
+    def test_minio_storage_size_string_input_passes_object_storage_rule(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                minio_storage_size:
+                  description: Storage size for MinIO
+                  type: string
+                  default: 5Gi
+                  required: true
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R044" for item in violations))
+
+    def test_minio_runtime_configuration_inputs_pass_object_storage_rule(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                minio_use_ssl:
+                  description: Use TLS for the MinIO endpoint
+                  type: boolean
+                  default: 'true'
+                minio_storage_class:
+                  description: Storage class for MinIO data
+                  type: string
+                  default: standard
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R044" for item in violations))
+
+    def test_minio_provider_toggle_fails_object_storage_rule(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                use_minio:
+                  description: Use bundled MinIO
+                  type: boolean
+                  default: 'false'
+            """
+        )
+
+        r044 = [item for item in violations if item.rule_id == "R044"]
+        self.assertEqual(1, len(r044))
+        self.assertTrue(any("inputs.use_minio" in item.message for item in r044))
+
+    def test_object_storage_input_text_fails_closed_on_nested_options(self):
+        nested_options: list[Any] = ["s3"]
+        for _ in range(4):
+            nested_options = [nested_options] * 8
+
+        rendered = APP_RULES_MODULE._object_storage_input_text({"options": nested_options})
+
+        self.assertIn("object storage provider", rendered)
+        self.assertLessEqual(len(rendered), APP_RULES_MODULE.OBJECT_STORAGE_INPUT_TEXT_MAX_CHARS)
+
+    def test_object_storage_choice_fails_closed_after_option_limit(self):
+        input_spec = {
+            "type": "choice",
+            "options": [f"local-{index}" for index in range(32)] + ["s3"],
+        }
+
+        self.assertTrue(APP_RULES_MODULE._is_object_storage_provider_selector("data_store", input_spec))
 
     def test_passes_minimal_compliant_docs(self):
         violations = self.run_checker(
