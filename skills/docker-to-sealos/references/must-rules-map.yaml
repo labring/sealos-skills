@@ -216,6 +216,10 @@ must_rules:
     enforcement:
       type: rule
       target: R047
+  - must: "If object storage/S3 integration is Enterprise, paid, commercial, subscription, or license-gated in the upstream application, keep the public template on the community-supported storage path (for example filesystem/PVC) and expose no standard `ObjectStorageBucket` or S3 input for that feature."
+    enforcement:
+      type: rule
+      target: R049
   - must: "Non-database sensitive values/inputs use direct `env[].value`."
     enforcement:
       type: manual

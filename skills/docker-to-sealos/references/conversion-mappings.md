@@ -903,6 +903,8 @@ When docs offer local file storage and S3-compatible object storage as a binary 
 
 When an app needs S3-compatible storage, prefer Sealos `ObjectStorageBucket` and inject the managed object-storage secrets into the app. Preserve managed Sealos toggles such as `use_sealos_objectstorage` when they control an optional `ObjectStorageBucket` branch. Expose external S3/object-storage credential inputs only when source docs or the user require an externally managed bucket, and record that evidence in `metadata.annotations.docker-to-sealos.external-object-storage-source`. Do not combine external S3 credential inputs with a managed `ObjectStorageBucket`.
 
+Before adding Sealos ObjectStorage for an application feature, verify the upstream edition and license requirements. When S3/external object storage support is Enterprise, paid, commercial, subscription, or license-gated, the public template must use the community-supported storage path (usually filesystem/PVC) and must not expose a standard deployment input that provisions `ObjectStorageBucket` or injects S3 env vars for that feature. Add an enterprise-specific template branch only when the user explicitly requests that scope.
+
 ### Docker Compose (Using Minio)
 ```yaml
 services:
