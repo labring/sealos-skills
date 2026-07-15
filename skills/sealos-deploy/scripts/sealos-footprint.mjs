@@ -104,6 +104,14 @@ function podContainerReadiness(item) {
   return `${ready}/${statuses.length}`;
 }
 
+function podRestartCount(item) {
+  const statuses = [
+    ...(item.status?.initContainerStatuses || []),
+    ...(item.status?.containerStatuses || []),
+  ];
+  return statuses.reduce((total, status) => total + (status.restartCount || 0), 0);
+}
+
 function workloadReadyCount(type, item) {
   if (type === "daemonset") {
     return item.status?.numberReady ?? 0;
@@ -133,6 +141,7 @@ function summarizeItem(type, item) {
     desired,
     readiness: isPod ? conditionStatus(item, "Ready") : `${ready}/${desired}`,
     containersReady: isPod ? podContainerReadiness(item) : null,
+    restartCount: isPod ? podRestartCount(item) : null,
     updated: item.status?.updatedReplicas ?? item.status?.updatedNumberScheduled,
     available: item.status?.availableReplicas ?? item.status?.numberAvailable,
     labels: item.metadata?.labels || {},

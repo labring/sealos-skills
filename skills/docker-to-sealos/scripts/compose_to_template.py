@@ -2280,10 +2280,24 @@ def build_env_entries(
     return entries
 
 
+def parse_service_replicas(service: Mapping[str, Any]) -> int:
+    deploy = service.get("deploy")
+    if deploy is None:
+        return 1
+    if not isinstance(deploy, dict):
+        raise ValueError("service deploy must be an object when provided")
+
+    replicas = deploy.get("replicas", 1)
+    if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas < 1:
+        raise ValueError("service deploy.replicas must be a positive integer")
+    return replicas
+
+
 def build_workload(
     *,
     workload_name: str,
     image: str,
+    replicas: int,
     ports: Sequence[int],
     websocket_ports: Set[int],
     env_entries: Sequence[Dict[str, Any]],
@@ -2351,7 +2365,7 @@ def build_workload(
         container["volumeMounts"] = volume_mounts
 
     spec: Dict[str, Any] = {
-        "replicas": 1,
+        "replicas": replicas,
         "revisionHistoryLimit": 1,
         "selector": {"matchLabels": {"app": workload_name}},
         "template": {
@@ -2391,8 +2405,8 @@ def build_workload(
             "name": workload_name,
             "annotations": {
                 "originImageName": image,
-                "deploy.cloud.sealos.io/minReplicas": "1",
-                "deploy.cloud.sealos.io/maxReplicas": "1",
+                "deploy.cloud.sealos.io/minReplicas": str(replicas),
+                "deploy.cloud.sealos.io/maxReplicas": str(replicas),
             },
             "labels": {
                 "cloud.sealos.io/app-deploy-manager": workload_name,
@@ -2645,6 +2659,7 @@ def build_documents(
         workload = build_workload(
             workload_name=workload_name,
             image=image,
+            replicas=parse_service_replicas(service),
             ports=ports,
             websocket_ports=websocket_ports,
             env_entries=env_entries,

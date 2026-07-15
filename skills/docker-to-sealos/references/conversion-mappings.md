@@ -10,7 +10,7 @@ When an application provides both a Docker Compose file and an official Kubernet
 
 1. Sealos specifications and SKILL MUST rules take priority (security/platform constraints must not be violated)
 2. The official Kubernetes installation method takes priority over Compose for application runtime semantics
-3. Compose serves as the baseline for service topology and dependencies
+3. The existing Template serves as the topology baseline during updates; the selected Compose services and `deploy.replicas` values serve as the topology baseline for new conversions
 4. Generic default values are only used when the above sources are absent
 
 ### Key Alignment Fields
@@ -26,8 +26,61 @@ When an application provides both a Docker Compose file and an official Kubernet
 When the official Kubernetes method conflicts with Compose:
 
 - Preserve Sealos MUST and security rules
-- For all other application behavior, default to aligning with the official Kubernetes method
+- Align bootstrap fields, external endpoints, protocols, probes, startup ordering, and other runtime semantics with the official Kubernetes method
+- Retain the selected source's topology-bearing resources, feature conditions, and replica counts
 - Record key decisions in the output (only record items with ambiguity)
+
+## Source Topology Preservation
+
+Treat topology and runtime semantics as separate contracts. The source Template or selected Compose mode defines the topology-bearing resource inventory, feature conditions, and replica counts. Official Kubernetes docs/manifests refine runtime behavior within that topology.
+
+A component is runtime-required when the selected source mode cannot start or provide its documented core behavior without that component. An official chart default, production recommendation, scaling example, or optional worker does not make the component runtime-required. Add optional or recommended workers, caches, and HA replicas only when the selected source topology or explicit user intent includes them.
+
+Keep application feature inputs isolated. A database input may gate its database Cluster and related bootstrap resources. An object-storage input may gate its ObjectStorageBucket and documented storage settings. Those inputs must not change unrelated workload inventory, worker/cache presence, or replica counts.
+
+For topology-sensitive work, record the exact expected contract in `.sealos/topology-evidence/<app-name>.yaml`. Keep this validator-only evidence outside `template/<app-name>/index.yaml`.
+
+```yaml
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: demo-topology
+spec:
+  appName: demo
+  source: template/demo/index.yaml@base-revision
+  resources:
+    - kind: StatefulSet
+      name: ${{ defaults.app_name }}
+      when: always
+      replicas: 1
+    - kind: Cluster
+      name: ${{ defaults.app_name }}-pg
+      when: inputs.enable_postgresql === 'true'
+      components:
+        - name: postgresql
+          replicas: 1
+    - kind: ObjectStorageBucket
+      name: ${{ defaults.app_name }}
+      when: inputs.enable_s3_storage === 'true'
+```
+
+Evidence contract:
+
+- `spec.appName`: Template `metadata.name` and evidence filename.
+- `spec.source`: existing Template revision, selected Compose URL/revision, or another stable source identifier.
+- `spec.resources`: exact multiset of topology-bearing resources.
+- `kind` and `name`: resource identity. Supported kinds are `Deployment`, `StatefulSet`, `DaemonSet`, `CronJob`, KubeBlocks `Cluster`, and `ObjectStorageBucket`.
+- `when`: `always` for unconditional resources or the normalized inner `${{ if(...) }}` condition. Nested conditions use ` && ` in nesting order.
+- `replicas`: required positive integer for `Deployment` and `StatefulSet`.
+- `components`: required list of unique `{name, replicas}` objects for KubeBlocks `Cluster` component specs.
+
+One-shot `Job` resources remain outside topology evidence and continue through their dedicated bootstrap rules.
+
+Run topology validation with both files:
+
+```bash
+python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/demo/index.yaml,.sealos/topology-evidence/demo.yaml
+```
 
 ## Runtime Bundle Consistency
 

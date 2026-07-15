@@ -33,6 +33,42 @@ Run this pass after Phase 6 for every deployment unless the user explicitly asks
    - matching PVCs
    - matching KubeBlocks Clusters when created for the test
 
+## Event Convergence Gate
+
+Capture an initial `sealos-log-scan.mjs` report after the workload reaches Ready. This no-baseline report records Warning Events as `observed` while log findings, Pod readiness failures, and kubectl errors retain failure status.
+
+After the user workflow and missing-path check, wait at least 60 seconds and compare against the initial report:
+
+```bash
+node scripts/sealos-log-scan.mjs \
+  --namespace "$NAMESPACE" --app "$APP_NAME" \
+  > /tmp/sealos-initial-baseline.json
+
+STABILITY_SECONDS=60
+sleep "$STABILITY_SECONDS"
+node scripts/sealos-log-scan.mjs \
+  --namespace "$NAMESPACE" --app "$APP_NAME" \
+  --baseline /tmp/sealos-initial-baseline.json \
+  --min-window-seconds "$STABILITY_SECONDS"
+```
+
+Set `STABILITY_SECONDS` long enough to cover one full documented reconciliation, probe, queue, or scheduled-work period. Stable startup-probe and asynchronous Secret warnings become `historical-transient` after the referenced Secret exists, the Pod remains Ready, the Warning count and last-seen time stay fixed, and restart count stays fixed. A Warning advance, unresolved Secret, Pod replacement, Ready transition, or restart delta becomes `active-failure`.
+
+For intentional fault injection, save a pre-injection report, perform the injection, recover to Ready, and capture a new recovery baseline. Run the final comparison against the recovery baseline after the full stability window. Keep the pre-injection report and injected symptoms as evidence of the controlled fault window.
+
+## Private Object Storage Acceptance
+
+Use this gate whenever object storage is enabled:
+
+1. Authenticate through the real application flow.
+2. Upload a uniquely named file containing known bytes through the application UI or documented API.
+3. Read or download the object through the application and compare the resulting bytes or SHA-256 digest with the original.
+4. Confirm delivery uses the application's authenticated proxy or a time-bounded presigned URL.
+5. Request the raw bucket/object endpoint anonymously and confirm access remains restricted with HTTP 401, 403, or an equivalent provider response.
+6. Delete the smoke object through the application when deletion is supported.
+
+For optional S3, validate both branches independently. The local branch exercises the same authenticated upload/read/content/deletion workflow against local persistence. The managed branch exercises the workflow against Sealos object storage, verifies managed Secret wiring, and proves private raw-object access.
+
 ## Stuck Pod Debug Checklist
 
 Use this checklist when a Pod stays Pending, Init, CrashLoopBackOff, or Ready=false.
@@ -41,6 +77,7 @@ Use this checklist when a Pod stays Pending, Init, CrashLoopBackOff, or Ready=fa
 - Init logs for shell quoting issues, missing files, failed migrations, and database bootstrap errors.
 - Main container logs after each template patch, including errors emitted after readiness succeeds.
 - KubeBlocks Cluster readiness and database secret names.
+- Warning Event count/last-seen deltas, Pod Ready transitions, restart deltas, and current existence of Secrets named in `secret not found` Events.
 - Database objects required by the application. A completed or TTL-expired Job is historical evidence; the target DB state is the acceptance signal.
 - PVC binding, permissions, and init copy behavior.
 - Instance and App resources, because Template API deployments include a Sealos Instance layer.

@@ -44,7 +44,8 @@ test("footprint reports workload readiness and pod container readiness", () => {
     status: {
       phase: "Running",
       conditions: [{ type: "Ready", status: "True" }],
-      containerStatuses: [{ name: "demo", ready: true }],
+      initContainerStatuses: [{ name: "init", ready: true, restartCount: 1 }],
+      containerStatuses: [{ name: "demo", ready: true, restartCount: 2 }],
     },
   };
 
@@ -60,4 +61,5 @@ test("footprint reports workload readiness and pod container readiness", () => {
   assert.equal(podSummary.ready, "True");
   assert.equal(podSummary.readiness, "True");
   assert.equal(podSummary.containersReady, "1/1");
+  assert.equal(podSummary.restartCount, 3);
 });

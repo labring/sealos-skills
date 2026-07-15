@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 import ipaddress
 import re
 from pathlib import Path
@@ -283,6 +284,17 @@ RUNTIME_BUNDLE_IMAGES_FIELD = "images"
 RUNTIME_BUNDLE_COMPONENTS_FIELD = "components"
 RUNTIME_BUNDLE_ROUTES_FIELD = "routes"
 RUNTIME_BUNDLE_ENVS_FIELD = "env"
+TOPOLOGY_EVIDENCE_KIND = "TopologyEvidence"
+TOPOLOGY_EVIDENCE_DIR = "topology-evidence"
+TOPOLOGY_RESOURCE_KINDS = {
+    "Deployment",
+    "StatefulSet",
+    "DaemonSet",
+    "CronJob",
+    "Cluster",
+    "ObjectStorageBucket",
+}
+TOPOLOGY_REPLICA_KINDS = {"Deployment", "StatefulSet"}
 
 
 def _iter_template_artifact_documents(context: ScanContext) -> Iterable:
@@ -444,6 +456,327 @@ def _collect_runtime_bundle_state(context: ScanContext, artifact_path: Path) -> 
                 if isinstance(env_name, str) and env_name.strip():
                     state["envs"].add(env_name.strip())
     return state
+
+
+def _iter_topology_evidence_documents(context: ScanContext) -> Iterable[YamlDocument]:
+    for doc in iter_documents_by_kind(context, TOPOLOGY_EVIDENCE_KIND):
+        if doc.path.suffix.lower() in TEMPLATE_ARTIFACT_SUFFIXES:
+            yield doc
+
+
+def _normalize_topology_when(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip())
+
+
+def _topology_conditions_by_line(text: str) -> Dict[int, Tuple[str, ...]]:
+    active: List[str] = []
+    conditions: Dict[int, Tuple[str, ...]] = {}
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        match = TEMPLATE_IF_RE.search(line)
+        if match is not None:
+            active.append(_normalize_topology_when(match.group(1)))
+        conditions[line_number] = tuple(active)
+        if TEMPLATE_ENDIF_RE.search(line) and active:
+            active.pop()
+    return conditions
+
+
+def _topology_when_for_document(
+    doc: YamlDocument,
+    conditions_by_line: Dict[int, Tuple[str, ...]],
+) -> str:
+    api_line = doc.start_line
+    for offset, line in enumerate(doc.source.splitlines()):
+        if re.match(r"^\s*apiVersion\s*:", line):
+            api_line = doc.start_line + offset
+            break
+    active = conditions_by_line.get(api_line, ())
+    return " && ".join(active) if active else "always"
+
+
+def _is_kubeblocks_cluster(data: Dict[str, Any]) -> bool:
+    api_version = data.get("apiVersion")
+    return (
+        data.get("kind") == "Cluster"
+        and isinstance(api_version, str)
+        and api_version.startswith("apps.kubeblocks.io/")
+    )
+
+
+def _topology_cluster_components(data: Dict[str, Any]) -> Optional[Tuple[Tuple[str, int], ...]]:
+    spec = data.get("spec")
+    component_specs = spec.get("componentSpecs") if isinstance(spec, dict) else None
+    if not isinstance(component_specs, list) or not component_specs:
+        return None
+
+    components: Dict[str, int] = {}
+    for component in component_specs:
+        if not isinstance(component, dict):
+            return None
+        name = component.get("name")
+        replicas = component.get("replicas")
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or isinstance(replicas, bool)
+            or not isinstance(replicas, int)
+            or replicas < 1
+            or name.strip() in components
+        ):
+            return None
+        components[name.strip()] = replicas
+    return tuple(sorted(components.items()))
+
+
+def _topology_record_label(record: Tuple[str, str, str, Optional[int], Tuple[Tuple[str, int], ...]]) -> str:
+    kind, name, when, replicas, components = record
+    details = [f"{kind}/{name}", f"when={when}"]
+    if replicas is not None:
+        details.append(f"replicas={replicas}")
+    if components:
+        rendered = ",".join(f"{component}={count}" for component, count in components)
+        details.append(f"components={rendered}")
+    return " ".join(details)
+
+
+def _collect_topology_records(
+    context: ScanContext,
+    artifact_path: Path,
+    violations: List[Violation],
+) -> Tuple[
+    List[Tuple[str, str, str, Optional[int], Tuple[Tuple[str, int], ...]]],
+    Dict[Tuple[str, str, str, Optional[int], Tuple[Tuple[str, int], ...]], YamlDocument],
+]:
+    text = context.file_texts.get(artifact_path, "")
+    conditions_by_line = _topology_conditions_by_line(text)
+    records: List[Tuple[str, str, str, Optional[int], Tuple[Tuple[str, int], ...]]] = []
+    docs_by_record: Dict[
+        Tuple[str, str, str, Optional[int], Tuple[Tuple[str, int], ...]],
+        YamlDocument,
+    ] = {}
+
+    for doc in context.yaml_documents:
+        if doc.skip_checks or doc.path != artifact_path or not isinstance(doc.data, dict):
+            continue
+        kind = doc.data.get("kind")
+        if kind not in TOPOLOGY_RESOURCE_KINDS:
+            continue
+        if kind == "Cluster" and not _is_kubeblocks_cluster(doc.data):
+            continue
+
+        name = _metadata_name(doc.data)
+        if not name:
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*metadata\s*:",
+                default_pattern=r"^\s*kind\s*:",
+                message="topology-bearing resources must define metadata.name",
+            )
+            continue
+
+        replicas: Optional[int] = None
+        if kind in TOPOLOGY_REPLICA_KINDS:
+            spec = doc.data.get("spec")
+            raw_replicas = spec.get("replicas", 1) if isinstance(spec, dict) else 1
+            if isinstance(raw_replicas, bool) or not isinstance(raw_replicas, int) or raw_replicas < 1:
+                add_doc_violation(
+                    violations,
+                    rule_id="R050",
+                    doc=doc,
+                    pattern=r"^\s*replicas\s*:",
+                    default_pattern=r"^\s*spec\s*:",
+                    message="Deployment and StatefulSet spec.replicas must be a positive integer",
+                )
+            else:
+                replicas = raw_replicas
+
+        components: Tuple[Tuple[str, int], ...] = ()
+        if kind == "Cluster":
+            parsed_components = _topology_cluster_components(doc.data)
+            if parsed_components is None:
+                add_doc_violation(
+                    violations,
+                    rule_id="R050",
+                    doc=doc,
+                    pattern=r"^\s*componentSpecs\s*:",
+                    default_pattern=r"^\s*spec\s*:",
+                    message=(
+                        "KubeBlocks Cluster topology requires non-empty componentSpecs with unique names "
+                        "and positive integer replicas"
+                    ),
+                )
+            else:
+                components = parsed_components
+
+        record = (
+            str(kind),
+            name,
+            _topology_when_for_document(doc, conditions_by_line),
+            replicas,
+            components,
+        )
+        records.append(record)
+        docs_by_record.setdefault(record, doc)
+
+    return records, docs_by_record
+
+
+def _parse_topology_evidence_resources(
+    doc: YamlDocument,
+    resources: Any,
+    violations: List[Violation],
+) -> List[Tuple[str, str, str, Optional[int], Tuple[Tuple[str, int], ...]]]:
+    if not isinstance(resources, list) or not resources:
+        add_doc_violation(
+            violations,
+            rule_id="R050",
+            doc=doc,
+            pattern=r"^\s*resources\s*:",
+            default_pattern=r"^\s*spec\s*:",
+            message="TopologyEvidence spec.resources must be a non-empty list",
+        )
+        return []
+
+    records: List[Tuple[str, str, str, Optional[int], Tuple[Tuple[str, int], ...]]] = []
+    for item in resources:
+        if not isinstance(item, dict):
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*resources\s*:",
+                message="TopologyEvidence resources entries must be objects",
+            )
+            continue
+
+        kind = item.get("kind")
+        name = item.get("name")
+        when = item.get("when")
+        if kind not in TOPOLOGY_RESOURCE_KINDS:
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*kind\s*:",
+                default_pattern=r"^\s*resources\s*:",
+                message=f"TopologyEvidence resource kind must be one of {sorted(TOPOLOGY_RESOURCE_KINDS)}",
+            )
+            continue
+        if not isinstance(name, str) or not name.strip():
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*name\s*:",
+                default_pattern=r"^\s*resources\s*:",
+                message="TopologyEvidence resources entries must define a non-empty name",
+            )
+            continue
+        if not isinstance(when, str) or not when.strip():
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*when\s*:",
+                default_pattern=r"^\s*resources\s*:",
+                message="TopologyEvidence resources entries must define when as always or a template condition",
+            )
+            continue
+
+        replicas: Optional[int] = None
+        raw_replicas = item.get("replicas")
+        if kind in TOPOLOGY_REPLICA_KINDS:
+            if isinstance(raw_replicas, bool) or not isinstance(raw_replicas, int) or raw_replicas < 1:
+                add_doc_violation(
+                    violations,
+                    rule_id="R050",
+                    doc=doc,
+                    pattern=r"^\s*replicas\s*:",
+                    default_pattern=r"^\s*resources\s*:",
+                    message="TopologyEvidence Deployment and StatefulSet entries require positive integer replicas",
+                )
+                continue
+            replicas = raw_replicas
+        elif raw_replicas is not None:
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*replicas\s*:",
+                default_pattern=r"^\s*resources\s*:",
+                message=f"TopologyEvidence {kind} entries do not use replicas",
+            )
+            continue
+
+        components: Tuple[Tuple[str, int], ...] = ()
+        raw_components = item.get("components")
+        if kind == "Cluster":
+            if not isinstance(raw_components, list) or not raw_components:
+                add_doc_violation(
+                    violations,
+                    rule_id="R050",
+                    doc=doc,
+                    pattern=r"^\s*components\s*:",
+                    default_pattern=r"^\s*resources\s*:",
+                    message="TopologyEvidence Cluster entries require a non-empty components list",
+                )
+                continue
+            parsed_components: Dict[str, int] = {}
+            invalid_component = False
+            for component in raw_components:
+                if not isinstance(component, dict):
+                    invalid_component = True
+                    break
+                component_name = component.get("name")
+                component_replicas = component.get("replicas")
+                if (
+                    not isinstance(component_name, str)
+                    or not component_name.strip()
+                    or isinstance(component_replicas, bool)
+                    or not isinstance(component_replicas, int)
+                    or component_replicas < 1
+                    or component_name.strip() in parsed_components
+                ):
+                    invalid_component = True
+                    break
+                parsed_components[component_name.strip()] = component_replicas
+            if invalid_component:
+                add_doc_violation(
+                    violations,
+                    rule_id="R050",
+                    doc=doc,
+                    pattern=r"^\s*components\s*:",
+                    default_pattern=r"^\s*resources\s*:",
+                    message=(
+                        "TopologyEvidence Cluster components require unique non-empty names and "
+                        "positive integer replicas"
+                    ),
+                )
+                continue
+            components = tuple(sorted(parsed_components.items()))
+        elif raw_components is not None:
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*components\s*:",
+                default_pattern=r"^\s*resources\s*:",
+                message=f"TopologyEvidence {kind} entries do not use components",
+            )
+            continue
+
+        records.append(
+            (
+                str(kind),
+                name.strip(),
+                _normalize_topology_when(when),
+                replicas,
+                components,
+            )
+        )
+    return records
 
 
 def _is_non_empty_value(value: Any, expected_type: type) -> bool:
@@ -3495,6 +3828,99 @@ def check_runtime_bundle_consistency(context: ScanContext) -> List[Violation]:
     return violations
 
 
+def check_topology_evidence_consistency(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    templates = _template_artifacts_by_name(context)
+
+    for doc in _iter_topology_evidence_documents(context):
+        spec = _runtime_bundle_spec(doc)
+        app_name = spec.get("appName")
+        source = spec.get("source")
+
+        if not isinstance(app_name, str) or not app_name.strip():
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*appName\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message="TopologyEvidence must declare spec.appName matching Template metadata.name",
+            )
+            continue
+        app_name = app_name.strip()
+
+        expected_path = doc.path.parent.name == TOPOLOGY_EVIDENCE_DIR and doc.path.parent.parent.name == ".sealos"
+        if not expected_path or doc.path.name != f"{app_name}.yaml":
+            violations.append(
+                Violation(
+                    rule_id="R050",
+                    path=doc.path,
+                    line=doc.start_line,
+                    message=(
+                        "TopologyEvidence must use .sealos/topology-evidence/<appName>.yaml; "
+                        f"expected .sealos/topology-evidence/{app_name}.yaml"
+                    ),
+                )
+            )
+
+        if not isinstance(source, str) or not source.strip():
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*source\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message="TopologyEvidence must declare a non-empty spec.source",
+            )
+
+        template_doc = templates.get(app_name)
+        if template_doc is None:
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*appName\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message="TopologyEvidence spec.appName must match a Template in the scanned artifacts",
+            )
+            continue
+
+        expected_records = _parse_topology_evidence_resources(doc, spec.get("resources"), violations)
+        actual_records, docs_by_record = _collect_topology_records(context, template_doc.path, violations)
+        if not expected_records:
+            continue
+
+        expected_counter = Counter(expected_records)
+        actual_counter = Counter(actual_records)
+        for record, count in (expected_counter - actual_counter).items():
+            add_doc_violation(
+                violations,
+                rule_id="R050",
+                doc=doc,
+                pattern=r"^\s*resources\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message=(
+                    "topology evidence resource is missing or changed in the template: "
+                    f"{_topology_record_label(record)} (count={count})"
+                ),
+            )
+        for record, count in (actual_counter - expected_counter).items():
+            resource_doc = docs_by_record[record]
+            violations.append(
+                Violation(
+                    rule_id="R050",
+                    path=resource_doc.path,
+                    line=resource_doc.start_line,
+                    message=(
+                        "template contains a topology resource absent from evidence: "
+                        f"{_topology_record_label(record)} (count={count})"
+                    ),
+                )
+            )
+
+    return violations
+
+
 def check_cronjob_required_labels(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
 
@@ -3738,6 +4164,7 @@ APP_RULES: Dict[str, Rule] = {
     "R023": Rule("R023", check_template_categories_allowed),
     "R024": Rule("R024", check_official_health_probes),
     "R046": Rule("R046", check_runtime_bundle_consistency),
+    "R050": Rule("R050", check_topology_evidence_consistency),
     "R036": Rule("R036", check_cronjob_required_labels),
     "R015": Rule("R015", check_origin_image_name_matches_container),
     "R020": Rule("R020", check_service_ports_have_names),

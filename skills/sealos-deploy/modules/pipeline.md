@@ -1109,10 +1109,16 @@ Collect the runtime footprint:
 node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NAMESPACE" --app "<app-name>"
 ```
 
-Scan logs once after initial readiness:
+Capture the initial runtime baseline after readiness. This scan records Warning Events as observations while preserving log, Pod readiness, and kubectl failures as blocking findings:
 
 ```bash
-node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" --namespace "$NAMESPACE" --app "<app-name>" --since 10m --tail 300
+RUNTIME_EVIDENCE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sealos-runtime.XXXXXX")
+INITIAL_BASELINE="$RUNTIME_EVIDENCE_DIR/initial-baseline.json"
+FINAL_RUNTIME_REPORT="$RUNTIME_EVIDENCE_DIR/final-runtime.json"
+
+node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
+  --namespace "$NAMESPACE" --app "<app-name>" --since 10m --tail 300 \
+  > "$INITIAL_BASELINE"
 ```
 
 For every web application:
@@ -1142,6 +1148,16 @@ After the browser/API smoke, scan recent logs again:
 node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" --namespace "$NAMESPACE" --app "<app-name>" --since 10m --tail 300
 ```
 
+For applications with private object storage enabled, complete an application-level storage smoke through the authenticated UI or documented API:
+
+1. Upload a uniquely named file with known bytes through the application.
+2. Read or download that object through the application and compare its bytes or SHA-256 digest with the source file.
+3. Confirm the successful read uses the application's authenticated proxy or a time-bounded presigned URL.
+4. Request the raw bucket/object endpoint without application credentials and confirm the storage provider returns an access-restricted response such as HTTP 401, 403, or an equivalent access-denied document.
+5. Delete the smoke object through the application when the product supports deletion.
+
+For optional object storage, exercise both supported branches. The local-storage branch must complete upload, read/download, digest comparison, and deletion using its local persistence path. The managed-S3 branch must complete the same workflow through the managed bucket and managed Secret wiring, plus the private raw-object access check.
+
 For web applications, request one random missing path from the real App URL and scan logs once more:
 
 ```bash
@@ -1149,6 +1165,28 @@ MISSING_PATH="/__sealos_missing_$(date +%s)"
 curl -k -sS -o /dev/null -w "%{http_code}\n" "$APP_URL$MISSING_PATH"
 node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" --namespace "$NAMESPACE" --app "<app-name>" --since 10m --tail 300
 ```
+
+Finish with an Event convergence comparison. Use 60 seconds as the minimum. Increase the window to cover one complete known reconciliation, health-check, queue, or scheduled-work period:
+
+```bash
+STABILITY_SECONDS=60
+sleep "$STABILITY_SECONDS"
+node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
+  --namespace "$NAMESPACE" --app "<app-name>" --since 10m --tail 300 \
+  --baseline "$INITIAL_BASELINE" \
+  --min-window-seconds "$STABILITY_SECONDS" \
+  > "$FINAL_RUNTIME_REPORT"
+```
+
+Parse `$FINAL_RUNTIME_REPORT`. Acceptance requires `ok: true`, zero `active-failure` Events, zero restart deltas, stable Ready transitions, and resolved Secrets referenced by historical `secret not found` Events.
+
+For intentional fault injection, preserve three reports:
+
+1. Capture a pre-injection report for the known-good state.
+2. Inject the failure, record its expected symptoms, and recover the workload to Ready.
+3. Capture a fresh recovery baseline after Ready, wait the full stability window, and run the final comparison against the recovery baseline.
+
+The pre-injection report proves the fault window. The recovery baseline prevents intentional Warning history from contaminating the final comparison. Any Warning count or last-seen advance, restart delta, Pod replacement, Ready transition, or unresolved Secret after the recovery baseline fails acceptance.
 
 Inspect the live main container startup command for managed app workloads:
 
@@ -1167,6 +1205,8 @@ Acceptance checklist:
 - A random missing path returns HTTP 404 and the follow-up log scan has no traceback-style `HTTPException` / `NotFound` noise.
 - SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` is absent from smoke responses.
 - Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
+- The final runtime report has `ok: true`, zero `active-failure` Events, zero restart deltas, and a complete stability window.
+- Private object-storage flows pass authenticated upload, application read/download, content consistency, and raw-object access restriction checks. Optional local and managed branches each pass their branch-specific workflow.
 - Main business containers keep `command`/`args` short and close to the official entrypoint; repeated file preparation, permission repair, database bootstrap, or compatibility self-healing belongs in initContainers, Jobs, or ConfigMap scripts.
 - Shell wrappers in main containers end with `exec <final-process>` so signal handling remains correct.
 - Database-backed apps have the expected live database objects, because Job completion or TTL cleanup is only historical evidence.

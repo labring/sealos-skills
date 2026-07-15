@@ -147,10 +147,14 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--args-json '{"KEY":"value"}'\|--args-file <file>]` | Resolve the current region from `~/.sealos/auth.json`, build the correct Template API URL, and post a local template YAML |
 | `sealos-footprint.mjs` | `node sealos-footprint.mjs --namespace <ns> --app <app>` | Read-only inventory of Instance/App/workloads/Jobs/KubeBlocks/PVCs for deploy debug and cleanup planning |
 | `sealos-live-smoke.mjs` | `node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-method json-token\|cookie-json] [--login-path <path>] [--username <user>] [--password <pass>] [--auth-path <path>]` | Read-only or credentialed HTTP smoke test for the real Sealos App entry URL |
-| `sealos-log-scan.mjs` | `node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300]` | Read-only JSON scan of Pod/init/main logs and status signals after readiness, login, and random 404 checks |
+| `sealos-log-scan.mjs` | `node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300] [--baseline <report.json\|json>] [--min-window-seconds 60]` | Read-only JSON scan of Pod/init/main logs plus Warning Event convergence after readiness, login, and random 404 checks |
 | `sealos-auth.mjs` | `node sealos-auth.mjs check\|login\|list\|switch` | Sealos Cloud authentication & workspace switching |
 
 All scripts output JSON. Run via Bash and parse the result.
+
+Runtime Event acceptance uses two scans. Capture the first report after readiness with no baseline, wait at least 60 seconds, then pass that report through `--baseline` for the final scan. Extend `--min-window-seconds` to cover one full known reconciliation, probe, or scheduled-work period. An initial Warning Event is an observation; a Warning that advances after the baseline, an unresolved referenced Secret, a Ready transition, a Pod replacement, or a restart delta is an active failure.
+
+For intentional fault injection, retain a pre-injection report as evidence. After recovery reaches Ready, capture a fresh recovery baseline and compare the final scan against that recovery baseline after the full stability window.
 
 ## Internal Skill Dependencies
 
@@ -186,7 +190,7 @@ Paths used in pipeline.md follow the pattern:
 | 5 — Template | Generate Sealos application template | — |
 | 5.5 — Configure | Guide user through app env vars and inputs | No inputs needed |
 | 6 — Deploy | Deploy template to Sealos Cloud | — |
-| 6.5 — Runtime Truth Pass | Verify the actual Sealos runtime, logs, App URL, login path, and resource footprint | User explicitly requests deploy-only output |
+| 6.5 — Runtime Truth Pass | Verify the actual Sealos runtime, logs, Event convergence, App URL, login path, object-storage flow, and resource footprint | User explicitly requests deploy-only output |
 
 ## Decision Flow
 

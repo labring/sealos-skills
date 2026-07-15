@@ -36,6 +36,7 @@ Extract from Docker Compose/docs:
 - resource limits/requests and health checks
 - if official Kubernetes installation docs/manifests are available, also extract app-runtime behavior from them (bootstrap admin fields, external endpoint/protocol assumptions, health probes, startup/init flow, migration ordering)
 - if official compose/docs provide multiple cooperating services, record the official runtime bundle source, component list, image versions, public entry routes, and critical env vars
+- record the selected source topology: topology-bearing resource roles, feature conditions, and application or database component replica counts
 
 ### Step 2: Infer metadata
 
@@ -71,7 +72,11 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - URL topology: browser-facing env vars must use public HTTPS URLs, while server-to-server env vars must use Kubernetes Service FQDNs unless the app explicitly requires public callbacks
 - WebSocket ingress normalization: when the public entry is `ws://`, `wss://`, CDP/Chrome DevTools, a game socket, or a WebSocket-named port/service, expose it with WebSocket nginx ingress annotations
 - prefer `scripts/compose_to_template.py --kompose-mode always` as deterministic conversion entrypoint (require `kompose` for reproducible workload shaping)
-- when official Kubernetes installation docs/manifests exist, perform a dual-source merge: use Compose as baseline topology, then align app-runtime semantics with official Kubernetes guidance
+- for existing-template updates, keep the current template's topology-bearing resources, feature conditions, and replica counts as the baseline
+- for new conversions, keep the selected Compose services and `deploy.replicas` values as the topology baseline
+- use official Kubernetes installation docs/manifests to align app-runtime semantics such as bootstrap fields, endpoints, probes, and startup ordering
+- keep optional or recommended workers, caches, and HA replicas outside the emitted topology unless the selected source topology or explicit user intent includes them
+- keep every feature input scoped to its documented capability; database and object-storage inputs must not add unrelated workloads, caches, or replicas
 - when official compose/docs define a multi-component runtime bundle, keep runtime-required components, entry routes, critical env vars, and component image versions aligned to one official release/compose source
 - before converting a host directory mount to persistent storage, verify whether the image already ships required files at that target path; avoid hiding image-bundled manifests, dependency lists, or config defaults behind a fresh empty PVC
 
@@ -110,6 +115,7 @@ Run validator and self-tests before delivering template output.
 If validation fails, fix template/rules/examples first.
 For web applications, live validation must include runtime log hygiene: inspect init and main container logs after first readiness, after login or setup, and after one random missing-path HTTP request. Recurring traceback-style warnings are template failures even when pods are Ready.
 For login-gated web applications, live validation must prove the real credential/session flow with one authenticated API or page before resource tuning or cleanup.
+For managed or private object storage, live validation must upload known bytes through the authenticated application flow, read or download the object, compare its SHA-256 digest, confirm delivery through the application proxy or a time-bounded presigned URL, and verify the raw anonymous object request remains restricted. Optional object storage must validate the local-storage and managed-bucket branches independently.
 
 ## MUST Rules (Condensed)
 
@@ -153,6 +159,10 @@ For login-gated web applications, live validation must prove the real credential
 
 - If official Kubernetes installation docs/manifests are available, conversion must reference them and align critical runtime settings before emitting template artifacts.
 - When official Kubernetes docs/manifests and Compose differ, prefer official Kubernetes runtime semantics for app behavior (bootstrap admin fields, external endpoint/env/protocol, health probes), unless doing so violates higher-priority Sealos MUST/security constraints.
+- For existing-template updates, preserve the current template's topology-bearing resource inventory, conditions, and replica counts; for new conversions, preserve the selected Compose topology and `deploy.replicas` values.
+- Use official Kubernetes docs/manifests to align application runtime semantics; add optional or recommended workers, caches, and HA replicas only when the selected source topology or explicit user intent includes them.
+- Each application feature input must gate only resources and settings for that documented feature; database and object-storage inputs must not change unrelated workload inventory or replica counts.
+- Topology-sensitive validation must provide `.sealos/topology-evidence/<app-name>.yaml` as validator-only `TopologyEvidence`; final Sealos Template artifacts must stay free of topology validator metadata.
 - When official compose/docs provide a multi-component runtime bundle, template artifacts must preserve runtime-required components, public entry routes, critical env vars, and image versions from the same official release/compose source.
 - Templates using official multi-component runtime evidence must provide a separate `RuntimeBundleEvidence` YAML file during validation, while final Sealos Template artifacts stay free of runtime-bundle validator metadata.
 
@@ -187,6 +197,7 @@ For login-gated web applications, live validation must prove the real credential
 - Use a compatibility proxy only when official protocol evidence requires request adaptation.
 - An object-storage compatibility proxy must declare `metadata.annotations.docker-to-sealos.object-storage-compatibility-proxy-source` as a credential-free HTTPS source URL or `user-request:<reference>`, remain stateless, and omit persistent volumes.
 - External S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` as a credential-free HTTPS source URL or `user-request:<reference>`, and must not coexist with `ObjectStorageBucket`.
+- Managed or private object-storage acceptance must prove authenticated application upload and read/download with matching content, application-proxy or time-bounded presigned delivery, and restricted raw anonymous access; optional object storage must pass both local-storage and managed-bucket branches.
 
 ### Env and secrets
 
@@ -280,7 +291,7 @@ Run all checks before final response:
 3. `python scripts/test_compose_to_template.py`
 4. `python scripts/test_check_must_coverage.py`
 5. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml`
-6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml`
+6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml,.sealos/topology-evidence/<app-name>.yaml` for existing-template updates and other topology-sensitive conversions
 7. `python scripts/check_must_coverage.py --skill SKILL.md --mapping references/must-rules-map.yaml --rules-file references/rules-registry.yaml`
 8. (CI / one-shot) `python scripts/quality_gate.py --artifacts /abs/path/template/<app-name>/index.yaml` or `DOCKER_TO_SEALOS_ARTIFACTS=/abs/path/template/<app-name>/index.yaml python scripts/quality_gate.py` (without explicit artifacts, it scans `template/*/index.yaml`; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
 9. Live deploy acceptance: after `sealos-deploy` creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, a random missing-path 404 without noisy traceback logs, expected database objects, and full resource footprint before reporting success.
@@ -351,5 +362,5 @@ Load only needed references for current task:
 - Prefer WebSocket Ingress for public `ws://`, `wss://`, CDP/Chrome DevTools, game socket, and WebSocket-named ports/services; use `backend-protocol: WS` with `3600` read/send timeouts.
 - Never create `template/<app-name>/README.md` or `template/<app-name>/README_zh.md`; only keep README URL references inside `index.yaml` when required by the template schema.
 - Prefer fixing references/examples over adding exceptions when conflicts appear.
-- If official Kubernetes installation docs/manifests exist for the target app, do not ignore them; use them to refine runtime semantics beyond Compose defaults.
+- Use official Kubernetes installation docs/manifests to refine runtime semantics while retaining the selected source topology.
 - If the project mentions Frappe, ERPNext, HRMS, or `bench`, load `references/frappe-bench.md` before generating app workloads.

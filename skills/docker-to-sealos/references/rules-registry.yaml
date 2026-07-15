@@ -58,6 +58,9 @@ rules:
   - id: R046
     description: Official multi-component RuntimeBundleEvidence must match emitted images, components, routes, and critical env vars.
     severity: error
+  - id: R050
+    description: TopologyEvidence must exactly match topology-bearing resource kinds, names, conditions, workload replicas, and KubeBlocks component replicas.
+    severity: error
   - id: R036
     description: CronJob resources must define cloud.sealos.io/cronjob, cronjob-launchpad-name, and cronjob-type labels with required values.
     severity: error
