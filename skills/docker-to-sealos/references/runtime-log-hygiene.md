@@ -23,6 +23,20 @@ Treat these recurring signals as template failures until classified and fixed:
 - `BackOff`
 - migration, bootstrap, auth, permission, or database compatibility failures
 
+## Event Convergence Gate
+
+Kubernetes Events persist after the triggering condition has recovered. Use two `sealos-log-scan.mjs` reports to classify current runtime state:
+
+1. Capture an initial report after the workload reaches Ready. Warning Events in this sample are `observed` and do not fail the scan by themselves.
+2. Wait at least 60 seconds. Extend the window to cover one full known reconciliation, probe, queue, or scheduled-work period.
+3. Run a second scan with `--baseline <initial-report>` and the selected `--min-window-seconds`.
+
+A Warning Event is `historical-transient` when its count and last-seen time remain fixed for the full window, the related Pod stays Ready, restart count stays fixed, and any Secret named by a `secret not found` message now exists. This covers asynchronous managed-Secret creation and startup-probe cold starts that converge cleanly.
+
+A Warning Event is `active-failure` when its count or last-seen time advances, a referenced Secret remains absent, the related Pod loses Ready, the Ready transition changes, the Pod is replaced, or restart count increases. Treat an incomplete stability window as an observation that still requires a later final scan.
+
+For controlled fault injection, retain the pre-injection report as evidence, recover the workload to Ready, and capture a fresh recovery baseline. Compare the final scan against the recovery baseline after the full stability window. This separates intentional fault history from failures that continue after recovery.
+
 ## Flask, Superset, And AppBuilder
 
 Flask-based applications may log framework-level exceptions for ordinary 404 requests. Superset and Flask-AppBuilder can emit `superset.views.error_handling:HTTPException` with `werkzeug.exceptions.NotFound` even when the browser behavior is correct.

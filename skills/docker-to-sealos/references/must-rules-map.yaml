@@ -148,6 +148,22 @@ must_rules:
     enforcement:
       type: manual
       note: "Conflict resolution depends on semantic comparison plus platform/security guardrails."
+  - must: "For existing-template updates, preserve the current template's topology-bearing resource inventory, conditions, and replica counts; for new conversions, preserve the selected Compose topology and `deploy.replicas` values."
+    enforcement:
+      type: rule
+      target: R050
+  - must: "Use official Kubernetes docs/manifests to align application runtime semantics; add optional or recommended workers, caches, and HA replicas only when the selected source topology or explicit user intent includes them."
+    enforcement:
+      type: rule
+      target: R050
+  - must: "Each application feature input must gate only resources and settings for that documented feature; database and object-storage inputs must not change unrelated workload inventory or replica counts."
+    enforcement:
+      type: rule
+      target: R050
+  - must: "Topology-sensitive validation must provide `.sealos/topology-evidence/<app-name>.yaml` as validator-only `TopologyEvidence`; final Sealos Template artifacts must stay free of topology validator metadata."
+    enforcement:
+      type: rule
+      target: R050
   - must: "When official compose/docs provide a multi-component runtime bundle, template artifacts must preserve runtime-required components, public entry routes, critical env vars, and image versions from the same official release/compose source."
     enforcement:
       type: rule
@@ -240,6 +256,10 @@ must_rules:
     enforcement:
       type: rule
       target: R047
+  - must: "Managed or private object-storage acceptance must prove authenticated application upload and read/download with matching content, application-proxy or time-bounded presigned delivery, and restricted raw anonymous access; optional object storage must pass both local-storage and managed-bucket branches."
+    enforcement:
+      type: manual
+      note: "Requires authenticated live application traffic, content comparison, and raw object-endpoint access checks for each storage branch."
   - must: "If object storage/S3 integration is Enterprise, paid, commercial, subscription, or license-gated in the upstream application, keep the public template on the community-supported storage path (for example filesystem/PVC) and expose no standard `ObjectStorageBucket` or S3 input for that feature."
     enforcement:
       type: rule

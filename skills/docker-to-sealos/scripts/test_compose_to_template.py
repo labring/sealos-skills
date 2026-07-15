@@ -133,6 +133,9 @@ class ComposeToTemplateTests(unittest.TestCase):
                 ingress["metadata"]["labels"]["cloud.sealos.io/app-deploy-manager"],
             )
             workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            self.assertEqual(1, workload["spec"]["replicas"])
+            self.assertEqual("1", workload["metadata"]["annotations"]["deploy.cloud.sealos.io/minReplicas"])
+            self.assertEqual("1", workload["metadata"]["annotations"]["deploy.cloud.sealos.io/maxReplicas"])
             self.assertNotIn("imagePullSecrets", workload["spec"]["template"]["spec"])
             self.assertEqual(
                 {
@@ -176,6 +179,56 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             self.assertEqual([], violations)
 
+    def test_preserves_compose_deploy_replicas(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: nginx:1.27.2
+                    deploy:
+                      replicas: 3
+                """,
+            )
+
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            self.assertEqual(3, workload["spec"]["replicas"])
+            self.assertEqual("3", workload["metadata"]["annotations"]["deploy.cloud.sealos.io/minReplicas"])
+            self.assertEqual("3", workload["metadata"]["annotations"]["deploy.cloud.sealos.io/maxReplicas"])
+
+    def test_rejects_invalid_compose_deploy_replicas(self):
+        invalid_values = ("0", "-1", "true", "'2'", "2.5")
+        for invalid_value in invalid_values:
+            with self.subTest(invalid_value=invalid_value), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                compose = root / "docker-compose.yml"
+                write_file(
+                    compose,
+                    f"""
+                    services:
+                      app:
+                        image: nginx:1.27.2
+                        deploy:
+                          replicas: {invalid_value}
+                    """,
+                )
+
+                with self.assertRaisesRegex(ValueError, "deploy.replicas must be a positive integer"):
+                    convert_compose_to_template(
+                        compose_path=compose,
+                        output_root=root / "template",
+                        meta=self._meta("demo"),
+                    )
 
     def test_uses_svgl_svg_logo_when_available(self):
         with tempfile.TemporaryDirectory() as temp_dir:

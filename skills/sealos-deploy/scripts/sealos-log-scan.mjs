@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 
 const SIGNALS = [
@@ -19,9 +20,18 @@ const SIGNALS = [
 const USAGE = [
   "Usage:",
   "  node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300]",
+  "    [--baseline <report.json|json>] [--min-window-seconds 60]",
   "",
-  "Read-only log scanner for Sealos runtime smoke tests.",
+  "Run once without --baseline to capture a sample, then compare after the stability window.",
 ].join("\n");
+
+function argumentValue(argv, index, option) {
+  const value = argv[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${option} requires a value`);
+  }
+  return value;
+}
 
 function parseArgs(argv) {
   const args = {
@@ -29,6 +39,8 @@ function parseArgs(argv) {
     app: "",
     since: "10m",
     tail: "300",
+    baseline: "",
+    minWindowSeconds: "60",
     dryRun: false,
     help: false,
   };
@@ -40,13 +52,23 @@ function parseArgs(argv) {
     } else if (arg === "--dry-run") {
       args.dryRun = true;
     } else if (arg === "--namespace" || arg === "-n") {
-      args.namespace = argv[++i] || "";
+      args.namespace = argumentValue(argv, i, arg);
+      i += 1;
     } else if (arg === "--app") {
-      args.app = argv[++i] || "";
+      args.app = argumentValue(argv, i, arg);
+      i += 1;
     } else if (arg === "--since") {
-      args.since = argv[++i] || "";
+      args.since = argumentValue(argv, i, arg);
+      i += 1;
     } else if (arg === "--tail") {
-      args.tail = argv[++i] || "";
+      args.tail = argumentValue(argv, i, arg);
+      i += 1;
+    } else if (arg === "--baseline") {
+      args.baseline = argumentValue(argv, i, arg);
+      i += 1;
+    } else if (arg === "--min-window-seconds") {
+      args.minWindowSeconds = argumentValue(argv, i, arg);
+      i += 1;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
@@ -55,17 +77,39 @@ function parseArgs(argv) {
   return args;
 }
 
+function strictInteger(value) {
+  if (!/^\d+$/.test(String(value))) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
 function baseResult(args) {
+  const minWindowSeconds = strictInteger(args.minWindowSeconds);
   return {
     tool: "sealos-log-scan",
     generatedAt: new Date().toISOString(),
     namespace: args.namespace,
     app: args.app,
     since: args.since,
-    tail: Number.parseInt(args.tail, 10),
+    tail: strictInteger(args.tail),
+    minWindowSeconds,
+    baseline: {
+      provided: Boolean(args.baseline),
+      generatedAt: null,
+      elapsedSeconds: null,
+      complete: false,
+    },
     ok: false,
     dryRun: args.dryRun,
     pods: [],
+    events: [],
+    eventSummary: {
+      observed: 0,
+      "historical-transient": 0,
+      "active-failure": 0,
+    },
     findings: [],
     errors: [],
   };
@@ -90,16 +134,21 @@ function kubectl(args) {
   });
 
   return {
-    ok: child.status === 0,
+    ok: child.status === 0 && !child.error,
     status: child.status,
     stdout: child.stdout || "",
-    stderr: child.stderr || "",
+    stderr: child.error?.message || child.stderr || "",
     command: `kubectl ${fullArgs.join(" ")}`,
   };
 }
 
 function normalize(value) {
   return String(value || "").toLowerCase();
+}
+
+function toTimestamp(value) {
+  const timestamp = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 function podMatchesApp(pod, appName) {
@@ -127,8 +176,95 @@ function podMatchesApp(pod, appName) {
   return ownerRefs.some((owner) => normalize(owner.name).includes(app));
 }
 
+function eventReference(event) {
+  return event.regarding || event.involvedObject || {};
+}
+
+function eventMatchesApp(event, appName, pods) {
+  const reference = eventReference(event);
+  const referenceName = normalize(reference.name);
+  const referenceUid = reference.uid || "";
+  const app = normalize(appName);
+  const labels = event.metadata?.labels || {};
+  const labelValues = [
+    labels.app,
+    labels["app.kubernetes.io/name"],
+    labels["app.kubernetes.io/instance"],
+    labels["cloud.sealos.io/app-deploy-manager"],
+  ];
+
+  return (
+    referenceName.includes(app) ||
+    pods.some((pod) => pod.metadata?.uid === referenceUid || normalize(pod.metadata?.name) === referenceName) ||
+    labelValues.some((value) => normalize(value) === app || normalize(value).includes(app))
+  );
+}
+
+function eventCount(event) {
+  const value = event.series?.count ?? event.count ?? event.deprecatedCount ?? 1;
+  const count = Number.parseInt(value, 10);
+  return Number.isInteger(count) && count > 0 ? count : 1;
+}
+
+function eventFirstSeen(event) {
+  return (
+    event.firstTimestamp ||
+    event.deprecatedFirstTimestamp ||
+    event.eventTime ||
+    event.metadata?.creationTimestamp ||
+    null
+  );
+}
+
+function eventLastSeen(event) {
+  return (
+    event.series?.lastObservedTime ||
+    event.lastTimestamp ||
+    event.deprecatedLastTimestamp ||
+    event.eventTime ||
+    event.metadata?.creationTimestamp ||
+    null
+  );
+}
+
+function eventFingerprint(event) {
+  const reference = eventReference(event);
+  const identity = reference.uid || `${reference.kind || "Object"}/${reference.name || "unknown"}`;
+  return [identity, event.reason || "Unknown", event.message || event.note || ""].join("|");
+}
+
+function missingSecretName(message) {
+  const quoted = String(message || "").match(/secret\s+["']([^"']+)["']\s+not found/i);
+  if (quoted) {
+    return quoted[1];
+  }
+  const unquoted = String(message || "").match(/secret\s+([a-z0-9](?:[-a-z0-9.]*[a-z0-9])?)\s+not found/i);
+  return unquoted?.[1] || null;
+}
+
+function normalizeWarningEvent(event) {
+  const reference = eventReference(event);
+  const message = event.message || event.note || "";
+  return {
+    fingerprint: eventFingerprint(event),
+    uid: event.metadata?.uid || null,
+    type: event.type || event.deprecatedType || "Warning",
+    reason: event.reason || "Unknown",
+    message,
+    count: eventCount(event),
+    firstSeen: eventFirstSeen(event),
+    lastSeen: eventLastSeen(event),
+    involvedObject: {
+      kind: reference.kind || null,
+      name: reference.name || null,
+      uid: reference.uid || null,
+    },
+    missingSecret: missingSecretName(message),
+  };
+}
+
 function trimLine(line) {
-  const text = line.trim();
+  const text = String(line || "").trim();
   return text.length > 240 ? `${text.slice(0, 237)}...` : text;
 }
 
@@ -175,6 +311,13 @@ function containerStatuses(pod, field) {
   return pod.status?.[field] || [];
 }
 
+function allContainerStatuses(pod) {
+  return [
+    ...containerStatuses(pod, "initContainerStatuses"),
+    ...containerStatuses(pod, "containerStatuses"),
+  ];
+}
+
 function collectContainers(pod) {
   const containers = [];
   const add = (spec, status, type) => {
@@ -201,6 +344,29 @@ function collectContainers(pod) {
   return containers;
 }
 
+function summarizePodState(pod) {
+  const readyCondition = (pod.status?.conditions || []).find((condition) => condition.type === "Ready");
+  return {
+    uid: pod.metadata?.uid || null,
+    name: pod.metadata?.name || "",
+    phase: pod.status?.phase || "",
+    ready: readyCondition?.status === "True",
+    readyTransitionTime: readyCondition?.lastTransitionTime || null,
+    restartCount: allContainerStatuses(pod).reduce((total, status) => total + (status.restartCount || 0), 0),
+  };
+}
+
+function baselinePodFor(baseline, podState) {
+  if (!baseline) {
+    return null;
+  }
+  return (
+    baseline.pods?.find((pod) => podState.uid && pod.uid === podState.uid) ||
+    baseline.pods?.find((pod) => pod.name === podState.name) ||
+    null
+  );
+}
+
 function scanLogStream(namespace, podName, containerName, since, tail, previous = false) {
   const args = [
     "-n",
@@ -225,6 +391,7 @@ function scanLogStream(namespace, podName, containerName, since, tail, previous 
 function appendFindings(result, podName, containerName, containerType, stream, signals) {
   for (const signal of signals) {
     result.findings.push({
+      source: "log",
       pod: podName,
       container: containerName,
       containerType,
@@ -236,14 +403,40 @@ function appendFindings(result, podName, containerName, containerType, stream, s
   }
 }
 
-function scanPodLogs(result, pod, args) {
-  const podName = pod.metadata?.name || "";
+function scanPodLogs(result, pod, args, baseline) {
+  const state = summarizePodState(pod);
+  const baselinePod = baselinePodFor(baseline, state);
+  const replaced = Boolean(baselinePod?.uid && state.uid && baselinePod.uid !== state.uid);
+  const restartDelta = baselinePod && !replaced ? Math.max(0, state.restartCount - (baselinePod.restartCount || 0)) : 0;
+  const baselineReadyTime = toTimestamp(baselinePod?.readyTransitionTime);
+  const currentReadyTime = toTimestamp(state.readyTransitionTime);
+  const readyTransitionChanged = Boolean(
+    baselinePod &&
+      baselineReadyTime !== null &&
+      currentReadyTime !== null &&
+      currentReadyTime > baselineReadyTime,
+  );
   const podResult = {
-    name: podName,
-    phase: pod.status?.phase || "",
+    ...state,
+    restartDelta,
+    replaced,
+    readyTransitionChanged,
     labels: pod.metadata?.labels || {},
     containers: [],
   };
+
+  if (!state.ready) {
+    result.findings.push({ source: "pod", pod: state.name, signal: "pod_not_ready" });
+  }
+  if (baseline && restartDelta > 0) {
+    result.findings.push({ source: "pod", pod: state.name, signal: "restart_delta", count: restartDelta });
+  }
+  if (baseline && replaced) {
+    result.findings.push({ source: "pod", pod: state.name, signal: "pod_replaced" });
+  }
+  if (baseline && readyTransitionChanged) {
+    result.findings.push({ source: "pod", pod: state.name, signal: "ready_transition_changed" });
+  }
 
   for (const container of collectContainers(pod)) {
     const containerResult = {
@@ -251,9 +444,9 @@ function scanPodLogs(result, pod, args) {
       statusSignals: statusSignals(container),
       streams: [],
     };
-    appendFindings(result, podName, container.name, container.type, "status", containerResult.statusSignals);
+    appendFindings(result, state.name, container.name, container.type, "status", containerResult.statusSignals);
 
-    const current = scanLogStream(args.namespace, podName, container.name, args.since, args.tail, false);
+    const current = scanLogStream(args.namespace, state.name, container.name, args.since, args.tail, false);
     const currentSignals = current.ok ? scanText(current.stdout) : [];
     containerResult.streams.push({
       name: "current",
@@ -262,19 +455,19 @@ function scanPodLogs(result, pod, args) {
       signals: currentSignals,
       error: current.ok ? null : trimLine(current.stderr || "kubectl logs failed"),
     });
-    appendFindings(result, podName, container.name, container.type, "current", currentSignals);
+    appendFindings(result, state.name, container.name, container.type, "current", currentSignals);
 
     if (!current.ok) {
       result.errors.push({
-        pod: podName,
+        pod: state.name,
         container: container.name,
         stream: "current",
         message: trimLine(current.stderr || "kubectl logs failed"),
       });
     }
 
-    if (container.restartCount > 0) {
-      const previous = scanLogStream(args.namespace, podName, container.name, args.since, args.tail, true);
+    if (container.restartCount > 0 && (!baseline || restartDelta > 0)) {
+      const previous = scanLogStream(args.namespace, state.name, container.name, args.since, args.tail, true);
       const previousSignals = previous.ok ? scanText(previous.stdout) : [];
       containerResult.streams.push({
         name: "previous",
@@ -283,7 +476,7 @@ function scanPodLogs(result, pod, args) {
         signals: previousSignals,
         error: previous.ok ? null : trimLine(previous.stderr || "kubectl logs --previous failed"),
       });
-      appendFindings(result, podName, container.name, container.type, "previous", previousSignals);
+      appendFindings(result, state.name, container.name, container.type, "previous", previousSignals);
     }
 
     podResult.containers.push(containerResult);
@@ -292,19 +485,146 @@ function scanPodLogs(result, pod, args) {
   result.pods.push(podResult);
 }
 
+function parseItems(command, resource, result) {
+  if (!command.ok) {
+    result.errors.push({ source: "kubectl", resource, message: trimLine(command.stderr || `kubectl get ${resource} failed`) });
+    return [];
+  }
+  try {
+    return JSON.parse(command.stdout).items || [];
+  } catch (error) {
+    result.errors.push({ source: "kubectl", resource, message: `Unable to parse ${resource} JSON: ${error.message}` });
+    return [];
+  }
+}
+
+function loadBaseline(value) {
+  let source = value;
+  if (existsSync(value)) {
+    source = readFileSync(value, "utf8");
+  }
+  let baseline;
+  try {
+    baseline = JSON.parse(source);
+  } catch (error) {
+    throw new Error(`Unable to parse --baseline JSON: ${error.message}`);
+  }
+  if (baseline?.tool !== "sealos-log-scan" || !Array.isArray(baseline.pods) || !Array.isArray(baseline.events)) {
+    throw new Error("--baseline must be a sealos-log-scan JSON report");
+  }
+  return baseline;
+}
+
+function baselineEventMap(baseline) {
+  return new Map((baseline?.events || []).map((event) => [event.fingerprint, event]));
+}
+
+function podForEvent(event, pods) {
+  const reference = event.involvedObject || {};
+  return (
+    pods.find((pod) => reference.uid && pod.uid === reference.uid) ||
+    pods.find((pod) => reference.name && pod.name === reference.name) ||
+    null
+  );
+}
+
+function classifyEvents(result, warnings, baseline, secretNames) {
+  const previousEvents = baselineEventMap(baseline);
+  for (const warning of warnings) {
+    const previous = previousEvents.get(warning.fingerprint) || null;
+    const pod = podForEvent(warning, result.pods);
+    const countDelta = previous ? Math.max(0, warning.count - (previous.count || 0)) : warning.count;
+    const previousLastSeen = toTimestamp(previous?.lastSeen);
+    const currentLastSeen = toTimestamp(warning.lastSeen);
+    const lastSeenAdvanced = previous
+      ? currentLastSeen !== null && (previousLastSeen === null || currentLastSeen > previousLastSeen)
+      : true;
+    const recurred = Boolean(baseline && (!previous || countDelta > 0 || lastSeenAdvanced));
+    const secretExists = warning.missingSecret ? secretNames.has(warning.missingSecret) : null;
+    const readyTransitionTime = toTimestamp(pod?.readyTransitionTime);
+    const occurredBeforeReady = Boolean(
+      currentLastSeen !== null && readyTransitionTime !== null && currentLastSeen <= readyTransitionTime,
+    );
+    const activeFailure = Boolean(
+      baseline &&
+        (recurred ||
+          secretExists === false ||
+          pod?.ready === false ||
+          (pod?.restartDelta || 0) > 0 ||
+          pod?.replaced ||
+          pod?.readyTransitionChanged),
+    );
+    let classification = "observed";
+    if (activeFailure) {
+      classification = "active-failure";
+    } else if (baseline && result.baseline.complete) {
+      classification = "historical-transient";
+    }
+
+    const normalized = {
+      ...warning,
+      classification,
+      baseline: previous ? { count: previous.count, lastSeen: previous.lastSeen } : null,
+      delta: {
+        count: baseline ? countDelta : null,
+        lastSeenAdvanced: baseline ? lastSeenAdvanced : null,
+        restartCount: baseline ? pod?.restartDelta ?? null : null,
+        readyTransitionChanged: baseline ? pod?.readyTransitionChanged ?? null : null,
+      },
+      podReady: pod?.ready ?? null,
+      readyTransitionTime: pod?.readyTransitionTime || null,
+      occurredBeforeReady,
+      secret: warning.missingSecret ? { name: warning.missingSecret, exists: secretExists } : null,
+    };
+    result.events.push(normalized);
+    result.eventSummary[classification] += 1;
+
+    if (classification === "active-failure") {
+      result.findings.push({
+        source: "event",
+        signal: "active_warning_event",
+        reason: warning.reason,
+        involvedObject: warning.involvedObject,
+        countDelta,
+        lastSeenAdvanced,
+        secret: normalized.secret,
+      });
+    }
+  }
+}
+
+function validateArgs(args, result) {
+  if (!args.namespace || !args.app) {
+    throw new Error("--namespace and --app are required");
+  }
+  if (!Number.isSafeInteger(result.tail) || result.tail <= 0) {
+    throw new Error("--tail must be a positive integer");
+  }
+  if (!Number.isSafeInteger(result.minWindowSeconds) || result.minWindowSeconds < 60) {
+    throw new Error("--min-window-seconds must be an integer of at least 60");
+  }
+}
+
 function main() {
   let args;
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (error) {
-    const result = baseResult({ namespace: "", app: "", since: "10m", tail: "300", dryRun: false });
+    const result = baseResult({
+      namespace: "",
+      app: "",
+      since: "10m",
+      tail: "300",
+      baseline: "",
+      minWindowSeconds: "60",
+      dryRun: false,
+    });
     result.errors.push({ message: error.message, usage: USAGE });
     printJson(result, 2);
     return;
   }
 
   const result = baseResult(args);
-
   if (args.help) {
     result.ok = true;
     result.usage = USAGE;
@@ -312,14 +632,24 @@ function main() {
     return;
   }
 
-  if (!args.namespace || !args.app) {
-    result.errors.push({ message: "--namespace and --app are required", usage: USAGE });
-    printJson(result, 2);
-    return;
-  }
-
-  if (!Number.isInteger(result.tail) || result.tail <= 0) {
-    result.errors.push({ message: "--tail must be a positive integer" });
+  let baseline = null;
+  try {
+    validateArgs(args, result);
+    baseline = args.baseline ? loadBaseline(args.baseline) : null;
+    if (baseline && (baseline.namespace !== args.namespace || baseline.app !== args.app)) {
+      throw new Error("--baseline namespace and app must match the current scan");
+    }
+    if (baseline) {
+      const generatedAt = toTimestamp(baseline.generatedAt);
+      if (generatedAt === null) {
+        throw new Error("--baseline generatedAt must be a valid timestamp");
+      }
+      result.baseline.generatedAt = baseline.generatedAt;
+      result.baseline.elapsedSeconds = Math.max(0, Math.floor((toTimestamp(result.generatedAt) - generatedAt) / 1000));
+      result.baseline.complete = result.baseline.elapsedSeconds >= result.minWindowSeconds;
+    }
+  } catch (error) {
+    result.errors.push({ message: error.message, usage: USAGE });
     printJson(result, 2);
     return;
   }
@@ -330,25 +660,24 @@ function main() {
     return;
   }
 
-  const podList = kubectl(["-n", args.namespace, "get", "pods", "-o", "json"]);
-  if (!podList.ok) {
-    result.errors.push({ message: trimLine(podList.stderr || "kubectl get pods failed") });
-    printJson(result, 1);
-    return;
+  if (baseline && !result.baseline.complete) {
+    result.findings.push({
+      source: "convergence",
+      signal: "stability_window_too_short",
+      elapsedSeconds: result.baseline.elapsedSeconds,
+      requiredSeconds: result.minWindowSeconds,
+    });
   }
 
-  let pods;
-  try {
-    pods = JSON.parse(podList.stdout).items || [];
-  } catch (error) {
-    result.errors.push({ message: `Unable to parse kubectl pod JSON: ${error.message}` });
-    printJson(result, 1);
-    return;
-  }
-
+  const pods = parseItems(
+    kubectl(["-n", args.namespace, "get", "pods", "-o", "json"]),
+    "pods",
+    result,
+  );
   const matchedPods = pods.filter((pod) => podMatchesApp(pod, args.app));
   if (matchedPods.length === 0) {
     result.findings.push({
+      source: "pod",
       signal: "no_pods",
       count: 1,
       examples: [{ line: 0, text: `No pods matched app '${args.app}' in namespace '${args.namespace}'` }],
@@ -356,11 +685,32 @@ function main() {
   }
 
   for (const pod of matchedPods) {
-    scanPodLogs(result, pod, args);
+    scanPodLogs(result, pod, args, baseline);
   }
 
+  const allEvents = parseItems(
+    kubectl(["-n", args.namespace, "get", "events", "-o", "json"]),
+    "events",
+    result,
+  );
+  const warnings = allEvents
+    .filter((event) => normalize(event.type || event.deprecatedType) === "warning")
+    .filter((event) => eventMatchesApp(event, args.app, matchedPods))
+    .map(normalizeWarningEvent);
+  const referencedSecrets = new Set(warnings.map((event) => event.missingSecret).filter(Boolean));
+  let secretNames = new Set();
+  if (referencedSecrets.size > 0) {
+    const secrets = parseItems(
+      kubectl(["-n", args.namespace, "get", "secrets", "-o", "json"]),
+      "secrets",
+      result,
+    );
+    secretNames = new Set(secrets.map((secret) => secret.metadata?.name).filter(Boolean));
+  }
+  classifyEvents(result, warnings, baseline, secretNames);
+
   result.ok = result.errors.length === 0 && result.findings.length === 0;
-  printJson(result, result.errors.length > 0 ? 1 : 0);
+  printJson(result, result.ok ? 0 : 1);
 }
 
 main();

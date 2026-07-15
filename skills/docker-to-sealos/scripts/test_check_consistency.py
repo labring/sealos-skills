@@ -86,7 +86,12 @@ class CheckConsistencyTests(unittest.TestCase):
                 additional_include_paths=additional_include_paths,
             )
 
-    def run_artifact_checker(self, artifact_text: str, evidence_text: str = ""):
+    def run_artifact_checker(
+        self,
+        artifact_text: str,
+        evidence_text: str = "",
+        evidence_path: str = ".sealos/runtime-bundle-evidence.yaml",
+    ):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -101,9 +106,9 @@ class CheckConsistencyTests(unittest.TestCase):
             write_registry(rules_file)
             write_file(artifact_file, artifact_text)
             if evidence_text:
-                evidence_file = root / ".sealos" / "runtime-bundle-evidence.yaml"
+                evidence_file = root / evidence_path
                 write_file(evidence_file, evidence_text)
-                include_paths.append(".sealos/runtime-bundle-evidence.yaml")
+                include_paths.append(evidence_path)
 
             return CHECKER.run_checks(
                 skill,
@@ -1322,6 +1327,475 @@ class CheckConsistencyTests(unittest.TestCase):
                 ],
             )
             self.assertTrue(any(item.rule_id == "R046" for item in violations))
+
+    def test_allows_matching_single_replica_topology_evidence(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: demo-app
+            spec:
+              replicas: 1
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: template/demo/index.yaml@base-revision
+              resources:
+                - kind: StatefulSet
+                  name: demo-app
+                  when: always
+                  replicas: 1
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        self.assertFalse(any(item.rule_id == "R050" for item in violations))
+
+    def test_detects_topology_replica_drift(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-app
+            spec:
+              replicas: 2
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: compose.yaml@v1
+              resources:
+                - kind: Deployment
+                  name: demo-app
+                  when: always
+                  replicas: 1
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        r050 = [item for item in violations if item.rule_id == "R050"]
+        self.assertTrue(r050)
+        self.assertTrue(any("replicas=1" in item.message or "replicas=2" in item.message for item in r050))
+
+    def test_detects_ha_topology_replica_shrink(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-api
+            spec:
+              replicas: 1
+            ---
+            apiVersion: apps.kubeblocks.io/v1alpha1
+            kind: Cluster
+            metadata:
+              name: demo-pg
+            spec:
+              componentSpecs:
+                - name: postgresql
+                  replicas: 1
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: compose.yaml@ha-revision
+              resources:
+                - kind: Deployment
+                  name: demo-api
+                  when: always
+                  replicas: 3
+                - kind: Cluster
+                  name: demo-pg
+                  when: always
+                  components:
+                    - name: postgresql
+                      replicas: 3
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        r050 = [item for item in violations if item.rule_id == "R050"]
+        self.assertTrue(any("replicas=3" in item.message and "demo-api" in item.message for item in r050))
+        self.assertTrue(any("components=postgresql=3" in item.message for item in r050))
+
+    def test_detects_feature_toggle_adding_worker_and_redis(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                enable_s3_storage:
+                  description: Enable object storage
+                  type: boolean
+                  default: 'false'
+            ---
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: demo-app
+            spec:
+              replicas: 1
+            ---
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            apiVersion: objectstorage.sealos.io/v1
+            kind: ObjectStorageBucket
+            metadata:
+              name: demo
+            spec:
+              policy: private
+            ${{ endif() }}
+            ---
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-worker
+            spec:
+              replicas: 1
+            ${{ endif() }}
+            ---
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            apiVersion: apps.kubeblocks.io/v1alpha1
+            kind: Cluster
+            metadata:
+              name: demo-redis
+            spec:
+              componentSpecs:
+                - name: redis
+                  replicas: 1
+            ${{ endif() }}
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: template/demo/index.yaml@base-revision
+              resources:
+                - kind: StatefulSet
+                  name: demo-app
+                  when: always
+                  replicas: 1
+                - kind: ObjectStorageBucket
+                  name: demo
+                  when: inputs.enable_s3_storage === 'true'
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        r050 = [item for item in violations if item.rule_id == "R050"]
+        self.assertTrue(any("demo-worker" in item.message for item in r050))
+        self.assertTrue(any("demo-redis" in item.message for item in r050))
+
+    def test_detects_topology_condition_drift(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            ${{ if(inputs.enable_s3_storage === 'true') }}
+            apiVersion: apps.kubeblocks.io/v1alpha1
+            kind: Cluster
+            metadata:
+              name: demo-pg
+            spec:
+              componentSpecs:
+                - name: postgresql
+                  replicas: 1
+            ${{ endif() }}
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: template/demo/index.yaml@base-revision
+              resources:
+                - kind: Cluster
+                  name: demo-pg
+                  when: inputs.enable_postgresql === 'true'
+                  components:
+                    - name: postgresql
+                      replicas: 1
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        r050 = [item for item in violations if item.rule_id == "R050"]
+        self.assertTrue(r050)
+        self.assertTrue(any("enable_postgresql" in item.message for item in r050))
+        self.assertTrue(any("enable_s3_storage" in item.message for item in r050))
+
+    def test_allows_nested_topology_conditions_in_source_order(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            ${{ if(inputs.enable_database === 'true') }}
+            ---
+            ${{ if(inputs.enable_metrics === 'true') }}
+            apiVersion: apps/v1
+            kind: DaemonSet
+            metadata:
+              name: demo-metrics
+            spec: {}
+            ${{ endif() }}
+            ---
+            ${{ endif() }}
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: compose.yaml@v1
+              resources:
+                - kind: DaemonSet
+                  name: demo-metrics
+                  when: "inputs.enable_database === 'true' && inputs.enable_metrics === 'true'"
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        self.assertFalse(any(item.rule_id == "R050" for item in violations))
+
+    def test_detects_kubeblocks_component_replica_drift(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: apps.kubeblocks.io/v1alpha1
+            kind: Cluster
+            metadata:
+              name: demo-pg
+            spec:
+              componentSpecs:
+                - name: postgresql
+                  replicas: 2
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: compose.yaml@v1
+              resources:
+                - kind: Cluster
+                  name: demo-pg
+                  when: always
+                  components:
+                    - name: postgresql
+                      replicas: 1
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        r050 = [item for item in violations if item.rule_id == "R050"]
+        self.assertTrue(r050)
+        self.assertTrue(any("components=postgresql=1" in item.message for item in r050))
+        self.assertTrue(any("components=postgresql=2" in item.message for item in r050))
+
+    def test_allows_matching_ha_cluster_cronjob_and_ignores_job(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-api
+            spec:
+              replicas: 3
+            ---
+            apiVersion: apps/v1
+            kind: DaemonSet
+            metadata:
+              name: demo-agent
+            spec: {}
+            ---
+            ${{ if(inputs.enable_postgresql === 'true') }}
+            apiVersion: apps.kubeblocks.io/v1alpha1
+            kind: Cluster
+            metadata:
+              name: demo-pg
+            spec:
+              componentSpecs:
+                - name: postgresql
+                  replicas: 3
+            ${{ endif() }}
+            ---
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              name: demo-maintenance
+            spec: {}
+            ---
+            apiVersion: batch/v1
+            kind: Job
+            metadata:
+              name: demo-bootstrap
+            spec: {}
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: compose.yaml@v2
+              resources:
+                - kind: Deployment
+                  name: demo-api
+                  when: always
+                  replicas: 3
+                - kind: DaemonSet
+                  name: demo-agent
+                  when: always
+                - kind: Cluster
+                  name: demo-pg
+                  when: inputs.enable_postgresql === 'true'
+                  components:
+                    - name: postgresql
+                      replicas: 3
+                - kind: CronJob
+                  name: demo-maintenance
+                  when: always
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        self.assertFalse(any(item.rule_id == "R050" for item in violations))
+
+    def test_detects_unexpected_cronjob_topology(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: batch/v1
+            kind: CronJob
+            metadata:
+              name: demo-maintenance
+            spec: {}
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: compose.yaml@v1
+              resources:
+                - kind: ObjectStorageBucket
+                  name: demo-storage
+                  when: always
+            """,
+            evidence_path=".sealos/topology-evidence/demo.yaml",
+        )
+
+        r050 = [item for item in violations if item.rule_id == "R050"]
+        self.assertTrue(any("demo-maintenance" in item.message for item in r050))
+
+    def test_enforces_topology_evidence_path_and_schema(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec: {}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo-app
+            spec:
+              replicas: 1
+            """,
+            """
+            apiVersion: docker-to-sealos/v1
+            kind: TopologyEvidence
+            metadata:
+              name: demo-topology
+            spec:
+              appName: demo
+              source: compose.yaml@v1
+              resources:
+                - kind: Deployment
+                  name: demo-app
+                  when: always
+            """,
+            evidence_path=".sealos/demo-topology.yaml",
+        )
+
+        r050 = [item for item in violations if item.rule_id == "R050"]
+        self.assertTrue(any(".sealos/topology-evidence/demo.yaml" in item.message for item in r050))
+        self.assertTrue(any("require positive integer replicas" in item.message for item in r050))
 
     def test_detects_origin_image_name_mismatch_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
