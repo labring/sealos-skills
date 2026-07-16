@@ -18,6 +18,46 @@ This repo does not have a single top-level app build.
 - Validate distribution metadata when adding or renaming skills, commands, or manifests.
 - Run `python3 scripts/validate-codex-plugin.py` when Codex plugin metadata changes.
 
+## Branch Merge Policy: `main` → `brain-deploy-preview`
+
+Apply this policy whenever changes from `main` are merged into the branch named exactly `brain-deploy-preview`.
+
+`brain-deploy-preview` is a prepare-only branch. A merge may carry shared fixes forward, but it must not turn that branch into the full deploy/runtime and plugin-distribution workflow used by `main`.
+
+### Update from `main`
+
+- Merge repository-wide engineering rules that remain valid for both workflows, including editing discipline, language and style conventions, secret handling, and validation expectations for shared code.
+- Keep these skill directories aligned with `main`: `skills/cloud-native-readiness/`, `skills/sealos-app-builder/`, `skills/sealos-database/`, `skills/sealos-s3/`, and `skills/docker-to-sealos/`. Merge their implementation, documentation, references, tests, and eval fixtures together. After the merge, these directories should have no intentional differences from the `main` commit being merged.
+- Keep `skills/dockerfile-skill/` aligned with `main` as its baseline, while preserving the additional Railpack rules required by `brain-deploy-preview`. The only intentional differences from `main` in this skill should be the rules that consume normalized `analysis.json.build_environment` evidence, preserve explicit config/README/Dockerfile/lockfile precedence, reject direct use of raw Railpack JSON, and forbid replacing the Dockerfile plus Kaniko path with `railpack build`.
+- Evaluate every `skills/sealos-deploy/` change manually. Adopt shared fixes only when they fit the prepare-only workflow; by default preserve the `brain-deploy-preview` pipeline and its artifact contracts instead of taking the `main` implementation.
+
+### Keep the `brain-deploy-preview` Skill Flow Unchanged
+
+- Keep `skills/sealos-deploy/` on the prepare-only flow: assess, optional Railpack probe, image detection, Dockerfile preparation, `build-request.json`, sandbox Kaniko build or image reuse, template generation, and `delivery-manifest.json`.
+- Keep `skills/k8s-kaniko-job/` on the `brain-deploy-preview` branch's own flow. Do not replace it with a `main` build path during a merge.
+- Do not merge `skills/sealos-canvas/` into `brain-deploy-preview`. Also keep Sealos OAuth and Template API deployment, UPDATE mode, rollout/rollback, and runtime smoke verification out of the branch.
+- Preserve the absence of `skills/k8s-buildkit-job/`; Kaniko remains the build executor for this branch.
+
+### Files Outside `skills/`
+
+- Keep the target branch's `AGENTS.md` project identity, prepare-only architecture, dependency graph, branch-specific constraints, pipeline description, artifact contract, commands, and key paths. Do not replace the file wholesale with the `main` version. Copy generic engineering guidance into the appropriate target section only when it remains accurate there.
+- Keep the target branch's `README.md` and `CLAUDE.md`. They describe the `skills.sh` prepare-only product and must not be replaced by `main` plugin-first documentation or by the `main` `CLAUDE.md` symlink.
+- Merge `.gitignore` manually. Adopt generic ignore patterns when useful, preserve preview-specific generated-document rules, and do not add exceptions that exist only to track main's plugin metadata.
+- Review `.agents/sealos-deploy-containerize.mmd` manually and keep it accurate for the preview prepare flow. Do not overwrite it automatically with a diagram for the full deploy/runtime pipeline.
+- Do not merge main's plugin and marketplace surfaces: `.codex-plugin/`, `.claude-plugin/`, `.codebuddy-plugin/`, `.agents/plugins/`, `commands/`, `distribution/`, `marketplaces/`, `plugins/`, `plugin.json`, `marketplace.json`, `gemini-extension.json`, `qwen-extension.json`, or `openclaw.plugin.json`.
+- Do not merge main's current `assets/`; they contain plugin branding and Codex usage media. Evaluate future non-plugin assets separately.
+- Do not merge main's `.planning/` history. If the preview branch has planning artifacts of its own, preserve the target branch's versions.
+- Evaluate root `scripts/` files manually. Merge a script only when it validates behavior intentionally shared with the preview branch. Do not merge `scripts/validate-codex-plugin.py` or `scripts/test-sealos-deploy-template-fast-path.mjs`, because they validate main-only plugin or full-deploy behavior.
+
+### Merge Procedure
+
+- Record both the source `main` commit and the pre-merge `brain-deploy-preview` commit before resolving conflicts.
+- Resolve branch-owned files in favor of the target branch, synchronize the five main-aligned skills listed above, preserve only the documented Railpack delta in `dockerfile-skill`, and manually evaluate every `sealos-deploy` change. Do not use a repository-wide "ours" or "theirs" strategy.
+- Review the final diff for accidental additions of main-only files and accidental deletion of brain-only files.
+- Confirm that the five main-aligned skill directories have no remaining diff from the recorded source `main` commit, and that `dockerfile-skill` differs from that commit only by the documented Railpack rules.
+- Validate every shared skill that changed, run the `docker-to-sealos` quality gate when its rules or converter changed, and run the Kaniko and deploy helper tests when the prepare pipeline changed.
+- In the merge commit or pull request, list which `main` changes were adopted, which were adapted, and which were intentionally excluded under this policy.
+
 ## Architecture
 
 ### Skill dependency graph
