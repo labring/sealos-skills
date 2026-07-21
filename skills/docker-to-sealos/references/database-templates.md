@@ -576,7 +576,7 @@ subjects:
 
 The following specifications are consistent with the database upgrade documentation:
 
-- Database connection fields (`endpoint`/`host`/`port`/`username`/`password`) in application containers must be obtained via `secretKeyRef`; Redis host/port may use the Sealos Redis Service FQDN plus `6379` when the secret only exposes credentials, and MongoDB URLs may use the Sealos MongoDB Service FQDN plus `27017` when the secret only exposes credentials
+- Database connection fields (`endpoint`/`host`/`port`/`username`/`password`) in application containers must be obtained via `secretKeyRef`; Redis host/port may use the Sealos Redis Service FQDN plus `6379` when the secret only exposes credentials, and MongoDB host/port or URLs may use the Sealos MongoDB Service FQDN plus `27017` when the secret only exposes credentials
 - PostgreSQL Cluster uses `postgresql-16.4.0` and includes `kb.io/database`, `disableExporter: true`, `enabledLogs: [running]`
 - Secret naming upgrades:
   - `xxx-redis-conn-credential` -> `xxx-redis-redis-account-default`

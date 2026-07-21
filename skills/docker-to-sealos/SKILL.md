@@ -1,6 +1,6 @@
 ---
 name: docker-to-sealos
-description: Convert Docker Compose files or installation docs into production-grade Sealos templates. Use when user has a docker-compose.yml and wants a Sealos or Kubernetes template, wants to migrate from Docker Compose to Sealos, needs to convert container orchestration configs to Sealos format, or mentions compose-to-template conversion. Also triggers on "/docker-to-sealos".
+description: Convert Docker Compose files or installation docs into production-grade Sealos templates with role-specific personal low-load resource sizing. Use when user has a docker-compose.yml and wants a Sealos or Kubernetes template, wants to migrate from Docker Compose to Sealos, needs to convert container orchestration configs to Sealos format, or mentions compose-to-template conversion. Also triggers on "/docker-to-sealos".
 ---
 
 # Docker to Sealos Template Converter
@@ -35,6 +35,8 @@ Extract from Docker Compose/docs:
 - multi-service web roles: browser entry, REST API, OpenAI/API gateway, docs, workers, and one-shot jobs
 - resource limits/requests and health checks
 - if official Kubernetes installation docs/manifests are available, also extract app-runtime behavior from them (bootstrap admin fields, external endpoint/protocol assumptions, health probes, startup/init flow, migration ordering)
+- if official compose/docs provide multiple cooperating services, record the official runtime bundle source, component list, image versions, public entry routes, and critical env vars
+- record the selected source topology: topology-bearing resource roles, feature conditions, and application or database component replica counts
 
 ### Step 2: Infer metadata
 
@@ -68,8 +70,16 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - TLS offload normalization for Sealos Ingress: when a business service exposes both 80 and 443, drop 443 from workload/service ports and remove in-container TLS certificate mounts (for example `/etc/nginx/ssl`, `/etc/ssl`, `/certs`) unless official Kubernetes docs explicitly require HTTPS backend-to-service traffic
 - multi-service web normalization: expose the verified browser entry in the App resource, expose API/gateway/docs only when they are intended public surfaces, and keep workers private with no Service/Ingress
 - URL topology: browser-facing env vars must use public HTTPS URLs, while server-to-server env vars must use Kubernetes Service FQDNs unless the app explicitly requires public callbacks
+- WebSocket ingress normalization: when the public entry is `ws://`, `wss://`, CDP/Chrome DevTools, a game socket, or a WebSocket-named port/service, expose it with WebSocket nginx ingress annotations
+- StatefulSet service identity: for a single-component app with no documented headless or stable per-Pod DNS requirement, use the public application Service as `spec.serviceName` and keep the workload, Service, root Ingress, and manager identity aligned; preserve documented HA/headless governing Services and expose them through a separate public application Service
 - prefer `scripts/compose_to_template.py --kompose-mode always` as deterministic conversion entrypoint (require `kompose` for reproducible workload shaping)
-- when official Kubernetes installation docs/manifests exist, perform a dual-source merge: use Compose as baseline topology, then align app-runtime semantics with official Kubernetes guidance
+- for existing-template updates, keep the current template's topology-bearing resources, feature conditions, and replica counts as the baseline
+- for new conversions, keep the selected Compose services and `deploy.replicas` values as the topology baseline
+- use official Kubernetes installation docs/manifests to align app-runtime semantics such as bootstrap fields, endpoints, probes, and startup ordering
+- keep optional or recommended workers, caches, and HA replicas outside the emitted topology unless the selected source topology or explicit user intent includes them
+- keep every feature input scoped to its documented capability; database and object-storage inputs must not add unrelated workloads, caches, or replicas
+- when official compose/docs define a multi-component runtime bundle, keep runtime-required components, entry routes, critical env vars, and component image versions aligned to one official release/compose source
+- before converting a host directory mount to persistent storage, verify whether the image already ships required files at that target path; avoid hiding image-bundled manifests, dependency lists, or config defaults behind a fresh empty PVC
 
 ### Step 5: Apply database strategy
 
@@ -78,6 +88,7 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - MySQL/MongoDB/Redis/Kafka must use templates and secret naming from `references/database-templates.md`.
 - Add DB init Job/initContainer when application database bootstrap requires it.
 - For PostgreSQL custom databases (non-`postgres`), the init Job must wait for PostgreSQL readiness before execution and create the target database idempotently.
+- Database client images may be used in app `initContainers` and init/migration/bootstrap Jobs for readiness and bootstrap gates.
 - Critical application compatibility objects must be verified in live database state. Use idempotent initContainer self-healing for compatibility views, legacy tables/views, indexes, extensions, search paths, and bootstrap state that the app requires on every cold start.
 - One-shot init Jobs may create initial databases or seed state, but app startup gates must verify the final database objects directly. Treat TTL-expired Jobs as historical evidence and rely on database state for acceptance.
 - Worker, gateway, and background services that depend on app migrations must wait for the required tables, migration markers, or app-specific readiness objects, not only for the database port.
@@ -103,6 +114,9 @@ README authoring is out of scope for this skill. If the Template CR requires REA
 
 Run validator and self-tests before delivering template output.
 If validation fails, fix template/rules/examples first.
+For web applications, live validation must include runtime log hygiene: inspect init and main container logs after first readiness, after login or setup, and after one random missing-path HTTP request. Recurring traceback-style warnings are template failures even when pods are Ready.
+For login-gated web applications, live validation must prove the real credential/session flow with one authenticated API or page before resource tuning or cleanup.
+For managed or private object storage, live validation must upload known bytes through the authenticated application flow, read or download the object, compare its SHA-256 digest, confirm delivery through the application proxy or a time-bounded presigned URL, and verify the raw anonymous object request remains restricted. Optional object storage must validate the local-storage and managed-bucket branches independently.
 
 ## MUST Rules (Condensed)
 
@@ -135,16 +149,24 @@ If validation fails, fix template/rules/examples first.
 - Runtime component-scoped `ConfigMap` resources must define `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and both labels must match `metadata.name`; bootstrap-only ConfigMaps used only by init containers to copy initial config into persistent storage must not define either label.
 - Application `Service` resources must use the same component name across `metadata.name`, `metadata.labels.app`, `metadata.labels.cloud.sealos.io/app-deploy-manager`, and `spec.selector.app`.
 - Root-path `Ingress` resources (`pathType: Prefix`, `path: /`) must use the same component name across `metadata.name`, `metadata.labels.cloud.sealos.io/app-deploy-manager`, and backend `service.name`; non-root or non-Prefix Ingress rules may route to a different backend service.
+- Root-path `Ingress` resources (`pathType: Prefix`, `path: /`) must use `backend.service.port.number`, and the number must match a declared `spec.ports[*].port` on the referenced application `Service`.
 - Service `spec.ports[*].name` must be explicitly set (required for multi-port services).
-- Service `spec.ports[*].port` and `spec.ports[*].targetPort` must both be explicit numeric values between 1 and 65535; do not use named `targetPort` values in Sealos template artifacts.
 - HTTP Ingress must include required nginx annotations (`kubernetes.io/ingress.class`, `nginx.ingress.kubernetes.io/proxy-body-size`, `nginx.ingress.kubernetes.io/server-snippet`, `nginx.ingress.kubernetes.io/ssl-redirect`, `nginx.ingress.kubernetes.io/backend-protocol`, `nginx.ingress.kubernetes.io/client-body-buffer-size`, `nginx.ingress.kubernetes.io/proxy-buffer-size`, `nginx.ingress.kubernetes.io/proxy-send-timeout`, `nginx.ingress.kubernetes.io/proxy-read-timeout`, `nginx.ingress.kubernetes.io/configuration-snippet`) with expected defaults.
+- WebSocket Ingress must include required nginx annotations (`kubernetes.io/ingress.class`, `nginx.ingress.kubernetes.io/proxy-body-size`, `nginx.ingress.kubernetes.io/proxy-read-timeout`, `nginx.ingress.kubernetes.io/proxy-send-timeout`, `nginx.ingress.kubernetes.io/backend-protocol`, `nginx.ingress.kubernetes.io/ssl-redirect`) with `backend-protocol: WS` and `3600` read/send timeouts.
 - CronJob resources must define labels `cloud.sealos.io/cronjob`, `cronjob-launchpad-name`, and `cronjob-type`; `cloud.sealos.io/cronjob` must equal `metadata.name`, `cronjob-launchpad-name` must be `""`, and `cronjob-type` must be `image`.
 - When official application health checks are available, managed workloads must define `livenessProbe`, `readinessProbe`, and (for slow bootstrap apps) `startupProbe`, aligned with official endpoints/commands.
+- For public images that are verified to run as a non-root UID, managed app workloads and init Jobs should set restricted-compatible security context (`runAsNonRoot`, `runAsUser`, `runAsGroup`, `fsGroup`, `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`) unless the image requires root or extra capabilities.
 
 ### Official Kubernetes alignment
 
 - If official Kubernetes installation docs/manifests are available, conversion must reference them and align critical runtime settings before emitting template artifacts.
 - When official Kubernetes docs/manifests and Compose differ, prefer official Kubernetes runtime semantics for app behavior (bootstrap admin fields, external endpoint/env/protocol, health probes), unless doing so violates higher-priority Sealos MUST/security constraints.
+- For existing-template updates, preserve the current template's topology-bearing resource inventory, conditions, and replica counts; for new conversions, preserve the selected Compose topology and `deploy.replicas` values.
+- Use official Kubernetes docs/manifests to align application runtime semantics; add optional or recommended workers, caches, and HA replicas only when the selected source topology or explicit user intent includes them.
+- Each application feature input must gate only resources and settings for that documented feature; database and object-storage inputs must not change unrelated workload inventory or replica counts.
+- Topology-sensitive validation must provide `.sealos/topology-evidence/<app-name>.yaml` as validator-only `TopologyEvidence`; final Sealos Template artifacts must stay free of topology validator metadata.
+- When official compose/docs provide a multi-component runtime bundle, template artifacts must preserve runtime-required components, public entry routes, critical env vars, and image versions from the same official release/compose source.
+- Templates using official multi-component runtime evidence must provide a separate `RuntimeBundleEvidence` YAML file during validation, while final Sealos Template artifacts stay free of runtime-bundle validator metadata.
 
 ### Images and pull policy
 
@@ -154,24 +176,35 @@ If validation fails, fix template/rules/examples first.
 - Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag or digest before emitting template artifacts.
 - Application `originImageName` must match container image.
 - Public-image managed app workloads must omit `template.spec.imagePullSecrets`; private-registry workloads may reference only the app-scoped pull Secret `${{ defaults.app_name }}`.
-- Reusable templates must not expose raw registry credential inputs as user-facing form fields; any app-scoped pull Secret referenced for private-registry images must be supplied later by a prepare, handoff, or operator path.
+- The registry pull Secret is runtime-managed by `sealos-deploy` using local `gh` CLI credentials for private GHCR images; do not expose raw registry credential inputs in generated templates.
 - All containers must explicitly set `imagePullPolicy: IfNotPresent`.
 
 ### Storage
 
 - Do not use `emptyDir`.
 - Use persistent storage patterns (`volumeClaimTemplates`) where storage is needed.
-- StatefulSet resources with `volumeClaimTemplates` must set `metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` and every `volumeClaimTemplates[].metadata.labels.cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` so Template can track and clean PVCs.
+- StatefulSet resources with `volumeClaimTemplates` must keep standard workload labels such as `app` and `cloud.sealos.io/app-deploy-manager`, and omit only `cloud.sealos.io/deploy-on-sealos` from both StatefulSet `metadata.labels` and `volumeClaimTemplates[].metadata.labels`.
+- `volumeClaimTemplates[].metadata` should include `name` and `annotations`.
 - PVC request must be `<= 1Gi` unless source spec explicitly requires less.
 - ConfigMap data keys must follow vn naming (`scripts/path_converter.py`), including `/`, `-`, `.`, and other special characters.
 - ConfigMaps mounted by managed Deployment/StatefulSet workloads must use `metadata.name == workload.metadata.name`.
 - ConfigMap workload volumes must use `<workload-name>-cm`, and every ConfigMap `data` key must be mounted as its own `volumeMount` with `subPath` exactly equal to that key.
+- Omit ConfigMap volume `defaultMode` unless the application explicitly needs a non-default mode. ConfigMap scripts invoked through `/bin/sh /path/script` do not need executable bits.
 - Avoid long inline startup scripts or heredocs in `command`/`args`; place initialization/start scripts in ConfigMap files and invoke them with a short command.
+- Classify object storage from official application docs before generating inputs: required capability, application-level optional capability, or externally managed storage.
+- If object storage/S3 integration is Enterprise, paid, commercial, subscription, or license-gated in the upstream application, keep the public template on the community-supported storage path (for example filesystem/PVC) and expose no standard `ObjectStorageBucket` or S3 input for that feature.
+- When object storage is required and Sealos S3 compatibility satisfies the application contract, create unconditional `ObjectStorageBucket` resources for the documented bucket topology and inject Sealos object-storage secrets.
+- A template with managed `ObjectStorageBucket` must use it as the sole object-store data plane and omit bundled MinIO server workloads, Services, Ingresses, PVCs, and local object-storage credentials.
+- Resolve object-storage provider/backend selector inputs during conversion, and do not combine a managed `ObjectStorageBucket` with bundled `minio/minio`, `bitnami/minio`, or `bitnamilegacy/minio` server images.
+- Use a compatibility proxy only when official protocol evidence requires request adaptation.
+- An object-storage compatibility proxy must declare `metadata.annotations.docker-to-sealos.object-storage-compatibility-proxy-source` as a credential-free HTTPS source URL or `user-request:<reference>`, remain stateless, and omit persistent volumes.
+- External S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` as a credential-free HTTPS source URL or `user-request:<reference>`, and must not coexist with `ObjectStorageBucket`.
+- Managed or private object-storage acceptance must prove authenticated application upload and read/download with matching content, application-proxy or time-bounded presigned delivery, and restricted raw anonymous access; optional object storage must pass both local-storage and managed-bucket branches.
 
 ### Env and secrets
 
 - Non-database sensitive values/inputs use direct `env[].value`.
-- Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only.
+- Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB `host`/`port` or connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only.
 - Business containers must not use custom env/volume `Secret` references except approved Kubeblocks database secrets and object storage secrets.
 - A dedicated app-scoped registry pull Secret is allowed only for private-registry images and must be referenced only through `template.spec.imagePullSecrets`; public images must not add pull secrets.
 - Database connection/bootstrap may use Kubeblocks-provided secrets, and reserved Kubeblocks database secret names must not be redefined by custom `Secret` resources.
@@ -189,6 +222,7 @@ If validation fails, fix template/rules/examples first.
 ### Database-specific constraints
 
 - Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services.
+- Database client images may be used in app `initContainers` and init/migration/bootstrap Jobs for readiness and bootstrap gates.
 - PostgreSQL version: `postgresql-16.4.0`.
 - PostgreSQL API: `apps.kubeblocks.io/v1alpha1`.
 - PostgreSQL RBAC unified naming: `${{ defaults.app_name }}-pg`.
@@ -201,6 +235,7 @@ If validation fails, fix template/rules/examples first.
 - Redis cluster must follow upgraded structure (`componentDef: redis-7`, `componentDef: redis-sentinel-7`, `serviceVersion: 7.2.7`, main data PVC `1Gi`, topology `replication`).
 - Database cluster component resources must use `limits(cpu=500m,memory=512Mi)` and `requests(cpu=50m,memory=51Mi)` unless source docs explicitly require otherwise.
 - All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0.
+- Do not add, delete, or change existing `ephemeral-storage` resource fields during existing-template updates unless runtime evidence identifies ephemeral storage pressure; preserve the original requests/limits values while tuning CPU and memory.
 - Secret naming:
   - MongoDB: `${{ defaults.app_name }}-mongo-mongodb-account-root` (or `${{ defaults.app_name }}-mongodb-mongodb-account-root` when the MongoDB cluster name uses `-mongodb`)
   - Redis: `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)
@@ -209,43 +244,45 @@ If validation fails, fix template/rules/examples first.
 
 ### Baseline runtime defaults
 
-Unless source docs explicitly require otherwise, use the lightweight app ladder entry:
+Unless source docs explicitly require otherwise, use this lightweight app ladder entry as the initial personal low-load candidate:
 
 - container limits: `cpu=200m`, `memory=256Mi`
 - container requests: `cpu=20m`, `memory=25Mi`
 - `revisionHistoryLimit: 1`
 - `automountServiceAccountToken: false` by default; set it to `true` only when the application has explicit Kubernetes API/service account token requirements, evidenced by Kubernetes integration settings, `serviceAccountName`, or a `sealos.io/service-account-token-reason` workload annotation.
+- If a workload emits PodSecurity admission warnings and the image runs as a non-root user, add the restricted-compatible security context before reporting the template ready.
 
-For higher resource needs, move only to another allowed `limits` ladder entry and recompute `requests` from that `limits` value.
+Static generation cannot prove the final resource tier. Complete live resource validation before treating the candidate as the final template value.
 
-### Browser / remote desktop resource validation
+### Personal low-load resource validation
 
-For browser, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or remote-desktop-style containers:
+Apply the resource ladder independently to every application main container, sidecar, initContainer, and Job:
 
-- Do not treat a short smoke test as proof of a stable minimum memory value.
-- Validate memory with a fresh deployment, not only a patched warm pod.
-- Exercise cold start until readiness, a lightweight page, a real/medium page, an interactive/search page, and a 60s post-smoke stability check.
-- If observed cgroup memory reaches more than 80% of the limit during smoke, move to the next allowed Sealos memory ladder value.
+- The final CPU and memory limits must be the lowest Sealos ladder tiers that pass role-specific personal low-load validation, while an explicit source hard minimum remains the lower bound.
+- Tune CPU and memory separately, one ladder step at a time, and use a fresh rollout or cold execution for every candidate.
+- A passing long-running workload must complete cold start, become Ready, complete registration or login when applicable, complete at least two representative low-load actions, and remain stable for 60 seconds with zero `OOMKilled` terminations, restarts, readiness flaps, or resource-related timeouts.
+- A passing one-shot initContainer or Job must complete successfully from a cold run and allow every dependent workload to become Ready.
+- If a lower tier fails any acceptance signal, use the next passing tier and repeat final validation from a fresh rollout.
+- Treat observed CPU and memory peaks and utilization percentages as diagnostic evidence; acceptance failures trigger tier promotion.
 - Keep requests derived from limits according to the Sealos resource ladder.
 
-Example:
-- Bad: Chrome passes a short smoke at `512Mi` but reaches `503Mi`; shipping `512Mi` as the stable minimum is unsafe.
-- Good: raise to `1024Mi`, set request to `102Mi`, rerun smoke and stability checks.
+### In-container browser / remote desktop validation
 
-For Chrome + Xvfb + Selkies with 4K max display, use at least:
-- limits: `cpu=200m`, `memory=1024Mi`
-- requests: `cpu=20m`, `memory=102Mi`
+- Apply browser-specific validation only to containers that run Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar remote-desktop stack; browser-accessed web applications such as Langflow use the general personal low-load policy.
+- Exercise cold start through readiness, a lightweight page, a real or medium page, an interactive or search action, and the 60-second stability window.
+- For Chrome + Xvfb + Selkies with a 4K maximum display, start validation at `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, then test adjacent ladder tiers under the same acceptance contract.
 
 ### Defaults vs inputs
 
 - `defaults` for generated values (`app_name`, `app_host`, random passwords/keys).
 - `inputs` only for truly user-provided operational values (email/SMTP/external API keys, etc.).
-- When the user explicitly asks to enter application administrator credentials, declare the administrator username/password in `spec.inputs`, pass them as direct env values, and apply them through the application's documented bootstrap or initialization path. Keep database credentials on KubeBlocks secrets.
+- When application administrator credentials are user-configurable, declare both administrator username and password in `spec.inputs` as required inputs with no `default` field, pass them as direct env values, and apply them through the application's documented bootstrap or initialization path. Keep database credentials on KubeBlocks secrets.
 - Every `${{ inputs.<name> }}` reference in a template artifact must have a matching `spec.inputs.<name>` declaration in the same Template CR.
 - `inputs.description` must be in English.
 - Startup-critical `inputs[*].default` values must satisfy the application's documented startup validation. For admin/bootstrap passwords with complexity rules, do not use `''`, weak examples, or bare `${{ random(n) }}` because generated characters may not include required classes; include deterministic required classes around the random segment, for example `"AppName@${{ random(16) }}!1"`.
 - If an application exits when a required input is weak or empty, treat the input default as part of the runtime contract. Live validation must include the first boot logs and login/setup path with the generated default value.
-- For binary object storage choices, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`.
+- For application-level optional object storage documented by the official source, use a boolean input (for example `enable_s3_storage`) and test with `inputs.<name> === 'true'`. Resolve provider/backend/type/mode/driver selection during conversion and keep those selectors out of `spec.inputs`.
+- The false branch of an optional object-storage input must configure the storage-disabled/local mode documented by the official source.
 
 ## Validation Commands
 
@@ -256,10 +293,10 @@ Run all checks before final response:
 3. `python scripts/test_compose_to_template.py`
 4. `python scripts/test_check_must_coverage.py`
 5. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml`
-6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml`
+6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml,.sealos/topology-evidence/<app-name>.yaml` for existing-template updates and other topology-sensitive conversions
 7. `python scripts/check_must_coverage.py --skill SKILL.md --mapping references/must-rules-map.yaml --rules-file references/rules-registry.yaml`
-8. (CI / one-shot) `python scripts/quality_gate.py` (requires `template/*/index.yaml` by default; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
-9. Downstream live validation, when a later workflow applies the generated template, should verify the actual App URL, login/setup flow for web apps, recent logs, expected database objects, and full resource footprint before reporting runtime success.
+8. (CI / one-shot) `python scripts/quality_gate.py --artifacts /abs/path/template/<app-name>/index.yaml` or `DOCKER_TO_SEALOS_ARTIFACTS=/abs/path/template/<app-name>/index.yaml python scripts/quality_gate.py` (without explicit artifacts, it scans `template/*/index.yaml`; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
+9. Live deploy acceptance: after `sealos-deploy` creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, a random missing-path 404 without noisy traceback logs, expected database objects, and full resource footprint before reporting success.
 
 `check_consistency.py` is registry-driven. Keep `references/rules-registry.yaml` in sync with implemented rules.
 Registry rule entries support `severity` and optional `scope.include_paths` metadata.
@@ -287,6 +324,8 @@ Load only needed references for current task:
   - database templates, RBAC structures, secret naming patterns
 - `references/frappe-bench.md`
   - Frappe/ERPNext/HRMS/bench conversion patterns, init resources, idempotent site bootstrap, and common failure signatures
+- `references/runtime-log-hygiene.md`
+  - runtime log acceptance, benign 404 traceback handling, quiet dependency installation, and restricted security context guidance
 - `references/example-guide.md`
   - examples and pattern walkthroughs (non-authoritative)
 - `references/rules-registry.yaml`
@@ -322,7 +361,8 @@ Load only needed references for current task:
 - Prefer square/circular icon-first logo assets (app icon/favicon/avatar) and avoid rectangular wordmark/text logos.
 - Prefer Sealos-managed ingress over bundled edge proxies: if a Traefik gateway is only acting as ingress/front-proxy and at least one business service exists, do not emit Traefik workload resources.
 - Prefer gateway TLS termination in Sealos Ingress over in-container TLS: for dual-port HTTP/HTTPS workloads, keep HTTP service port and remove redundant HTTPS/certificate mounts unless official docs require HTTPS backend.
+- Prefer WebSocket Ingress for public `ws://`, `wss://`, CDP/Chrome DevTools, game socket, and WebSocket-named ports/services; use `backend-protocol: WS` with `3600` read/send timeouts.
 - Never create `template/<app-name>/README.md` or `template/<app-name>/README_zh.md`; only keep README URL references inside `index.yaml` when required by the template schema.
 - Prefer fixing references/examples over adding exceptions when conflicts appear.
-- If official Kubernetes installation docs/manifests exist for the target app, do not ignore them; use them to refine runtime semantics beyond Compose defaults.
+- Use official Kubernetes installation docs/manifests to refine runtime semantics while retaining the selected source topology.
 - If the project mentions Frappe, ERPNext, HRMS, or `bench`, load `references/frappe-bench.md` before generating app workloads.

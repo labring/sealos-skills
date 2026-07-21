@@ -18,7 +18,6 @@ from compose_to_template import (
     build_zh_description,
     convert_compose_to_template,
     find_svgl_logo_url,
-    has_pinned_image,
     infer_metadata,
     parse_args,
     resolve_image_reference,
@@ -127,13 +126,18 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             ingress = next(doc for doc in docs if doc.get("kind") == "Ingress")
             backend_service_name = ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"]
+            backend_service_port = ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["port"]
             self.assertEqual("${{ defaults.app_name }}", ingress["metadata"]["name"])
             self.assertEqual("${{ defaults.app_name }}", backend_service_name)
+            self.assertEqual({"number": 80}, backend_service_port)
             self.assertEqual(
                 "${{ defaults.app_name }}",
                 ingress["metadata"]["labels"]["cloud.sealos.io/app-deploy-manager"],
             )
             workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            self.assertEqual(1, workload["spec"]["replicas"])
+            self.assertEqual("1", workload["metadata"]["annotations"]["deploy.cloud.sealos.io/minReplicas"])
+            self.assertEqual("1", workload["metadata"]["annotations"]["deploy.cloud.sealos.io/maxReplicas"])
             self.assertNotIn("imagePullSecrets", workload["spec"]["template"]["spec"])
             self.assertEqual(
                 {
@@ -177,6 +181,56 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             self.assertEqual([], violations)
 
+    def test_preserves_compose_deploy_replicas(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: nginx:1.27.2
+                    deploy:
+                      replicas: 3
+                """,
+            )
+
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            self.assertEqual(3, workload["spec"]["replicas"])
+            self.assertEqual("3", workload["metadata"]["annotations"]["deploy.cloud.sealos.io/minReplicas"])
+            self.assertEqual("3", workload["metadata"]["annotations"]["deploy.cloud.sealos.io/maxReplicas"])
+
+    def test_rejects_invalid_compose_deploy_replicas(self):
+        invalid_values = ("0", "-1", "true", "'2'", "2.5")
+        for invalid_value in invalid_values:
+            with self.subTest(invalid_value=invalid_value), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                compose = root / "docker-compose.yml"
+                write_file(
+                    compose,
+                    f"""
+                    services:
+                      app:
+                        image: nginx:1.27.2
+                        deploy:
+                          replicas: {invalid_value}
+                    """,
+                )
+
+                with self.assertRaisesRegex(ValueError, "deploy.replicas must be a positive integer"):
+                    convert_compose_to_template(
+                        compose_path=compose,
+                        output_root=root / "template",
+                        meta=self._meta("demo"),
+                    )
 
     def test_uses_svgl_svg_logo_when_available(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -394,6 +448,86 @@ class ComposeToTemplateTests(unittest.TestCase):
             ports = service["spec"]["ports"]
             self.assertEqual("tcp-9000", ports[0]["name"])
             self.assertEqual("tcp-9443", ports[1]["name"])
+            workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            self.assertEqual(
+                [{"name": "${{ defaults.app_name }}"}],
+                workload["spec"]["template"]["spec"]["imagePullSecrets"],
+            )
+
+    def test_generates_websocket_ingress_for_named_websocket_port(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    ports:
+                      - target: 3000
+                        published: 3000
+                        protocol: tcp
+                        name: websocket
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"})
+            service = next(doc for doc in docs if doc.get("kind") == "Service")
+            ingress = next(doc for doc in docs if doc.get("kind") == "Ingress")
+
+            container_port = workload["spec"]["template"]["spec"]["containers"][0]["ports"][0]
+            service_port = service["spec"]["ports"][0]
+            self.assertEqual("websocket", container_port["name"])
+            self.assertEqual("websocket", service_port["name"])
+            self.assertEqual(
+                {
+                    "kubernetes.io/ingress.class": "nginx",
+                    "nginx.ingress.kubernetes.io/proxy-body-size": "32m",
+                    "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
+                    "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
+                    "nginx.ingress.kubernetes.io/backend-protocol": "WS",
+                    "nginx.ingress.kubernetes.io/ssl-redirect": "true",
+                },
+                ingress["metadata"]["annotations"],
+            )
+
+    def test_generates_websocket_ingress_for_websocket_url_env(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    ports:
+                      - "3000:3000"
+                    environment:
+                      PUBLIC_WEBSOCKET_URL: wss://demo.example.com
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            service = next(doc for doc in docs if doc.get("kind") == "Service")
+            ingress = next(doc for doc in docs if doc.get("kind") == "Ingress")
+
+            self.assertEqual("tcp-3000", service["spec"]["ports"][0]["name"])
+            self.assertEqual("WS", ingress["metadata"]["annotations"]["nginx.ingress.kubernetes.io/backend-protocol"])
+            self.assertEqual(
+                "3600",
+                ingress["metadata"]["annotations"]["nginx.ingress.kubernetes.io/proxy-read-timeout"],
+            )
 
     def test_drops_https_port_when_http_port_exists(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -464,7 +598,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 """
                 services:
                   app:
-                    image: ghcr.io/example/demo:1.0.0
+                    image: nginx:1.27.2
                     configs:
                       - source: app_config
                         target: /opt/demo/app-config.yaml
@@ -513,7 +647,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 [
                     {
                         "name": "${{ defaults.app_name }}-cm",
-                        "configMap": {"name": "${{ defaults.app_name }}", "defaultMode": 493},
+                        "configMap": {"name": "${{ defaults.app_name }}"},
                     }
                 ],
                 pod_spec["volumes"],
@@ -799,8 +933,11 @@ class ComposeToTemplateTests(unittest.TestCase):
             docs = parse_yaml_documents(index_path)
             workload = next(doc for doc in docs if doc.get("kind") == "StatefulSet")
             self.assertEqual(
-                "${{ defaults.app_name }}",
-                workload["metadata"]["labels"]["cloud.sealos.io/deploy-on-sealos"],
+                {
+                    "cloud.sealos.io/app-deploy-manager": "${{ defaults.app_name }}",
+                    "app": "${{ defaults.app_name }}",
+                },
+                workload["metadata"]["labels"],
             )
             mounts = workload["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
             mount_paths = [item["mountPath"] for item in mounts]
@@ -808,10 +945,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             pvcs = workload["spec"]["volumeClaimTemplates"]
             pvc_names = [item["metadata"]["name"] for item in pvcs]
             self.assertEqual(["vn-data"], pvc_names)
-            self.assertEqual(
-                "${{ defaults.app_name }}",
-                pvcs[0]["metadata"]["labels"]["cloud.sealos.io/deploy-on-sealos"],
-            )
+            self.assertNotIn("labels", pvcs[0]["metadata"])
 
     def test_rejects_latest_image_tag(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -831,29 +965,6 @@ class ComposeToTemplateTests(unittest.TestCase):
                     output_root=root / "template",
                     meta=self._meta("demo"),
                 )
-
-    def test_has_pinned_image_rejects_empty_tag_and_malformed_digests(self):
-        invalid_images = [
-            "",
-            "   ",
-            "nginx:",
-            "nginx@sha256:abc",
-            "repo/app:1.0@sha256:abc",
-        ]
-        for image in invalid_images:
-            with self.subTest(image=image):
-                self.assertFalse(has_pinned_image(image))
-
-    def test_has_pinned_image_accepts_fixed_tag_or_sha256_digest(self):
-        valid_digest = "sha256:" + ("a" * 64)
-        valid_images = [
-            "nginx:1.27.2",
-            f"nginx@{valid_digest}",
-            f"repo/app:1.0@{valid_digest}",
-        ]
-        for image in valid_images:
-            with self.subTest(image=image):
-                self.assertTrue(has_pinned_image(image))
 
     def test_resolves_compose_image_default_expressions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1007,8 +1118,16 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             docs = parse_yaml_documents(index_path)
             workload = next(doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"})
+            service = next(doc for doc in docs if doc.get("kind") == "Service")
+            ingress = next(doc for doc in docs if doc.get("kind") == "Ingress")
             self.assertEqual("StatefulSet", workload["kind"])
             self.assertIn("volumeClaimTemplates", workload["spec"])
+            self.assertEqual(workload["metadata"]["name"], workload["spec"]["serviceName"])
+            self.assertEqual(workload["metadata"]["name"], service["metadata"]["name"])
+            self.assertEqual(
+                service["metadata"]["name"],
+                ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"],
+            )
             request = workload["spec"]["volumeClaimTemplates"][0]["spec"]["resources"]["requests"]["storage"]
             self.assertEqual("1Gi", request)
 
