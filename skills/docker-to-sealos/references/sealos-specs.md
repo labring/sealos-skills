@@ -235,7 +235,7 @@ inputs:
 - ✅ Custom domain name
 - ✅ API Key for external services (needs to be provided by the user)
 - ✅ Feature toggles (enable/disable certain features)
-- ✅ Binary optional object storage/S3 toggles, with `type: boolean` and conditions such as `inputs.use_object_storage === 'true'`
+- ✅ Application-level optional object storage/S3 features documented by the official source, with `type: boolean` and conditions such as `inputs.enable_object_storage === 'true'`
 - ❌ Randomly generated secret keys (should be placed in defaults)
 - ❌ Automatically generated configurations (should be placed in defaults)
 
@@ -340,7 +340,7 @@ volumes:
 - For StatefulSet: Use `volumeClaimTemplates` to create persistent storage
 - For Deployment: Consider whether storage is truly needed; if so, switch to StatefulSet
 - For temporary configuration: Consider using ConfigMap or Secret
-- For StatefulSet PVC tracking: set `cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}` on both the StatefulSet metadata labels and every `volumeClaimTemplates[].metadata.labels`, while preserving component labels such as `app`.
+- Keep standard StatefulSet workload labels such as `app` and `cloud.sealos.io/app-deploy-manager`; omit only `cloud.sealos.io/deploy-on-sealos` from StatefulSet metadata labels and claim template metadata labels.
 
 ### PersistentVolumeClaim Usage Restriction
 
@@ -369,9 +369,6 @@ volumeClaimTemplates:
       annotations:
         path: /var/lib/headscale  # Mount path
         value: '1'                 # Fixed value
-      labels:
-        app: ${{ defaults.app_name }}
-        cloud.sealos.io/deploy-on-sealos: ${{ defaults.app_name }}
       name: vn-varvn-libvn-headscale  # Naming rules see below
     spec:
       accessModes:
@@ -435,6 +432,7 @@ data:
 ### Volume Mount Specification
 
 Create one ConfigMap volume per workload. The volume name must be `<workload metadata.name>-cm`. Every ConfigMap `data` key must have its own `volumeMount`, and `volumeMount.subPath` must exactly equal the ConfigMap `data` key.
+Omit `defaultMode` for ConfigMap volumes unless the application explicitly requires a non-default file mode.
 
 ```yaml
 volumes:
@@ -502,7 +500,6 @@ spec:
         - name: ${{ defaults.app_name }}-cm
           configMap:
             name: ${{ defaults.app_name }}
-            defaultMode: 493
 ```
 
 ## Labels and Naming Specification
@@ -517,9 +514,10 @@ spec:
    - `${{ defaults.app_name }}-ml`
    - `${{ defaults.app_name }}-redis`
 5. Application Service must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and `metadata.name`, both labels, and `spec.selector.app` must be exactly the same
-6. Application Service `spec.ports[*].port` and `spec.ports[*].targetPort` must be numeric values from 1 to 65535. Do not use named `targetPort` values in Sealos template artifacts.
-7. Runtime component-level ConfigMap must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and both must be consistent with `metadata.name`; ConfigMaps used only by init containers to copy initial config into persistent storage must not include either label
-8. Root-path Ingress rules (`pathType: Prefix`, `path: /`) must keep `metadata.name` consistent with `metadata.labels.cloud.sealos.io/app-deploy-manager` and backend `service.name`; non-root or non-Prefix Ingress rules may use a distinct Ingress name and backend service
+6. Runtime component-level ConfigMap must include `metadata.labels.app` and `metadata.labels.cloud.sealos.io/app-deploy-manager`, and both must be consistent with `metadata.name`; ConfigMaps used only by init containers to copy initial config into persistent storage must not include either label
+7. Root-path Ingress rules (`pathType: Prefix`, `path: /`) must keep `metadata.name` consistent with `metadata.labels.cloud.sealos.io/app-deploy-manager` and backend `service.name`; non-root or non-Prefix Ingress rules may use a distinct Ingress name and backend service
+8. Root-path Ingress backends must use `service.port.number`, and the number must match a declared `spec.ports[].port` on the referenced application Service so Launchpad can discover the public address
+9. For a single-component StatefulSet without a documented headless or stable per-Pod DNS requirement, set `spec.serviceName` to the public application Service and keep the workload, Service, root Ingress, and manager identity aligned. Preserve documented HA/headless governing Services and route public traffic through a separate application Service
 
 ### Container Naming Rules
 
@@ -597,6 +595,18 @@ metadata:
 
 ## Object Storage Configuration
 
+Use ObjectStorage only for application features available in the upstream self-hosted/community edition. If S3/object-storage support requires Enterprise, paid, commercial, subscription, or license activation, the public template must keep the supported filesystem/PVC storage path and must not expose an `ObjectStorageBucket` or S3 toggle for that feature.
+
+### Mode Selection
+
+1. Required capability: create the unconditional `ObjectStorageBucket` resources required by the documented bucket topology, inject their managed Secret values, and use Sealos ObjectStorage as the sole object-store data plane.
+2. Application-level optional capability: use a boolean enable/disable input only when official docs provide a functional storage-disabled or local-filesystem mode, and configure that documented mode in the false branch.
+3. Externally managed storage: expose credential inputs only with a credential-free HTTPS source URL or `user-request:<reference>` in `docker-to-sealos.external-object-storage-source`, and use the external provider as the sole data plane.
+
+A bundled MinIO service is an S3-compatible provider implementation. Convert it to an unconditional Sealos bucket when the application requires S3-compatible storage. Keep provider/backend/type/mode/driver selectors out of `spec.inputs`.
+
+A compatibility proxy may adapt requests when official protocol evidence requires it. Record that evidence as a credential-free HTTPS source URL or `user-request:<reference>` in `docker-to-sealos.object-storage-compatibility-proxy-source`, keep the proxy stateless, and omit persistent volumes.
+
 ### Environment Variable Settings
 
 Object storage environment variable configuration must follow this format:
@@ -606,12 +616,12 @@ env:
   - name: S3_ACCESS_KEY_ID
     valueFrom:
       secretKeyRef:
-        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+        name: object-storage-key
         key: accessKey
   - name: S3_SECRET_ACCESS_KEY
     valueFrom:
       secretKeyRef:
-        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+        name: object-storage-key
         key: secretKey
   - name: S3_BUCKET
     valueFrom:
@@ -623,7 +633,7 @@ env:
   - name: BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT
     valueFrom:
       secretKeyRef:
-        name: object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}
+        name: object-storage-key
         key: external
   - name: S3_PUBLIC_DOMAIN
     value: "https://$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)"
@@ -633,8 +643,8 @@ env:
 
 ### Notes
 
-1. Prefer the bucket-scoped secret: `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}`.
-2. Bucket-scoped variants may append a lowercase suffix, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`.
+1. Use `object-storage-key` for the shared `accessKey`, `secretKey`, `external`, and `internal` values.
+2. Use `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}` for the bucket value. Bucket-scoped variants may append a lowercase suffix, for example `object-storage-key-${{ SEALOS_SERVICE_ACCOUNT }}-${{ defaults.app_name }}-public`.
 3. S3_ENDPOINT and S3_PUBLIC_DOMAIN use environment variable references: `$(BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT)`.
 4. S3_ENABLE_PATH_STYLE must be set to "1".
 
@@ -695,6 +705,45 @@ spec:
 3. `ssl-redirect` defaults to `'true'`
 4. Includes a configuration-snippet for static resource caching
 5. Backend service name must be `${{ defaults.app_name }}`
+6. Backend service port must use numeric `number: <port-number>` and match the referenced Service `spec.ports[].port`; keep the Service port `name` for Kubernetes multi-port compatibility
+
+### WebSocket Format
+
+Use WebSocket ingress when the public entry is `ws://`, `wss://`, CDP/Chrome DevTools, a game socket, or a service/port named `websocket`, `ws`, or `wss`. Follow the EaglerCraft-style pattern: name the service port `websocket`, route the ingress to that port, and use the WS annotation set.
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/backend-protocol: WS
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: <websocket-port-number>
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+```
 
 ## Database Connection Configuration
 
@@ -876,7 +925,7 @@ All application Deployments or StatefulSets must include the following configura
 Recommended registry pull Secret model:
 
 - Public-image managed workloads omit `imagePullSecrets`
-- For private GHCR images, the active delivery workflow creates, refreshes, or inlines `${{ defaults.app_name }}` and the workload may reference it through `imagePullSecrets`
+- For private GHCR images, `sealos-deploy` creates or refreshes `${{ defaults.app_name }}` from local `gh` CLI credentials and the workload may reference it through `imagePullSecrets`
 - If a private-registry template is deployed outside `sealos-deploy`, the operator must create the Secret manually before applying the workload
 
 ```yaml
@@ -1055,8 +1104,21 @@ resources:
 
 1. Move only between allowed `limits` ladder values.
 2. Recompute `requests` from the selected `limits`; do not preserve old requests.
-3. If a StatefulSet fails readiness at a lower resource tier, recreate or cleanly roll the Pod before testing the next tier so a stale non-ready Pod is not mistaken for the next tier's result.
-4. Choose the lowest tier that becomes Ready and passes application-level probes.
+3. Treat `cpu=200m` and `memory=256Mi` as initial candidates when source evidence provides no explicit hard minimum. Static generation does not establish the final tier.
+4. Tune each application main container, sidecar, initContainer, and Job independently. Change CPU and memory one dimension and one ladder step at a time so failures remain attributable.
+5. Use an explicit source hard minimum as the lower bound. For each candidate, recreate or cleanly roll the Pod or rerun the one-shot workload from a cold state.
+6. Accept a long-running candidate after it completes cold start, becomes Ready, completes registration or login when applicable, completes at least two representative low-load actions, and remains stable for 60 seconds with zero `OOMKilled` terminations, restarts, readiness flaps, or resource-related timeouts.
+7. Accept a one-shot initContainer or Job after it completes successfully from a cold run and every dependent workload becomes Ready.
+8. Record observed CPU and memory peaks and utilization ratios as diagnostic evidence. Use acceptance failures as the tier-promotion signal.
+9. When a lower candidate fails, select the next passing tier and repeat the full acceptance flow from a fresh rollout before updating the template.
+10. Apply the browser and remote-desktop scenario only when the container itself runs Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar stack. A web application that users access from their own browser follows the general personal low-load flow.
+
+**Personal low-load examples:**
+
+- Langflow at `limits.memory=2048Mi` with an observed peak of `1851Mi` keeps `2048Mi` after cold start, login or registration, two representative actions, and the 60-second stability window all pass without failure signals.
+- A candidate that OOMs, restarts, loses readiness, or times out moves to the next memory or CPU ladder tier. The selected tier receives one final cold validation.
+- A high utilization ratio remains eligible when the complete acceptance flow passes. The ratio stays in the runtime evidence for future tuning.
+- For Chrome + Xvfb + Selkies with a 4K maximum display, begin at `limits(cpu=200m,memory=1024Mi)` and derived `requests(cpu=20m,memory=102Mi)`, then test adjacent ladder tiers with the browser-specific interaction flow.
 
 ## Image Configuration Specification
 

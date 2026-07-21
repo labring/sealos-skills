@@ -1,12 +1,52 @@
 # Build And Prepare Pipeline
 
-After preflight passes, execute Phase 1–6 in order.
+After preflight passes, execute the deployment eligibility gate, then Phase 1–6 in
+order.
 
 `SKILL_DIR` refers to the directory containing this skill's `SKILL.md`. Sibling skills are at `<SKILL_DIR>/../`.
 
 Use `ENV` from preflight to choose between script mode (Node.js available) and fallback mode (AI-native).
 
 This workflow can start from either the current workspace or an explicit GitHub URL. If preflight cloned a repository, `WORK_DIR` points to that shallow clone. If preflight reused the current workspace, `WORK_DIR` points to that sandbox-local path.
+
+## Phase 0.4: Deployment Eligibility Gate
+
+Run this gate before creating `.sealos/`, reading resume artifacts, readiness
+scoring, Railpack probing, Dockerfile generation, image detection, or build.
+
+Read and apply the canonical policy:
+`<SKILL_DIR>/../cloud-native-readiness/knowledge/deployment-eligibility.md`.
+
+When Node.js is available, run:
+
+```bash
+node "<SKILL_DIR>/scripts/workload-eligibility.mjs" "$WORK_DIR"
+```
+
+The script is read-only and prints the decision to stdout. Keep the parsed object as
+`ELIGIBILITY_DECISION` in the current execution context; never write it to `.sealos/`
+or another project file.
+
+| Exit | Status | Action |
+|------|--------|--------|
+| `0` | `eligible` | Continue with the requested repository root |
+| `2` | `ineligible` | Report workload type/evidence and STOP |
+| `3` | `needs_review` | Inspect evidence; keep preparation blocked until explicitly resolved |
+| other | execution error | Report the classifier error and STOP |
+
+Parse stdout even for exits `2` and `3`; those are classification results, not script
+failures. A mixed repository remains `needs_review` in this workflow: list the
+detected units and STOP rather than selecting and preparing a nested directory.
+
+For other `needs_review` results, inspect entry points and runtime evidence. Continue
+only when the requested root itself can be explicitly resolved as `eligible`; record
+that in-memory decision with `source: "ai-review"` and specific repository-relative
+evidence. An ordinary desktop/mobile client cannot be overridden by a Dockerfile,
+readiness score, registry image, Railpack evidence, or user willingness to proceed.
+
+If Node.js is unavailable, perform the same review manually and keep the result in
+memory. Missing or ambiguous evidence fails closed. No `.sealos/config.json` field,
+`skip_phases` value, or resume state may skip or override this gate.
 
 ## Artifact Directory
 
@@ -97,31 +137,81 @@ If restart, remove:
 ## Phase 1: Assess
 
 `WORK_DIR`, `GITHUB_URL`, `REPO_NAME`, and README context are already resolved in preflight.
+Use those directly — no need to re-derive.
 
 ### 1.1 Deterministic Scoring
 
-If Node.js is available:
-
+**If Node.js available:**
 ```bash
 node "<SKILL_DIR>/scripts/score-model.mjs" "$WORK_DIR"
 ```
-
 Output: `{ "score": N, "verdict": "...", "dimensions": {...}, "signals": {...} }`
 
-If Node.js is not available, perform the scoring by reading project files directly and applying:
+**If Node.js not available (fallback):**
+Perform the scoring yourself by reading project files and applying these rules:
 
-```text
-<SKILL_DIR>/../cloud-native-readiness/knowledge/scoring-criteria.md
-```
+1. Detect language: `package.json` → Node.js, `go.mod` → Go, `requirements.txt` → Python, `pom.xml` → Java, `Cargo.toml` → Rust
+2. Detect framework: read dependency files for known frameworks (Next.js, Express, FastAPI, Gin, Spring Boot, etc.)
+3. Check HTTP server: does the project listen on a port?
+4. Check state: external DB (PostgreSQL/MySQL/MongoDB) vs local state (SQLite)?
+5. Check config: `.env.example` exists?
+6. Check Docker: `Dockerfile` or `docker-compose.yml` exists?
 
-### 1.2 Decision
+Score 6 dimensions (0-2 each, max 12). For detailed criteria, read:
+- `<SKILL_DIR>/../cloud-native-readiness/knowledge/criteria.md`
+- `<SKILL_DIR>/../cloud-native-readiness/knowledge/scoring-model.md`
 
-- `score < 4` → stop and explain why the project is not suitable for containerized delivery
-- `score >= 4` → continue
+**Decision:**
+- `score < 4` → STOP. Tell user: "This project scored {N}/12 ({verdict}). Not suitable for containerized delivery because: {dimension_details for 0-score dimensions}."
+- `score >= 4` → CONTINUE.
+
+### 1.2 AI Quick Assessment
+
+Use structured signals from Phase 1.1 score-model output directly:
+- `signals.primary_language` — primary language (priority-sorted when multiple detected)
+- `signals.framework` — detected frameworks
+- `signals.package_manager` — detected package manager (npm/yarn/pnpm/bun/pip/go/etc.)
+- `signals.port` — detected port (from framework defaults)
+- `signals.databases` — detected database types (postgres/mysql/mongodb/redis/sqlite)
+- `signals.runtime_version` — runtime version with source (e.g., `{ node: "22", source: "engines" }`)
+- `signals.is_monorepo`, `signals.has_docker`, `signals.has_env_example`
+
+Focus AI effort on what the script cannot detect: env_vars classification,
+complexity_tier assessment, and port override from source code (if `port_source` is "unknown").
+
+Based on the score result and your own analysis of the project, assess:
+
+1. Read key files: `README.md`, `package.json`/`go.mod`/`requirements.txt`, `Dockerfile` (if exists)
+2. Check: Is this a web service, API, or worker with network interface?
+3. Determine: ports, required env vars, database dependencies, special concerns
+
+If the score is borderline (4-6), also read:
+- `<SKILL_DIR>/../cloud-native-readiness/knowledge/criteria.md` — detailed rubrics
+- `<SKILL_DIR>/../cloud-native-readiness/knowledge/anti-patterns.md` — disqualifying patterns
+
+**STOP conditions:**
+- Desktop/GUI application (Electron without server, Qt, GTK)
+- Mobile app without backend
+- CLI tool / library / SDK (no network service)
+- No identifiable entry point or build system
+
+Record for later phases: `language`, `framework`, `ports`, `env_vars`, `databases`, `has_dockerfile`
+
+**Env var classification** (for downstream template/input handling):
+When recording `env_vars`, also classify each one:
+- `auto` — can be auto-generated (random secrets, internal URLs, DB connections)
+- `required` — user must provide (external API keys, admin email, SMTP, OAuth)
+- `optional` — has sensible default, user may customize (log level, feature flags)
+
+Sources for env var detection:
+- `.env.example` or `.env.sample` — most reliable source of required env vars
+- `docker-compose.yml` `environment:` section
+- README sections about configuration/environment
+- Source code imports of `process.env.*` or `os.environ[]`
 
 ### 1.3 Write analysis.json
 
-After Phase 1, write `.sealos/analysis.json`:
+After Phase 1 completes, write `.sealos/analysis.json` with the full analysis snapshot:
 
 ```json
 {
@@ -136,35 +226,46 @@ After Phase 1, write `.sealos/analysis.json`:
   "language": "<signals.primary_language>",
   "all_languages": ["<all detected languages>"],
   "framework": "<detected framework>",
-  "package_manager": "<package manager>",
+  "package_manager": "<npm|yarn|pnpm|bun|pip|go|cargo|maven|gradle>",
   "port": "<primary port>",
   "databases": ["<detected database types>"],
   "runtime_version": { "<language>": "<major version>", "source": "<detection source>" },
   "env_vars": {},
-  "build_environment": {
-    "source": "railpack",
-    "status": "detected",
-    "project_type": "<railpack project type>",
-    "providers": ["<detected providers>"],
-    "runtime_versions": { "<runtime>": "<version>" },
-    "package_manager": "<package manager>",
-    "port": 3000,
-    "install_command": "<install command>",
-    "build_command": "<build command>",
-    "start_command": "<start command>",
-    "system_packages": ["<system packages>"],
-    "env_vars": {},
-    "confidence": "high",
-    "evidence_paths": [".sealos/railpack-info.json", ".sealos/railpack-plan.json"],
-    "config_overrides": ["<fields overridden by .sealos/config.json>"]
-  },
   "has_dockerfile": false,
   "complexity_tier": "<L1|L2|L3>",
   "image_ref": null
 }
 ```
 
-If `.sealos/config.json` exists, apply user overrides.
+If `.sealos/config.json` exists, apply user overrides: e.g., if `config.json` has `"port": 8080`, use that instead of the auto-detected value. Priority: user config > script detection > AI inference.
+
+The `image_ref` field is set to `null` initially. It will be filled in Phase 2 (if existing image found) or Phase 4 (after build).
+
+### Present Analysis Summary
+
+After writing `.sealos/analysis.json`, present a concise repository analysis summary to the user.
+This summary should expose only the key conclusions, not the full artifact contents.
+
+Recommended format:
+
+```text
+Repository Analysis:
+  - Type: <web app | api | worker | cli | library>
+  - Language: <language>
+  - Framework: <framework or "none detected">
+  - Port: <port or "not detected">
+  - Database: <postgres/mysql/redis/... or "none detected">
+  - Dockerfile: <yes/no>
+  - Score: <N>/12 (<verdict>)
+  - Decision: <continue | stop>
+```
+
+Output rules:
+- Keep the summary short and decision-oriented
+- Do not dump the full `env_vars` object or dimension-by-dimension internals unless the user asks
+- Do not add a default "full details" block after this summary
+- If the assessment stops the pipeline, briefly state the top blocker(s)
+- If the assessment continues, state the next phase in one short line
 
 ## Phase 1.5: Railpack Build Environment Probe
 
