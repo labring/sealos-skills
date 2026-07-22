@@ -617,6 +617,7 @@ Key rules:
 - use `analysis.json`, detected env vars, and resolved image information from `.sealos/build-result.json`
 - always point the template to `build-result.json.image.image_ref`
 - do not read `build-request.json.image.target_image` directly once `build-result.json` exists
+- every `spec.defaults.<name>.value` and every present `spec.inputs.<name>.default` must deserialize as a YAML string; quote numeric-, boolean-, and null-like values, while infrastructure fields such as replicas and ports remain numeric
 
 References:
 
@@ -638,7 +639,7 @@ PYTHON_BIN="$(command -v python3 || command -v python)"
   --artifacts "$WORK_DIR/.sealos/template/index.yaml"
 ```
 
-Fix any failures before running the GHCR pull-secret patcher or writing the delivery manifest.
+Fix any failures before running the GHCR pull-secret patcher or writing the delivery manifest. An `R052` violation means a Template default was parsed as a YAML number, boolean, or null instead of the string required by the Template CRD.
 
 ### 5.1 Inline GHCR pull Secret (POC)
 
