@@ -196,7 +196,7 @@ must_rules:
     enforcement:
       type: rule
       target: R015
-  - must: "Public-image managed app workloads must omit `template.spec.imagePullSecrets`; private-registry workloads may reference only the app-scoped pull Secret `${{ defaults.app_name }}`."
+  - must: "Known public-image managed app workloads must omit `template.spec.imagePullSecrets`; when a registry-authenticated workload needs a pull Secret, it may reference only the app-scoped Secret `${{ defaults.app_name }}`."
     enforcement:
       type: rule
       target: R035
@@ -222,12 +222,12 @@ must_rules:
       note: "Requires intent-level storage-need inference for each service."
   - must: "StatefulSet resources with `volumeClaimTemplates` must keep standard workload labels such as `app` and `cloud.sealos.io/app-deploy-manager`, and omit only `cloud.sealos.io/deploy-on-sealos` from both StatefulSet `metadata.labels` and `volumeClaimTemplates[].metadata.labels`."
     enforcement:
-      type: manual
-      note: "Generation behavior is covered by compose_to_template regression tests; static validation allows legacy labels in existing artifacts."
-  - must: "`volumeClaimTemplates[].metadata` should include `name` and `annotations`."
+      type: rule
+      target: R056
+  - must: "`volumeClaimTemplates[].metadata` must include a path-derived `name`, `annotations.path`, and `annotations.value: '1'`, and each claim must match a container `volumeMount` with the same name and path."
     enforcement:
-      type: manual
-      note: "Generation behavior is covered by compose_to_template regression tests."
+      type: rule
+      target: R056
   - must: "PVC request must be `<= 1Gi` unless source spec explicitly requires less."
     enforcement:
       type: rule
@@ -272,6 +272,14 @@ must_rules:
     enforcement:
       type: manual
       note: "Sensitive-value classification requires semantic analysis of env names and source intent."
+  - must: "When an official runtime profile constrains an env value's format or length, use a valid literal or a required input without a generated default; bare `${{ random(n) }}` is invalid for hex- or encoding-constrained values."
+    enforcement:
+      type: rule
+      target: R053
+  - must: "When an official runtime profile selects an external provider, the workload must wire a non-empty required credential for that provider; an optional input with an empty default is invalid."
+    enforcement:
+      type: rule
+      target: R054
   - must: "Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB `host`/`port` or connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only."
     enforcement:
       type: rule
@@ -316,6 +324,10 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires app-specific runtime/database semantic review and live DB-state verification."
+  - must: "When an official runtime profile declares a database final-state requirement, include an initContainer gate that waits for the database and verifies the required extension or object before the business container starts."
+    enforcement:
+      type: rule
+      target: R055
   - must: "Managed app main container `command`/`args` must stay close to the image's official entrypoint. Keep only official startup commands, Compose-native args, or a short exec wrapper; move file preparation, permission repair, database bootstrap, and compatibility self-healing into initContainers, Jobs, or ConfigMap scripts."
     enforcement:
       type: rule
@@ -366,8 +378,8 @@ must_rules:
       note: "Requires deep PostgreSQL Cluster schema validation."
   - must: "MongoDB cluster must follow upgraded structure (`componentDef: mongodb`, `serviceVersion: 8.0.4`, labels `kb.io/database` and `app.kubernetes.io/instance`)."
     enforcement:
-      type: manual
-      note: "Requires schema-level validation for MongoDB cluster fields."
+      type: rule
+      target: R057
   - must: "MySQL cluster must follow upgraded structure (`kb.io/database: ac-mysql-8.0.30-1`, `clusterDefinitionRef: apecloud-mysql`, `clusterVersionRef: ac-mysql-8.0.30-1`, `tolerations: []`)."
     enforcement:
       type: manual

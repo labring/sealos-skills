@@ -618,37 +618,80 @@ Key rules:
 - always point the template to `build-result.json.image.image_ref`
 - do not read `build-request.json.image.target_image` directly once `build-result.json` exists
 - every `spec.defaults.<name>.value` and every present `spec.inputs.<name>.default` must deserialize as a YAML string; quote numeric-, boolean-, and null-like values, while infrastructure fields such as replicas and ports remain numeric
+- do not create any template-generation artifact other than the existing `.sealos/template/index.yaml`
 
 References:
 
 ```text
+<SKILL_DIR>/../docker-to-sealos/SKILL.md
+<SKILL_DIR>/../docker-to-sealos/references/sealos-specs.md
+<SKILL_DIR>/../docker-to-sealos/references/conversion-mappings.md
+<SKILL_DIR>/../docker-to-sealos/references/database-templates.md
 <SKILL_DIR>/../docker-to-sealos/references/example-guide.md
 <SKILL_DIR>/../docker-to-sealos/references/must-rules-map.yaml
 ```
 
 If required env vars need user input, collect them here and apply them to the template.
 
-After `index.yaml` is generated, validate it with the sibling `docker-to-sealos` checker before continuing:
+Before conversion or validation, require Python with PyYAML. Do not install it from this workflow:
 
 ```bash
-PYTHON_BIN="$(command -v python3 || command -v python)"
-"$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/check_consistency.py" \
-  --skill "<SKILL_DIR>/../docker-to-sealos/SKILL.md" \
-  --references "<SKILL_DIR>/../docker-to-sealos/references" \
-  --rules-file "<SKILL_DIR>/../docker-to-sealos/references/rules-registry.yaml" \
-  --artifacts "$WORK_DIR/.sealos/template/index.yaml"
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -z "$PYTHON_BIN" ] || ! "$PYTHON_BIN" -c 'import yaml' >/dev/null 2>&1; then
+  echo "Phase 5 requires Python with PyYAML; install it outside this workflow and retry." >&2
+  exit 1
+fi
 ```
 
-Fix any failures before running the GHCR pull-secret patcher or writing the delivery manifest. An `R052` violation means a Template default was parsed as a YAML number, boolean, or null instead of the string required by the Template CRD.
+When a supported root Compose file exists, use the deterministic converter as the generation baseline. Use `--dry-run` so the only written template artifact remains `.sealos/template/index.yaml`; pass the resolved project metadata, then replace the baseline image/originImageName with `build-result.json.image.image_ref` and apply documented application-specific runtime semantics. Treat the converter's database classification as immutable: application-specific edits must not replace a KubeBlocks database `Cluster` with a Deployment, StatefulSet, Service, or other generic workload. Missing required converter capabilities or converter failure is a hard stop, not permission to hand-write around the failure.
+
+```bash
+COMPOSE_FILE=""
+for candidate in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
+  if [ -f "$WORK_DIR/$candidate" ]; then
+    COMPOSE_FILE="$WORK_DIR/$candidate"
+    break
+  fi
+done
+
+if [ -n "$COMPOSE_FILE" ]; then
+  APP_NAME="$(
+    "$PYTHON_BIN" -c \
+      'import json, sys; value = json.load(open(sys.argv[1], encoding="utf-8"))["project"]["repo_name"]; print(value.rsplit("/", 1)[-1])' \
+      "$WORK_DIR/.sealos/analysis.json"
+  )" || {
+    echo "Unable to read the app name from analysis.json; Phase 5 stopped." >&2
+    exit 1
+  }
+  GITHUB_URL="$(
+    "$PYTHON_BIN" -c \
+      'import json, sys; value = json.load(open(sys.argv[1], encoding="utf-8"))["project"]["github_url"]; print(value or "")' \
+      "$WORK_DIR/.sealos/analysis.json"
+  )" || {
+    echo "Unable to read the GitHub URL from analysis.json; Phase 5 stopped." >&2
+    exit 1
+  }
+  GENERATED_TEMPLATE="$(
+    "$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/compose_to_template.py" \
+      --compose "$COMPOSE_FILE" \
+      --app-name "$APP_NAME" \
+      --git-repo "$GITHUB_URL" \
+      --kompose-mode always \
+      --no-fetch-logo \
+      --dry-run
+  )" || {
+    echo "Deterministic Compose conversion failed; Phase 5 stopped." >&2
+    exit 1
+  }
+  printf '%s\n' "$GENERATED_TEMPLATE" > "$WORK_DIR/.sealos/template/index.yaml"
+fi
+```
 
 ### 5.1 Inline GHCR pull Secret (POC)
 
 When `.sealos/build-result.json` indicates a freshly built private GHCR image, inline the sandbox GitHub token into the template so the cluster can pull the image without a separate deploy step.
 
-Trigger when either:
-
-- `build-result.json.registry.pull_auth_required` is `true`, or
-- `mode=build-required` and `status=succeeded`
+Trigger only when `build-result.json.registry.pull_auth_required` is `true`. A GHCR hostname by itself does not establish that an image is private.
 
 After `index.yaml` is generated, run:
 
@@ -670,7 +713,18 @@ POC constraints:
 - requires `GITHUB_TOKEN` in the sandbox
 - writes registry credentials into `.sealos/template/index.yaml`
 - do not commit the patched template to git
-- skip this step for `mode=reuse-image` unless a future detector marks `pull_auth_required`
+- skip this step whenever `pull_auth_required` is not exactly `true`
+
+### 5.2 Fail-closed template quality gate
+
+After all template generation and pull-secret mutations are complete, run the complete sibling quality gate against the final `index.yaml`:
+
+```bash
+"$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/quality_gate.py" \
+  --artifacts "$WORK_DIR/.sealos/template/index.yaml"
+```
+
+Any non-zero exit stops Phase 5. Fix the existing `index.yaml` and rerun the complete gate. An `R052` violation means a Template default was parsed as a YAML number, boolean, or null instead of the string required by the Template CRD. Do not enter Phase 6 or write `.sealos/delivery-manifest.json` while the gate is failing.
 
 ## Phase 6: Finish
 

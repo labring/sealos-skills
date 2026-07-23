@@ -175,7 +175,7 @@ For managed or private object storage, live validation must upload known bytes t
 - Avoid floating tags (for example `:v2`, `:2.1`, `:stable`); use an explicit version tag or digest.
 - Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag or digest before emitting template artifacts.
 - Application `originImageName` must match container image.
-- Public-image managed app workloads must omit `template.spec.imagePullSecrets`; private-registry workloads may reference only the app-scoped pull Secret `${{ defaults.app_name }}`.
+- Known public-image managed app workloads must omit `template.spec.imagePullSecrets`; when a registry-authenticated workload needs a pull Secret, it may reference only the app-scoped Secret `${{ defaults.app_name }}`.
 - The registry pull Secret is runtime-managed by `sealos-deploy` using local `gh` CLI credentials for private GHCR images; do not expose raw registry credential inputs in generated templates.
 - All containers must explicitly set `imagePullPolicy: IfNotPresent`.
 
@@ -184,7 +184,7 @@ For managed or private object storage, live validation must upload known bytes t
 - Do not use `emptyDir`.
 - Use persistent storage patterns (`volumeClaimTemplates`) where storage is needed.
 - StatefulSet resources with `volumeClaimTemplates` must keep standard workload labels such as `app` and `cloud.sealos.io/app-deploy-manager`, and omit only `cloud.sealos.io/deploy-on-sealos` from both StatefulSet `metadata.labels` and `volumeClaimTemplates[].metadata.labels`.
-- `volumeClaimTemplates[].metadata` should include `name` and `annotations`.
+- `volumeClaimTemplates[].metadata` must include a path-derived `name`, `annotations.path`, and `annotations.value: '1'`, and each claim must match a container `volumeMount` with the same name and path.
 - PVC request must be `<= 1Gi` unless source spec explicitly requires less.
 - ConfigMap data keys must follow vn naming (`scripts/path_converter.py`), including `/`, `-`, `.`, and other special characters.
 - ConfigMaps mounted by managed Deployment/StatefulSet workloads must use `metadata.name == workload.metadata.name`.
@@ -204,6 +204,8 @@ For managed or private object storage, live validation must upload known bytes t
 ### Env and secrets
 
 - Non-database sensitive values/inputs use direct `env[].value`.
+- When an official runtime profile constrains an env value's format or length, use a valid literal or a required input without a generated default; bare `${{ random(n) }}` is invalid for hex- or encoding-constrained values.
+- When an official runtime profile selects an external provider, the workload must wire a non-empty required credential for that provider; an optional input with an empty default is invalid.
 - Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB `host`/`port` or connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only.
 - Business containers must not use custom env/volume `Secret` references except approved Kubeblocks database secrets and object storage secrets.
 - A dedicated app-scoped registry pull Secret is allowed only for private-registry images and must be referenced only through `template.spec.imagePullSecrets`; public images must not add pull secrets.
@@ -214,6 +216,7 @@ For managed or private object storage, live validation must upload known bytes t
 - When the application requires its public URL configured via a file-based config system (e.g., node-config `config/default.json`, PHP config files), create a ConfigMap containing the config file with the public URL set to `https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}`, and mount it to the application's config directory. The ConfigMap must follow standard naming and label conventions.
 - For PostgreSQL custom databases (non-`postgres`), include `${{ defaults.app_name }}-pg-init` Job and implement startup-safe/idempotent creation logic (readiness wait + existence check before create).
 - For application-specific database compatibility, include an initContainer or startup gate that idempotently creates or repairs required views, aliases, indexes, extensions, privileges, role search paths, and legacy compatibility objects before the business container starts.
+- When an official runtime profile declares a database final-state requirement, include an initContainer gate that waits for the database and verifies the required extension or object before the business container starts.
 - Managed app main container `command`/`args` must stay close to the image's official entrypoint. Keep only official startup commands, Compose-native args, or a short exec wrapper; move file preparation, permission repair, database bootstrap, and compatibility self-healing into initContainers, Jobs, or ConfigMap scripts.
 - Shell wrappers in the main business container must `exec` the final process so signal handling remains correct.
 - Database bootstrap SQL must be safe under shell execution: prefer shell-level guard queries plus simple SQL, use single-quoted heredocs for psql variables, and avoid unguarded inline `DO $$` blocks.

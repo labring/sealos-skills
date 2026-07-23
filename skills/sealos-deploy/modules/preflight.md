@@ -9,9 +9,15 @@ Run these checks on every execution:
 ```bash
 git --version 2>/dev/null
 node --version 2>/dev/null
-python3 --version 2>/dev/null
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -n "$PYTHON_BIN" ]; then
+  "$PYTHON_BIN" --version 2>/dev/null
+  "$PYTHON_BIN" -c 'import yaml' 2>/dev/null
+fi
 curl --version 2>/dev/null | head -1
 which jq 2>/dev/null
+kompose version 2>/dev/null || true
+crane version 2>/dev/null || true
 kubectl version --client 2>/dev/null || true
 railpack --version 2>/dev/null || true
 printenv GITHUB_TOKEN >/dev/null
@@ -25,8 +31,11 @@ Record:
 ENV.git
 ENV.node
 ENV.python
+ENV.pyyaml
 ENV.curl
 ENV.jq
+ENV.kompose
+ENV.crane
 ENV.kubectl
 ENV.railpack
 ENV.github_token
@@ -38,6 +47,9 @@ Notes:
 
 - `git` is required because this workflow needs git metadata either from the current workspace or from the cloned GitHub repository.
 - `node` is recommended because helper scripts are written in Node.js.
+- Python with PyYAML is a conditional blocker for Phase 5 template validation.
+- `kompose` is a conditional blocker when a supported root Compose file must be converted.
+- `crane` is a conditional blocker when Compose conversion must resolve a floating image tag.
 - `curl` and `jq` are optional accelerators.
 - `kubectl` may be available in the sandbox for a later kaniko phase, but it is not an entry prerequisite.
 - `GITHUB_TOKEN` may exist in the sandbox for a later source materialization or kaniko phase, but this skill does not prompt for or refresh GitHub auth.
@@ -73,11 +85,18 @@ Record these capabilities for Phase 4:
 
 `GITHUB_TOKEN` is used for GHCR push credentials, not for GitHub clone inside the kaniko job.
 
+Record these capabilities for Phase 5:
+
+- Python or PyYAML missing
+- root Compose file present and `kompose` missing
+- floating Compose image tag present and `crane` missing
+
+These are conditional blockers when Phase 5 reaches the matching generation or validation path. Do not install missing tools from this workflow.
+
 ### 2.3 Optional Accelerators
 
 Record but do not stop:
 
-- `python3` missing
 - `jq` missing
 - `railpack` missing
 
