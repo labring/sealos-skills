@@ -144,6 +144,38 @@
         {"name": "uses-server-entrypoint-evidence", "description": "Uses the Express dependency plus node server start command as affirmative web-service evidence"},
         {"name": "eligibility-passes", "description": "Returns an eligible web_service decision and permits readiness assessment to continue"}
       ]
+    },
+    {
+      "id": 12,
+      "prompt": "Prepare a Mastodon-style app whose analysis classifies SMTP_PORT as an optional input with the default string \"587\". Expose it as spec.inputs.smtp_port, keep infrastructure replicas and ports numeric, validate the generated template, and stop after the prepare-only delivery artifacts are complete.",
+      "expected_output": "Writes a prepare-only Sealos Template whose SMTP port default remains the YAML string \"587\", preserves numeric Kubernetes infrastructure fields, runs the docker-to-sealos consistency checker against .sealos/template/index.yaml so R052 blocks an unquoted default, and finishes with delivery-manifest.json without deploying.",
+      "files": [],
+      "assertions": [
+        {"name": "smtp-default-is-string", "description": "Emits spec.inputs.smtp_port.default as a quoted YAML string such as \"587\", never as the numeric scalar 587"},
+        {"name": "input-reference-is-declared", "description": "Declares spec.inputs.smtp_port and references that declared input from the Mastodon SMTP_PORT environment value"},
+        {"name": "infrastructure-numbers-stay-numeric", "description": "Keeps Kubernetes replicas, container ports, and Service ports as numeric YAML fields"},
+        {"name": "validates-generated-artifact", "description": "Runs check_consistency.py with --artifacts pointing to .sealos/template/index.yaml before the pull-secret patcher or delivery manifest"},
+        {"name": "rejects-unquoted-input-default", "description": "Treats R052 or the equivalent string-type validation failure as blocking and fixes the template before continuing"},
+        {"name": "remains-prepare-only", "description": "Writes .sealos/delivery-manifest.json and does not invoke Template API deployment, UPDATE mode, rollout, rollback, or runtime smoke verification"}
+      ]
+    },
+    {
+      "id": 13,
+      "prompt": "/sealos-deploy https://github.com/danny-avila/LibreChat，使用官方多组件 Compose；模板中 RAG 固定使用 OpenAI embeddings，并且 PostgreSQL 需要 vector 扩展。只允许生成该 skill 已有的产物。",
+      "expected_output": "Generates the existing Sealos template artifact with pinned component images, official health probes, valid runtime credentials, and a database final-state gate; the complete docker-to-sealos quality gate passes before the existing delivery manifest is written, with no new artifact type introduced",
+      "files": [],
+      "assertions": [
+        {"name": "pins-component-images", "description": "Resolves :latest or floating LibreChat component tags to an explicit version tag or digest"},
+        {"name": "uses-official-rag-health", "description": "Uses /health on port 8000 for LibreChat RAG probes instead of probing /"},
+        {"name": "validates-format-constrained-credentials", "description": "Does not use bare random() defaults for LibreChat CREDS_KEY/CREDS_IV hex contracts"},
+        {"name": "requires-selected-provider-credential", "description": "OpenAI embeddings is paired with a non-empty required OpenAI credential rather than an optional empty input"},
+        {"name": "gates-rag-on-vector-state", "description": "RAG has an initContainer gate that waits for PostgreSQL and verifies the vector extension before startup"},
+        {"name": "classifies-mongodb-as-database", "description": "Converts the official mongo:8.0.20 service into the pinned MongoDB KubeBlocks Cluster contract"},
+        {"name": "rejects-raw-mongodb-workload", "description": "Emits no MongoDB Deployment, StatefulSet, DaemonSet, Job, CronJob, or standalone Service"},
+        {"name": "does-not-assume-ghcr-private", "description": "Does not add imagePullSecrets solely because an image is hosted on GHCR"},
+        {"name": "fails-closed-before-manifest", "description": "Runs the complete docker-to-sealos quality gate after final template mutation and does not write delivery-manifest.json on failure"},
+        {"name": "keeps-existing-artifact-inventory", "description": "Introduces no generated artifact beyond the skill's existing analysis, build request/result, template, Dockerfile, and delivery manifest outputs"}
+      ]
     }
   ]
 }

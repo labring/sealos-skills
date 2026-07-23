@@ -190,6 +190,13 @@ When workers, protocol gateways, or background services depend on database migra
 - `defaults`: Used to store **automatically generated** values (such as random strings, random ports, etc.)
 - `inputs`: Used to store values that **require user input** (such as email, API Key, custom configurations, etc.)
 
+**Scalar type contract:**
+- Every `spec.defaults.<name>.value` must deserialize as a YAML string.
+- Every present `spec.inputs.<name>.default` must deserialize as a YAML string, regardless of the input's declared `type`.
+- Quote numeric-, boolean-, and null-like values. For example, use `default: "587"` and `default: "false"`, not `default: 587` or `default: false`.
+- Omitting `default` remains valid for required inputs such as administrator credentials.
+- This contract is limited to Template defaults and input defaults. Keep infrastructure fields such as `replicas`, `containerPort`, and Service ports as YAML numbers.
+
 ### Defaults Configuration
 
 Values in `defaults` are automatically generated when the template is parsed and do not require user interaction:
@@ -204,13 +211,14 @@ defaults:
     value: typesense-${{ random(8) }}  # ✅ Application name
   api_key:
     type: string
-    value: ${{ random(32) }}           # ✅ Randomly generated secret key
+    value: ${{ random(32) }}           # ✅ Opaque secret with no format constraint
 ```
 
 **Notes:**
 1. `app_host` must include an application name prefix (e.g., `typesense-${{ random(8) }}`)
 2. `app_name` must include `${{ random(8) }}` to ensure uniqueness
-3. Randomly generated configurations (secret keys, passwords, etc.) should be placed in `defaults`, not in `inputs`
+3. Randomly generated opaque configurations (secret keys, passwords, etc.) should be placed in `defaults`, not in `inputs`
+4. `${{ random(n) }}` does not satisfy hex, base64, UUID, or other format-specific runtime contracts. For those values, use a valid literal or a required input with no generated default.
 
 ### Inputs Configuration
 
@@ -255,6 +263,14 @@ inputs:
 ```
 
 Avoid empty strings, weak examples, and bare `${{ random(n) }}` for startup-critical passwords, because the random function may not emit all required classes. During live validation, check first boot logs and the login/setup path using the generated default.
+
+### Runtime-Specific Environment Contracts
+
+Official runtime profiles take precedence over generic secret generation:
+
+- Format- or length-constrained values must be valid concrete values or required inputs without generated defaults.
+- A selected external provider must have a non-empty required credential; `required: false` with `default: ''` is invalid for a startup-critical provider key.
+- If a workload requires a database extension or compatibility object, an initContainer must wait for database readiness and verify the required final state before the business container starts.
 
 ## Internationalization (i18n) Configuration
 
@@ -916,7 +932,7 @@ All application Deployments or StatefulSets must include the following configura
 
 1. **automountServiceAccountToken**: Must be set to `false` to avoid unnecessary permission exposure. Set it to `true` only when the application explicitly needs the Kubernetes API/service account token, evidenced by Kubernetes integration settings, `serviceAccountName`, or `sealos.io/service-account-token-reason` in workload annotations.
 2. **revisionHistoryLimit**: Must be set to `1` to reduce resources consumed by historical revisions
-3. **imagePullSecrets**: Omit for public images. For private-registry images, reference only the app-scoped pull Secret `${{ defaults.app_name }}`
+3. **imagePullSecrets**: Omit for known public images. When registry authentication is established by existing build/detection state, reference only the app-scoped pull Secret `${{ defaults.app_name }}`
 4. **metadata.annotations**: Must include the following annotations:
    - `originImageName`: Original image name
    - `deploy.cloud.sealos.io/minReplicas`: Minimum replica count, typically set to `'1'`
@@ -924,8 +940,8 @@ All application Deployments or StatefulSets must include the following configura
 
 Recommended registry pull Secret model:
 
-- Public-image managed workloads omit `imagePullSecrets`
-- For private GHCR images, `sealos-deploy` creates or refreshes `${{ defaults.app_name }}` from local `gh` CLI credentials and the workload may reference it through `imagePullSecrets`
+- Known public-image managed workloads omit `imagePullSecrets`; a GHCR hostname alone does not prove that a repository is private
+- For authenticated private GHCR images, `sealos-deploy` creates or refreshes `${{ defaults.app_name }}` from local `gh` CLI credentials and the workload may reference it through `imagePullSecrets`
 - If a private-registry template is deployed outside `sealos-deploy`, the operator must create the Secret manually before applying the workload
 
 ```yaml
