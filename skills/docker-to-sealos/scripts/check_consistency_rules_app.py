@@ -113,13 +113,25 @@ DATABASE_RAW_WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", 
 DATABASE_RAW_RESOURCE_KINDS = DATABASE_RAW_WORKLOAD_KINDS | {"Service"}
 DATABASE_CLIENT_JOB_TOKENS = {"init", "migrate", "migration", "bootstrap", "setup", "seed", "backup", "restore"}
 DATABASE_RESOURCE_NAME_TOKENS = {"postgres", "postgresql", "mysql", "mariadb", "mongo", "mongodb", "redis", "kafka"}
-PRIVATE_IMAGE_REGISTRY_PREFIXES = ("ghcr.io/",)
-OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, str]] = {
+OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, Any]] = {
     "goauthentik/server": {
         "liveness_path": "/-/health/live/",
         "readiness_path": "/-/health/ready/",
         "startup_path": "/-/health/ready/",
-    }
+        "port": 9000,
+    },
+    "ghcr.io/danny-avila/librechat-rag-api-dev-lite": {
+        "liveness_path": "/health",
+        "readiness_path": "/health",
+        "startup_path": "/health",
+        "port": 8000,
+    },
+    "ghcr.io/clickhouse/librechat-admin-panel": {
+        "liveness_path": "/health",
+        "readiness_path": "/health",
+        "startup_path": "/health",
+        "port": 3000,
+    },
 }
 OFFICIAL_HEALTH_WORKER_EXEC_EXPECTATIONS: Dict[str, Dict[str, str]] = {
     "goauthentik/server": {
@@ -128,6 +140,37 @@ OFFICIAL_HEALTH_WORKER_EXEC_EXPECTATIONS: Dict[str, Dict[str, str]] = {
         "startup_command": "ak healthcheck",
     },
 }
+RUNTIME_ENV_VALUE_CONSTRAINTS: Dict[str, Dict[str, Dict[str, Any]]] = {
+    "ghcr.io/danny-avila/librechat": {
+        "CREDS_KEY": {"format": "hex", "length": 64},
+        "CREDS_IV": {"format": "hex", "length": 32},
+    },
+}
+RUNTIME_CREDENTIAL_REQUIREMENTS: Dict[str, Tuple[Dict[str, Any], ...]] = {
+    "ghcr.io/danny-avila/librechat-rag-api-dev-lite": (
+        {
+            "provider_env": "EMBEDDINGS_PROVIDER",
+            "provider_value": "openai",
+            "credential_envs": ("RAG_OPENAI_API_KEY", "OPENAI_API_KEY"),
+        },
+    ),
+}
+RUNTIME_STARTUP_GATE_EXPECTATIONS: Dict[str, Dict[str, Tuple[str, ...]]] = {
+    "ghcr.io/danny-avila/librechat-rag-api-dev-lite": {
+        "required_tokens": ("pg_isready",),
+        "required_any_tokens": ("vector", "pg_extension", "to_regtype"),
+    },
+}
+KNOWN_PUBLIC_IMAGE_REPOSITORIES = {
+    "nginx",
+    "docker.io/library/nginx",
+    "ghcr.io/clickhouse/librechat-admin-panel",
+    "ghcr.io/danny-avila/librechat",
+    "ghcr.io/danny-avila/librechat-rag-api-dev-lite",
+}
+TEMPLATE_DEFAULT_REF_RE = re.compile(r"^\$\{\{\s*defaults\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$")
+TEMPLATE_INPUT_FULL_REF_RE = re.compile(r"^\$\{\{\s*inputs\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$")
+HEX_VALUE_RE = re.compile(r"^[0-9a-fA-F]+$")
 MAIN_CONTAINER_BOOTSTRAP_RE = re.compile(
     r"\b(?:cp|rsync|chmod|chown|psql|createdb|dropdb|mysql|mongosh|redis-cli|sed|awk|"
     r"envsubst|openssl|useradd|groupadd|apk|apt-get|yum|dnf|pip|npm|pnpm|yarn)\b"
@@ -2431,6 +2474,17 @@ def _image_repository_basename(image: str) -> str:
     return reference.rsplit("/", 1)[-1].lower()
 
 
+def _image_repository(image: str) -> str:
+    reference = image.strip()
+    if "@" in reference:
+        reference = reference.split("@", 1)[0]
+    slash_index = reference.rfind("/")
+    colon_index = reference.rfind(":")
+    if colon_index > slash_index:
+        reference = reference[:colon_index]
+    return reference.lower()
+
+
 def _is_database_image(image: str) -> bool:
     return _image_repository_basename(image) in DATABASE_WORKLOAD_IMAGE_NAMES
 
@@ -2735,6 +2789,334 @@ def _template_input_specs_by_path(context: ScanContext) -> Dict[Path, Dict[str, 
             if isinstance(input_name, str) and isinstance(input_spec, dict):
                 input_specs[input_name] = input_spec
     return inputs_by_path
+
+
+def _template_default_specs_by_path(context: ScanContext) -> Dict[Path, Dict[str, Any]]:
+    defaults_by_path: Dict[Path, Dict[str, Any]] = {}
+    for doc in _iter_template_artifact_documents(context):
+        if not isinstance(doc.data, dict):
+            continue
+        spec = doc.data.get("spec")
+        defaults = spec.get("defaults") if isinstance(spec, dict) else None
+        if isinstance(defaults, dict):
+            defaults_by_path[doc.path] = defaults
+    return defaults_by_path
+
+
+def _runtime_env_entries(container: Mapping[str, Any]) -> Dict[str, Dict[str, Any]]:
+    env_entries: Dict[str, Dict[str, Any]] = {}
+    env = container.get("env")
+    if not isinstance(env, list):
+        return env_entries
+    for item in env:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if isinstance(name, str) and name.strip():
+            env_entries[name.strip()] = item
+    return env_entries
+
+
+def _resolve_template_runtime_value(
+    raw_value: Any,
+    default_specs: Mapping[str, Any],
+    input_specs: Mapping[str, Dict[str, Any]],
+) -> Tuple[str, Any]:
+    if not isinstance(raw_value, str):
+        return "literal", raw_value
+
+    value = raw_value.strip()
+    default_match = TEMPLATE_DEFAULT_REF_RE.fullmatch(value)
+    if default_match:
+        default_spec = default_specs.get(default_match.group(1))
+        if isinstance(default_spec, dict):
+            return "default", default_spec.get("value")
+        return "default", default_spec
+
+    input_match = TEMPLATE_INPUT_FULL_REF_RE.fullmatch(value)
+    if input_match:
+        input_spec = input_specs.get(input_match.group(1))
+        if not isinstance(input_spec, dict):
+            return "missing_input", None
+        if input_spec.get("required") is True and "default" not in input_spec:
+            return "required_input", None
+        return "input_default", input_spec.get("default")
+
+    return "literal", raw_value
+
+
+def _runtime_value_satisfies_constraint(value: Any, constraint: Mapping[str, Any]) -> bool:
+    expected_format = constraint.get("format")
+    expected_length = constraint.get("length")
+    if not isinstance(value, str):
+        return False
+    if isinstance(expected_length, int) and len(value) != expected_length:
+        return False
+    if expected_format == "hex":
+        return HEX_VALUE_RE.fullmatch(value) is not None
+    return False
+
+
+def check_runtime_env_value_constraints(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    defaults_by_path = _template_default_specs_by_path(context)
+    inputs_by_path = _template_input_specs_by_path(context)
+
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if not _is_template_artifact_document(doc):
+            continue
+        if not is_app_workload_document(doc) or not has_managed_workload_marker(doc.data):
+            continue
+
+        template_spec = get_template_spec(doc.data)
+        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
+        if not isinstance(containers, list):
+            continue
+
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+            image = container.get("image")
+            if not isinstance(image, str):
+                continue
+            expectations = RUNTIME_ENV_VALUE_CONSTRAINTS.get(_image_repository(image))
+            if not expectations:
+                continue
+
+            env_entries = _runtime_env_entries(container)
+            for env_name, constraint in expectations.items():
+                env_item = env_entries.get(env_name)
+                if env_item is None:
+                    add_doc_violation(
+                        violations,
+                        rule_id="R052",
+                        doc=doc,
+                        pattern=r"^\s*env\s*:",
+                        default_pattern=r"^\s*containers\s*:",
+                        message=f"{env_name} is required by the official runtime contract",
+                    )
+                    continue
+
+                source_kind, resolved_value = _resolve_template_runtime_value(
+                    env_item.get("value"),
+                    defaults_by_path.get(doc.path, {}),
+                    inputs_by_path.get(doc.path, {}),
+                )
+                if source_kind == "required_input":
+                    continue
+                if _runtime_value_satisfies_constraint(resolved_value, constraint):
+                    continue
+
+                expected_format = constraint.get("format", "documented")
+                expected_length = constraint.get("length")
+                expected_text = f"{expected_length}-character {expected_format}" if expected_length else str(expected_format)
+                add_doc_violation(
+                    violations,
+                    rule_id="R052",
+                    doc=doc,
+                    pattern=rf"^\s*-\s*name\s*:\s*{re.escape(env_name)}\s*$",
+                    default_pattern=r"^\s*env\s*:",
+                    message=(
+                        f"{env_name} must use a valid {expected_text} value or a required input "
+                        "without a generated default; generic random() output does not satisfy this contract"
+                    ),
+                )
+
+    return violations
+
+
+def _runtime_value_is_nonempty_credential(
+    raw_value: Any,
+    default_specs: Mapping[str, Any],
+    input_specs: Mapping[str, Dict[str, Any]],
+) -> bool:
+    source_kind, resolved_value = _resolve_template_runtime_value(raw_value, default_specs, input_specs)
+    if source_kind == "required_input":
+        return True
+    if not isinstance(resolved_value, str):
+        return False
+    value = resolved_value.strip()
+    if not value:
+        return False
+    if value.startswith("${{") and value.endswith("}}"):
+        return False
+    return True
+
+
+def check_runtime_provider_credentials(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    defaults_by_path = _template_default_specs_by_path(context)
+    inputs_by_path = _template_input_specs_by_path(context)
+
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if not _is_template_artifact_document(doc):
+            continue
+        if not is_app_workload_document(doc) or not has_managed_workload_marker(doc.data):
+            continue
+
+        template_spec = get_template_spec(doc.data)
+        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
+        if not isinstance(containers, list):
+            continue
+
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+            image = container.get("image")
+            if not isinstance(image, str):
+                continue
+            requirements = RUNTIME_CREDENTIAL_REQUIREMENTS.get(_image_repository(image), ())
+            if not requirements:
+                continue
+
+            env_entries = _runtime_env_entries(container)
+            for requirement in requirements:
+                provider_env = str(requirement["provider_env"])
+                provider_item = env_entries.get(provider_env)
+                if provider_item is None:
+                    continue
+                provider_kind, provider_value = _resolve_template_runtime_value(
+                    provider_item.get("value"),
+                    defaults_by_path.get(doc.path, {}),
+                    inputs_by_path.get(doc.path, {}),
+                )
+                if provider_kind == "required_input":
+                    continue
+                if not isinstance(provider_value, str):
+                    continue
+                if provider_value.strip().lower() != str(requirement["provider_value"]).lower():
+                    continue
+
+                credential_names = tuple(str(item) for item in requirement["credential_envs"])
+                if any(
+                    credential_name in env_entries
+                    and _runtime_value_is_nonempty_credential(
+                        env_entries[credential_name].get("value"),
+                        defaults_by_path.get(doc.path, {}),
+                        inputs_by_path.get(doc.path, {}),
+                    )
+                    for credential_name in credential_names
+                ):
+                    continue
+
+                add_doc_violation(
+                    violations,
+                    rule_id="R053",
+                    doc=doc,
+                    pattern=rf"^\s*-\s*name\s*:\s*{re.escape(provider_env)}\s*$",
+                    default_pattern=r"^\s*env\s*:",
+                    message=(
+                        f"{provider_env}={provider_value.strip()} requires one non-empty credential env "
+                        f"from {', '.join(credential_names)}; an optional input with an empty default is invalid"
+                    ),
+                )
+
+    return violations
+
+
+def _configmap_data_text_for_names(context: ScanContext, path: Path, names: Set[str]) -> str:
+    parts: List[str] = []
+    if not names:
+        return ""
+    for doc in iter_documents_by_kind(context, "ConfigMap"):
+        if doc.path != path or not isinstance(doc.data, dict):
+            continue
+        if _metadata_name(doc.data) not in names:
+            continue
+        data = doc.data.get("data")
+        if isinstance(data, dict):
+            parts.extend(str(value) for value in data.values())
+    return "\n".join(parts)
+
+
+def _startup_gate_text(context: ScanContext, doc: YamlDocument, template_spec: Mapping[str, Any]) -> str:
+    init_containers = template_spec.get("initContainers")
+    if not isinstance(init_containers, list) or not init_containers:
+        return ""
+
+    parts: List[str] = []
+    mounted_volume_names: Set[str] = set()
+    for container in init_containers:
+        if not isinstance(container, dict):
+            continue
+        parts.append(_container_command_text(container))
+        mounts = container.get("volumeMounts")
+        if isinstance(mounts, list):
+            for mount in mounts:
+                name = mount.get("name") if isinstance(mount, dict) else None
+                if isinstance(name, str) and name.strip():
+                    mounted_volume_names.add(name.strip())
+
+    configmap_names: Set[str] = set()
+    volumes = template_spec.get("volumes")
+    if isinstance(volumes, list):
+        for volume in volumes:
+            if not isinstance(volume, dict):
+                continue
+            name = volume.get("name")
+            if name not in mounted_volume_names:
+                continue
+            config_map = volume.get("configMap")
+            configmap_name = config_map.get("name") if isinstance(config_map, dict) else None
+            if isinstance(configmap_name, str) and configmap_name.strip():
+                configmap_names.add(configmap_name.strip())
+
+    parts.append(_configmap_data_text_for_names(context, doc.path, configmap_names))
+    return "\n".join(parts).lower()
+
+
+def check_runtime_startup_gates(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if not _is_template_artifact_document(doc):
+            continue
+        if not is_app_workload_document(doc) or not has_managed_workload_marker(doc.data):
+            continue
+
+        template_spec = get_template_spec(doc.data)
+        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
+        if not isinstance(containers, list):
+            continue
+
+        for container in containers:
+            if not isinstance(container, dict):
+                continue
+            image = container.get("image")
+            if not isinstance(image, str):
+                continue
+            expectation = RUNTIME_STARTUP_GATE_EXPECTATIONS.get(_image_repository(image))
+            if not expectation:
+                continue
+
+            gate_text = _startup_gate_text(context, doc, template_spec)
+            required_tokens = expectation.get("required_tokens", ())
+            required_any_tokens = expectation.get("required_any_tokens", ())
+            has_required = all(token.lower() in gate_text for token in required_tokens)
+            has_required_any = not required_any_tokens or any(
+                token.lower() in gate_text for token in required_any_tokens
+            )
+            if has_required and has_required_any:
+                continue
+
+            add_doc_violation(
+                violations,
+                rule_id="R054",
+                doc=doc,
+                pattern=r"^\s*initContainers\s*:",
+                default_pattern=r"^\s*containers\s*:",
+                message=(
+                    "this runtime requires an initContainer final-state gate that waits for PostgreSQL "
+                    "and verifies the required vector extension before the business container starts"
+                ),
+            )
+
+    return violations
 
 
 def check_template_input_references_declared(context: ScanContext) -> List[Violation]:
@@ -3792,7 +4174,7 @@ def _is_worker_args(args: Any) -> bool:
     return first == "worker"
 
 
-def _probe_has_http_path(probe: Any, expected_path: str) -> bool:
+def _probe_has_http_path(probe: Any, expected_path: str, expected_port: Optional[int] = None) -> bool:
     if not isinstance(probe, dict):
         return False
     http_get = probe.get("httpGet")
@@ -3801,7 +4183,11 @@ def _probe_has_http_path(probe: Any, expected_path: str) -> bool:
     if http_get.get("path") != expected_path:
         return False
     port = http_get.get("port")
-    return isinstance(port, (int, str)) and bool(str(port).strip())
+    if not isinstance(port, (int, str)) or not str(port).strip():
+        return False
+    if expected_port is None:
+        return True
+    return str(port).strip() == str(expected_port)
 
 
 def _probe_has_exec_command(probe: Any, expected_fragment: str) -> bool:
@@ -3891,7 +4277,8 @@ def check_official_health_probes(context: ScanContext) -> List[Violation]:
         liveness = container.get("livenessProbe")
         readiness = container.get("readinessProbe")
         startup = container.get("startupProbe")
-        if not _probe_has_http_path(liveness, expected["liveness_path"]):
+        expected_port = expected.get("port")
+        if not _probe_has_http_path(liveness, expected["liveness_path"], expected_port):
             add_doc_violation(
                 violations,
                 rule_id="R024",
@@ -3900,10 +4287,10 @@ def check_official_health_probes(context: ScanContext) -> List[Violation]:
                 default_pattern=r"^\s*containers\s*:",
                 message=(
                     "workloads with official health checks must define livenessProbe "
-                    "with the official endpoint path"
+                    "with the official endpoint path and port"
                 ),
             )
-        if not _probe_has_http_path(readiness, expected["readiness_path"]):
+        if not _probe_has_http_path(readiness, expected["readiness_path"], expected_port):
             add_doc_violation(
                 violations,
                 rule_id="R024",
@@ -3912,10 +4299,10 @@ def check_official_health_probes(context: ScanContext) -> List[Violation]:
                 default_pattern=r"^\s*containers\s*:",
                 message=(
                     "workloads with official health checks must define readinessProbe "
-                    "with the official endpoint path"
+                    "with the official endpoint path and port"
                 ),
             )
-        if not _probe_has_http_path(startup, expected["startup_path"]):
+        if not _probe_has_http_path(startup, expected["startup_path"], expected_port):
             add_doc_violation(
                 violations,
                 rule_id="R024",
@@ -3924,7 +4311,7 @@ def check_official_health_probes(context: ScanContext) -> List[Violation]:
                 default_pattern=r"^\s*containers\s*:",
                 message=(
                     "workloads with slow startup and official health checks must define startupProbe "
-                    "with the official endpoint path"
+                    "with the official endpoint path and port"
                 ),
             )
     return violations
@@ -4341,22 +4728,28 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
                 if isinstance(name, str) and name.strip():
                     referenced_names.append(name.strip())
 
-        requires_pull_secret = any(_container_requires_image_pull_secret(container) for container in iter_containers(doc.data))
         has_pull_secret = len(referenced_names) > 0
         has_only_app_pull_secret = referenced_names == ["${{ defaults.app_name }}"]
 
-        if requires_pull_secret and has_only_app_pull_secret:
-            continue
-        if not requires_pull_secret and not has_pull_secret:
+        if not has_pull_secret:
             continue
 
-        if requires_pull_secret:
+        if not has_only_app_pull_secret:
             message = (
-                "private-registry managed app workloads must reference only the app-scoped image pull secret "
+                "registry-authenticated workloads may reference only the app-scoped image pull secret "
                 "`${{ defaults.app_name }}` via template.spec.imagePullSecrets"
             )
         else:
-            message = "public-image managed app workloads must omit template.spec.imagePullSecrets"
+            image_repositories = {
+                _image_repository(str(container.get("image")))
+                for container in iter_containers(doc.data)
+                if isinstance(container.get("image"), str)
+            }
+            if not image_repositories or not all(
+                repository in KNOWN_PUBLIC_IMAGE_REPOSITORIES for repository in image_repositories
+            ):
+                continue
+            message = "known public-image managed app workloads must omit template.spec.imagePullSecrets"
 
         add_doc_violation(
             violations,
@@ -4368,13 +4761,6 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
         )
 
     return violations
-
-
-def _container_requires_image_pull_secret(container: Dict[str, Any]) -> bool:
-    image = container.get("image")
-    if not isinstance(image, str):
-        return False
-    return any(image.strip().startswith(prefix) for prefix in PRIVATE_IMAGE_REGISTRY_PREFIXES)
 
 
 APP_RULES: Dict[str, Rule] = {
@@ -4394,6 +4780,9 @@ APP_RULES: Dict[str, Rule] = {
     "R022": Rule("R022", check_template_i18n_zh_title_absent),
     "R023": Rule("R023", check_template_categories_allowed),
     "R024": Rule("R024", check_official_health_probes),
+    "R052": Rule("R052", check_runtime_env_value_constraints),
+    "R053": Rule("R053", check_runtime_provider_credentials),
+    "R054": Rule("R054", check_runtime_startup_gates),
     "R046": Rule("R046", check_runtime_bundle_consistency),
     "R050": Rule("R050", check_topology_evidence_consistency),
     "R036": Rule("R036", check_cronjob_required_labels),

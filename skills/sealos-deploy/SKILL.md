@@ -1,7 +1,7 @@
 ---
 name: sealos-deploy
 description: Prepare and build compatible server, static-web, worker, scheduled-job, or reviewed remote-desktop workloads for Sealos Cloud inside a sandboxed workflow. Reject unsupported desktop, mobile, CLI, library, extension, hardware-dependent, mixed, and unidentified targets before readiness scoring or build. For eligible workloads, optionally use Railpack to strengthen build-environment detection, detect reusable images, reuse or generate Dockerfiles, resolve image builds through a sandbox kaniko Job when needed, and create Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
-compatibility: git is required. Node.js 18+ is recommended for helper scripts. railpack is an optional build-environment detector. kubectl, VersityGW S3 settings, and GITHUB_TOKEN are required when the pipeline needs a Kubernetes kaniko build. Build-time Kubernetes access uses the sandbox-provided kubeconfig and current service account in the active namespace.
+compatibility: git is required. Node.js 18+ is recommended for helper scripts. Phase 5 requires Python with PyYAML; Compose conversion also requires kompose and may require crane when image tags are floating. railpack is an optional build-environment detector. kubectl, VersityGW S3 settings, and GITHUB_TOKEN are required when the pipeline needs a Kubernetes kaniko build. Build-time Kubernetes access uses the sandbox-provided kubeconfig and current service account in the active namespace.
 metadata:
   author: labring
 ---

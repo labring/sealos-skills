@@ -213,7 +213,8 @@ spec:
 ```
 
 Notes:
-- Omit `imagePullSecrets` for public images. For private-registry images, reference only the app-scoped image pull Secret `${{ defaults.app_name }}`.
+- Do not infer that an image is private from its registry hostname alone; GHCR hosts both public and private repositories.
+- Omit `imagePullSecrets` for known public images. When existing build/detection state establishes that registry authentication is required, reference only the app-scoped image pull Secret `${{ defaults.app_name }}`.
 - `sealos-deploy` should create or refresh that Secret automatically from local `gh` CLI credentials when deploying private GHCR images.
 - Reusable templates should not expose raw registry credential inputs as user-facing form fields.
 
@@ -613,6 +614,10 @@ Omit `defaultMode` for ConfigMap volumes unless the application explicitly requi
 
 ## Database Service Mapping
 
+Classify every Compose service before generic workload generation. A service whose image repository basename is a supported database server (`postgres`, `mysql`, `mongo`, `mongodb`, `redis`, `kafka`, or a documented vendor variant) must be removed from the application-service set and emitted only through the matching KubeBlocks builder. Database classification or conversion failure is a hard stop; never fall back to a Deployment or StatefulSet.
+
+Before returning the generated template, verify that every detected database type has a matching KubeBlocks `Cluster` and that no Deployment, StatefulSet, DaemonSet, Job, or CronJob main container uses a database-server image.
+
 ### Docker Compose
 ```yaml
 services:
@@ -721,6 +726,8 @@ Conversion priority:
 2. When Compose does not provide one but the official documentation clearly specifies a health endpoint/command, `livenessProbe` + `readinessProbe` must still be generated
 3. For applications with slow initial startup (e.g., those that need to initialize a database), a `startupProbe` must also be generated to avoid premature failure during startup
 
+Official runtime profiles override guessed root-path probes. For example, LibreChat RAG uses `/health` on port `8000`, and the LibreChat Admin API uses `/health` on port `3000`; probing `/` is not an acceptable substitute.
+
 ### Docker Compose
 ```yaml
 services:
@@ -776,6 +783,12 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
 ```
+
+## Runtime Contract Mapping
+
+- A generic `${{ random(n) }}` value is opaque alphabetic text. Do not use it for runtime values that require hex, base64, UUID, or another documented format. Emit a valid literal or use a required input without a generated default.
+- If a runtime profile fixes an external provider such as `openai`, wire a non-empty required credential for that provider. An optional credential input with `default: ''` does not satisfy startup requirements.
+- Readiness of the database process is not equivalent to readiness of application schema state. When an official runtime profile requires an extension or object, use an initContainer that waits for the database and verifies that final state before starting the business container.
 
 ## Command and Arguments Mapping
 
