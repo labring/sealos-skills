@@ -922,7 +922,7 @@ class CheckConsistencyTests(unittest.TestCase):
                           value: ${{ defaults.creds_iv }}
             """
         )
-        self.assertTrue(any(item.rule_id == "R052" for item in violations))
+        self.assertTrue(any(item.rule_id == "R053" for item in violations))
 
     def test_allows_required_inputs_for_format_constrained_librechat_credentials(self):
         violations = self.run_artifact_checker(
@@ -967,7 +967,7 @@ class CheckConsistencyTests(unittest.TestCase):
                           value: ${{ inputs.creds_iv }}
             """
         )
-        self.assertFalse(any(item.rule_id == "R052" for item in violations))
+        self.assertFalse(any(item.rule_id == "R053" for item in violations))
 
     def test_detects_empty_credential_for_selected_rag_provider(self):
         violations = self.run_artifact_checker(
@@ -1009,7 +1009,7 @@ class CheckConsistencyTests(unittest.TestCase):
                           value: ${{ inputs.rag_openai_api_key }}
             """
         )
-        self.assertTrue(any(item.rule_id == "R053" for item in violations))
+        self.assertTrue(any(item.rule_id == "R054" for item in violations))
 
     def test_detects_missing_rag_database_final_state_gate(self):
         violations = self.run_artifact_checker(
@@ -1034,7 +1034,7 @@ class CheckConsistencyTests(unittest.TestCase):
                       image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
             """
         )
-        self.assertTrue(any(item.rule_id == "R054" for item in violations))
+        self.assertTrue(any(item.rule_id == "R055" for item in violations))
 
     def test_allows_rag_database_final_state_gate(self):
         violations = self.run_artifact_checker(
@@ -1066,7 +1066,7 @@ class CheckConsistencyTests(unittest.TestCase):
                       image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
             """
         )
-        self.assertFalse(any(item.rule_id == "R054" for item in violations))
+        self.assertFalse(any(item.rule_id == "R055" for item in violations))
 
     def test_detects_runtime_bundle_image_version_mismatch(self):
         violations = self.run_artifact_checker(
@@ -5738,7 +5738,7 @@ __MOUNTS__
                         storage: 1Gi
             """
         )
-        self.assertFalse(any(item.rule_id == "R055" for item in violations))
+        self.assertFalse(any(item.rule_id == "R056" for item in violations))
 
     def test_detects_invalid_statefulset_volume_claim_template_contract(self):
         violations = self.run_artifact_checker(
@@ -5783,7 +5783,7 @@ __MOUNTS__
                         storage: 1Gi
             """
         )
-        self.assertTrue(any(item.rule_id == "R055" for item in violations))
+        self.assertTrue(any(item.rule_id == "R056" for item in violations))
 
     def test_allows_declared_template_input_references(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -6441,7 +6441,7 @@ __MOUNTS__
                       memory: 51Mi
             """
         )
-        self.assertTrue(any(item.rule_id == "R056" for item in violations))
+        self.assertTrue(any(item.rule_id == "R057" for item in violations))
 
     def test_allows_upgraded_mongodb_cluster_schema_in_artifact(self):
         violations = self.run_artifact_checker(
@@ -6469,7 +6469,7 @@ __MOUNTS__
                       memory: 51Mi
             """
         )
-        self.assertFalse(any(item.rule_id == "R056" for item in violations))
+        self.assertFalse(any(item.rule_id == "R057" for item in violations))
 
     def test_detects_raw_database_statefulset_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
