@@ -449,10 +449,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual("tcp-9000", ports[0]["name"])
             self.assertEqual("tcp-9443", ports[1]["name"])
             workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
-            self.assertEqual(
-                [{"name": "${{ defaults.app_name }}"}],
-                workload["spec"]["template"]["spec"]["imagePullSecrets"],
-            )
+            self.assertNotIn("imagePullSecrets", workload["spec"]["template"]["spec"])
 
     def test_generates_websocket_ingress_for_named_websocket_port(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -864,6 +861,38 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertIn("ak healthcheck", " ".join(str(item) for item in readiness_cmd))
             self.assertIn("ak healthcheck", " ".join(str(item) for item in startup_cmd))
 
+    def test_generates_official_librechat_component_health_probes(self):
+        profiles = (
+            ("ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0", 8000),
+            ("ghcr.io/clickhouse/librechat-admin-panel:v0.0.1", 3000),
+        )
+        for image, port in profiles:
+            with self.subTest(image=image), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                compose = root / "docker-compose.yml"
+                write_file(
+                    compose,
+                    f"""
+                    services:
+                      app:
+                        image: {image}
+                        ports:
+                          - "{port}:{port}"
+                    """,
+                )
+                index_path, _ = convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("librechat-component"),
+                )
+                docs = parse_yaml_documents(index_path)
+                workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+                container = workload["spec"]["template"]["spec"]["containers"][0]
+                for probe_name in ("livenessProbe", "readinessProbe", "startupProbe"):
+                    http_get = container[probe_name]["httpGet"]
+                    self.assertEqual("/health", http_get["path"])
+                    self.assertEqual(port, http_get["port"])
+
     def test_maps_compose_healthcheck_to_liveness_and_readiness(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -947,7 +976,18 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual(["vn-data"], pvc_names)
             self.assertNotIn("labels", pvcs[0]["metadata"])
 
-    def test_rejects_latest_image_tag(self):
+    def test_resolves_latest_image_tag_to_precise_version(self):
+        def fake_run(command, capture_output=True, text=True):  # noqa: ANN001
+            if command[-2:] == ["digest", "nginx:latest"]:
+                return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
+            if command[-2:] == ["ls", "nginx"]:
+                return CompletedProcess(command, 0, stdout="latest\n1.27.2\n1.26.3\n", stderr="")
+            if command[-2:] == ["digest", "nginx:1.27.2"]:
+                return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
+            if command[-2:] == ["digest", "nginx:1.26.3"]:
+                return CompletedProcess(command, 0, stdout="sha256:def\n", stderr="")
+            return CompletedProcess(command, 1, stdout="", stderr="unexpected command")
+
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose = root / "docker-compose.yml"
@@ -959,12 +999,18 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: nginx:latest
                 """,
             )
-            with self.assertRaises(ValueError):
-                convert_compose_to_template(
-                    compose_path=compose,
-                    output_root=root / "template",
-                    meta=self._meta("demo"),
-                )
+            with mock.patch("compose_to_template.shutil.which", return_value="/usr/local/bin/crane"):
+                with mock.patch("compose_to_template.subprocess.run", side_effect=fake_run):
+                    index_path, _ = convert_compose_to_template(
+                        compose_path=compose,
+                        output_root=root / "template",
+                        meta=self._meta("demo"),
+                    )
+
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            self.assertEqual("nginx:1.27.2", workload["spec"]["template"]["spec"]["containers"][0]["image"])
+            self.assertEqual("nginx:1.27.2", workload["metadata"]["annotations"]["originImageName"])
 
     def test_resolves_compose_image_default_expressions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1305,6 +1351,108 @@ class ComposeToTemplateTests(unittest.TestCase):
             host_ref = mongo_host.get("valueFrom", {}).get("secretKeyRef", {})
             self.assertEqual("${{ defaults.app_name }}-mongo-mongodb-account-root", host_ref.get("name"))
             self.assertEqual("host", host_ref.get("key"))
+
+    def test_librechat_mongodb_8_0_20_never_enters_application_workload_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  api:
+                    image: ghcr.io/danny-avila/librechat:v0.8.0-rc2
+                    ports:
+                      - "3080:3080"
+                    environment:
+                      MONGO_URI: mongodb://mongo:27017/LibreChat
+                  mongo:
+                    image: mongo:8.0.20
+                    command:
+                      - mongod
+                      - --noauth
+                    volumes:
+                      - mongo-data:/data/db
+                volumes:
+                  mongo-data:
+                """,
+            )
+
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("librechat"),
+            )
+            docs = parse_yaml_documents(index_path)
+
+            mongodb_clusters = [
+                doc
+                for doc in docs
+                if doc.get("kind") == "Cluster"
+                and doc.get("metadata", {}).get("labels", {}).get("kb.io/database") == "mongodb-8.0.4"
+            ]
+            self.assertEqual(1, len(mongodb_clusters))
+            mongo_component = mongodb_clusters[0]["spec"]["componentSpecs"][0]
+            self.assertEqual("mongodb", mongo_component["componentDef"])
+            self.assertEqual("8.0.4", mongo_component["serviceVersion"])
+            self.assertEqual(
+                {
+                    "limits": {"cpu": "500m", "memory": "512Mi"},
+                    "requests": {"cpu": "50m", "memory": "51Mi"},
+                },
+                mongo_component["resources"],
+            )
+
+            raw_workload_kinds = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
+            raw_mongo_images = []
+            for doc in docs:
+                if doc.get("kind") not in raw_workload_kinds:
+                    continue
+                spec = doc.get("spec", {})
+                if doc.get("kind") == "CronJob":
+                    template_spec = (
+                        spec.get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+                    )
+                else:
+                    template_spec = spec.get("template", {}).get("spec", {})
+                raw_mongo_images.extend(
+                    container.get("image")
+                    for container in template_spec.get("containers", [])
+                    if str(container.get("image", "")).startswith("mongo:")
+                )
+            self.assertEqual([], raw_mongo_images)
+            self.assertFalse(
+                any(
+                    doc.get("kind") == "Service"
+                    and "mongo" in str(doc.get("metadata", {}).get("name", "")).lower()
+                    for doc in docs
+                )
+            )
+
+    def test_refuses_database_only_compose_instead_of_generating_statefulset(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  mongo:
+                    image: mongo:8.0.20
+                    command: [mongod, --noauth]
+                    volumes:
+                      - mongo-data:/data/db
+                volumes:
+                  mongo-data:
+                """,
+            )
+
+            with self.assertRaisesRegex(ValueError, "no application service"):
+                convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("mongo-only"),
+                )
 
     def test_composes_mongodb_url_with_service_host_and_credential_secret(self):
         with tempfile.TemporaryDirectory() as temp_dir:

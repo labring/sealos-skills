@@ -170,6 +170,24 @@
         {"name": "validates-generated-artifact", "description": "Runs quality_gate.py with --artifacts pointing to .sealos/template/index.yaml before configuration or deployment"},
         {"name": "rejects-unquoted-input-default", "description": "Treats R052 or the equivalent string-type validation failure as blocking and fixes the template before continuing"}
       ]
+    },
+    {
+      "id": 14,
+      "prompt": "/sealos-deploy https://github.com/danny-avila/LibreChat，使用官方多组件 Compose；模板中 RAG 固定使用 OpenAI embeddings，并且 PostgreSQL 需要 vector 扩展。只允许使用该 skill 已有的产物。",
+      "expected_output": "Generates the existing Sealos template artifact with pinned component images, official health probes, valid runtime credentials, and a database final-state gate; the complete docker-to-sealos quality gate passes against the exact final template before deployment, with no new artifact type introduced",
+      "files": [],
+      "assertions": [
+        {"name": "pins-component-images", "description": "Resolves :latest or floating LibreChat component tags to an explicit version tag or digest"},
+        {"name": "uses-official-rag-health", "description": "Uses /health on port 8000 for LibreChat RAG probes instead of probing /"},
+        {"name": "validates-format-constrained-credentials", "description": "Does not use bare random() defaults for LibreChat CREDS_KEY/CREDS_IV hex contracts"},
+        {"name": "requires-selected-provider-credential", "description": "OpenAI embeddings is paired with a non-empty required OpenAI credential rather than an optional empty input"},
+        {"name": "gates-rag-on-vector-state", "description": "RAG has an initContainer gate that waits for PostgreSQL and verifies the vector extension before startup"},
+        {"name": "classifies-mongodb-as-database", "description": "Converts the official mongo:8.0.20 service into the pinned MongoDB KubeBlocks Cluster contract"},
+        {"name": "rejects-raw-mongodb-workload", "description": "Emits no MongoDB Deployment, StatefulSet, DaemonSet, Job, CronJob, or standalone Service"},
+        {"name": "does-not-assume-ghcr-private", "description": "Does not add imagePullSecrets solely because an image is hosted on GHCR"},
+        {"name": "fails-closed-before-deploy", "description": "Runs the complete docker-to-sealos quality gate after final template mutation and does not deploy while the gate is failing"},
+        {"name": "keeps-existing-artifact-inventory", "description": "Introduces no generated artifact type beyond the full deploy skill's existing artifact inventory"}
+      ]
     }
   ]
 }
