@@ -3,14 +3,14 @@ name: sealos-deploy
 description: Deploy compatible server, static-web, worker, scheduled-job, or reviewed remote-desktop workloads from GitHub or local source to Sealos Cloud. Reject unsupported desktop, mobile, CLI, library, extension, hardware-dependent, mixed, and unidentified targets before readiness scoring or build. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
 metadata:
   author: labring
-  compatibility: Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ and Python 3.8+ remain optional accelerators.
+  compatibility: Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
 ---
 
 # Sealos Deploy
 
 ## Compatibility
 
-Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ and Python 3.8+ remain optional accelerators.
+Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
 
 
 Deploy compatible cloud workloads to Sealos Cloud, stopping unsupported targets

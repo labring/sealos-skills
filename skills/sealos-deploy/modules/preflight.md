@@ -38,7 +38,15 @@ git --version 2>/dev/null
 
 # Optional (enables script acceleration)
 node --version 2>/dev/null
-python3 --version 2>/dev/null
+
+# Conditional (required for Phase 5 template generation and validation)
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -n "$PYTHON_BIN" ]; then
+  "$PYTHON_BIN" --version 2>/dev/null
+  "$PYTHON_BIN" -c 'import yaml' 2>/dev/null
+fi
+kompose version 2>/dev/null || true
+crane version 2>/dev/null || true
 
 # Optional (enables GHCR push — preferred over Docker Hub)
 gh --version 2>/dev/null
@@ -60,6 +68,9 @@ ENV.docker    = true/false
 ENV.git       = true/false
 ENV.node      = true/false
 ENV.python    = true/false
+ENV.pyyaml    = true/false
+ENV.kompose   = true/false
+ENV.crane     = true/false
 ENV.kubectl   = true/false   (required for update-mode rollout operations)
 ENV.gh        = true/false   (enables zero-interaction GHCR push)
 ENV.curl      = true/false
@@ -117,7 +128,15 @@ docker info 2>/dev/null
   - `sealos-auth.mjs` → AI runs curl to exchange token for kubeconfig (workspace list/switch not available in fallback mode)
 
 **Python:**
-- If missing, Sealos template validation (Phase 5) uses AI self-check instead of `quality_gate.py`
+- Python with PyYAML is required when the run reaches Phase 5.
+- Missing Python or PyYAML is a conditional blocker, not permission to replace the deterministic quality gate with an AI-only self-check.
+- Do not install Python or PyYAML automatically from this workflow; report the missing capability and stop before template generation.
+
+**Compose conversion tools:**
+- `kompose` is required when a supported root Compose file must be converted.
+- `crane` is required when that conversion must resolve a floating image tag.
+- Record missing tools during preflight, but stop only if Phase 5 reaches the matching path.
+- Do not install these tools automatically from this workflow.
 
 **kubectl (required for in-place updates):**
 - Needed for updating already-deployed apps with `kubectl set image` and `kubectl rollout`
@@ -165,7 +184,16 @@ Detect these now and report them early, but do **not** stop a fresh deploy:
 
 These become hard blockers only if the run enters UPDATE mode or needs rollout verification through kubectl.
 
-### 2.4 Early Reporting Rule
+### 2.4 Template-Path Warnings
+
+Detect these now and report them early, but do **not** stop before the run reaches Phase 5:
+- Python or PyYAML missing
+- supported root Compose file present and `kompose` missing
+- floating Compose image tag present and `crane` missing
+
+These findings become hard blockers when Phase 5 reaches the matching generation or validation path.
+
+### 2.5 Early Reporting Rule
 
 At the end of preflight, explicitly tell the user:
 - which items are ready
@@ -176,6 +204,7 @@ At the end of preflight, explicitly tell the user:
 Example:
 - "Docker is not ready. This will block Phase 4 local build, but we can still continue to detect whether an existing image can be reused."
 - "`kubectl` is missing. Fresh deploy can continue, but UPDATE mode and rollout verification will be blocked until it is installed."
+- "Python with PyYAML is missing. Earlier analysis can continue, but Phase 5 template generation and validation will stop."
 - "Template fast path will check configured GitHub repo → Sealos template mappings before source analysis."
 
 ## Step 3: Project Context

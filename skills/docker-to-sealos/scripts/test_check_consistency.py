@@ -801,6 +801,273 @@ class CheckConsistencyTests(unittest.TestCase):
         )
         self.assertTrue(any(item.rule_id == "R024" for item in violations))
 
+    def test_detects_wrong_librechat_rag_probe_path(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: rag
+              labels:
+                app: rag
+                cloud.sealos.io/app-deploy-manager: rag
+              annotations:
+                originImageName: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                metadata:
+                  labels:
+                    app: rag
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: rag
+                      image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+                      imagePullPolicy: IfNotPresent
+                      livenessProbe:
+                        httpGet:
+                          path: /
+                          port: 8000
+                      readinessProbe:
+                        httpGet:
+                          path: /
+                          port: 8000
+                      startupProbe:
+                        httpGet:
+                          path: /
+                          port: 8000
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R024" for item in violations))
+
+    def test_allows_official_librechat_rag_probe_path_and_port(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: rag
+              labels:
+                app: rag
+                cloud.sealos.io/app-deploy-manager: rag
+              annotations:
+                originImageName: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+            spec:
+              revisionHistoryLimit: 1
+              template:
+                metadata:
+                  labels:
+                    app: rag
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: rag
+                      image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+                      imagePullPolicy: IfNotPresent
+                      livenessProbe:
+                        httpGet:
+                          path: /health
+                          port: 8000
+                      readinessProbe:
+                        httpGet:
+                          path: /health
+                          port: 8000
+                      startupProbe:
+                        httpGet:
+                          path: /health
+                          port: 8000
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R024" for item in violations))
+
+    def test_detects_format_incompatible_librechat_credential_defaults(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              defaults:
+                creds_key:
+                  type: string
+                  value: ${{ random(64) }}
+                creds_iv:
+                  type: string
+                  value: ${{ random(32) }}
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                app: demo
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: ghcr.io/danny-avila/librechat:v0.8.0
+            spec:
+              template:
+                metadata:
+                  labels:
+                    app: demo
+                spec:
+                  containers:
+                    - name: demo
+                      image: ghcr.io/danny-avila/librechat:v0.8.0
+                      env:
+                        - name: CREDS_KEY
+                          value: ${{ defaults.creds_key }}
+                        - name: CREDS_IV
+                          value: ${{ defaults.creds_iv }}
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R052" for item in violations))
+
+    def test_allows_required_inputs_for_format_constrained_librechat_credentials(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                creds_key:
+                  description: 64-character hexadecimal credential key
+                  type: string
+                  required: true
+                creds_iv:
+                  description: 32-character hexadecimal credential IV
+                  type: string
+                  required: true
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+              labels:
+                app: demo
+                cloud.sealos.io/app-deploy-manager: demo
+              annotations:
+                originImageName: ghcr.io/danny-avila/librechat:v0.8.0
+            spec:
+              template:
+                metadata:
+                  labels:
+                    app: demo
+                spec:
+                  containers:
+                    - name: demo
+                      image: ghcr.io/danny-avila/librechat:v0.8.0
+                      env:
+                        - name: CREDS_KEY
+                          value: ${{ inputs.creds_key }}
+                        - name: CREDS_IV
+                          value: ${{ inputs.creds_iv }}
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R052" for item in violations))
+
+    def test_detects_empty_credential_for_selected_rag_provider(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              inputs:
+                rag_openai_api_key:
+                  description: OpenAI API key
+                  type: string
+                  default: ''
+                  required: false
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: rag
+              labels:
+                app: rag
+                cloud.sealos.io/app-deploy-manager: rag
+              annotations:
+                originImageName: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+            spec:
+              template:
+                metadata:
+                  labels:
+                    app: rag
+                spec:
+                  containers:
+                    - name: rag
+                      image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+                      env:
+                        - name: EMBEDDINGS_PROVIDER
+                          value: openai
+                        - name: RAG_OPENAI_API_KEY
+                          value: ${{ inputs.rag_openai_api_key }}
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R053" for item in violations))
+
+    def test_detects_missing_rag_database_final_state_gate(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: rag
+              labels:
+                app: rag
+                cloud.sealos.io/app-deploy-manager: rag
+              annotations:
+                originImageName: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+            spec:
+              template:
+                metadata:
+                  labels:
+                    app: rag
+                spec:
+                  containers:
+                    - name: rag
+                      image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R054" for item in violations))
+
+    def test_allows_rag_database_final_state_gate(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: rag
+              labels:
+                app: rag
+                cloud.sealos.io/app-deploy-manager: rag
+              annotations:
+                originImageName: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+            spec:
+              template:
+                metadata:
+                  labels:
+                    app: rag
+                spec:
+                  initContainers:
+                    - name: wait-for-vector
+                      image: postgres:16.4
+                      command:
+                        - sh
+                        - -c
+                        - until pg_isready; do sleep 2; done; until psql -c "select extname from pg_extension where extname='vector'"; do sleep 2; done
+                  containers:
+                    - name: rag
+                      image: ghcr.io/danny-avila/librechat-rag-api-dev-lite:v0.3.0
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R054" for item in violations))
+
     def test_detects_runtime_bundle_image_version_mismatch(self):
         violations = self.run_artifact_checker(
             """
@@ -4972,7 +5239,7 @@ __MOUNTS__
         )
         self.assertTrue(any(item.rule_id == "R035" for item in violations))
 
-    def test_detects_missing_private_registry_pull_secret_reference(self):
+    def test_allows_ghcr_image_without_static_private_registry_assumption(self):
         violations = self.run_checker(
             """
             ```yaml
@@ -5000,7 +5267,7 @@ __MOUNTS__
             ```
             """
         )
-        self.assertTrue(any(item.rule_id == "R035" for item in violations))
+        self.assertFalse(any(item.rule_id == "R035" for item in violations))
 
     def test_detects_object_storage_secret_misuse_on_non_s3_env(self):
         violations = self.run_checker(
@@ -5431,10 +5698,9 @@ __MOUNTS__
         )
         self.assertTrue(any(item.rule_id == "R011" for item in violations))
 
-    def test_allows_statefulset_volume_claim_template_without_storage_tracking_labels(self):
-        violations = self.run_checker(
+    def test_allows_statefulset_volume_claim_template_contract(self):
+        violations = self.run_artifact_checker(
             """
-            ```yaml
             apiVersion: apps/v1
             kind: StatefulSet
             metadata:
@@ -5457,17 +5723,67 @@ __MOUNTS__
                     - name: demo
                       image: nginx:1.27.2
                       imagePullPolicy: IfNotPresent
+                      volumeMounts:
+                        - name: vn-data
+                          mountPath: /data
               volumeClaimTemplates:
                 - metadata:
-                    name: data
+                    name: vn-data
+                    annotations:
+                      path: /data
+                      value: '1'
                   spec:
                     resources:
                       requests:
                         storage: 1Gi
-            ```
             """
         )
-        self.assertFalse(violations)
+        self.assertFalse(any(item.rule_id == "R055" for item in violations))
+
+    def test_detects_invalid_statefulset_volume_claim_template_contract(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: demo
+              labels:
+                app: demo
+                cloud.sealos.io/app-deploy-manager: demo
+                cloud.sealos.io/deploy-on-sealos: demo
+            spec:
+              revisionHistoryLimit: 1
+              selector:
+                matchLabels:
+                  app: demo
+              template:
+                metadata:
+                  labels:
+                    app: demo
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+                      imagePullPolicy: IfNotPresent
+                      volumeMounts:
+                        - name: data
+                          mountPath: /data
+              volumeClaimTemplates:
+                - metadata:
+                    name: data
+                    labels:
+                      cloud.sealos.io/deploy-on-sealos: demo
+                    annotations:
+                      path: /data
+                      value: 1
+                  spec:
+                    resources:
+                      requests:
+                        storage: 1Gi
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R055" for item in violations))
 
     def test_allows_declared_template_input_references(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -6099,6 +6415,62 @@ __MOUNTS__
             )
             self.assertFalse(any(item.rule_id == "R040" for item in violations))
 
+    def test_detects_invalid_mongodb_cluster_schema_in_artifact(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps.kubeblocks.io/v1alpha1
+            kind: Cluster
+            metadata:
+              name: demo-mongo
+              labels:
+                kb.io/database: mongodb-8.0.4
+                sealos-db-provider-cr: demo-mongo
+                clusterdefinition.kubeblocks.io/name: mongodb
+                app.kubernetes.io/instance: demo-mongo
+            spec:
+              componentSpecs:
+                - name: postgresql
+                  componentDefRef: postgresql
+                  serviceVersion: 16.4.0
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 50m
+                      memory: 51Mi
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R056" for item in violations))
+
+    def test_allows_upgraded_mongodb_cluster_schema_in_artifact(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps.kubeblocks.io/v1alpha1
+            kind: Cluster
+            metadata:
+              name: demo-mongo
+              labels:
+                kb.io/database: mongodb-8.0.4
+                sealos-db-provider-cr: demo-mongo
+                clusterdefinition.kubeblocks.io/name: mongodb
+                app.kubernetes.io/instance: demo-mongo
+            spec:
+              componentSpecs:
+                - name: mongodb
+                  componentDef: mongodb
+                  serviceVersion: 8.0.4
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 50m
+                      memory: 51Mi
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R056" for item in violations))
+
     def test_detects_raw_database_statefulset_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -6146,6 +6518,59 @@ __MOUNTS__
                 additional_include_paths=["template/demo/index.yaml"],
             )
             self.assertTrue(any(item.rule_id == "R039" for item in violations))
+
+    def test_detects_librechat_mongodb_statefulset_in_artifact(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps/v1
+            kind: StatefulSet
+            metadata:
+              name: librechat-gsxbjhkd-mongodb
+              annotations:
+                originImageName: mongo:8.0.20
+              labels:
+                cloud.sealos.io/app-deploy-manager: librechat-gsxbjhkd-mongodb
+                app: librechat-gsxbjhkd-mongodb
+            spec:
+              replicas: 1
+              revisionHistoryLimit: 1
+              selector:
+                matchLabels:
+                  app: librechat-gsxbjhkd-mongodb
+              template:
+                metadata:
+                  labels:
+                    app: librechat-gsxbjhkd-mongodb
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: librechat-gsxbjhkd-mongodb
+                      image: mongo:8.0.20
+                      imagePullPolicy: IfNotPresent
+                      args: [mongod, --noauth]
+                      resources:
+                        limits:
+                          cpu: 500m
+                          memory: 512Mi
+                        requests:
+                          cpu: 50m
+                          memory: 51Mi
+                      volumeMounts:
+                        - name: data
+                          mountPath: /data/db
+              volumeClaimTemplates:
+                - metadata:
+                    name: data
+                    annotations:
+                      path: /data/db
+                      value: '1'
+                  spec:
+                    resources:
+                      requests:
+                        storage: 1Gi
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R039" for item in violations))
 
     def test_detects_raw_database_resources_across_supported_kinds(self):
         with tempfile.TemporaryDirectory() as temp_dir:
