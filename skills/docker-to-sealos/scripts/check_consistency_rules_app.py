@@ -2891,7 +2891,7 @@ def check_runtime_env_value_constraints(context: ScanContext) -> List[Violation]
                 if env_item is None:
                     add_doc_violation(
                         violations,
-                        rule_id="R052",
+                        rule_id="R053",
                         doc=doc,
                         pattern=r"^\s*env\s*:",
                         default_pattern=r"^\s*containers\s*:",
@@ -2914,7 +2914,7 @@ def check_runtime_env_value_constraints(context: ScanContext) -> List[Violation]
                 expected_text = f"{expected_length}-character {expected_format}" if expected_length else str(expected_format)
                 add_doc_violation(
                     violations,
-                    rule_id="R052",
+                    rule_id="R053",
                     doc=doc,
                     pattern=rf"^\s*-\s*name\s*:\s*{re.escape(env_name)}\s*$",
                     default_pattern=r"^\s*env\s*:",
@@ -3005,7 +3005,7 @@ def check_runtime_provider_credentials(context: ScanContext) -> List[Violation]:
 
                 add_doc_violation(
                     violations,
-                    rule_id="R053",
+                    rule_id="R054",
                     doc=doc,
                     pattern=rf"^\s*-\s*name\s*:\s*{re.escape(provider_env)}\s*$",
                     default_pattern=r"^\s*env\s*:",
@@ -3106,7 +3106,7 @@ def check_runtime_startup_gates(context: ScanContext) -> List[Violation]:
 
             add_doc_violation(
                 violations,
-                rule_id="R054",
+                rule_id="R055",
                 doc=doc,
                 pattern=r"^\s*initContainers\s*:",
                 default_pattern=r"^\s*containers\s*:",
@@ -4780,9 +4780,9 @@ APP_RULES: Dict[str, Rule] = {
     "R022": Rule("R022", check_template_i18n_zh_title_absent),
     "R023": Rule("R023", check_template_categories_allowed),
     "R024": Rule("R024", check_official_health_probes),
-    "R052": Rule("R052", check_runtime_env_value_constraints),
-    "R053": Rule("R053", check_runtime_provider_credentials),
-    "R054": Rule("R054", check_runtime_startup_gates),
+    "R053": Rule("R053", check_runtime_env_value_constraints),
+    "R054": Rule("R054", check_runtime_provider_credentials),
+    "R055": Rule("R055", check_runtime_startup_gates),
     "R046": Rule("R046", check_runtime_bundle_consistency),
     "R050": Rule("R050", check_topology_evidence_consistency),
     "R036": Rule("R036", check_cronjob_required_labels),

@@ -442,7 +442,7 @@ def check_mongodb_cluster_schema(context: ScanContext) -> List[Violation]:
         if doc.data.get("apiVersion") != "apps.kubeblocks.io/v1alpha1":
             add_doc_violation(
                 violations,
-                rule_id="R056",
+                rule_id="R057",
                 doc=doc,
                 pattern=r"^\s*apiVersion\s*:",
                 message="MongoDB Cluster apiVersion must be apps.kubeblocks.io/v1alpha1",
@@ -462,7 +462,7 @@ def check_mongodb_cluster_schema(context: ScanContext) -> List[Violation]:
                 continue
             add_doc_violation(
                 violations,
-                rule_id="R056",
+                rule_id="R057",
                 doc=doc,
                 pattern=rf"^\s*{re.escape(key)}\s*:",
                 default_pattern=r"^\s*labels\s*:",
@@ -475,7 +475,7 @@ def check_mongodb_cluster_schema(context: ScanContext) -> List[Violation]:
         if not isinstance(component, dict):
             add_doc_violation(
                 violations,
-                rule_id="R056",
+                rule_id="R057",
                 doc=doc,
                 pattern=r"^\s*componentSpecs\s*:",
                 default_pattern=r"^\s*spec\s*:",
@@ -493,7 +493,7 @@ def check_mongodb_cluster_schema(context: ScanContext) -> List[Violation]:
                 continue
             add_doc_violation(
                 violations,
-                rule_id="R056",
+                rule_id="R057",
                 doc=doc,
                 pattern=rf"^\s*{re.escape(key)}\s*:",
                 default_pattern=r"^\s*componentSpecs\s*:",
@@ -521,7 +521,7 @@ def check_statefulset_volume_claim_metadata(context: ScanContext) -> List[Violat
         if isinstance(workload_labels, dict) and TEMPLATE_DEPLOY_KEY in workload_labels:
             add_doc_violation(
                 violations,
-                rule_id="R055",
+                rule_id="R056",
                 doc=doc,
                 pattern=rf"^\s*{re.escape(TEMPLATE_DEPLOY_KEY)}\s*:",
                 default_pattern=r"^\s*labels\s*:",
@@ -549,7 +549,7 @@ def check_statefulset_volume_claim_metadata(context: ScanContext) -> List[Violat
             if not isinstance(claim_metadata, dict):
                 add_doc_violation(
                     violations,
-                    rule_id="R055",
+                    rule_id="R056",
                     doc=doc,
                     pattern=r"^\s*volumeClaimTemplates\s*:",
                     message="each volumeClaimTemplates item must define metadata",
@@ -560,7 +560,7 @@ def check_statefulset_volume_claim_metadata(context: ScanContext) -> List[Violat
             if isinstance(claim_labels, dict) and TEMPLATE_DEPLOY_KEY in claim_labels:
                 add_doc_violation(
                     violations,
-                    rule_id="R055",
+                    rule_id="R056",
                     doc=doc,
                     pattern=rf"^\s*{re.escape(TEMPLATE_DEPLOY_KEY)}\s*:",
                     default_pattern=r"^\s*volumeClaimTemplates\s*:",
@@ -574,7 +574,7 @@ def check_statefulset_volume_claim_metadata(context: ScanContext) -> List[Violat
             if not isinstance(path, str) or not path.strip():
                 add_doc_violation(
                     violations,
-                    rule_id="R055",
+                    rule_id="R056",
                     doc=doc,
                     pattern=r"^\s*annotations\s*:",
                     default_pattern=r"^\s*volumeClaimTemplates\s*:",
@@ -586,7 +586,7 @@ def check_statefulset_volume_claim_metadata(context: ScanContext) -> List[Violat
             if value != "1":
                 add_doc_violation(
                     violations,
-                    rule_id="R055",
+                    rule_id="R056",
                     doc=doc,
                     pattern=r"^\s*value\s*:",
                     default_pattern=r"^\s*annotations\s*:",
@@ -598,7 +598,7 @@ def check_statefulset_volume_claim_metadata(context: ScanContext) -> List[Violat
             except ValueError:
                 add_doc_violation(
                     violations,
-                    rule_id="R055",
+                    rule_id="R056",
                     doc=doc,
                     pattern=r"^\s*path\s*:",
                     default_pattern=r"^\s*annotations\s*:",
@@ -608,7 +608,7 @@ def check_statefulset_volume_claim_metadata(context: ScanContext) -> List[Violat
             if name != expected_name:
                 add_doc_violation(
                     violations,
-                    rule_id="R055",
+                    rule_id="R056",
                     doc=doc,
                     pattern=r"^\s*name\s*:",
                     default_pattern=r"^\s*volumeClaimTemplates\s*:",
@@ -621,7 +621,7 @@ def check_statefulset_volume_claim_metadata(context: ScanContext) -> List[Violat
             if (expected_name, path) not in mounted_paths:
                 add_doc_violation(
                     violations,
-                    rule_id="R055",
+                    rule_id="R056",
                     doc=doc,
                     pattern=r"^\s*volumeClaimTemplates\s*:",
                     message=(
@@ -639,7 +639,7 @@ STORAGE_RULES: Dict[str, Rule] = {
     "R011": Rule("R011", check_pvc_storage_limit),
     "R019": Rule("R019", check_database_cluster_component_resources),
     "R040": Rule("R040", check_database_cluster_visibility_labels),
-    "R056": Rule("R056", check_mongodb_cluster_schema),
+    "R057": Rule("R057", check_mongodb_cluster_schema),
     "R038": Rule("R038", check_managed_workload_resource_ladder),
-    "R055": Rule("R055", check_statefulset_volume_claim_metadata),
+    "R056": Rule("R056", check_statefulset_volume_claim_metadata),
 }
