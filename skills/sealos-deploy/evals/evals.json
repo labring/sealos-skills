@@ -162,7 +162,7 @@
     {
       "id": 13,
       "prompt": "/sealos-deploy https://github.com/danny-avila/LibreChat，使用官方多组件 Compose；模板中 RAG 固定使用 OpenAI embeddings，并且 PostgreSQL 需要 vector 扩展。只允许生成该 skill 已有的产物。",
-      "expected_output": "Generates the existing Sealos template artifact with pinned component images, official health probes, valid runtime credentials, and a database final-state gate; the complete docker-to-sealos quality gate passes before the existing delivery manifest is written, with no new artifact type introduced",
+      "expected_output": "Generates the existing Sealos template artifact with pinned component images, official health probes, valid runtime credentials, and a database final-state gate; the complete docker-to-sealos quality gate passes before the delivery manifest is written, with only the bounded catalog-reference evidence added to the prepare-only artifact inventory",
       "files": [],
       "assertions": [
         {"name": "pins-component-images", "description": "Resolves :latest or floating LibreChat component tags to an explicit version tag or digest"},
@@ -174,7 +174,21 @@
         {"name": "rejects-raw-mongodb-workload", "description": "Emits no MongoDB Deployment, StatefulSet, DaemonSet, Job, CronJob, or standalone Service"},
         {"name": "does-not-assume-ghcr-private", "description": "Does not add imagePullSecrets solely because an image is hosted on GHCR"},
         {"name": "fails-closed-before-manifest", "description": "Runs the complete docker-to-sealos quality gate after final template mutation and does not write delivery-manifest.json on failure"},
-        {"name": "keeps-existing-artifact-inventory", "description": "Introduces no generated artifact beyond the skill's existing analysis, build request/result, template, Dockerfile, and delivery manifest outputs"}
+        {"name": "keeps-bounded-artifact-inventory", "description": "Adds only .sealos/template-references.json and its selected .sealos/template-references/*.yaml files to the existing analysis, build request/result, template, Dockerfile, and delivery manifest outputs"}
+      ]
+    },
+    {
+      "id": 14,
+      "prompt": "/sealos-deploy https://github.com/toeverything/AFFiNE",
+      "expected_output": "After eligibility, readiness assessment, and the optional Railpack probe, discovers exact and similar kb-0.9 catalog references dynamically, records bounded untrusted evidence, and continues through the normal prepare-only image, build, template, validation, and delivery-manifest phases without deploying",
+      "files": [],
+      "assertions": [
+        {"name": "runs-analysis-first", "description": "Completes eligibility and writes validated .sealos/analysis.json before catalog discovery"},
+        {"name": "matches-catalog-dynamically", "description": "Uses normalized spec.gitRepo metadata from the kb-0.9 catalog to find exact and ranked similar references without an app whitelist"},
+        {"name": "writes-bounded-reference-artifacts", "description": "Writes .sealos/template-references.json with available, stale, disabled, or unavailable catalog state and materializes only the selected reference YAML files"},
+        {"name": "does-not-bypass-normal-phases", "description": "Treats catalog YAML as untrusted suggestion evidence and still performs independent image checks, build or reuse decisions, template generation, and validation"},
+        {"name": "catalog-failure-is-nonblocking", "description": "Continues the prepare flow with an unavailable or stale reference artifact when network refresh or catalog parsing fails"},
+        {"name": "remains-prepare-only", "description": "Finishes with .sealos/delivery-manifest.json and does not invoke Template API deployment, UPDATE mode, rollout, rollback, or runtime smoke verification"}
       ]
     }
   ]

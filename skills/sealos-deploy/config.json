@@ -1,4 +1,12 @@
 {
   "default_target_registry": "ghcr.io",
-  "default_image_tag_prefix": "prepare"
+  "default_image_tag_prefix": "prepare",
+  "template_catalog": {
+    "enabled": true,
+    "repository": "https://github.com/labring-actions/templates.git",
+    "ref": "kb-0.9",
+    "template_root": "template",
+    "cache_ttl_seconds": 86400,
+    "similar_limit": 3
+  }
 }
