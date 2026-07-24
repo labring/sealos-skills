@@ -179,7 +179,7 @@
       "files": [],
       "assertions": [
         {"name": "does-not-bypass-local-changes", "description": "Phase 1.5 records continue_standard_pipeline and does not replace the modified checkout with an official catalog template"},
-        {"name": "pins-component-images", "description": "Resolves :latest or floating LibreChat component tags to an explicit version tag or digest"},
+        {"name": "pins-component-images", "description": "Accepts the exact declared selectors, verifies linux/amd64, and resolves every emitted LibreChat component image to an immutable digest"},
         {"name": "uses-official-rag-health", "description": "Uses /health on port 8000 for LibreChat RAG probes instead of probing /"},
         {"name": "validates-format-constrained-credentials", "description": "Does not use bare random() defaults for LibreChat CREDS_KEY/CREDS_IV hex contracts"},
         {"name": "requires-selected-provider-credential", "description": "OpenAI embeddings is paired with a non-empty required OpenAI credential rather than an optional empty input"},
@@ -317,6 +317,34 @@
         {"name": "inventories-before-mutation", "description": "Checks recent Instances, Apps, and template resource kinds and names before any retry"},
         {"name": "prevents-duplicate-random-deploy", "description": "Preserves resolved identifiers and never renders a second random app name or host"},
         {"name": "stops-ambiguous-retry", "description": "If no footprint is visible, keeps the outcome unknown and does not retry or use kubectl fallback"}
+      ]
+    },
+    {
+      "id": 26,
+      "prompt": "Deploy a Compose project with a README image acme/frontend:latest, a CI-published ghcr.io/acme/api:v2, and Compose services frontend, api, postgres:16, redis:stable, and a build-only worker. The registry reports frontend, api, postgres, and redis for linux/amd64.",
+      "expected_output": "Phase 2 inventories the whole project using README before CI before Compose, resolves each exact declared selector to a digest, preserves the database, cache, and build-only worker, and sends only the worker through Dockerfile/build preparation",
+      "files": [],
+      "assertions": [
+        {"name": "uses-declared-evidence-order", "description": "Uses README, then CI publish evidence, then Compose; it does not guess an image from the GitHub owner/repository name"},
+        {"name": "accepts-floating-selectors", "description": "Treats latest, stable, and v2 as valid source selectors and does not search for replacement version tags"},
+        {"name": "requires-amd64", "description": "Reuses only image declarations whose exact selector is verified for linux/amd64"},
+        {"name": "emits-immutable-references", "description": "Records reusable images as repository@sha256 digest references"},
+        {"name": "preserves-complete-topology", "description": "Keeps frontend, api, PostgreSQL, Redis, and worker in the service inventory rather than filtering infrastructure"},
+        {"name": "builds-per-service", "description": "Runs Phase 3 and Phase 4 only for the build-only worker instead of skipping or rebuilding the entire project"},
+        {"name": "keeps-database-capability", "description": "Carries PostgreSQL into Phase 5 for an equivalent KubeBlocks conversion and preserves its application wiring"}
+      ]
+    },
+    {
+      "id": 27,
+      "prompt": "Deploy a repository whose README declares app/image:2.1, but the manifest supports only linux/arm64. Its Dockerfile starts with FROM node:latest and the source is otherwise buildable for linux/amd64.",
+      "expected_output": "Phase 2 retains but does not reuse the arm64-only image, Phase 3 accepts the floating Dockerfile base tag, and Phase 4 builds a linux/amd64 application image that is resolved to a digest before template generation",
+      "files": [],
+      "assertions": [
+        {"name": "rejects-wrong-platform-not-tag", "description": "Rejects reuse because linux/amd64 is absent, not because the source selector is 2.1"},
+        {"name": "does-not-rewrite-selector", "description": "Does not replace 2.1 with a guessed exact version"},
+        {"name": "allows-floating-base", "description": "Does not classify FROM node:latest as a Dockerfile error by itself"},
+        {"name": "builds-amd64-fallback", "description": "Builds the available source with --platform linux/amd64"},
+        {"name": "digests-built-image", "description": "Resolves the pushed build tag to an immutable digest before Phase 5 emits it"}
       ]
     }
   ]

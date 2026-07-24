@@ -8,13 +8,10 @@ scope:
     - references/example-guide.md
 rules:
   - id: R001
-    description: Disallow :latest tags in image/originImageName fields.
-    severity: error
-  - id: R016
-    description: Disallow floating image tags (for example v2, 2.1, stable) on managed app workloads.
+    description: Emitted workload image and originImageName fields must use immutable repository@sha256 digest references.
     severity: error
   - id: R018
-    description: Disallow Compose-style variable expressions in managed workload image/originImageName fields.
+    description: Disallow Compose-style variable expressions in managed workload image/originImageName fields; resolve variables before crane digest resolution.
     severity: error
   - id: R002
     description: App resources must not use spec.template.

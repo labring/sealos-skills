@@ -74,9 +74,9 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - storage conversion and vn naming (`scripts/path_converter.py`)
 - service-name to Kubernetes FQDN conversion
 - for DB URL/DSN envs (for example `*_DATABASE_URL`, `*_DB_URL`), when Kubeblocks `endpoint` is host:port, inject `host`/`port`/`username`/`password` via approved `secretKeyRef` envs and compose the final URL with `$(VAR)` expansion
-- edge gateway normalization: when Compose includes Traefik-like edge proxy plus business services, skip the proxy workload and expose business services via Sealos Ingress directly
-- TLS offload normalization for Sealos Ingress: when a business service exposes both 80 and 443, drop 443 from workload/service ports and remove in-container TLS certificate mounts (for example `/etc/nginx/ssl`, `/etc/ssl`, `/certs`) unless official Kubernetes docs explicitly require HTTPS backend-to-service traffic
-- multi-service web normalization: expose the verified browser entry in the App resource, expose API/gateway/docs only when they are intended public surfaces, and keep workers private with no Service/Ingress
+- complete topology preservation: retain application, proxy/gateway, worker, queue, cache, search, storage, and other declared services; a Sealos-native transformation may change the resource kind but must preserve the service's runtime capability and dependency wiring
+- conservative TLS handling: preserve declared HTTP/HTTPS ports and certificate mounts by default; replace in-container TLS with Sealos Ingress termination only when project evidence proves the replacement preserves the backend protocol and certificate behavior
+- multi-service web normalization: expose the verified browser entry in the App resource, expose API/gateway/docs only when they are intended public surfaces, and keep workers off public Ingress by default while preserving any internal Service required by the source topology
 - URL topology: browser-facing env vars must use public HTTPS URLs, while server-to-server env vars must use Kubernetes Service FQDNs unless the app explicitly requires public callbacks
 - WebSocket ingress normalization: when the public entry is `ws://`, `wss://`, CDP/Chrome DevTools, a game socket, or a WebSocket-named port/service, expose it with WebSocket nginx ingress annotations
 - StatefulSet service identity: for a single-component app with no documented headless or stable per-Pod DNS requirement, use the public application Service as `spec.serviceName` and keep the workload, Service, root Ingress, and manager identity aligned; preserve documented HA/headless governing Services and expose them through a separate public application Service
@@ -178,10 +178,12 @@ For managed or private object storage, live validation must upload known bytes t
 
 ### Images and pull policy
 
-- Do not use `:latest`.
-- Resolve versions with `crane`: prefer an explicit version tag (for example `v2.2.0`), and fallback to digest pin only when a deterministic version tag is unavailable.
-- Avoid floating tags (for example `:v2`, `:2.1`, `:stable`); use an explicit version tag or digest.
-- Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag or digest before emitting template artifacts.
+- Input image references may use any tag (`latest`, `stable`, `v2`, `2.1`, an explicit version, or another registry tag) or be tagless.
+- Before generated template use, resolve every non-database workload image with `crane digest`, verify the resolved manifest includes `linux/amd64`, and emit only immutable `repository@sha256:<digest>` references.
+- For a Compose service that has `build:` but no `image:`, pass its Phase 4 result with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image.
+- Compose database service images are dependency and engine-classification evidence; after conversion to KubeBlocks, the generated template need not emit the original database image.
+- Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve variables first, then resolve the resulting image to an immutable digest with `crane`.
+- Generated workload `image` fields and application `originImageName` annotations must use immutable `repository@sha256:<digest>` references.
 - Application `originImageName` must match container image.
 - Known public-image managed app workloads must omit `template.spec.imagePullSecrets`; when a registry-authenticated workload needs a pull Secret, it may reference only the app-scoped Secret `${{ defaults.app_name }}`.
 - The registry pull Secret is runtime-managed by `sealos-deploy` using local `gh` CLI credentials for private GHCR images; do not expose raw registry credential inputs in generated templates.
@@ -233,10 +235,11 @@ For managed or private object storage, live validation must upload known bytes t
 ### Database-specific constraints
 
 - Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services.
+- Every Compose database service must remain a distinct KubeBlocks `Cluster` with its own name, Secret, FQDN, and application wiring; never merge two services merely because they use the same database engine.
 - Database client images may be used in app `initContainers` and init/migration/bootstrap Jobs for readiness and bootstrap gates.
 - PostgreSQL version: `postgresql-16.4.0`.
 - PostgreSQL API: `apps.kubeblocks.io/v1alpha1`.
-- PostgreSQL RBAC unified naming: `${{ defaults.app_name }}-pg`.
+- PostgreSQL RBAC unified naming: use `${{ defaults.app_name }}-pg` for one PostgreSQL service; when several PostgreSQL services exist, append each normalized Compose service name and use that full Cluster name consistently across RBAC.
 - PostgreSQL RBAC requires `app.kubernetes.io/instance` and `app.kubernetes.io/managed-by` labels.
 - Every KubeBlocks database `Cluster` must include `kb.io/database`, `sealos-db-provider-cr`, and `clusterdefinition.kubeblocks.io/name` labels; `sealos-db-provider-cr` must equal `metadata.name` so dbprovider can list and classify the database. Related Pods, Services, and OpsRequests should carry `app.kubernetes.io/instance=<database name>` for detail views.
 - PostgreSQL role wildcard permission requirement remains as defined in current spec.
@@ -248,9 +251,9 @@ For managed or private object storage, live validation must upload known bytes t
 - All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0.
 - Do not add, delete, or change existing `ephemeral-storage` resource fields during existing-template updates unless runtime evidence identifies ephemeral storage pressure; preserve the original requests/limits values while tuning CPU and memory.
 - Secret naming:
-  - MongoDB: `${{ defaults.app_name }}-mongo-mongodb-account-root` (or `${{ defaults.app_name }}-mongodb-mongodb-account-root` when the MongoDB cluster name uses `-mongodb`)
-  - Redis: `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)
-  - Kafka: `${{ defaults.app_name }}-broker-account-admin`
+  - MongoDB: `<cluster-name>-mongodb-account-root`; the single-service default is `${{ defaults.app_name }}-mongo-mongodb-account-root`
+  - Redis: `<cluster-name>-redis-account-default`; the single-service default is `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)
+  - Kafka: `<cluster-name>-account-admin`; the single-service default is `${{ defaults.app_name }}-broker-account-admin`
   - Do not use legacy naming outside supported exceptions.
 
 ### Baseline runtime defaults
@@ -371,8 +374,8 @@ Load only needed references for current task:
 - Keep App resource `spec.displayType: normal` and `spec.type: link`; do not infer alternative enum values.
 - Keep business-env, object storage, and DB-secret policy consistent with MUST rules.
 - Prefer square/circular icon-first logo assets (app icon/favicon/avatar) and avoid rectangular wordmark/text logos.
-- Prefer Sealos-managed ingress over bundled edge proxies: if a Traefik gateway is only acting as ingress/front-proxy and at least one business service exists, do not emit Traefik workload resources.
-- Prefer gateway TLS termination in Sealos Ingress over in-container TLS: for dual-port HTTP/HTTPS workloads, keep HTTP service port and remove redundant HTTPS/certificate mounts unless official docs require HTTPS backend.
+- Preserve declared proxies and gateways as topology-bearing services. A Sealos-native replacement is valid only when it retains their complete routing, middleware, protocol, and dependency behavior.
+- Preserve dual-port HTTP/HTTPS behavior and certificate mounts unless project evidence explicitly proves Sealos Ingress termination is a complete replacement.
 - Prefer WebSocket Ingress for public `ws://`, `wss://`, CDP/Chrome DevTools, game socket, and WebSocket-named ports/services; use `backend-protocol: WS` with `3600` read/send timeouts.
 - Never create `template/<app-name>/README.md` or `template/<app-name>/README_zh.md`; only keep README URL references inside `index.yaml` when required by the template schema.
 - Prefer fixing references/examples over adding exceptions when conflicts appear.

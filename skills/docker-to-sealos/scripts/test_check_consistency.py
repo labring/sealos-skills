@@ -1342,7 +1342,7 @@ class CheckConsistencyTests(unittest.TestCase):
                 app: demo-api
                 cloud.sealos.io/app-deploy-manager: demo-api
               annotations:
-                originImageName: ghcr.io/example/bundle-api:1.0.0
+                originImageName: ghcr.io/example/bundle-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
             spec:
               revisionHistoryLimit: 1
               template:
@@ -1352,7 +1352,7 @@ class CheckConsistencyTests(unittest.TestCase):
                     - name: ${{ defaults.app_name }}
                   containers:
                     - name: demo-api
-                      image: ghcr.io/example/bundle-api:1.0.0
+                      image: ghcr.io/example/bundle-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
                       imagePullPolicy: IfNotPresent
                       env:
                         - name: PUBLIC_ENDPOINT
@@ -1366,7 +1366,7 @@ class CheckConsistencyTests(unittest.TestCase):
                 app: demo-console
                 cloud.sealos.io/app-deploy-manager: demo-console
               annotations:
-                originImageName: ghcr.io/example/bundle-console:1.0.0
+                originImageName: ghcr.io/example/bundle-console@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
             spec:
               revisionHistoryLimit: 1
               template:
@@ -1376,7 +1376,7 @@ class CheckConsistencyTests(unittest.TestCase):
                     - name: ${{ defaults.app_name }}
                   containers:
                     - name: demo-console
-                      image: ghcr.io/example/bundle-console:1.0.0
+                      image: ghcr.io/example/bundle-console@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
                       imagePullPolicy: IfNotPresent
             ---
             apiVersion: v1
@@ -1442,8 +1442,10 @@ class CheckConsistencyTests(unittest.TestCase):
               appName: demo
               source: https://example.com/releases/v1/docker-compose.yml
               images:
-                - ghcr.io/example/bundle-api:1.0.0
-                - ghcr.io/example/bundle-console:1.0.0
+                - source: ghcr.io/example/bundle-api:latest
+                  resolved: ghcr.io/example/bundle-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                - source: ghcr.io/example/bundle-console:stable
+                  resolved: ghcr.io/example/bundle-console@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
               components:
                 - demo-api
                 - demo-console
@@ -2107,28 +2109,43 @@ class CheckConsistencyTests(unittest.TestCase):
             )
             self.assertTrue(any(item.rule_id == "R015" for item in violations))
 
-    def test_detects_latest_tag(self):
-        violations = self.run_checker(
-            """
-            ```yaml
-            apiVersion: apps/v1
-            kind: Deployment
-            spec:
-              template:
-                spec:
-                  containers:
-                    - name: demo
-                      image: nginx:latest
-                      imagePullPolicy: IfNotPresent
-            ```
-            """
-        )
-        self.assertTrue(any(item.rule_id == "R001" for item in violations))
+    def test_detects_any_non_digest_image_in_generated_artifact(self):
+        for image in (
+            "ghcr.io/example/demo:latest",
+            "ghcr.io/example/demo:stable",
+            "ghcr.io/example/demo:v2",
+            "ghcr.io/example/demo:2.1",
+            "ghcr.io/example/demo:v2.2.0",
+            "ghcr.io/example/demo",
+        ):
+            with self.subTest(image=image):
+                violations = self.run_artifact_checker(
+                    f"""
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: demo
+                      labels:
+                        cloud.sealos.io/app-deploy-manager: demo
+                      annotations:
+                        originImageName: {image}
+                    spec:
+                      revisionHistoryLimit: 1
+                      template:
+                        spec:
+                          automountServiceAccountToken: false
+                          containers:
+                            - name: demo
+                              image: {image}
+                              imagePullPolicy: IfNotPresent
+                    """
+                )
+                self.assertTrue(any(item.rule_id == "R001" for item in violations))
 
-    def test_detects_floating_tag_for_managed_workload(self):
-        violations = self.run_checker(
-            """
-            ```yaml
+    def test_allows_immutable_digest_for_generated_workload(self):
+        digest_image = "ghcr.io/example/demo@sha256:" + ("a" * 64)
+        violations = self.run_artifact_checker(
+            f"""
             apiVersion: apps/v1
             kind: Deployment
             metadata:
@@ -2136,7 +2153,7 @@ class CheckConsistencyTests(unittest.TestCase):
               labels:
                 cloud.sealos.io/app-deploy-manager: demo
               annotations:
-                originImageName: ghcr.io/example/demo:v2
+                originImageName: {digest_image}
             spec:
               revisionHistoryLimit: 1
               template:
@@ -2144,38 +2161,14 @@ class CheckConsistencyTests(unittest.TestCase):
                   automountServiceAccountToken: false
                   containers:
                     - name: demo
-                      image: ghcr.io/example/demo:v2
+                      image: {digest_image}
                       imagePullPolicy: IfNotPresent
-            ```
             """
         )
-        self.assertTrue(any(item.rule_id == "R016" for item in violations))
+        self.assertFalse(any(item.rule_id == "R001" for item in violations))
 
-    def test_allows_explicit_version_tag_for_managed_workload(self):
-        violations = self.run_checker(
-            """
-            ```yaml
-            apiVersion: apps/v1
-            kind: Deployment
-            metadata:
-              name: demo
-              labels:
-                cloud.sealos.io/app-deploy-manager: demo
-              annotations:
-                originImageName: ghcr.io/example/demo:v2.2.0
-            spec:
-              revisionHistoryLimit: 1
-              template:
-                spec:
-                  automountServiceAccountToken: false
-                  containers:
-                    - name: demo
-                      image: ghcr.io/example/demo:v2.2.0
-                      imagePullPolicy: IfNotPresent
-            ```
-            """
-        )
-        self.assertFalse(any(item.rule_id == "R016" for item in violations))
+    def test_floating_tag_rule_is_removed(self):
+        self.assertNotIn("R016", CHECKER.REGISTERED_RULES)
 
     def test_detects_compose_image_variables_for_managed_workload(self):
         violations = self.run_checker(

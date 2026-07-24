@@ -201,7 +201,7 @@ A successful Dockerfile must:
 **Build Phase**:
 1. Build without errors (`docker buildx build` exits 0)
 2. Image size reasonable (< 2GB for most apps)
-3. Follow production best practices (multi-stage, non-root, fixed versions)
+3. Follow production best practices (multi-stage, non-root, compatible base images)
 4. Include all necessary supporting files (.dockerignore, docker-compose.yml, etc.)
 5. Handle all workspace/monorepo requirements
 

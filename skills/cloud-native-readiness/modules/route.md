@@ -51,7 +51,7 @@ When artifacts are found and readiness is Good+:
 3. **Suggest improvements** (if partial):
    - Missing health checks
    - Missing .dockerignore
-   - Using :latest instead of fixed versions
+   - Base image incompatible with the declared runtime or target architecture
    - Missing multi-stage build
    - No non-root user
    - Missing restart policy in compose

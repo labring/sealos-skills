@@ -247,7 +247,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: yidadaa/chatgpt-next-web:v2.12.4
+    originImageName: yidadaa/chatgpt-next-web@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   labels:
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
     app: ${{ defaults.app_name }}
@@ -265,7 +265,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: yidadaa/chatgpt-next-web:v2.12.4
+          image: yidadaa/chatgpt-next-web@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
           imagePullPolicy: IfNotPresent
           env:
             - name: OPENAI_API_KEY
@@ -399,7 +399,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: c121914yu/fast-gpt:v1.0.0
+    originImageName: c121914yu/fast-gpt@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -423,7 +423,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: c121914yu/fast-gpt:v1.0.0
+    originImageName: c121914yu/fast-gpt@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -442,7 +442,7 @@ spec:
     spec:
       containers:
         - name: ${{ defaults.app_name }}
-          image: c121914yu/fast-gpt:v1.0.0
+          image: c121914yu/fast-gpt@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
           env:
             - name: MONGO_PASSWORD
               valueFrom:

@@ -73,7 +73,7 @@ publish pre-built images to registries (ghcr.io, Docker Hub), and Sealos referen
 ### Security Practices
 - **35% use non-root USER** (e.g., `USER node`, `USER nextjs`, `USER 1000`)
 - **18% have HEALTHCHECK** instruction
-- Most use fixed image versions (not `:latest`)
+- Base tags vary; runtime compatibility matters more than tag shape
 
 ### Entry Point Patterns
 | Pattern | Example | Used By |

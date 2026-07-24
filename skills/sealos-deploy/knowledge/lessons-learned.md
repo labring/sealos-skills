@@ -22,18 +22,21 @@ This document captures patterns and solutions from actual Sealos deployment expe
 ### Issue 2: Docker Hub Image Not Found
 
 - **Symptom**: `detect-image.mjs` returned `{ "found": false }`, triggering unnecessary Docker build
-- **Root Cause**: Script only checked `<github-owner>/<github-repo>` (i.e., `evershopcommerce/evershop`), but official Docker image is at `evershop/evershop`
-- **Detection Signal**: Docker Hub namespace differs from GitHub org — common when project name is shorter than org name
-- **Fix**: Added fallback check for `<repo-name>/<repo-name>` pattern in `detect-image.mjs`
-- **Other Known Examples**:
-  - GitHub `nextcloud/server` → Docker Hub `nextcloud/nextcloud`
-  - GitHub `gogs/gogs` → Docker Hub `gogs/gogs` (same, but org ≠ repo in other cases)
-- **Status**: Fallback added to `detect-image.mjs`
+- **Root Cause**: The project image was not inferred correctly from the GitHub
+  owner/repository name; registry namespaces are not reliably derivable from a
+  source repository.
+- **Detection Signal**: The README documents `evershop/evershop`, while the
+  GitHub repository is `evershopcommerce/evershop`.
+- **Fix**: Read explicit README image declarations before CI publish targets
+  and Compose. Do not guess or query image names derived from repository names.
+- **Status**: Phase 2 now uses project-declared evidence only.
 
 ### Generalized Lessons
 
 1. **Public URL Detection is Critical**: Always scan source code for `localhost` fallback patterns during Phase 5.2. Missing this causes subtle runtime failures (app loads but API calls fail).
-2. **Image Detection Needs Multiple Strategies**: Don't assume Docker Hub namespace matches GitHub org. Check `<repo>/<repo>` as fallback.
+2. **Image Detection Must Use Project Evidence**: Read README declarations,
+   then CI publish targets, then Compose. Never infer a registry namespace from
+   the GitHub owner or repository name.
 3. **Config File Overrides via ConfigMap**: When an app uses file-based config (not env vars) for its public URL, use a ConfigMap with `subPath` mount to inject only the needed override without replacing the entire config directory.
 
 ---
@@ -128,18 +131,14 @@ detection:
     config_file_only: "Strategy B — create ConfigMap with minimal config override"
 ```
 
-### Docker Hub Namespace Mismatch (Prevents Unnecessary Builds)
+### Docker Hub Namespace Mismatch (Use Explicit Evidence)
 
 ```yaml
 detection:
-  # Primary: <github-owner>/<github-repo>
-  primary: "${github_owner}/${github_repo}"
-
-  # Fallback 1: <repo-name>/<repo-name> (when owner ≠ repo)
-  fallback_repo_repo: "${github_repo}/${github_repo}"
-
-  # Fallback 2: README scan for docker pull/run references
-  fallback_readme: "scan README.md for image references"
+  first: "README docker pull/run/image declarations"
+  second: "CI targets that are actually published or pushed"
+  third: "Compose service image declarations"
+  forbidden: "registry queries based only on guessed GitHub owner/repository names"
 ```
 
 ### Launchpad Public Address Missing While The URL Works

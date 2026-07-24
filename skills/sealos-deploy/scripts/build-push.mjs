@@ -12,7 +12,7 @@
  *   node build-push.mjs <work-dir> <repo-name> --registry dockerhub --user <docker-hub-user>
  *
  * Output (JSON):
- *   { "success": true, "image": "ghcr.io/owner/repo:20260304-143022", "registry": "ghcr" }
+ *   { "success": true, "image": "ghcr.io/owner/repo@sha256:...", "pushed_image": "ghcr.io/owner/repo:20260304-143022", "registry": "ghcr" }
  *   { "success": false, "error": "build failed: ..." }
  */
 
@@ -23,6 +23,8 @@ import { validateArtifactData } from './artifact-validator.mjs'
 import { ensureGhScopesWithPrompt, hasGhCli, run } from './gh-auth-utils.mjs'
 
 // ── Helpers ───────────────────────────────────────────────
+
+const SHA256_DIGEST_RE = /^sha256:[a-f0-9]{64}$/i
 
 function getDateTag () {
   const d = new Date()
@@ -56,6 +58,90 @@ function writeBuildResult (workDir, payload) {
     path.join(buildDir, 'build-result.json'),
     JSON.stringify(payload, null, 2),
   )
+}
+
+function imageRepository (image) {
+  const withoutDigest = image.split('@', 1)[0]
+  const lastSlash = withoutDigest.lastIndexOf('/')
+  const lastColon = withoutDigest.lastIndexOf(':')
+  return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
+}
+
+function parseCraneJson (args, image) {
+  const raw = runFile('crane', args)
+  try {
+    const payload = JSON.parse(raw)
+    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+      throw new Error('document is not an object')
+    }
+    return payload
+  } catch (error) {
+    throw new Error(`crane returned invalid JSON while inspecting ${image}: ${error.message}`)
+  }
+}
+
+function platformName (platform) {
+  if (!platform || typeof platform !== 'object') return null
+  const os = String(platform.os || '').toLowerCase()
+  const architecture = String(platform.architecture || '').toLowerCase()
+  if (!os || !architecture) return null
+  const variant = platform.variant ? `/${String(platform.variant).toLowerCase()}` : ''
+  return `${os}/${architecture}${variant}`
+}
+
+function inspectImagePlatforms (imageRef) {
+  const manifest = parseCraneJson(['manifest', imageRef], imageRef)
+  const platforms = []
+
+  if (Array.isArray(manifest.manifests)) {
+    const repository = imageRepository(imageRef)
+    for (const descriptor of manifest.manifests) {
+      const declared = platformName(descriptor?.platform)
+      if (
+        declared
+        && !declared.startsWith('unknown/')
+        && !declared.includes('/unknown')
+      ) {
+        if (SHA256_DIGEST_RE.test(descriptor?.digest || '')) {
+          platforms.push(declared)
+        }
+        continue
+      }
+
+      const childDigest = descriptor?.digest
+      if (!SHA256_DIGEST_RE.test(childDigest || '')) continue
+      const childRef = `${repository}@${childDigest.toLowerCase()}`
+      try {
+        const config = parseCraneJson(['config', childRef], childRef)
+        const inspected = platformName(config)
+        if (inspected) platforms.push(inspected)
+      } catch {
+        // Attestation and other non-image descriptors may have no image config.
+      }
+    }
+  } else {
+    const config = parseCraneJson(['config', imageRef], imageRef)
+    const inspected = platformName(config)
+    if (inspected) platforms.push(inspected)
+  }
+
+  return [...new Set(platforms)]
+}
+
+function resolvePushedImage (remoteImage) {
+  const digest = runFile('crane', ['digest', remoteImage]).toLowerCase()
+  if (!SHA256_DIGEST_RE.test(digest)) {
+    throw new Error(`crane returned an invalid digest for ${remoteImage}: ${digest}`)
+  }
+
+  const imageRef = `${imageRepository(remoteImage)}@${digest}`
+  const platforms = inspectImagePlatforms(imageRef)
+  if (!platforms.some(platform => platform === 'linux/amd64' || platform.startsWith('linux/amd64/'))) {
+    throw new Error(
+      `pushed image ${imageRef} does not provide linux/amd64`
+    )
+  }
+  return { digest, imageRef, platforms }
 }
 
 // ── Registry Detection ───────────────────────────────────
@@ -283,6 +369,7 @@ async function buildAndPush (workDir, repoName, registryInfo) {
       { cwd: workDir, stdio: 'pipe', timeout: 600000 },
     )
 
+    const resolvedImage = resolvePushedImage(remoteImage)
     let warning = null
     let requiresImagePullSecret = false
     if (registryInfo.registry === 'ghcr') {
@@ -297,11 +384,24 @@ async function buildAndPush (workDir, repoName, registryInfo) {
       outcome: 'success',
       registry: registryInfo.registry,
       build: { image_name: sanitized, started_at: startedAt },
-      push: { remote_image: remoteImage, pushed_at: new Date().toISOString() },
+      push: {
+        remote_image: remoteImage,
+        digest: resolvedImage.digest,
+        image_ref: resolvedImage.imageRef,
+        platforms: resolvedImage.platforms,
+        pushed_at: new Date().toISOString(),
+      },
       finished_at: new Date().toISOString(),
     })
 
-    const result = { success: true, image: remoteImage, registry: registryInfo.registry }
+    const result = {
+      success: true,
+      image: resolvedImage.imageRef,
+      pushed_image: remoteImage,
+      digest: resolvedImage.digest,
+      platforms: resolvedImage.platforms,
+      registry: registryInfo.registry,
+    }
     if (warning) {
       result.warning = warning
       result.requires_image_pull_secret = requiresImagePullSecret

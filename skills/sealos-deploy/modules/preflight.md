@@ -159,7 +159,10 @@ docker info 2>/dev/null
 
 **Compose conversion tools:**
 - `kompose` is required when a supported root Compose file must be converted.
-- `crane` is required when that conversion must resolve a floating image tag.
+- `crane` is required whenever Phase 4 verifies a pushed build or Compose
+  conversion emits a non-database workload image, including an already
+  digest-pinned input, because both paths resolve the exact selector and verify
+  `linux/amd64`.
 - Record missing tools during preflight, but stop only if Phase 5 reaches the matching path.
 - Do not install these tools automatically from this workflow.
 
@@ -224,7 +227,8 @@ of those two request paths is available.
 Detect these now and report them early, but do **not** stop before the run reaches Phase 5:
 - Python or PyYAML missing
 - supported root Compose file present and `kompose` missing
-- floating Compose image tag present and `crane` missing
+- a service requires Phase 4 build/push and `crane` is missing
+- Compose contains a non-database workload image and `crane` is missing
 
 These findings become hard blockers when Phase 5 reaches the matching generation or validation path.
 

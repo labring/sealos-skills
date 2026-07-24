@@ -321,23 +321,6 @@ function detectImages(raw) {
 
 function warningForImage(image) {
   const warnings = []
-  if (image.includes('@sha256:')) {
-    return warnings
-  }
-
-  const lastSegment = image.slice(image.lastIndexOf('/') + 1)
-  const colon = lastSegment.lastIndexOf(':')
-  if (colon === -1) {
-    warnings.push(`tagless image: ${image}`)
-    return warnings
-  }
-
-  const tag = lastSegment.slice(colon + 1).toLowerCase()
-  if (['latest', 'stable', 'main', 'master', 'edge', 'nightly', 'dev'].includes(tag)) {
-    warnings.push(`floating image tag: ${image}`)
-  } else if (/^v?\d{1,2}(?:\.\d{1,2})?$/.test(tag)) {
-    warnings.push(`broad image tag: ${image}`)
-  }
   if (/postgresql-(?:12|13|14|15)\./i.test(image)) {
     warnings.push(`legacy PostgreSQL image: ${image}`)
   }

@@ -12,22 +12,14 @@ if TYPE_CHECKING:
     from check_consistency_line_locator import LineLocator
 
 
-LATEST_IMAGE_PATTERN = re.compile(r"\b(?:image|originImageName)\s*:\s*['\"]?[^#\s'\"]*:latest\b")
+IMMUTABLE_IMAGE_DIGEST_PATTERN = re.compile(
+    r"^(?P<repository>[^\s@]+)@sha256:(?P<digest>[0-9a-fA-F]{64})$"
+)
 TEMPLATE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$")
 NEGATIVE_MARKERS = ("wrong example", "❌", "invalid example")
 WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
 APP_WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet"}
 TEMPLATE_DEPLOY_KEY = "cloud.sealos.io/deploy-on-sealos"
-DB_SECRET_SUFFIXES = (
-    "-pg-conn-credential",
-    "-mysql-conn-credential",
-    "-mongodb-account-root",
-    "-mongo-mongodb-account-root",
-    "-mongodb-mongodb-account-root",
-    "-redis-redis-account-default",
-    "-redis-account-default",
-    "-broker-account-admin",
-)
 MAX_PVC_STORAGE_BYTES = 1024 ** 3  # 1Gi
 SEALOS_CPU_REQUEST_BY_LIMIT = {
     "100m": "10m",

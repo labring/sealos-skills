@@ -156,10 +156,17 @@ python3 -m unittest discover skills/docker-to-sealos/scripts -p 'test_*.py'
 
 **Async Testing:**
 ```python
-with mock.patch("compose_to_template.shutil.which", return_value="/usr/local/bin/crane"):
-    with mock.patch("compose_to_template.subprocess.run", side_effect=fake_run):
+digest = "sha256:" + ("a" * 64)
+manifest = json.dumps({
+    "manifests": [{
+        "digest": digest,
+        "platform": {"os": "linux", "architecture": "amd64"},
+    }],
+})
+with mock.patch("compose_to_template.require_crane_binary", return_value="/usr/local/bin/crane"):
+    with mock.patch("compose_to_template.run_crane_command", side_effect=[digest, manifest]):
         result = resolve_image_reference("nginx:latest")
-        self.assertEqual("nginx:1.27.2", result)
+        self.assertEqual(f"nginx@{digest}", result)
 ```
 
 **Error Testing:**

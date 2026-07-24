@@ -113,8 +113,8 @@ Preflight → Mode Detection → DEPLOY or UPDATE
 
 DEPLOY: Assess (including the obvious-impossibility entry judgment) → Official template lookup
   ├→ unique safe exact match: reuse official YAML → Resolve inputs → Dry-run → Deploy → Runtime Truth
-  └→ otherwise: Detect image → (reuse image | Dockerfile → Build & Push) → Template → Configure → Dry-run → Deploy → Runtime Truth
-UPDATE: Build & Push → kubectl set image → Verify rollout (auto-rollback on failure)
+  └→ otherwise: Discover README/CI/Compose images and full topology → per-service reuse or Dockerfile/Build & Push → digest-pinned Template → Configure → Dry-run → Deploy → Runtime Truth
+UPDATE: Build & Push → resolve digest → kubectl set image → Verify rollout (auto-rollback on failure)
 ```
 
 Mode detection reads `.sealos/state.json` `last_deploy` field. If a running deployment is found (verified via kubectl), the skill enters UPDATE mode and skips assess/template/deploy phases. If not, it runs the full DEPLOY pipeline.

@@ -176,22 +176,30 @@ must_rules:
     enforcement:
       type: rule
       target: R046
-  - must: "Do not use `:latest`."
-    enforcement:
-      type: rule
-      target: R001
-  - must: "Resolve versions with `crane`: prefer an explicit version tag (for example `v2.2.0`), and fallback to digest pin only when a deterministic version tag is unavailable."
+  - must: "Input image references may use any tag (`latest`, `stable`, `v2`, `2.1`, an explicit version, or another registry tag) or be tagless."
     enforcement:
       type: manual
-      note: "Requires live image resolution behavior, not derivable from static snippets alone."
-  - must: "Avoid floating tags (for example `:v2`, `:2.1`, `:stable`); use an explicit version tag or digest."
+      note: "Defines accepted converter inputs; generated artifacts are enforced separately by R001."
+  - must: "Before generated template use, resolve every non-database workload image with `crane digest`, verify the resolved manifest includes `linux/amd64`, and emit only immutable `repository@sha256:<digest>` references."
     enforcement:
-      type: rule
-      target: R016
-  - must: "Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve to explicit tag or digest before emitting template artifacts."
+      type: manual
+      note: "R001 enforces the emitted digest form; linux/amd64 registry verification is exercised by the converter tests and must occur before artifact validation."
+  - must: "For a Compose service that has `build:` but no `image:`, pass its Phase 4 result with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image."
+    enforcement:
+      type: manual
+      note: "The converter rejects build-only services without a matching override and resolves every supplied override to a verified digest."
+  - must: "Compose database service images are dependency and engine-classification evidence; after conversion to KubeBlocks, the generated template need not emit the original database image."
+    enforcement:
+      type: manual
+      note: "Database conversion behavior is covered by compose converter tests and the KubeBlocks database workload rules."
+  - must: "Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve variables first, then resolve the resulting image to an immutable digest with `crane`."
     enforcement:
       type: rule
       target: R018
+  - must: "Generated workload `image` fields and application `originImageName` annotations must use immutable `repository@sha256:<digest>` references."
+    enforcement:
+      type: rule
+      target: R001
   - must: "Application `originImageName` must match container image."
     enforcement:
       type: rule
@@ -348,6 +356,10 @@ must_rules:
     enforcement:
       type: rule
       target: R039
+  - must: "Every Compose database service must remain a distinct KubeBlocks `Cluster` with its own name, Secret, FQDN, and application wiring; never merge two services merely because they use the same database engine."
+    enforcement:
+      type: manual
+      note: "The deterministic converter and its same-engine multi-database regression tests enforce per-service Cluster identity."
   - must: "PostgreSQL version: `postgresql-16.4.0`."
     enforcement:
       type: manual
@@ -356,7 +368,7 @@ must_rules:
     enforcement:
       type: manual
       note: "Needs Cluster-kind/apiVersion validation in generated manifests."
-  - must: "PostgreSQL RBAC unified naming: `${{ defaults.app_name }}-pg`."
+  - must: "PostgreSQL RBAC unified naming: use `${{ defaults.app_name }}-pg` for one PostgreSQL service; when several PostgreSQL services exist, append each normalized Compose service name and use that full Cluster name consistently across RBAC."
     enforcement:
       type: manual
       note: "Requires coordinated naming validation across SA/Role/RoleBinding/Cluster."
@@ -436,15 +448,15 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires browser-specific ladder testing from the initial candidate."
-  - must: "MongoDB: `${{ defaults.app_name }}-mongo-mongodb-account-root` (or `${{ defaults.app_name }}-mongodb-mongodb-account-root` when the MongoDB cluster name uses `-mongodb`)"
+  - must: "MongoDB: `<cluster-name>-mongodb-account-root`; the single-service default is `${{ defaults.app_name }}-mongo-mongodb-account-root`"
     enforcement:
       type: rule
       target: R007
-  - must: "Redis: `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)"
+  - must: "Redis: `<cluster-name>-redis-account-default`; the single-service default is `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)"
     enforcement:
       type: rule
       target: R007
-  - must: "Kafka: `${{ defaults.app_name }}-broker-account-admin`"
+  - must: "Kafka: `<cluster-name>-account-admin`; the single-service default is `${{ defaults.app_name }}-broker-account-admin`"
     enforcement:
       type: rule
       target: R007

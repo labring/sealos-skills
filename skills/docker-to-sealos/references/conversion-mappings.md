@@ -99,8 +99,10 @@ spec:
   appName: demo
   source: https://example.com/releases/v1/docker-compose.yml
   images:
-    - ghcr.io/example/api:1.0.0
-    - ghcr.io/example/console:1.0.0
+    - source: ghcr.io/example/api:latest
+      resolved: ghcr.io/example/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    - source: ghcr.io/example/console:stable
+      resolved: ghcr.io/example/console@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
   components:
     - ${{ defaults.app_name }}
     - ${{ defaults.app_name }}-console
@@ -117,7 +119,11 @@ Evidence contract:
 
 - `spec.appName`: Template `metadata.name` that this evidence validates.
 - `spec.source`: official compose/docs/release artifact URL or identifier.
-- `spec.images`: exact image refs expected from that source.
+- `spec.images`: source selector → resolved digest mappings. `source` records the
+  exact selector from the official bundle and may be `latest`, `stable`, `v2`,
+  another tag, or tagless; `resolved` records the `linux/amd64` digest reference
+  that must appear in the generated workload. A plain string is accepted only
+  as a legacy shorthand when source and final reference are already identical.
 - `spec.components`: workload names that must be emitted as managed app workloads.
 - `spec.routes`: `path` plus `service` entries that must appear in Service and Ingress resources.
 - `spec.env`: critical env var names that must remain present on managed workloads.
@@ -182,14 +188,30 @@ For a single-component StatefulSet with no documented headless or stable per-Pod
 
 ## Image Mapping
 
-Warning: Example images must use a pinned version, preferring an exact version tag (e.g., `v2.2.0`); only use a digest when a stable version tag cannot be determined. Using `:latest` is prohibited.
-Warning: Compose variable image expressions (e.g., `${IMAGE}`, `${IMAGE:-ghcr.io/example/app}`) must not be retained in the final template; they must be resolved to concrete image references during the conversion phase.
+Compose input may use any registry tag (`latest`, `stable`, `v2`, `2.1`, an
+explicit version, or another tag) or omit the tag. Tags are source selectors,
+not final template references.
+
+Resolve Compose variable image expressions (for example `${IMAGE}` or
+`${IMAGE:-ghcr.io/example/app}`) first. For every non-database workload that
+will be emitted, run `crane digest <resolved-input-reference>`, inspect that
+immutable result for `linux/amd64`, and use `<repository>@sha256:<digest>` for
+both the container image and `originImageName`. Do not search for or substitute
+a different tag.
+
+For a service with `build:` but no `image:`, pass the built and pushed result as
+`--image-override SERVICE=IMAGE`. The override is still resolved and checked for
+`linux/amd64`; the converter must not rewrite the source Compose file.
+
+Database service images remain dependency and engine-classification evidence.
+When a database service is transformed to a KubeBlocks `Cluster`, preserve its
+dependency wiring but do not emit its original Compose image.
 
 ### Docker Compose
 ```yaml
 services:
   app:
-    image: nginx:1.27.2
+    image: nginx:stable
     # or
     build: ./app
 ```
@@ -200,7 +222,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   annotations:
-    originImageName: nginx:1.27.2  # Must be added
+    originImageName: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 spec:
   revisionHistoryLimit: 1
   template:
@@ -208,7 +230,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: ${{ defaults.app_name }}
-          image: nginx:1.27.2
+          image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           imagePullPolicy: IfNotPresent  # Must be set
 ```
 
@@ -229,7 +251,10 @@ services:
       - "8080:80"
 ```
 
-> The Sealos gateway terminates TLS at the Ingress layer by default. If Compose exposes both `80` and `443`, and the backend service does not require HTTPS, the conversion should preferentially keep the HTTP port and remove `443`, while also not mounting in-container certificate directories (e.g., `/etc/nginx/ssl`, `/etc/ssl`, `/certs`).
+> Sealos Ingress can terminate TLS, but dual `80`/`443` ports or certificate
+> mounts alone do not prove that in-container TLS is redundant. Preserve both
+> by default. Replace them only when project evidence confirms the backend
+> protocol, routes, and certificate behavior remain equivalent.
 
 ### Sealos Template
 
@@ -369,7 +394,7 @@ spec:
 
 When an app exposes separate HTTP and WebSocket public surfaces, create separate host defaults and separate ingress resources like the EaglerCraft pattern. When one public entry serves only WebSocket traffic, use the WebSocket ingress set even if the container port is named `http` upstream.
 
-#### TLS Offload Normalization (80/443 Dual-Port Scenario)
+#### Conservative TLS Handling (80/443 Dual-Port Scenario)
 
 ```yaml
 # Docker Compose
@@ -381,10 +406,11 @@ services:
     volumes:
       - certs:/etc/nginx/ssl
 
-# After conversion (Sealos)
-# - workload/service only retains port 80
-# - Ingress continues to use the platform certificate
-# - /etc/nginx/ssl is no longer converted to a PVC mount
+# Default conversion (Sealos)
+# - workload/service retains ports 80 and 443
+# - the certificate mount remains part of the service topology
+# A verified project-specific transformation may later replace this with
+# Sealos Ingress TLS termination when all behavior is preserved.
 ```
 
 ## Environment Variable Mapping
@@ -616,7 +642,12 @@ Omit `defaultMode` for ConfigMap volumes unless the application explicitly requi
 
 Classify every Compose service before generic workload generation. A service whose image repository basename is a supported database server (`postgres`, `mysql`, `mongo`, `mongodb`, `redis`, `kafka`, or a documented vendor variant) must be removed from the application-service set and emitted only through the matching KubeBlocks builder. Database classification or conversion failure is a hard stop; never fall back to a Deployment or StatefulSet.
 
-Before returning the generated template, verify that every detected database type has a matching KubeBlocks `Cluster` and that no Deployment, StatefulSet, DaemonSet, Job, or CronJob main container uses a database-server image.
+Before returning the generated template, verify that every detected database
+service has its own matching KubeBlocks `Cluster` and connection identity.
+Services of the same engine must not be deduplicated: for example, `cache` and
+`queue` Redis services remain two Clusters with distinct names, Secrets, and
+FQDNs. Also verify that no Deployment, StatefulSet, DaemonSet, Job, or CronJob
+main container uses a database-server image.
 
 ### Docker Compose
 ```yaml
@@ -742,7 +773,7 @@ services:
 ### Official Health Check Example (authentik)
 ```yaml
 containers:
-  - image: ghcr.io/goauthentik/server:2025.12.3
+  - image: ghcr.io/goauthentik/server@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     imagePullPolicy: IfNotPresent
     startupProbe:
       httpGet:
@@ -882,20 +913,21 @@ If the Sealos template does not provision a matching volume, the `/app/logs` dir
 
 ## Network Mode Mapping
 
-### Built-in Edge Gateway (Traefik) Handling
+### Proxy and Gateway Handling
 
-When Compose includes both Traefik and business services, prefer using the Sealos platform Ingress capability and do not retain Traefik as an in-template workload.
+Proxy and gateway services are part of the selected Compose topology. Retain
+Traefik and similar services along with business services; do not silently
+remove them because Sealos also provides Ingress.
 
 Handling rules:
 
-- If a service name or image is identifiable as Traefik, and at least one non-database business service exists, skip Traefik resource generation.
-- The primary access entry point should target the business service (typically the first business service) via its Service, with the public domain exposed through Sealos Ingress.
-- Only when the application contains only Traefik (no other business services) should Traefik be retained as a fallback, to avoid generating empty workloads.
-
-Motivation:
-
-- Avoid the additional forwarding complexity introduced by a dual-gateway setup (Traefik + Sealos Ingress).
-- Reduce the risk of port, routing, and TLS configuration drift, making the template better aligned with Sealos platform capabilities.
+- Emit the proxy/gateway workload and its required Service, routes, config,
+  dependencies, and persistent state.
+- Point Sealos Ingress at the actual public entry service selected by the
+  source topology.
+- A future Sealos-native replacement may omit the original proxy container only
+  when it reproduces all routes, middleware, protocols, and dependency behavior;
+  the capability may never disappear from the generated topology.
 
 ### Docker Compose
 ```yaml

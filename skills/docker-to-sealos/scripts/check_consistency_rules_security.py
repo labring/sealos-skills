@@ -6,15 +6,24 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional, Set
 
-from check_consistency_models import DB_SECRET_SUFFIXES, Rule, ScanContext, Violation, WORKLOAD_KINDS
+from check_consistency_models import Rule, ScanContext, Violation, WORKLOAD_KINDS
 from check_consistency_helpers_workload import iter_containers, iter_workload_secret_refs
 from check_consistency_parser import find_line
 
 
 APP_NAME_PLACEHOLDER = r"\$\{\{\s*defaults\.app_name\s*\}\}"
 SERVICE_ACCOUNT_PLACEHOLDER = r"\$\{\{\s*SEALOS_SERVICE_ACCOUNT\s*\}\}"
+DB_SERVICE_ID_SUFFIX = r"(?:-[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)?"
 APPROVED_DB_SECRET_PATTERN = re.compile(
-    rf"^{APP_NAME_PLACEHOLDER}(?:{'|'.join(re.escape(suffix) for suffix in DB_SECRET_SUFFIXES)})$"
+    rf"^{APP_NAME_PLACEHOLDER}(?:"
+    rf"-pg{DB_SERVICE_ID_SUFFIX}-conn-credential|"
+    rf"-mysql{DB_SERVICE_ID_SUFFIX}-conn-credential|"
+    rf"-(?:mongo|mongodb){DB_SERVICE_ID_SUFFIX}-mongodb-account-root|"
+    r"-mongodb-account-root|"
+    rf"-redis{DB_SERVICE_ID_SUFFIX}-redis-account-default|"
+    r"-redis-account-default|"
+    rf"-broker{DB_SERVICE_ID_SUFFIX}-account-admin"
+    r")$"
 )
 OBJECT_STORAGE_BASE_SECRET_NAME = "object-storage-key"
 OBJECT_STORAGE_BUCKET_SECRET_PATTERN = re.compile(
@@ -53,13 +62,15 @@ NON_DB_CONNECTION_ENV_EXACT: Set[str] = {
 ENV_VALUE_REF_RE = re.compile(r"\$\(([A-Za-z_][A-Za-z0-9_]*)\)")
 DB_COMPOSABLE_KEYS: Set[str] = {"endpoint", "host", "port", "username", "password"}
 REDIS_SERVICE_HOST_TEMPLATE_PATTERN = re.compile(
-    rf"^{APP_NAME_PLACEHOLDER}-redis-redis(?:-redis)?\.\$\{{\{{\s*SEALOS_NAMESPACE\s*\}}\}}\.svc(?:\.cluster\.local)?$"
+    rf"^{APP_NAME_PLACEHOLDER}-redis{DB_SERVICE_ID_SUFFIX}-redis-redis"
+    rf"\.\$\{{\{{\s*SEALOS_NAMESPACE\s*\}}\}}\.svc(?:\.cluster\.local)?$"
 )
 REDIS_SERVICE_HOST_RUNTIME_PATTERN = re.compile(
     r"^[a-z0-9](?:[-a-z0-9]*redis[-a-z0-9]*)\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.svc(?:\.cluster\.local)?$"
 )
 MONGODB_SERVICE_HOST_TEMPLATE_PATTERN = re.compile(
-    rf"^{APP_NAME_PLACEHOLDER}-(?:mongo|mongodb)-mongodb\.\$\{{\{{\s*SEALOS_NAMESPACE\s*\}}\}}\.svc(?:\.cluster\.local)?$"
+    rf"^{APP_NAME_PLACEHOLDER}-(?:mongo|mongodb){DB_SERVICE_ID_SUFFIX}-mongodb"
+    rf"\.\$\{{\{{\s*SEALOS_NAMESPACE\s*\}}\}}\.svc(?:\.cluster\.local)?$"
 )
 MONGODB_SERVICE_HOST_RUNTIME_PATTERN = re.compile(
     r"^[a-z0-9](?:[-a-z0-9]*mongo(?:db)?[-a-z0-9]*)-mongodb\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.svc(?:\.cluster\.local)?$"

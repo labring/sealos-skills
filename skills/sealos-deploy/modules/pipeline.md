@@ -67,7 +67,9 @@ snapshot exists on a resumed run, disable automatic official-template reuse.
 mkdir -p "$WORK_DIR/.sealos" "$WORK_DIR/.sealos/template"
 ```
 
-Create `"$WORK_DIR/.sealos/build"` lazily when Phase 4 starts. If Phase 2 finds an existing image and skips Phase 4, `build/` should remain absent rather than exist as an empty directory.
+Create `"$WORK_DIR/.sealos/build"` lazily when Phase 4 starts. If Phase 2
+proves that every emitted non-database workload has a reusable image and skips
+Phase 4, `build/` should remain absent rather than exist as an empty directory.
 
 **Read user config (if exists):**
 If `.sealos/config.json` exists, read it. User-provided values take priority over auto-detection and AI inference throughout the pipeline.
@@ -337,13 +339,19 @@ After Phase 1 completes, write `.sealos/analysis.json` with the full analysis sn
   "env_vars": {},
   "has_dockerfile": false,
   "complexity_tier": "<L1|L2|L3>",
-  "image_ref": null
+  "image_ref": null,
+  "image_inventory": [],
+  "service_inventory": []
 }
 ```
 
 If `.sealos/config.json` exists, apply user overrides: e.g., if `config.json` has `"port": 8080`, use that instead of the auto-detected value. Priority: user config > script detection > AI inference.
 
-The `image_ref` field is set to `null` initially. It will be filled in Phase 2 (if existing image found) or Phase 4 (after build).
+The `image_ref` field is set to `null` initially. Phase 2 fills it only when
+there is one unambiguous primary application image; Phase 4 fills it for a
+single built application. `image_inventory` and `service_inventory` start
+empty and are populated in Phase 2 so later phases retain the complete
+multi-service topology.
 
 ### Present Analysis Summary
 
@@ -446,77 +454,160 @@ template must never be deployed directly.
 
 ---
 
-## Phase 2: Detect Existing Image
+## Phase 2: Discover Existing Images and Preserve Topology
 
-**If Node.js available:**
+Phase 2 answers two separate questions:
+
+1. Which images does the project itself declare?
+2. Which services must still exist in the final deployment?
+
+It is an inventory pass, not a first-match search.
+
+### 2.1 Evidence Order
+
+Use only project-declared image evidence, in this order:
+
+1. **README** — explicit `docker pull`, `docker run`, registry references, or
+   documented image names.
+2. **CI workflows** — image destinations used by publish or push jobs.
+3. **Compose** — every service `image:` declaration, together with every
+   service that has only `build:`.
+
+The higher source wins only when selecting an unambiguous primary image.
+Always retain all evidence and the full Compose service topology.
+
+Do not automatically query or select Docker Hub/GHCR names guessed from the
+GitHub owner or repository name. Registry search results and fuzzy name
+matches are hints at most and must never become deployment input without a
+project declaration.
+
+A Dockerfile `FROM` line names a base image, not a published image of this
+project. Never put it in the reusable project-image inventory. Any
+non-database service with only `build:` remains in the service inventory and
+continues to Phase 3/4, regardless of whether its role is application, worker,
+proxy, gateway, queue, cache, search, storage, or other infrastructure.
+
+### 2.2 Run the Detector
+
+**If Node.js is available:**
+
 ```bash
 # With GitHub URL:
 node "<SKILL_DIR>/scripts/detect-image.mjs" "$GITHUB_URL" "$WORK_DIR"
 # Local project without GitHub URL:
 node "<SKILL_DIR>/scripts/detect-image.mjs" "$WORK_DIR"
 ```
-The script auto-detects GitHub URL from `git remote` if only a directory is given.
 
-Output: `{ "found": true, "image": "...", "tag": "...", ... }` or `{ "found": false }`
+The output always contains:
 
-**If Node.js not available (fallback — use curl):**
+- `image_inventory`: every parseable README, CI, and Compose image
+  declaration, including application, database, and infrastructure images.
+- `service_inventory`: every Compose service, including database, cache,
+  proxy, queue, object-storage, and build-only services.
+- backward-compatible primary fields (`found`, `image`, `tag`, `source`,
+  `digest`, `image_ref`) only when one verified primary image is
+  unambiguous at the highest-priority evidence level.
 
-1. Parse owner/repo from `GITHUB_URL` (if empty, try `git -C "$WORK_DIR" remote get-url origin`)
-2. If still no GitHub URL, skip Docker Hub / GHCR checks and only scan project files for image references
-3. Docker Hub check (try `<owner>/<repo>`, then `<repo>/<repo>` if different):
-```bash
-curl -sf "https://hub.docker.com/v2/namespaces/<owner>/repositories/<repo>/tags?page_size=10"
-# If not found and owner != repo:
-curl -sf "https://hub.docker.com/v2/namespaces/<repo>/repositories/<repo>/tags?page_size=10"
-```
-4. GHCR check:
-```bash
-TOKEN=$(curl -sf "https://ghcr.io/token?scope=repository:<owner>/<repo>:pull" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-curl -sf -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/<owner>/<repo>/tags/list"
-```
-5. **docker-compose.yml scan** — AI reads `docker-compose.yml` / `docker-compose.yaml` (already in Phase 1 context) and extracts `image:` fields. Exclude infrastructure images (postgres, mysql, redis, mongo, etc.). For each candidate, verify with curl against Docker Hub or GHCR.
-6. **CI workflow scan** — AI reads `.github/workflows/*.yml` and extracts `docker push` targets, `images:` fields, and `tags:` references. Verify each candidate.
-7. Search `README.md` for `ghcr.io/` references, `docker run/pull` commands, and `hub.docker.com/r/<ns>/<repo>` URLs
-8. **Docker Hub search API** (catch-all) — if nothing found above:
-```bash
-curl -sf "https://hub.docker.com/v2/search/repositories/?query=<repo>&page_size=5"
-# For each result, fetch detail and check if full_description mentions github.com/<owner>/<repo>
-curl -sf "https://hub.docker.com/v2/repositories/<ns>/<repo>/"
-```
-9. For any candidate, verify amd64: `docker manifest inspect <image>:<tag>`
+**If Node.js is unavailable:** read the same three evidence sources in the same
+order and construct the same inventories manually. Query only the exact
+declared selector through the registry API. Do not add owner/repository guesses
+or a Docker Hub search fallback.
 
-Prefer versioned tags (`v1.2.3`) over `latest`.
+### 2.3 Selector, Platform, and Digest Rules
 
-### Phase 2 Post-Verification (AI)
+Treat the selector written by the project as valid input. `latest`, `stable`,
+`v2`, `2.1`, an exact version, a digest, and an omitted tag are all allowed.
+An omitted tag uses the registry's normal `latest` selector. Do not substitute
+a different or “more precise” tag.
 
-After Phase 2 produces a result, the AI should cross-validate:
+For every declared image:
 
-1. **If `source` is `dockerhub` or `ghcr`** (direct owner/repo match) — high confidence, no extra validation needed.
-2. **If `source` is `compose`, `ci-workflow`, `dockerhub-readme`, or `dockerhub-search`** — cross-check with project context:
-   - Does the README mention this image or its namespace?
-   - Does `docker-compose.yml` reference it?
-   - Does the Docker Hub repo description link back to this GitHub project?
-   - If multiple signals agree → high confidence. If only one signal → note as medium confidence in your assessment.
-3. **If `found: false`** — the AI should use its Phase 1 analysis context to attempt one more check: if Phase 1 identified a Docker image name from project docs or code that the script didn't find, try verifying it manually with curl.
-### Update analysis.json
+1. Resolve that exact selector from its registry.
+2. Verify that its manifest or image config contains `linux/amd64`.
+3. Record its immutable manifest digest as
+   `<repository>@sha256:<64-hex-digest>`.
+4. Preserve the original declaration, selector, source file, service, role,
+   platforms, and resolution status as evidence.
 
-If an existing image is found, update `.sealos/analysis.json` to set `image_ref` to `{image}:{tag}`.
+An image that cannot be fetched or whose `linux/amd64` support cannot be
+proved is not reusable. Keep it in the inventory with its failure status; do
+not silently replace it with another tag or architecture.
 
-**Decision:**
-- Independently verified amd64 image → record
-  `IMAGE_REF = {image}:{tag}`, **skip to Phase 5**
-- Not found → continue to Phase 3
+The Node detector uses anonymous registry access. If an exact declaration is
+private but an already-authenticated local `docker` or `crane` session can
+inspect it, the AI may perform the same selector, digest, and platform checks
+through that session and update the inventory. Never print or persist registry
+credentials. Authentication failure is a per-image reuse failure, not a reason
+to reject the project or remove its service from the topology.
+
+### 2.4 Complete-Topology Rule
+
+Never remove a service merely because it is a database or infrastructure
+component. The final Sealos template must preserve every required capability
+and dependency:
+
+- supported PostgreSQL, MySQL, MongoDB, Redis, and similar database services
+  may be transformed into their Sealos/KubeBlocks equivalents in Phase 5;
+- an edge proxy may be replaced by equivalent Service/Ingress routing;
+- other cache, queue, search, storage, gateway, or worker components remain
+  explicit services unless Phase 5 performs an evidence-backed equivalent
+  transformation.
+
+Transformation may change the resource kind, but it must not make the
+dependency or its application wiring disappear.
+
+### 2.5 Update `analysis.json`
+
+Copy the detector's complete `image_inventory` and `service_inventory` into
+`.sealos/analysis.json`. Set `image_ref` to the immutable digest reference only
+when the detector returns one unambiguous primary image. Otherwise
+leave `image_ref` as `null`; the inventories, not a guessed primary, drive the
+remaining phases. Reconcile the `databases` list with database services found
+in the inventory so a dependency discovered in Compose cannot be lost merely
+because Phase 1 did not recognize it.
+
+### 2.6 Per-Service Routing
+
+Make the build decision for every service that Phase 5 will emit as a container
+workload:
+
+- verified `linux/amd64` digest image → reuse it; no Phase 3/4 work for that
+  service;
+- `build:` or Dockerfile with no verified published image → Phase 3/4 for that
+  service;
+- declared image unavailable or non-amd64, but buildable source exists →
+  build a `linux/amd64` replacement in Phase 3/4;
+- database service with a supported KubeBlocks transformation → retain it for
+  Phase 5 conversion; its original database image does not need to be built;
+- non-database infrastructure service → apply the same image reuse/build rules
+  as an application service and retain it for Phase 5; its role must never be
+  used as a reason to omit the workload.
+
+Skip directly to Phase 5 only when every emitted non-database workload already
+has a verified reusable image and no service still needs a build. Finding one
+image must never cause the rest of a multi-service project to be skipped.
 
 ---
 
 ## Phase 3: Dockerfile
+
+Run this phase only for emitted non-database workload services that Phase 2
+marked as needing a build. In a multi-service Compose project, use each
+service's own build context and Dockerfile; do not regenerate or overwrite
+services that already have a verified image. This includes build-only proxies,
+gateways, workers, queues, caches, search services, storage services, and other
+infrastructure that will remain container workloads.
 
 ### 3.1 Check Existing Dockerfile
 
 If `WORK_DIR/Dockerfile` exists:
 1. Read it and assess quality
 2. Reasonable (multi-stage or appropriate for language) → use directly, go to Phase 4
-3. Problematic (uses `:latest`, runs as root, missing essential deps) → fix, then Phase 4
+3. Problematic (for example, missing essential dependencies or an unusable
+   runtime entrypoint) → fix, then Phase 4
+
+A floating base-image tag is not itself a defect and must not trigger a
+rewrite. The final built workload image is resolved to a digest after push.
 
 ### 3.2 Generate Dockerfile
 
@@ -561,7 +652,8 @@ If Node.js is not available, manually verify the Validation Checklist in generat
 
 **Key Dockerfile principles:**
 - Multi-stage build (builder + runtime)
-- Pin base image versions (never `:latest`)
+- Preserve a base image compatible with the project's runtime and
+  `linux/amd64`
 - Run as non-root user (USER 1001)
 - Proper `.dockerignore`
 
@@ -585,7 +677,10 @@ __pycache__
 ### 4.0 Choose Image Destination
 
 Registry selection is deferred to this phase because it's only needed when building.
-If Phase 2 found an existing image, this phase is skipped entirely.
+Skip this phase only when Phase 2 proved that every emitted non-database
+workload already has a reusable `linux/amd64` digest. In a mixed project, build
+only the services still marked as build-required and preserve every previously
+resolved service image.
 
 Before any login step, tell the user:
 
@@ -687,10 +782,13 @@ Run the command that matches the user's chosen destination:
 - GHCR: `node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry ghcr`
 - Docker Hub: `node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry dockerhub`
 
-Output: `{ "success": true, "image": "...", "registry": "ghcr" }` or `{ "success": false, "error": "..." }`
+Success output returns the immutable image plus the pushed tag:
+`{ "success": true, "image": "<repository>@sha256:<digest>", "pushed_image": "<repository>:<tag>", "digest": "sha256:<digest>", "platforms": ["linux/amd64"], "registry": "ghcr" }`.
+Failure output remains `{ "success": false, "error": "..." }`.
 
 For GHCR success, record whether the image is anonymously pullable. If Phase 4 built a GHCR image and it is still private, continue with the GHCR image and let Phase 6 create/update the pull Secret automatically from `gh auth token`.
-If Phase 2 reused an existing public image, do **not** trigger the GHCR pull-secret flow.
+If a service reuses an existing public image, do **not** trigger the GHCR
+pull-secret flow for that service.
 
 **If Node.js not available (fallback — run docker directly):**
 ```bash
@@ -751,11 +849,18 @@ Always write `.sealos/build/build-result.json` when Phase 4 runs:
 
 This avoids leaving an empty `build/` directory after a failed build and makes resume/debug behavior inspectable.
 
-On success, record `IMAGE_REF` from the build output. The build result file is at `.sealos/build/build-result.json`.
+On success, `.sealos/build/build-result.json` must record the pushed tag,
+resolved digest, immutable `image_ref`, and verified platform list. The build
+helper resolves the exact pushed tag and refuses a success artifact unless its
+manifest contains `linux/amd64`.
 
 ### Update analysis.json
 
-On successful build, update `.sealos/analysis.json` to set `image_ref` to the built image reference.
+For each successful build, update the matching `service_inventory` entry with
+`image_status: "built"`, the verified platforms, digest, and immutable
+`image_ref`. Set top-level `image_ref` only when the completed topology has
+exactly one application workload; otherwise keep it `null`. Never replace the
+whole project's inventory with the last image that happened to build.
 
 ---
 
@@ -789,7 +894,10 @@ template references remain the explicit Phase 1.5 TODO.
 
 ### 5.2 Generate Template
 
-Read `.sealos/analysis.json` and use `image_ref`, `port`, `databases`, and `env_vars` as inputs.
+Read `.sealos/analysis.json` and use `image_inventory`,
+`service_inventory`, `image_ref`, `port`, `databases`, and `env_vars` as
+inputs. `image_ref` is only a compatibility shortcut for a single
+application; the inventories are authoritative for multi-service projects.
 
 Generate the template at `.sealos/template/index.yaml` (overrides the default `template/` path from docker-to-sealos skill).
 Do not create another template-generation artifact.
@@ -808,7 +916,7 @@ When a supported root Compose file exists, use the deterministic converter as th
 
 ```bash
 COMPOSE_FILE=""
-for candidate in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
+for candidate in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
   if [ -f "$WORK_DIR/$candidate" ]; then
     COMPOSE_FILE="$WORK_DIR/$candidate"
     break
@@ -832,6 +940,24 @@ if [ -n "$COMPOSE_FILE" ]; then
     echo "Unable to read the GitHub URL from analysis.json; Phase 5 stopped." >&2
     exit 1
   }
+  IMAGE_OVERRIDE_ARGS=()
+  while IFS=$'\t' read -r SERVICE_NAME SERVICE_IMAGE; do
+    if [ -n "$SERVICE_NAME" ] && [ -n "$SERVICE_IMAGE" ]; then
+      IMAGE_OVERRIDE_ARGS+=(--image-override "$SERVICE_NAME=$SERVICE_IMAGE")
+    fi
+  done < <(
+    "$PYTHON_BIN" -c '
+import json
+import sys
+
+analysis = json.load(open(sys.argv[1], encoding="utf-8"))
+for service in analysis.get("service_inventory", []):
+    name = service.get("name")
+    image_ref = service.get("image_ref")
+    if isinstance(name, str) and name and isinstance(image_ref, str) and image_ref:
+        print(f"{name}\t{image_ref}")
+' "$WORK_DIR/.sealos/analysis.json"
+  )
   GENERATED_TEMPLATE="$(
     "$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/compose_to_template.py" \
       --compose "$COMPOSE_FILE" \
@@ -839,6 +965,7 @@ if [ -n "$COMPOSE_FILE" ]; then
       --git-repo "$GITHUB_URL" \
       --kompose-mode always \
       --no-fetch-logo \
+      "${IMAGE_OVERRIDE_ARGS[@]}" \
       --dry-run
   )" || {
     echo "Deterministic Compose conversion failed; Phase 5 stopped." >&2
@@ -848,7 +975,18 @@ if [ -n "$COMPOSE_FILE" ]; then
 fi
 ```
 
-For converted templates, apply the resolved `analysis.json.image_ref` only to the application workload that it represents, then add the documented application-specific runtime semantics. Treat the converter's database classification as immutable: application-specific edits must not replace a KubeBlocks database `Cluster` with a Deployment, StatefulSet, Service, or other generic workload.
+For converted templates, map each inventory digest to the service it
+represents. Never apply one top-level `analysis.json.image_ref` to every
+workload. Pass each available per-service digest with
+`--image-override SERVICE=IMAGE`; this is required for build-only Compose
+services and leaves the project's Compose file unchanged. The converter
+rechecks each effective image for `linux/amd64`, even when `IMAGE` is already a
+digest. Treat the converter's database classification as immutable:
+application-specific edits must not replace a KubeBlocks database `Cluster`
+with a Deployment, StatefulSet, Service, or other generic workload. Likewise,
+do not drop cache, queue, search, storage, proxy, gateway, or worker services;
+retain them or document and implement an equivalent Sealos-native
+transformation.
 
 **Public URL detection:**
 After generating the base template, check if the app needs its public URL configured:
@@ -868,7 +1006,10 @@ After generating the base template, check if the app needs its public URL config
 
 **Critical MUST rules (always apply):**
 - `metadata.name`: hardcoded lowercase, no variables
-- Image tag: exact version, **never `:latest`**
+- Every emitted container image reference: immutable
+  `<repository>@sha256:<digest>` with verified `linux/amd64` support. Source
+  tags such as `latest`, `stable`, `v2`, and exact versions are all valid
+  resolution inputs.
 - PVC requests: `<= 1Gi`
 - Container defaults: `cpu: 200m/20m`, `memory: 256Mi/25Mi`
 - Init containers must define explicit resources; do not rely on namespace defaults. For expensive init work such as framework install, database migration, asset compilation, or `bench new-site`, allocate enough memory for the task.
@@ -1006,7 +1147,7 @@ After the final gate passes, present a summary and ask for confirmation:
 ```
 Ready to deploy <app-name> to Sealos Cloud:
 
-  Image:    zhujingyang/app:20260309
+  Image:    zhujingyang/app@sha256:<digest>
   Region:   https://usw-1.sealos.io
   Database: PostgreSQL 16 (auto-provisioned)
   Config:   3 required inputs configured, 2 optional defaults kept
@@ -1605,7 +1746,7 @@ These values are already known from `.sealos/state.json` `last_deploy` section:
 APP_NAME      = last_deploy.app_name       (e.g., "evershop-uvbp0n0n")
 NAMESPACE     = last_deploy.namespace      (e.g., "ns-qiqovyrm")
 REGION        = last_deploy.region         (e.g., "gzg.sealos.run")
-CURRENT_IMAGE = last_deploy.image          (e.g., "zhujingyang/evershop:20260309")
+CURRENT_IMAGE = last_deploy.image          (e.g., "zhujingyang/evershop@sha256:<digest>")
 DOCKER_HUB_USER = last_deploy.docker_hub_user
 REPO_NAME     = last_deploy.repo_name
 APP_URL       = last_deploy.url
@@ -1636,11 +1777,14 @@ node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --registry do
 
 # Without Node.js:
 TAG=$(date +%Y%m%d-%H%M%S)
-NEW_IMAGE="<selected-user>/$REPO_NAME:$TAG"
-docker buildx build --platform linux/amd64 -t "$NEW_IMAGE" --push -f Dockerfile "$WORK_DIR"
+PUSHED_IMAGE="<selected-user>/$REPO_NAME:$TAG"
+docker buildx build --platform linux/amd64 -t "$PUSHED_IMAGE" --push -f Dockerfile "$WORK_DIR"
 ```
 
-Record `NEW_IMAGE` from the output.
+Record the pushed tag for build diagnostics, verify that it contains
+`linux/amd64`, and resolve it to an immutable digest. Set
+`NEW_IMAGE=<repository>@sha256:<digest>`. Never pass the temporary pushed tag
+to Phase U2.
 
 If build fails → same error handling as Phase 4.2 (read error-patterns.md, fix Dockerfile, retry up to 3 times).
 
@@ -1742,13 +1886,13 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
   "version": "1.0",
   "last_deploy": {
     "app_name": "morphic-dc21ad72",
-    "image": "zhujingyang/morphic:20260310-143022"
+    "image": "zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },
   "history": [
     {
       "at": "2026-03-09T18:37:30Z",
       "action": "deploy",
-      "image": "ghcr.io/miurla/morphic:668daf0e",
+      "image": "ghcr.io/miurla/morphic@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "method": "kubectl-apply",
       "status": "success",
       "note": "Initial deployment"
@@ -1764,16 +1908,16 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
     {
       "at": "2026-03-10T14:30:22Z",
       "action": "set-image",
-      "previous_image": "ghcr.io/miurla/morphic:668daf0e",
-      "image": "zhujingyang/morphic:20260310-143022",
+      "previous_image": "ghcr.io/miurla/morphic@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "image": "zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "method": "kubectl-set-image",
       "status": "success"
     },
     {
       "at": "2026-03-11T09:00:00Z",
       "action": "set-image",
-      "previous_image": "zhujingyang/morphic:20260310-143022",
-      "image": "zhujingyang/morphic:20260311-090000",
+      "previous_image": "zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image": "zhujingyang/morphic@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "method": "kubectl-set-image",
       "status": "failed",
       "note": "CrashLoopBackOff — rolled back"

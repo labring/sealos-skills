@@ -3,7 +3,7 @@ name: sealos-deploy
 description: Deploy workloads from GitHub or local source to Sealos Cloud. In DEPLOY mode, Phase 1 stops only when AI is certain the project cannot run on Sealos; every uncertain case continues silently into readiness scoring. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
 metadata:
   author: labring
-  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Phase 6 requires either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
+  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. crane is required for pushed-image verification and Compose workload image resolution. git is required when cloning from a GitHub URL or when git metadata is needed. Phase 6 requires either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose.
 ---
 
 # Sealos Deploy
@@ -12,11 +12,11 @@ metadata:
 
 Sealos auth/workspace and kubectl access to the selected workspace are required
 before cloud resources are created. Docker, buildx, and gh CLI are required
-only when the selected path needs local build/push. git is required when cloning
-from a GitHub URL or when git metadata is needed. Phase 6 requires either
-Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML; root Compose
-conversion also requires kompose and may require crane when image tags are
-floating.
+only when the selected path needs local build/push. crane is required for
+pushed-image verification and Compose workload image resolution. git is
+required when cloning from a GitHub URL or when git metadata is needed. Phase 6
+requires either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML;
+root Compose conversion also requires kompose.
 
 
 Deploy cloud workloads to Sealos Cloud. Phase 1 begins with an internal AI
@@ -108,10 +108,10 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploy started" > "$LOG_FILE"
 [2026-03-05 14:30:04] Exact: 0
 [2026-03-05 14:30:04] Route: continue_standard_pipeline → Phase 2
 
-[2026-03-05 14:30:04] === Phase 2: Detect Image ===
-[2026-03-05 14:30:05] Docker Hub: owner/repo:latest (arm64 only, no amd64)
-[2026-03-05 14:30:05] GHCR: not found
-[2026-03-05 14:30:05] Decision: no amd64 image → continue to Phase 3
+[2026-03-05 14:30:04] === Phase 2: Discover Images and Topology ===
+[2026-03-05 14:30:05] README: owner/frontend:latest → owner/frontend@sha256:<digest> (linux/amd64)
+[2026-03-05 14:30:05] Compose: frontend + build-only api + postgres + redis retained
+[2026-03-05 14:30:05] Decision: build api only → Phase 3
 
 [2026-03-05 14:30:06] === Phase 3: Dockerfile ===
 [2026-03-05 14:30:06] Existing Dockerfile: none
@@ -121,7 +121,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploy started" > "$LOG_FILE"
 [2026-03-05 14:30:08] Registry: ghcr (auto-detected via gh CLI)
 [2026-03-05 14:30:30] Build: ✓ ghcr.io/zhujingyang/repo:20260305-143022
 [2026-03-05 14:30:32] GHCR pullability: private package detected — deploy will auto-create image pull Secret from gh CLI
-[2026-03-05 14:30:33] IMAGE_REF=ghcr.io/zhujingyang/repo:20260305-143022
+[2026-03-05 14:30:33] IMAGE_REF=ghcr.io/zhujingyang/repo@sha256:<digest>
 
 [2026-03-05 14:30:34] === Phase 5: Template ===
 [2026-03-05 14:30:35] Output: .sealos/template/index.yaml
@@ -167,7 +167,7 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | `find-template-references.mjs` | `node find-template-references.mjs --work-dir <repo-dir> --skill-dir <SKILL_DIR> --analysis <analysis.json> --reuse-official-template <true\|false> [--github-url <url>] [--catalog-dir <dir>]` | Select a remotely verified unique exact official template for the Phase 6 fast path, or continue the standard pipeline; `--catalog-dir` is matching-only for tests/offline inspection |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |
-| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build amd64 image & push to the selected registry (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
+| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build and push a linux/amd64 image, then resolve and record its immutable digest (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update app-scoped GHCR pull Secret and optionally patch an existing Deployment to reference it |
 | `gh-refresh-scopes.mjs` | `node gh-refresh-scopes.mjs write:packages` | Refresh GHCR package access in the current TTY; `write:packages` is sufficient for both push and private pull in this workflow |
 | `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--args-file <mode-0600-file>]` (`--args-json` only for confirmed non-sensitive values) | Resolve the current region from `~/.sealos/auth.json`, build the correct Template API URL, and post a local template YAML |
@@ -213,9 +213,9 @@ Paths used in pipeline.md follow the pattern:
 | 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
 | 1 — Assess | Stop only when AI is certain deployment is impossible; otherwise continue silently into readiness scoring and record risks | Existing deployment → UPDATE path; low score does not reject |
 | 1.5 — Official Template | A unique, source-aligned official `spec.gitRepo` match is reused verbatim and jumps to Phase 6; otherwise continue | No safe unique exact match → Phase 2 |
-| 2 — Detect | Find existing image (Docker Hub / GHCR / README) | Found → jump to Phase 5 |
-| 3 — Dockerfile | Inspect and repair an existing Dockerfile, or generate one when missing | Phase 2 found a reusable image |
-| 4 — Build & Push | `docker buildx` → GHCR (auto via gh CLI) or Docker Hub (fallback) | — |
+| 2 — Discover | Inventory project-declared images and the complete service topology; resolve reusable images to verified `linux/amd64` digests | Every emitted non-database workload covered → Phase 5 |
+| 3 — Dockerfile | Inspect, repair, or generate Dockerfiles only for services still needing a build | No service needs a build |
+| 4 — Build & Push | Build only missing non-database workload services for `linux/amd64`, push, and resolve each result to a digest | No service needs a build |
 | 5 — Template | Generate Sealos application template | — |
 | 5.5 — Configure | Validate the generated template, resolve its configuration, summarize the deploy, and obtain confirmation | Official-template fast path |
 | 6 — Deploy | Resolve any official-template inputs, dry-run, then deploy to Sealos Cloud | — |
@@ -247,13 +247,13 @@ Input (GitHub URL / local path)
   │         └── skip Phase 2, 3, 4, 5, and 5.5 ───────────┐
   │                                                        │
   └── no safe unique exact match                           │
-        └── [Phase 2] Detect image                         │
-              ├── found (amd64) ────────────────────┐      │
-              └── not found                         │      │
+        └── [Phase 2] Inventory images + full topology     │
+              ├── every app has amd64 digest ───────┐      │
+              └── one or more apps need build       │      │
                     ▼                               │      │
-                  [Phase 3] Dockerfile              │      │
+                  [Phase 3] Dockerfile per service  │      │
                     ▼                               │      │
-                  [Phase 4] Build & Push            │      │
+                  [Phase 4] Build, push, digest     │      │
                     └───────────────────────────────┘      │
                               ▼                            │
                   [Phase 5] Generate Template              │

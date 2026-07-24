@@ -17,32 +17,25 @@ function validate(dockerfilePath, opts = {}) {
   const lines = content.split('\n');
   const issues = [];
 
-  // 1. No :latest tags
-  for (let i = 0; i < lines.length; i++) {
-    if (/^FROM\s+\S+:latest/i.test(lines[i])) {
-      issues.push({ severity: 'error', line: i + 1, rule: 'no-latest', msg: `Using :latest tag: ${lines[i].trim()}` });
-    }
-  }
-
-  // 2. Has non-root USER
+  // 1. Has non-root USER
   if (!/^USER\s+(?!root)/m.test(content)) {
     issues.push({ severity: 'warn', rule: 'non-root-user', msg: 'No non-root USER instruction found' });
   }
 
-  // 3. Multi-stage build (when build step likely needed)
+  // 2. Multi-stage build (when build step likely needed)
   const fromCount = (content.match(/^FROM\s/gm) || []).length;
   if (fromCount < 2 && /RUN\s+.*\b(build|compile)\b/i.test(content)) {
     issues.push({ severity: 'warn', rule: 'multi-stage', msg: 'Single-stage build detected with build step — consider multi-stage' });
   }
 
-  // 4. COPY . before dependency install (cache busting)
+  // 3. COPY . before dependency install (cache busting)
   const copyAllIdx = lines.findIndex(l => /^COPY\s+\.\s+\./.test(l));
   const installIdx = lines.findIndex(l => /npm ci|npm install|pnpm install|yarn install|pip install|go mod download/.test(l));
   if (copyAllIdx !== -1 && installIdx !== -1 && copyAllIdx < installIdx) {
     issues.push({ severity: 'error', rule: 'copy-before-install', msg: 'COPY . . before dependency install breaks Docker cache' });
   }
 
-  // 5. EXPOSE matches expected port
+  // 4. EXPOSE matches expected port
   if (opts.port) {
     const exposeMatch = content.match(/^EXPOSE\s+(\d+)/m);
     if (exposeMatch && exposeMatch[1] !== String(opts.port)) {
@@ -53,7 +46,7 @@ function validate(dockerfilePath, opts = {}) {
     }
   }
 
-  // 6. -dev packages in runtime stage (after last FROM)
+  // 5. -dev packages in runtime stage (after last FROM)
   const lastFromIdx = lines.reduce((acc, l, i) => /^FROM\s/.test(l) ? i : acc, 0);
   const runtimeSection = lines.slice(lastFromIdx).join('\n');
   const devPkgs = runtimeSection.match(/(lib\w+-dev|python3-dev|gcc|g\+\+|make|build-essential)/g);
@@ -61,12 +54,12 @@ function validate(dockerfilePath, opts = {}) {
     issues.push({ severity: 'warn', rule: 'dev-in-runtime', msg: `Build-time packages in runtime stage: ${[...new Set(devPkgs)].join(', ')}` });
   }
 
-  // 7. Has CMD or ENTRYPOINT
+  // 6. Has CMD or ENTRYPOINT
   if (!/^(CMD|ENTRYPOINT)\s/m.test(content)) {
     issues.push({ severity: 'error', rule: 'no-cmd', msg: 'No CMD or ENTRYPOINT instruction found' });
   }
 
-  // 8. .dockerignore exists
+  // 7. .dockerignore exists
   const dir = path.dirname(dockerfilePath);
   if (!fs.existsSync(path.join(dir, '.dockerignore'))) {
     issues.push({ severity: 'warn', rule: 'no-dockerignore', msg: 'No .dockerignore file found' });

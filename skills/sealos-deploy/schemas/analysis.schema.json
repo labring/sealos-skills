@@ -18,7 +18,9 @@
     "env_vars",
     "has_dockerfile",
     "complexity_tier",
-    "image_ref"
+    "image_ref",
+    "image_inventory",
+    "service_inventory"
   ],
   "properties": {
     "generated_at": {
@@ -231,6 +233,233 @@
         { "type": "string", "minLength": 1 },
         { "type": "null" }
       ]
+    },
+    "image_inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "image",
+          "declared_ref",
+          "declared_tag",
+          "resolution_tag",
+          "declared_digest",
+          "registry",
+          "role",
+          "sources",
+          "status",
+          "platforms",
+          "digest",
+          "image_ref",
+          "error"
+        ],
+        "properties": {
+          "image": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declared_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declared_tag": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "resolution_tag": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "declared_digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "registry": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "application",
+              "database",
+              "infrastructure"
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "file",
+                "service",
+                "declared_ref"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "readme",
+                    "ci",
+                    "compose"
+                  ]
+                },
+                "file": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "service": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1 },
+                    { "type": "null" }
+                  ]
+                },
+                "declared_ref": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unsupported_platform",
+              "unavailable"
+            ]
+          },
+          "platforms": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "image_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "@sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "service_inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "role",
+          "source",
+          "source_file",
+          "declared_image",
+          "build"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "application",
+              "database",
+              "infrastructure"
+            ]
+          },
+          "source": {
+            "const": "compose"
+          },
+          "source_file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declared_image": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "build": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "image_status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unsupported_platform",
+              "unavailable",
+              "build_required",
+              "built"
+            ]
+          },
+          "image_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "@sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "platforms": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
     }
   }
 }

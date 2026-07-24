@@ -35,15 +35,17 @@ Based on `analysis.framework` and `analysis.package_manager`:
 
 Every generated Dockerfile MUST include:
 
-1. **Fixed version tags** (NEVER use `latest`)
+1. **Project-compatible base images**
   ```dockerfile
-  # Good
+  # Preserve the runtime family and variant required by the project.
   FROM node:20.11.1-slim
-
-  # Bad
   FROM node:latest
   FROM node:lts
   ```
+
+   A floating base tag is valid build input. Do not reject or rewrite an
+   otherwise compatible Dockerfile solely because it uses one. The deploy
+   pipeline pins the final application image by digest before deployment.
 
 2. **Multi-stage build** (when applicable)
   ```dockerfile
@@ -920,7 +922,7 @@ Output a summary of required environment variables:
 
 Before proceeding to build phase, verify:
 
-- [ ] Base image version is fixed (not `latest`)
+- [ ] Base image matches the project's runtime and platform requirements
 - [ ] Multi-stage build is used (if build step exists)
 - [ ] Non-root user is configured
 - [ ] EXPOSE matches detected port
@@ -931,7 +933,9 @@ Before proceeding to build phase, verify:
 ```bash
 node "<SKILL_DIR>/scripts/validate-dockerfile.mjs" "$WORK_DIR/Dockerfile" --port=<port> --json
 ```
-This checks: no `:latest` tags, non-root USER, multi-stage build, COPY order, port match, no -dev packages in runtime, CMD exists, .dockerignore exists.
+This checks: non-root USER, multi-stage build, COPY order, port match, no -dev
+packages in runtime, CMD exists, and .dockerignore exists. Floating base tags
+are not validation failures.
 Fix any reported errors before proceeding to build.
 
 ## Artifact Output
@@ -995,7 +999,7 @@ After writing all Docker configuration files to disk, write two additional artif
   },
   "compose_services": ["app", "postgres"],
   "validation_checklist": {
-    "fixed_base_image_version": true,
+    "runtime_compatible_base_image": true,
     "multi_stage_build": true,
     "non_root_user": true,
     "expose_matches_detected_port": true,

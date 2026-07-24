@@ -158,7 +158,7 @@ For split-service web apps, classify each component before writing resources:
 - **REST API**: authenticated application or dashboard API.
 - **Protocol gateway**: OpenAI-compatible, webhook, or SDK-facing API surface.
 - **Docs/static service**: optional public documentation.
-- **Worker**: background processor with no public Service/Ingress unless upstream explicitly exposes one.
+- **Worker**: background processor with no public Ingress unless upstream explicitly exposes one; preserve an internal Service when the source topology uses it.
 
 The App CRD `spec.data.url` must point to the browser entry URL that works from a fresh Sealos launch. Test the root path and any login/setup/entrance path from upstream docs or source. Choose the path that loads without prior navigation and reaches login, registration, or setup.
 
@@ -835,7 +835,7 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:16-alpine
+          image: postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
@@ -953,7 +953,7 @@ metadata:
     app: ${{ defaults.app_name }}
     cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
   annotations:
-    originImageName: example/app:1.0.0  # Required: Original image name
+    originImageName: example/app@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  # Required: Immutable source image
     deploy.cloud.sealos.io/minReplicas: '1'  # Required: Minimum replica count
     deploy.cloud.sealos.io/maxReplicas: '1'  # Required: Maximum replica count
 spec:
@@ -974,7 +974,7 @@ kind: Deployment
 metadata:
   name: ${{ defaults.app_name }}
   annotations:
-    originImageName: example/app:1.0.0
+    originImageName: example/app@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
     deploy.cloud.sealos.io/minReplicas: '1'
     deploy.cloud.sealos.io/maxReplicas: '1'
   labels:
@@ -994,7 +994,7 @@ spec:
       automountServiceAccountToken: false  # Disable automatic service account token mounting
       containers:
         - name: ${{ defaults.app_name }}
-          image: example/app:1.0.0
+          image: example/app@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
           imagePullPolicy: IfNotPresent
 ```
 
@@ -1148,7 +1148,7 @@ spec:
     spec:
       containers:
         - name: ${{ defaults.app_name }}
-          image: example/app:1.0.0
+          image: example/app@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
           imagePullPolicy: IfNotPresent  # Must use IfNotPresent
 ```
 

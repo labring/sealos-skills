@@ -47,12 +47,32 @@
           "additionalProperties": false,
           "required": [
             "remote_image",
+            "digest",
+            "image_ref",
+            "platforms",
             "pushed_at"
           ],
           "properties": {
             "remote_image": {
               "type": "string",
               "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-fA-F]{64}$"
+            },
+            "image_ref": {
+              "type": "string",
+              "pattern": "^[^\\s@]+@sha256:[0-9a-fA-F]{64}$"
+            },
+            "platforms": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
             },
             "pushed_at": {
               "type": "string",

@@ -14,9 +14,9 @@ flowchart TD
         D2{"Score >= 4?"}
         D3["Write .sealos/analysis.json<br/>Present analysis summary"]
 
-        D4["Phase 2 - Detect Existing Image<br/>GitHub URL / local repo / README / compose / registry checks"]
-        D5{"Found usable amd64 image?"}
-        D6["Update analysis.json.image_ref<br/>Skip Dockerfile build request details where possible"]
+        D4["Phase 2 - Discover Images and Topology<br/>README, then CI, then Compose declarations"]
+        D5{"Every emitted non-database workload has<br/>a verified linux/amd64 digest?"}
+        D6["Retain the complete service inventory<br/>Reuse verified images by service"]
 
         D7["Phase 3 - Dockerfile<br/>Reuse, fix, or generate Dockerfile"]
         D8["Validate Dockerfile<br/>Prepare .dockerignore if needed"]
@@ -36,5 +36,5 @@ flowchart TD
     D2 -- "No" --> DStop1
     D2 -- "Yes" --> D3 --> D4 --> D5
     D5 -- "Yes" --> D6 --> D9
-    D5 -- "No" --> D7 --> D8 --> D9
+    D5 -- "No - build only missing services" --> D7 --> D8 --> D9
     D9 --> D10 --> D11 --> D12 --> D13 --> D14

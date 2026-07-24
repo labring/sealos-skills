@@ -10,7 +10,15 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 from urllib.parse import unquote_plus, urlsplit
 
-from check_consistency_models import LATEST_IMAGE_PATTERN, TEMPLATE_NAME_PATTERN, Rule, ScanContext, Violation, YamlDocument
+from check_consistency_models import (
+    IMMUTABLE_IMAGE_DIGEST_PATTERN,
+    TEMPLATE_NAME_PATTERN,
+    WORKLOAD_KINDS,
+    Rule,
+    ScanContext,
+    Violation,
+    YamlDocument,
+)
 from check_consistency_helpers_violations import (
     add_doc_violation,
     check_managed_workload_setting,
@@ -40,8 +48,6 @@ TEMPLATE_REQUIRED_SPEC_FIELDS = {
     "i18n": dict,
     "categories": list,
 }
-FLOATING_TAG_ALIASES = {"latest", "stable", "main", "master", "edge", "nightly", "dev"}
-FLOATING_NUMERIC_TAG_RE = re.compile(r"^v?\d+(?:\.\d+)?$")
 COMPOSE_VAR_IN_IMAGE_RE = re.compile(r"\$(?:\{[^}]+\}|[A-Za-z_][A-Za-z0-9_]*)")
 ZH_CHAR_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
 ALLOWED_TEMPLATE_CATEGORIES = {
@@ -373,6 +379,33 @@ def _split_runtime_bundle_values(value: Any) -> List[str]:
     else:
         raw = str(value)
     return [item.strip() for item in re.split(r"[\n,]+", raw) if item.strip()]
+
+
+def _parse_runtime_bundle_images(value: Any) -> Tuple[List[Tuple[str, str]], List[str]]:
+    if not isinstance(value, list):
+        legacy_images = _split_runtime_bundle_values(value)
+        return [(image, image) for image in legacy_images], []
+
+    images: List[Tuple[str, str]] = []
+    invalid: List[str] = []
+    for index, item in enumerate(value):
+        if isinstance(item, str) and item.strip():
+            image = item.strip()
+            images.append((image, image))
+            continue
+        if isinstance(item, dict):
+            source = item.get("source")
+            resolved = item.get("resolved")
+            if (
+                isinstance(source, str)
+                and source.strip()
+                and isinstance(resolved, str)
+                and resolved.strip()
+            ):
+                images.append((source.strip(), resolved.strip()))
+                continue
+        invalid.append(f"images[{index}]")
+    return images, invalid
 
 
 def _parse_runtime_bundle_route_string(value: str) -> Tuple[str, str]:
@@ -842,84 +875,64 @@ def _extract_template_directory_name(path: Path) -> str:
     return parts[index + 1]
 
 
-def check_no_latest_tags(context: ScanContext) -> List[Violation]:
+def _is_immutable_repository_digest(image: str) -> bool:
+    match = IMMUTABLE_IMAGE_DIGEST_PATTERN.fullmatch(image.strip())
+    if match is None:
+        return False
+    repository = match.group("repository")
+    repository_name = repository.rsplit("/", 1)[-1]
+    return ":" not in repository_name
+
+
+def check_images_are_immutable_digests(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
+    artifact_paths = set(_iter_template_artifact_paths(context))
     for doc in context.yaml_documents:
-        if doc.skip_checks:
+        if (
+            doc.skip_checks
+            or doc.path not in artifact_paths
+            or not isinstance(doc.data, dict)
+            or doc.data.get("kind") not in WORKLOAD_KINDS
+        ):
             continue
-        for line_no, line in enumerate(doc.source.splitlines(), start=doc.start_line):
-            if LATEST_IMAGE_PATTERN.search(line):
+        metadata = doc.data.get("metadata")
+        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+        origin_image = annotations.get("originImageName") if isinstance(annotations, dict) else None
+        if isinstance(origin_image, str) and origin_image.strip():
+            normalized_origin = origin_image.strip()
+            if not _is_immutable_repository_digest(normalized_origin):
                 violations.append(
                     Violation(
                         rule_id="R001",
                         path=doc.path,
-                        line=line_no,
-                        message="forbidden ':latest' image tag",
+                        line=find_line(doc, r"^\s*originImageName\s*:"),
+                        message=(
+                            "emitted originImageName must use an immutable "
+                            "repository@sha256:<64-hex-digest> reference"
+                        ),
                     )
                 )
-    return violations
 
-
-def _extract_image_tag(image: str) -> Optional[str]:
-    text = image.strip()
-    if not text or "@sha256:" in text:
-        return None
-    without_digest = text.split("@", 1)[0]
-    last_segment = without_digest.rsplit("/", 1)[-1]
-    if ":" not in last_segment:
-        return None
-    return last_segment.rsplit(":", 1)[-1].strip()
-
-
-def _is_floating_tag(tag: str) -> bool:
-    normalized = tag.strip().lower()
-    if normalized in FLOATING_TAG_ALIASES:
-        return True
-    return FLOATING_NUMERIC_TAG_RE.fullmatch(normalized) is not None
-
-
-def check_no_floating_image_tags(context: ScanContext) -> List[Violation]:
-    violations: List[Violation] = []
-    for doc in context.yaml_documents:
-        if doc.skip_checks or not isinstance(doc.data, dict):
-            continue
-        if not is_app_workload_document(doc):
-            continue
-        if not has_managed_workload_marker(doc.data):
-            continue
-
-        metadata = doc.data.get("metadata")
-        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
-        origin_image = annotations.get("originImageName") if isinstance(annotations, dict) else None
-        values: List[tuple[str, str]] = []
-        if isinstance(origin_image, str) and origin_image.strip():
-            values.append(("originImageName", origin_image.strip()))
-
-        template_spec = get_template_spec(doc.data)
-        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
-        if isinstance(containers, list):
-            for container in containers:
-                if not isinstance(container, dict):
-                    continue
-                image = container.get("image")
-                if isinstance(image, str) and image.strip():
-                    values.append(("image", image.strip()))
-
-        for field_name, image_value in values:
-            tag = _extract_image_tag(image_value)
-            if tag is None or not _is_floating_tag(tag):
+        for container in iter_containers(doc.data):
+            image = container.get("image")
+            if not isinstance(image, str) or not image.strip():
                 continue
-            pattern = r"originImageName" if field_name == "originImageName" else r"^\s*image\s*:"
-            add_doc_violation(
-                violations,
-                rule_id="R016",
-                doc=doc,
-                pattern=pattern,
-                default_pattern=r"^\s*metadata\s*:" if field_name == "originImageName" else r"^\s*containers\s*:",
-                message=(
-                    f"floating image tag '{tag}' is not allowed; "
-                    "use an explicit version tag (e.g. v2.2.0) or digest"
-                ),
+            normalized_image = image.strip()
+            if _is_immutable_repository_digest(normalized_image):
+                continue
+            violations.append(
+                Violation(
+                    rule_id="R001",
+                    path=doc.path,
+                    line=find_line(
+                        doc,
+                        rf"^\s*image\s*:\s*['\"]?{re.escape(normalized_image)}['\"]?(?:\s+#.*)?$",
+                    ),
+                    message=(
+                        "emitted workload images must use immutable "
+                        "repository@sha256:<64-hex-digest> references"
+                    ),
+                )
             )
 
     return violations
@@ -964,7 +977,8 @@ def check_no_compose_image_variables(context: ScanContext) -> List[Violation]:
                 default_pattern=r"^\s*metadata\s*:" if field_name == "originImageName" else r"^\s*containers\s*:",
                 message=(
                     "image references must be concrete and must not contain Compose-style variables; "
-                    "resolve to explicit tag or digest before emitting template artifacts"
+                    "resolve variables first, then resolve the resulting image to an immutable "
+                    "digest with crane before emitting template artifacts"
                 ),
             )
     return violations
@@ -4025,7 +4039,14 @@ def check_postgres_secret_refs_match_cluster_name(context: ScanContext) -> List[
             continue
 
         for _, secret_name, _, secret_key in iter_workload_secret_refs(doc.data):
-            if not isinstance(secret_name, str) or not secret_name.endswith("-pg-conn-credential"):
+            if (
+                not isinstance(secret_name, str)
+                or re.search(
+                    r"-pg(?:-[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)?-conn-credential$",
+                    secret_name,
+                )
+                is None
+            ):
                 continue
             if secret_name in expected:
                 continue
@@ -4363,7 +4384,10 @@ def check_runtime_bundle_consistency(context: ScanContext) -> List[Violation]:
             continue
 
         state = _collect_runtime_bundle_state(context, template_doc.path)
-        expected_images = _split_runtime_bundle_values(spec.get(RUNTIME_BUNDLE_IMAGES_FIELD))
+        expected_image_pairs, invalid_image_entries = _parse_runtime_bundle_images(
+            spec.get(RUNTIME_BUNDLE_IMAGES_FIELD)
+        )
+        expected_images = [resolved for _, resolved in expected_image_pairs]
         expected_components = _split_runtime_bundle_values(spec.get(RUNTIME_BUNDLE_COMPONENTS_FIELD))
         expected_routes = _parse_runtime_bundle_routes(spec.get(RUNTIME_BUNDLE_ROUTES_FIELD))
         expected_envs = _split_runtime_bundle_values(spec.get(RUNTIME_BUNDLE_ENVS_FIELD))
@@ -4380,6 +4404,20 @@ def check_runtime_bundle_consistency(context: ScanContext) -> List[Violation]:
                 ),
             )
             continue
+
+        if invalid_image_entries:
+            add_doc_violation(
+                violations,
+                rule_id="R046",
+                doc=doc,
+                pattern=rf"^\s*{re.escape(RUNTIME_BUNDLE_IMAGES_FIELD)}\s*:",
+                default_pattern=r"^\s*spec\s*:",
+                message=(
+                    "runtime bundle image entries must be strings containing final image refs "
+                    "or source/resolved mappings; invalid entry(s): "
+                    + ", ".join(invalid_image_entries)
+                ),
+            )
 
         missing_images = [image for image in expected_images if image not in state["images"]]
         if missing_images:
@@ -4764,8 +4802,7 @@ def check_image_pull_secret_refs(context: ScanContext) -> List[Violation]:
 
 
 APP_RULES: Dict[str, Rule] = {
-    "R001": Rule("R001", check_no_latest_tags),
-    "R016": Rule("R016", check_no_floating_image_tags),
+    "R001": Rule("R001", check_images_are_immutable_digests),
     "R018": Rule("R018", check_no_compose_image_variables),
     "R002": Rule("R002", check_app_no_spec_template),
     "R003": Rule("R003", check_app_has_spec_data_url),

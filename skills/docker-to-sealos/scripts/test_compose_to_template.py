@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
+import json
 import re
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
-from subprocess import CompletedProcess
 from typing import Any, Dict, List, Optional
 
 import yaml
@@ -20,9 +20,12 @@ from compose_to_template import (
     find_svgl_logo_url,
     infer_metadata,
     parse_args,
+    parse_image_overrides,
     resolve_image_reference,
     resolve_kompose_shapes,
 )
+
+TEST_IMAGE_DIGEST = "sha256:" + ("a" * 64)
 
 
 def write_file(path: Path, content: str) -> None:
@@ -59,9 +62,43 @@ class ComposeToTemplateTests(unittest.TestCase):
     def setUp(self):
         self._svgl_json_patcher = mock.patch("compose_to_template._read_json_url", return_value=[])
         self._svgl_json_patcher.start()
+        self._crane_binary_patcher = mock.patch(
+            "compose_to_template.require_crane_binary",
+            return_value="/usr/local/bin/crane",
+        )
+        self._crane_binary_patcher.start()
+        self._crane_command_patcher = mock.patch(
+            "compose_to_template.run_crane_command",
+            side_effect=self._fake_crane_command,
+        )
+        self._crane_command_mock = self._crane_command_patcher.start()
 
     def tearDown(self):
+        self._crane_command_patcher.stop()
+        self._crane_binary_patcher.stop()
         self._svgl_json_patcher.stop()
+
+    @staticmethod
+    def _fake_crane_command(crane_bin: str, args: List[str]) -> str:
+        if crane_bin == "/usr/local/bin/crane" and len(args) == 2 and args[0] == "digest":
+            return TEST_IMAGE_DIGEST
+        if crane_bin == "/usr/local/bin/crane" and len(args) == 2 and args[0] == "manifest":
+            return json.dumps(
+                {
+                    "schemaVersion": 2,
+                    "manifests": [
+                        {
+                            "digest": TEST_IMAGE_DIGEST,
+                            "platform": {"os": "linux", "architecture": "amd64"},
+                        }
+                    ],
+                }
+            )
+        raise AssertionError(f"unexpected crane command: {crane_bin} {args}")
+
+    @staticmethod
+    def _digest_ref(repository: str) -> str:
+        return f"{repository}@{TEST_IMAGE_DIGEST}"
 
     def _meta(self, app_name: str = "demo") -> MetadataOptions:
         return MetadataOptions(
@@ -74,6 +111,25 @@ class ComposeToTemplateTests(unittest.TestCase):
             categories=("tool",),
             repo_raw_base="https://raw.githubusercontent.com/labring-actions/templates/kb-0.9",
         )
+
+    def _assert_generated_template_passes_consistency(
+        self,
+        root: Path,
+        index_path: Path,
+    ) -> None:
+        checker_skill = root / "SKILL.md"
+        checker_refs = root / "references"
+        checker_registry = checker_refs / "rules-registry.yaml"
+        write_file(checker_skill, "# local checker scope\n")
+        write_file(checker_refs / "placeholder.md", "# refs\n")
+        checker_registry.write_text(render_registry(), encoding="utf-8")
+        violations = run_checks(
+            skill_path=checker_skill,
+            references_dir=checker_refs,
+            registry_path=checker_registry,
+            additional_include_paths=[str(index_path)],
+        )
+        self.assertEqual([], violations)
 
     def test_generates_template_and_passes_consistency_rules(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -526,7 +582,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 ingress["metadata"]["annotations"]["nginx.ingress.kubernetes.io/proxy-read-timeout"],
             )
 
-    def test_drops_https_port_when_http_port_exists(self):
+    def test_preserves_https_port_when_http_port_also_exists(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose = root / "docker-compose.yml"
@@ -552,10 +608,10 @@ class ComposeToTemplateTests(unittest.TestCase):
 
             container_ports = [item["containerPort"] for item in workload["spec"]["template"]["spec"]["containers"][0]["ports"]]
             service_ports = [item["port"] for item in service["spec"]["ports"]]
-            self.assertEqual([80], container_ports)
-            self.assertEqual([80], service_ports)
+            self.assertEqual([80, 443], container_ports)
+            self.assertEqual([80, 443], service_ports)
 
-    def test_filters_tls_certificate_mounts_from_persistent_storage(self):
+    def test_preserves_tls_certificate_mounts_from_compose_topology(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose = root / "docker-compose.yml"
@@ -583,7 +639,7 @@ class ComposeToTemplateTests(unittest.TestCase):
 
             mounts = workload["spec"]["template"]["spec"]["containers"][0]["volumeMounts"]
             mount_paths = [item["mountPath"] for item in mounts]
-            self.assertEqual(["/var/lib/demo"], mount_paths)
+            self.assertEqual(["/etc/nginx/ssl", "/var/lib/demo"], mount_paths)
 
     def test_generates_configmap_file_mounts_from_compose_configs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -698,7 +754,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertIn("${{ defaults.app_name }}", names)
             self.assertIn("${{ defaults.app_name }}-worker", names)
 
-    def test_skips_traefik_gateway_when_business_service_exists(self):
+    def test_preserves_traefik_gateway_when_business_service_exists(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose = root / "docker-compose.yml"
@@ -727,9 +783,18 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             docs = parse_yaml_documents(index_path)
             workloads = [doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"}]
-            self.assertEqual(1, len(workloads))
-            container_image = workloads[0]["spec"]["template"]["spec"]["containers"][0]["image"]
-            self.assertEqual("ghcr.io/example/demo:1.0.0", container_image)
+            self.assertEqual(2, len(workloads))
+            container_images = {
+                workload["spec"]["template"]["spec"]["containers"][0]["image"]
+                for workload in workloads
+            }
+            self.assertEqual(
+                {
+                    self._digest_ref("traefik"),
+                    self._digest_ref("ghcr.io/example/demo"),
+                },
+                container_images,
+            )
 
             ingress = next(doc for doc in docs if doc.get("kind") == "Ingress")
             backend_service = ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"]
@@ -758,7 +823,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             docs = parse_yaml_documents(index_path)
             workload = next(doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"})
             container_image = workload["spec"]["template"]["spec"]["containers"][0]["image"]
-            self.assertEqual("traefik:v3.1.4", container_image)
+            self.assertEqual(self._digest_ref("traefik"), container_image)
 
     def test_maps_compose_command_to_container_args(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -976,18 +1041,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual(["vn-data"], pvc_names)
             self.assertNotIn("labels", pvcs[0]["metadata"])
 
-    def test_resolves_latest_image_tag_to_precise_version(self):
-        def fake_run(command, capture_output=True, text=True):  # noqa: ANN001
-            if command[-2:] == ["digest", "nginx:latest"]:
-                return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
-            if command[-2:] == ["ls", "nginx"]:
-                return CompletedProcess(command, 0, stdout="latest\n1.27.2\n1.26.3\n", stderr="")
-            if command[-2:] == ["digest", "nginx:1.27.2"]:
-                return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
-            if command[-2:] == ["digest", "nginx:1.26.3"]:
-                return CompletedProcess(command, 0, stdout="sha256:def\n", stderr="")
-            return CompletedProcess(command, 1, stdout="", stderr="unexpected command")
-
+    def test_resolves_latest_image_tag_to_immutable_digest(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose = root / "docker-compose.yml"
@@ -999,18 +1053,17 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: nginx:latest
                 """,
             )
-            with mock.patch("compose_to_template.shutil.which", return_value="/usr/local/bin/crane"):
-                with mock.patch("compose_to_template.subprocess.run", side_effect=fake_run):
-                    index_path, _ = convert_compose_to_template(
-                        compose_path=compose,
-                        output_root=root / "template",
-                        meta=self._meta("demo"),
-                    )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
 
             docs = parse_yaml_documents(index_path)
             workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
-            self.assertEqual("nginx:1.27.2", workload["spec"]["template"]["spec"]["containers"][0]["image"])
-            self.assertEqual("nginx:1.27.2", workload["metadata"]["annotations"]["originImageName"])
+            expected = self._digest_ref("nginx")
+            self.assertEqual(expected, workload["spec"]["template"]["spec"]["containers"][0]["image"])
+            self.assertEqual(expected, workload["metadata"]["annotations"]["originImageName"])
 
     def test_resolves_compose_image_default_expressions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1034,8 +1087,9 @@ class ComposeToTemplateTests(unittest.TestCase):
             workload = next(doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"})
             image = workload["spec"]["template"]["spec"]["containers"][0]["image"]
             origin = workload["metadata"]["annotations"]["originImageName"]
-            self.assertEqual("ghcr.io/example/demo:1.2.3", image)
-            self.assertEqual("ghcr.io/example/demo:1.2.3", origin)
+            expected = self._digest_ref("ghcr.io/example/demo")
+            self.assertEqual(expected, image)
+            self.assertEqual(expected, origin)
 
     def test_rejects_unresolved_compose_image_variable(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1074,7 +1128,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       DB_PASSWORD: super-secret
                       DATABASE_URL: postgres://postgres:super-secret@postgres:5432/postgres
                   postgres:
-                    image: postgres:16.4
+                    image: postgres
                 """,
             )
             index_path, _ = convert_compose_to_template(
@@ -1127,6 +1181,16 @@ class ComposeToTemplateTests(unittest.TestCase):
                 "postgres://$(SEALOS_DATABASE_POSTGRES_USERNAME):$(SEALOS_DATABASE_POSTGRES_PASSWORD)"
                 "@$(SEALOS_DATABASE_POSTGRES_HOST):$(SEALOS_DATABASE_POSTGRES_PORT)/postgres",
                 endpoint_item.get("value"),
+            )
+            self.assertEqual(
+                [
+                    mock.call("/usr/local/bin/crane", ["digest", "ghcr.io/example/demo:1.0.0"]),
+                    mock.call(
+                        "/usr/local/bin/crane",
+                        ["manifest", self._digest_ref("ghcr.io/example/demo")],
+                    ),
+                ],
+                self._crane_command_mock.call_args_list,
             )
             for helper_name, key in (
                 ("SEALOS_DATABASE_POSTGRES_HOST", "host"),
@@ -1454,6 +1518,122 @@ class ComposeToTemplateTests(unittest.TestCase):
                     meta=self._meta("mongo-only"),
                 )
 
+    def test_preserves_multiple_databases_of_the_same_type_as_distinct_clusters(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:v2
+                    environment:
+                      PRIMARY_DATABASE_URL: postgres://app:secret@primary:5432/postgres
+                      ANALYTICS_DATABASE_URL: postgres://app:secret@analytics:5432/postgres
+                  primary:
+                    image: postgres:16
+                  analytics:
+                    image: postgres:16
+                """,
+            )
+
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            clusters = [doc for doc in docs if doc.get("kind") == "Cluster"]
+            self.assertEqual(
+                {
+                    "${{ defaults.app_name }}-pg-primary",
+                    "${{ defaults.app_name }}-pg-analytics",
+                },
+                {cluster["metadata"]["name"] for cluster in clusters},
+            )
+
+            deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+            primary_user = next(
+                item
+                for item in env
+                if item["name"] == "SEALOS_PRIMARY_DATABASE_POSTGRES_USERNAME"
+            )
+            analytics_user = next(
+                item
+                for item in env
+                if item["name"] == "SEALOS_ANALYTICS_DATABASE_POSTGRES_USERNAME"
+            )
+            self.assertEqual(
+                "${{ defaults.app_name }}-pg-primary-conn-credential",
+                primary_user["valueFrom"]["secretKeyRef"]["name"],
+            )
+            self.assertEqual(
+                "${{ defaults.app_name }}-pg-analytics-conn-credential",
+                analytics_user["valueFrom"]["secretKeyRef"]["name"],
+            )
+            self._assert_generated_template_passes_consistency(root, index_path)
+
+    def test_preserves_multiple_redis_services_with_distinct_hosts(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:v2
+                    environment:
+                      REDIS_CACHE_URL: redis://cache:6379/0
+                      REDIS_QUEUE_URL: redis://queue:6379/0
+                  cache:
+                    image: redis:7
+                  queue:
+                    image: redis:7
+                """,
+            )
+
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            clusters = [doc for doc in docs if doc.get("kind") == "Cluster"]
+            self.assertEqual(
+                {
+                    "${{ defaults.app_name }}-redis-cache",
+                    "${{ defaults.app_name }}-redis-queue",
+                },
+                {cluster["metadata"]["name"] for cluster in clusters},
+            )
+
+            deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+            cache_host = next(
+                item
+                for item in env
+                if item["name"] == "SEALOS_REDIS_CACHE_REDIS_HOST"
+            )
+            queue_host = next(
+                item
+                for item in env
+                if item["name"] == "SEALOS_REDIS_QUEUE_REDIS_HOST"
+            )
+            self.assertEqual(
+                "${{ defaults.app_name }}-redis-cache-redis-redis."
+                "${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+                cache_host["value"],
+            )
+            self.assertEqual(
+                "${{ defaults.app_name }}-redis-queue-redis-redis."
+                "${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+                queue_host["value"],
+            )
+            self._assert_generated_template_passes_consistency(root, index_path)
+
     def test_composes_mongodb_url_with_service_host_and_credential_secret(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1596,6 +1776,34 @@ class ComposeToTemplateTests(unittest.TestCase):
         args = parse_args(["--compose", "docker-compose.yml", "--no-fetch-logo"])
         self.assertTrue(args.no_fetch_logo)
 
+    def test_parse_args_supports_repeatable_image_overrides(self):
+        args = parse_args(
+            [
+                "--compose",
+                "docker-compose.yml",
+                "--image-override",
+                "web=ghcr.io/example/web:latest",
+                "--image-override",
+                "api=ghcr.io/example/api:v2",
+            ]
+        )
+        self.assertEqual(
+            {
+                "web": "ghcr.io/example/web:latest",
+                "api": "ghcr.io/example/api:v2",
+            },
+            parse_image_overrides(args.image_override),
+        )
+
+    def test_parse_image_overrides_rejects_duplicate_service(self):
+        with self.assertRaisesRegex(ValueError, "duplicate image override"):
+            parse_image_overrides(
+                [
+                    "api=ghcr.io/example/api:v1",
+                    "api=ghcr.io/example/api:v2",
+                ]
+            )
+
     def test_infer_metadata_normalizes_categories_to_allowlist(self):
         args = parse_args(
             [
@@ -1640,43 +1848,161 @@ class ComposeToTemplateTests(unittest.TestCase):
         )
         self.assertEqual("开源身份与访问管理平台，提供认证与授权能力。", zh_description)
 
-    def test_resolve_image_reference_promotes_floating_tag_to_precise_version(self):
-        image = "ghcr.io/example/demo:v2"
+    def test_resolve_image_reference_digests_any_tag_or_tagless_input(self):
+        inputs = [
+            "ghcr.io/example/demo:latest",
+            "ghcr.io/example/demo:stable",
+            "ghcr.io/example/demo:v2",
+            "ghcr.io/example/demo:2.1",
+            "ghcr.io/example/demo:v2.2.0",
+            "ghcr.io/example/demo",
+        ]
 
-        def fake_run(command, capture_output=True, text=True):  # noqa: ANN001
-            if command[-2:] == ["digest", "ghcr.io/example/demo:v2"]:
-                return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
-            if command[-2:] == ["ls", "ghcr.io/example/demo"]:
-                return CompletedProcess(command, 0, stdout="v2\nv2.2.0\nv2.1.9\n", stderr="")
-            if command[-2:] == ["digest", "ghcr.io/example/demo:v2.2.0"]:
-                return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
-            if command[-2:] == ["digest", "ghcr.io/example/demo:v2.1.9"]:
-                return CompletedProcess(command, 0, stdout="sha256:def\n", stderr="")
-            return CompletedProcess(command, 1, stdout="", stderr="unexpected command")
-
-        with mock.patch("compose_to_template.shutil.which", return_value="/usr/local/bin/crane"):
-            with mock.patch("compose_to_template.subprocess.run", side_effect=fake_run):
+        for image in inputs:
+            with self.subTest(image=image):
                 resolved = resolve_image_reference(image)
+                self.assertEqual(self._digest_ref("ghcr.io/example/demo"), resolved)
 
-        self.assertEqual("ghcr.io/example/demo:v2.2.0", resolved)
+        expected_calls = []
+        for image in inputs:
+            expected_calls.extend(
+                [
+                    mock.call("/usr/local/bin/crane", ["digest", image]),
+                    mock.call(
+                        "/usr/local/bin/crane",
+                        ["manifest", self._digest_ref("ghcr.io/example/demo")],
+                    ),
+                ]
+            )
+        self.assertEqual(expected_calls, self._crane_command_mock.call_args_list)
 
-    def test_resolve_image_reference_falls_back_to_digest_when_no_precise_tag_matches(self):
-        image = "ghcr.io/example/demo:v2"
+    def test_resolve_image_reference_rejects_invalid_crane_digest(self):
+        with mock.patch(
+            "compose_to_template.run_crane_command",
+            return_value="sha256:not-a-valid-digest",
+        ):
+            with self.assertRaisesRegex(ValueError, "invalid sha256 digest"):
+                resolve_image_reference("ghcr.io/example/demo:1.2.3")
 
-        def fake_run(command, capture_output=True, text=True):  # noqa: ANN001
-            if command[-2:] == ["digest", "ghcr.io/example/demo:v2"]:
-                return CompletedProcess(command, 0, stdout="sha256:abc\n", stderr="")
-            if command[-2:] == ["ls", "ghcr.io/example/demo"]:
-                return CompletedProcess(command, 0, stdout="v2\nv2.2.0\n", stderr="")
-            if command[-2:] == ["digest", "ghcr.io/example/demo:v2.2.0"]:
-                return CompletedProcess(command, 0, stdout="sha256:def\n", stderr="")
-            return CompletedProcess(command, 1, stdout="", stderr="unexpected command")
+    def test_resolve_image_reference_rejects_arm64_only_image(self):
+        def arm64_only_crane(crane_bin: str, args: List[str]) -> str:
+            if args[0] == "digest":
+                return TEST_IMAGE_DIGEST
+            if args[0] == "manifest":
+                return json.dumps(
+                    {
+                        "schemaVersion": 2,
+                        "manifests": [
+                            {
+                                "digest": TEST_IMAGE_DIGEST,
+                                "platform": {"os": "linux", "architecture": "arm64"},
+                            }
+                        ],
+                    }
+                )
+            raise AssertionError(f"unexpected crane command: {crane_bin} {args}")
 
-        with mock.patch("compose_to_template.shutil.which", return_value="/usr/local/bin/crane"):
-            with mock.patch("compose_to_template.subprocess.run", side_effect=fake_run):
-                resolved = resolve_image_reference(image)
+        with mock.patch(
+            "compose_to_template.run_crane_command",
+            side_effect=arm64_only_crane,
+        ):
+            with self.assertRaisesRegex(ValueError, "does not provide linux/amd64"):
+                resolve_image_reference("ghcr.io/example/demo:stable")
 
-        self.assertEqual("ghcr.io/example/demo@sha256:abc", resolved)
+    def test_resolve_image_reference_checks_single_manifest_config(self):
+        def single_manifest_crane(crane_bin: str, args: List[str]) -> str:
+            if args[0] == "digest":
+                return TEST_IMAGE_DIGEST
+            if args[0] == "manifest":
+                return json.dumps(
+                    {
+                        "schemaVersion": 2,
+                        "config": {"digest": TEST_IMAGE_DIGEST},
+                    }
+                )
+            if args[0] == "config":
+                return json.dumps({"os": "linux", "architecture": "amd64"})
+            raise AssertionError(f"unexpected crane command: {crane_bin} {args}")
+
+        with mock.patch(
+            "compose_to_template.run_crane_command",
+            side_effect=single_manifest_crane,
+        ):
+            self.assertEqual(
+                self._digest_ref("ghcr.io/example/demo"),
+                resolve_image_reference("ghcr.io/example/demo:v2"),
+            )
+
+    def test_build_only_proxy_uses_image_override_without_editing_compose(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  edge-proxy:
+                    build:
+                      context: .
+                    ports:
+                      - "8080:8080"
+                """,
+            )
+
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+                image_overrides={"edge-proxy": "ghcr.io/example/edge-proxy:latest"},
+            )
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            self.assertEqual(
+                self._digest_ref("ghcr.io/example/edge-proxy"),
+                workload["spec"]["template"]["spec"]["containers"][0]["image"],
+            )
+            self.assertNotIn("image:", compose.read_text(encoding="utf-8"))
+
+    def test_build_only_service_without_image_override_stops(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  api:
+                    build: .
+                """,
+            )
+
+            with self.assertRaisesRegex(ValueError, "--image-override api=IMAGE"):
+                convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("demo"),
+                )
+
+    def test_unknown_image_override_service_stops(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/app:v2
+                """,
+            )
+
+            with self.assertRaisesRegex(ValueError, "unknown Compose service"):
+                convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("demo"),
+                    image_overrides={"api": "ghcr.io/example/api:v2"},
+                )
 
 
 if __name__ == "__main__":

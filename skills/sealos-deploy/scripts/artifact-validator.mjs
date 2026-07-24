@@ -262,6 +262,30 @@ function loadSchema(kind) {
   return resolveLocalRefs(schema, schema)
 }
 
+function isImmutableImageRef(value) {
+  return typeof value === 'string' && /@sha256:[a-fA-F0-9]{64}$/.test(value)
+}
+
+function hasImageSelector(value) {
+  if (isImmutableImageRef(value)) return true
+  if (typeof value !== 'string') return false
+  return value.lastIndexOf(':') > value.lastIndexOf('/')
+}
+
+function imageRepository(value) {
+  const withoutDigest = value.split('@', 1)[0]
+  const lastSlash = withoutDigest.lastIndexOf('/')
+  const lastColon = withoutDigest.lastIndexOf(':')
+  return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
+}
+
+function supportsLinuxAmd64(platforms) {
+  return Array.isArray(platforms) && platforms.some((platform) => (
+    typeof platform === 'string'
+    && (platform === 'linux/amd64' || platform.startsWith('linux/amd64/'))
+  ))
+}
+
 function validateAnalysisSemantics(data, errors) {
   if (!data.all_languages.includes(data.language)) {
     pushError(errors, '$.all_languages', 'must include the primary language')
@@ -276,8 +300,72 @@ function validateAnalysisSemantics(data, errors) {
     pushError(errors, '$.runtime_version', `must include a version field for primary language ${data.language}`)
   }
 
-  if (typeof data.image_ref === 'string' && !data.image_ref.includes(':')) {
-    pushError(errors, '$.image_ref', 'must include an explicit image tag')
+  if (typeof data.image_ref === 'string' && !hasImageSelector(data.image_ref)) {
+    pushError(errors, '$.image_ref', 'must include a tag or immutable digest')
+  }
+
+  const verifiedApplicationRefs = new Set()
+  for (let index = 0; index < data.image_inventory.length; index += 1) {
+    const image = data.image_inventory[index]
+    const pointer = `$.image_inventory[${index}]`
+
+    if (image.status === 'verified') {
+      if (!isImmutableImageRef(image.image_ref)) {
+        pushError(errors, `${pointer}.image_ref`, 'verified images must use an immutable sha256 digest')
+      }
+      if (image.digest === null || image.image_ref !== `${image.image}@${image.digest}`) {
+        pushError(errors, `${pointer}.digest`, 'must match the immutable image_ref')
+      }
+      if (!supportsLinuxAmd64(image.platforms)) {
+        pushError(errors, `${pointer}.platforms`, 'verified images must include linux/amd64')
+      }
+      if (image.error !== null) {
+        pushError(errors, `${pointer}.error`, 'must be null for a verified image')
+      }
+      if (image.role === 'application' && image.image_ref !== null) {
+        verifiedApplicationRefs.add(image.image_ref)
+      }
+    } else {
+      if (image.digest !== null || image.image_ref !== null) {
+        pushError(errors, pointer, 'unverified images must not expose a deployable digest reference')
+      }
+      if (image.error === null) {
+        pushError(errors, `${pointer}.error`, 'must explain why the image is not verified')
+      }
+    }
+  }
+
+  if (
+    typeof data.image_ref === 'string'
+    && verifiedApplicationRefs.size > 0
+    && !verifiedApplicationRefs.has(data.image_ref)
+  ) {
+    pushError(errors, '$.image_ref', 'must match a verified application image from image_inventory')
+  }
+  if (data.image_ref === null && verifiedApplicationRefs.size === 1) {
+    pushError(errors, '$.image_ref', 'must record the single verified application image')
+  }
+
+  const serviceNames = new Set()
+  for (let index = 0; index < data.service_inventory.length; index += 1) {
+    const service = data.service_inventory[index]
+    const pointer = `$.service_inventory[${index}]`
+    if (serviceNames.has(service.name)) {
+      pushError(errors, `${pointer}.name`, 'must be unique')
+    }
+    serviceNames.add(service.name)
+
+    if (service.image_status === 'verified' || service.image_status === 'built') {
+      if (!isImmutableImageRef(service.image_ref)) {
+        pushError(errors, `${pointer}.image_ref`, 'deployable service images must use an immutable sha256 digest')
+      }
+      if (service.digest === null || service.image_ref !== `${service.image_ref?.split('@')[0]}@${service.digest}`) {
+        pushError(errors, `${pointer}.digest`, 'must match the immutable image_ref')
+      }
+      if (!supportsLinuxAmd64(service.platforms || [])) {
+        pushError(errors, `${pointer}.platforms`, 'deployable service images must include linux/amd64')
+      }
+    }
   }
 }
 
@@ -297,8 +385,20 @@ function validateBuildResultSemantics(data, errors) {
     pushError(errors, '$.push.remote_image', 'must not be a GHCR image when registry is dockerhub')
   }
 
-  if (!data.push.remote_image.includes(':')) {
+  if (data.push.remote_image.lastIndexOf(':') <= data.push.remote_image.lastIndexOf('/')) {
     pushError(errors, '$.push.remote_image', 'must include an explicit image tag')
+  }
+
+  if (data.outcome === 'success') {
+    if (!isImmutableImageRef(data.push.image_ref)) {
+      pushError(errors, '$.push.image_ref', 'must use an immutable sha256 digest')
+    }
+    if (data.push.image_ref !== `${imageRepository(data.push.remote_image)}@${data.push.digest}`) {
+      pushError(errors, '$.push.image_ref', 'must match remote_image repository and push.digest')
+    }
+    if (!supportsLinuxAmd64(data.push.platforms)) {
+      pushError(errors, '$.push.platforms', 'must include linux/amd64')
+    }
   }
 }
 

@@ -52,6 +52,8 @@ function analysisFor(workDir, overrides = {}) {
     has_dockerfile: false,
     complexity_tier: 'L2',
     image_ref: null,
+    image_inventory: [],
+    service_inventory: [],
   }
   return {
     ...analysis,
