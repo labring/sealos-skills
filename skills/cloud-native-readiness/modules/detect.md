@@ -206,4 +206,5 @@ Based on artifact inventory:
 
 **None** (`status: "none"`):
 - No Docker artifacts found
-→ Proceed to `dockerfile-skill` if readiness score permits
+→ Continue to `dockerfile-skill` with readiness warnings preserved when
+containerization or deployment was requested

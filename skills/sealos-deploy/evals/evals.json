@@ -8,7 +8,7 @@
       "files": [],
       "assertions": [
         {"name": "identifies-nodejs", "description": "Correctly identifies the project as Node.js"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
+        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
         {"name": "detects-external-db", "description": "Detects external database dependency (SQLite/MariaDB)"},
         {"name": "produces-structured-report", "description": "Output contains a structured assessment report with dimensions and scores"},
         {"name": "creates-log-file", "description": "Creates a deploy log file at ~/.sealos/logs/"}
@@ -17,25 +17,24 @@
     {
       "id": 1,
       "prompt": "/sealos-deploy https://github.com/sharkdp/bat",
-      "expected_output": "Eligibility gate identifies a CLI-only target, reports an ineligible decision with evidence, and stops before readiness scoring, Dockerfile generation, build, template, or deploy without writing project files",
+      "expected_output": "The Phase 1 entry judgment produces no separate result and silently continues to readiness scoring because a CLI project may still run as a Job, CronJob, worker, or service",
       "files": [],
       "assertions": [
         {"name": "identifies-cli-tool", "description": "Correctly identifies bat as a CLI tool / non-web application"},
-        {"name": "eligibility-ineligible", "description": "Classifies the selected target as ineligible before readiness scoring"},
-        {"name": "recommends-stop", "description": "Explicitly recommends NOT deploying / STOP"},
-        {"name": "stops-before-build", "description": "Does not generate a Dockerfile, build image, generate template, or deploy"}
+        {"name": "no-entry-check-output", "description": "Does not emit a separate status, score, report, candidate list, or artifact for the entry judgment"},
+        {"name": "continues-readiness-analysis", "description": "Silently continues into Phase 1"},
+        {"name": "resolves-online-contract-later", "description": "Defers Job, CronJob, worker, or service feasibility to target selection and concrete build/runtime checks"}
       ]
     },
     {
       "id": 2,
       "prompt": "/sealos-deploy",
-      "expected_output": "Eligibility gate cannot establish a supported deployment unit for the skills/tooling repository and fails closed before readiness scoring or build",
+      "expected_output": "The Phase 1 entry judgment stays silent and continues to readiness scoring because the skills/tooling repository is not certainly impossible to deploy",
       "files": [],
       "assertions": [
         {"name": "identifies-skill-pack", "description": "Identifies the current repository as a skills pack or tooling repo rather than a standalone web app"},
-        {"name": "eligibility-unresolved", "description": "Returns ineligible or needs_review because no supported deployment unit is proven"},
-        {"name": "recommends-stop", "description": "Explicitly recommends NOT deploying / STOP"},
-        {"name": "stops-before-build", "description": "Does not generate a Dockerfile, build image, generate template, or deploy"}
+        {"name": "no-entry-check-output", "description": "Creates no separate status, review report, score, candidate list, or artifact for the entry judgment"},
+        {"name": "phase-one-runs", "description": "Immediately continues with normal Phase 1 analysis"}
       ]
     },
     {
@@ -45,7 +44,7 @@
       "files": [],
       "assertions": [
         {"name": "identifies-go", "description": "Correctly identifies the project as Go language"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
+        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
         {"name": "identifies-http-server", "description": "Identifies this as an HTTP server / web service"},
         {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
       ]
@@ -57,7 +56,7 @@
       "files": [],
       "assertions": [
         {"name": "identifies-nextjs", "description": "Correctly identifies the project as Next.js"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
+        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
         {"name": "detects-monorepo-or-workspace", "description": "Detects pnpm monorepo / workspace structure"},
         {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
       ]
@@ -65,13 +64,13 @@
     {
       "id": 5,
       "prompt": "/sealos-deploy https://github.com/jgraph/drawio-desktop",
-      "expected_output": "Eligibility gate identifies an Electron desktop-only unit, reports DESKTOP_GUI_ONLY evidence, and stops before readiness scoring, Dockerfile generation, build, template, or deploy without writing project files",
+      "expected_output": "Because an Electron repository may have a Linux, web, container, or remote-desktop path, the Phase 1 entry judgment produces no separate result and silently continues to readiness scoring",
       "files": [],
       "assertions": [
         {"name": "identifies-desktop-app", "description": "Correctly identifies drawio-desktop as an Electron / desktop GUI application"},
-        {"name": "eligibility-ineligible", "description": "Returns an ineligible desktop_gui decision with DESKTOP_GUI_ONLY evidence"},
-        {"name": "recommends-stop", "description": "Explicitly recommends NOT deploying / STOP"},
-        {"name": "stops-before-build", "description": "Does not score readiness, generate a Dockerfile, build image, generate template, or deploy"}
+        {"name": "does-not-stop-on-label", "description": "Does not stop merely because the repository is an Electron desktop application"},
+        {"name": "no-entry-check-output", "description": "Emits no separate status or review report for the entry judgment"},
+        {"name": "continues-phase-one", "description": "Silently starts normal readiness analysis"}
       ]
     },
     {
@@ -81,7 +80,7 @@
       "files": [],
       "assertions": [
         {"name": "identifies-rust", "description": "Correctly identifies the project as Rust language"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
+        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
         {"name": "identifies-web-service", "description": "Identifies this as a web service / HTTP server"},
         {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
       ]
@@ -89,13 +88,12 @@
     {
       "id": 7,
       "prompt": "/sealos-deploy https://github.com/pallets/flask",
-      "expected_output": "Eligibility gate identifies Flask itself as a framework/library rather than a deployable application and stops before readiness scoring or build",
+      "expected_output": "The Phase 1 entry judgment produces no separate result and continues to readiness scoring because a framework/library repository is not certainly impossible to run online",
       "files": [],
       "assertions": [
         {"name": "identifies-library", "description": "Correctly identifies Flask as a framework/library, not a standalone deployable app"},
-        {"name": "eligibility-ineligible", "description": "Classifies the selected target as a library or otherwise unresolved, not as a web service"},
-        {"name": "explains-not-standalone", "description": "Explains why this repository is not directly deployable as a service"},
-        {"name": "stops-before-build", "description": "Does not generate a Dockerfile, build image, generate template, or deploy"}
+        {"name": "no-entry-check-output", "description": "Does not emit a separate library status, score, report, or artifact for the entry judgment"},
+        {"name": "continues-analysis", "description": "Silently continues to Phase 1 and lets later concrete work establish the outcome"}
       ]
     },
     {
@@ -105,7 +103,7 @@
       "files": [],
       "assertions": [
         {"name": "identifies-python", "description": "Correctly identifies the project as Python"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
+        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
         {"name": "detects-external-db", "description": "Detects PostgreSQL database dependency"},
         {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
       ]
@@ -117,7 +115,7 @@
       "files": [],
       "assertions": [
         {"name": "identifies-java", "description": "Correctly identifies the project as Java / Spring Boot"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
+        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
         {"name": "identifies-web-service", "description": "Identifies this as a web application on port 8080"},
         {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
       ]
@@ -125,10 +123,10 @@
     {
       "id": 10,
       "prompt": "/sealos-deploy https://github.com/toeverything/affine",
-      "expected_output": "Runs workload eligibility and Phase 1 analysis before dynamic catalog discovery, writes bounded exact/similar template references, and continues the normal image, build, generation, validation, and deployment flow",
+      "expected_output": "Phase 1 begins with the silent internal judgment, completes readiness analysis before dynamic catalog discovery, writes bounded exact/similar template references, and continues the normal deployment flow",
       "files": [],
       "assertions": [
-        {"name": "runs-analysis-first", "description": "Resolves an eligible deployment target and completes Phase 1 analysis before catalog discovery"},
+        {"name": "runs-analysis-first", "description": "The entry judgment produces no separate result, and Phase 1 completes readiness analysis before catalog discovery"},
         {"name": "discovers-dynamically", "description": "Searches catalog Template spec.gitRepo values for exact matches and ranks structurally similar references without a maintained project whitelist"},
         {"name": "writes-template-references", "description": "Writes .sealos/template-references.json for available, stale, disabled, and unavailable catalog outcomes"},
         {"name": "references-do-not-bypass", "description": "Treats catalog YAML as untrusted evidence and never bypasses current analysis, image verification, template generation, or validation"},
@@ -150,13 +148,13 @@
     },
     {
       "id": 12,
-      "prompt": "Classify this deployment target before continuing: package.json has scripts.start='node server.js', dependencies.express='^5', and devDependencies.electron='^35'. There are no Electron scripts, desktop API imports, or desktop packaging files.",
-      "expected_output": "Treats Electron as an uncorroborated dependency signal rather than a desktop entry point, identifies the Express start command as a web_service candidate, and allows deployment eligibility to pass",
+      "prompt": "Deploy this target: package.json has scripts.start='node server.js', dependencies.express='^5', and devDependencies.electron='^35'. There are no Electron scripts, desktop API imports, or desktop packaging files.",
+      "expected_output": "The Phase 1 entry judgment does not stop or emit a separate result; readiness scoring identifies the Express start command and continues normal analysis",
       "files": [],
       "assertions": [
-        {"name": "does-not-reject-on-dependency-alone", "description": "Does not return desktop_gui or DESKTOP_GUI_ONLY solely because Electron appears in devDependencies"},
-        {"name": "uses-server-entrypoint-evidence", "description": "Uses the Express dependency plus node server start command as affirmative web-service evidence"},
-        {"name": "eligibility-passes", "description": "Returns an eligible web_service decision and permits readiness assessment to continue"}
+        {"name": "does-not-stop-on-dependency-alone", "description": "Does not stop solely because Electron appears in devDependencies"},
+        {"name": "no-entry-check-output", "description": "Emits no separate status or report for the entry judgment"},
+        {"name": "uses-server-entrypoint-in-phase-one", "description": "Phase 1 uses the Express dependency and node start command during normal analysis"}
       ]
     },
     {
@@ -188,6 +186,64 @@
         {"name": "does-not-assume-ghcr-private", "description": "Does not add imagePullSecrets solely because an image is hosted on GHCR"},
         {"name": "fails-closed-before-deploy", "description": "Runs the complete docker-to-sealos quality gate after final template mutation and does not deploy while the gate is failing"},
         {"name": "keeps-existing-artifact-inventory", "description": "Introduces no generated artifact type beyond the full deploy skill's existing artifact inventory"}
+      ]
+    },
+    {
+      "id": 15,
+      "prompt": "Deploy a repository with apps/desktop as an Electron app and apps/api as an Express service. Do not choose the deployment target yet.",
+      "expected_output": "The Phase 1 entry judgment emits nothing and continues because the mixed repository is not certainly impossible; readiness analysis discovers the units and target selection happens before build or deployment",
+      "files": [],
+      "assertions": [
+        {"name": "no-entry-check-output", "description": "Does not emit a separate mixed-project status, candidate list, review report, or artifact for the entry judgment"},
+        {"name": "continues-to-analysis", "description": "Phase 1 discovers the Express API and Electron units"},
+        {"name": "defers-target-selection", "description": "Resolves the exact unit before build or deployment, not inside the Phase 1 entry judgment"}
+      ]
+    },
+    {
+      "id": 16,
+      "prompt": "Deploy a selected repository root whose only deployment contract is Dockerfile: FROM mcr.microsoft.com/windows/servercore:ltsc2025. The target Sealos runtime is linux/amd64 and there are no other workload candidates.",
+      "expected_output": "One Windows Dockerfile does not establish that the whole project is impossible to deploy, so the Phase 1 entry judgment says nothing and continues to readiness scoring",
+      "files": [],
+      "assertions": [
+        {"name": "does-not-overclaim", "description": "Does not treat one Windows container stage as proof that the project can never run online"},
+        {"name": "no-entry-check-output", "description": "Emits no separate runtime status, review report, or artifact for the entry judgment"},
+        {"name": "continues-phase-one", "description": "Silently continues to normal project analysis"}
+      ]
+    },
+    {
+      "id": 17,
+      "prompt": "The selected project is a confirmed Windows-only native WPF desktop application. It requires an interactive Windows desktop and Win32 APIs, and has no server, web, remote-desktop, container, source-porting, or alternative runtime target. Deploy it unchanged to a Sealos linux/amd64 cluster.",
+      "expected_output": "At the start of Phase 1, gives one short concrete explanation that this Windows-only desktop application cannot run on the Sealos Linux runtime, then stops before scoring or producing a status object, report, candidate list, or file",
+      "files": [],
+      "assertions": [
+        {"name": "stops-certainly-impossible-project", "description": "Stops at Phase 1 entry because the selected project is unambiguously Windows-only and has no online runtime path"},
+        {"name": "explains-concisely", "description": "Names the Windows desktop versus Sealos Linux incompatibility in one short explanation"},
+        {"name": "no-phase-artifact-or-assessment", "description": "Creates no status object, score, review report, candidate list, or project file"}
+      ]
+    },
+    {
+      "id": 18,
+      "prompt": "A deployment target is not obviously impossible to run on Sealos, but Phase 1 gives it a readiness score of 2/12. The user already asked to deploy it. Continue the sealos-deploy lifecycle.",
+      "expected_output": "The Phase 1 entry judgment emits nothing; readiness scoring reports the severe risks, then the pipeline proceeds to image detection and guarded containerization until a concrete build, safety, validation, or runtime check fails",
+      "files": [],
+      "assertions": [
+        {"name": "no-entry-check-output", "description": "Produces no separate status, report, score, or artifact for the entry judgment"},
+        {"name": "reports-low-score-risk", "description": "Explains the 2/12 findings and likely failure modes clearly"},
+        {"name": "continues-after-score", "description": "Continues to Phase 2 and later guarded work because the user requested deployment"},
+        {"name": "keeps-concrete-gates", "description": "Still stops on actual safety, image, build, template, or runtime failures"}
+      ]
+    },
+    {
+      "id": 19,
+      "prompt": "Re-run /sealos-deploy for a project whose .sealos/state.json records a live last_deploy image and URL. The current root Dockerfile contains a Windows stage, but the existing application is running on Sealos.",
+      "expected_output": "Mode detection verifies the existing live deployment and enters the UPDATE lifecycle without running Phase 1",
+      "files": [],
+      "assertions": [
+        {"name": "recognizes-project-can-run", "description": "Uses the existing live deployment as proof that the project can run"},
+        {"name": "does-not-reject-update", "description": "Does not let a Windows stage signal block a previously verified live deployment"},
+        {"name": "skips-phase-one", "description": "Skips Phase 1, including its entry judgment and readiness scoring, in UPDATE mode"},
+        {"name": "enters-mode-detection", "description": "Continues to verify the live application and choose DEPLOY versus UPDATE"},
+        {"name": "preserves-runtime-validation", "description": "Still verifies rollout and runtime truth during the update path"}
       ]
     }
   ]

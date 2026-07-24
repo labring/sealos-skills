@@ -1,6 +1,6 @@
 ---
 name: sealos-deploy
-description: Deploy compatible server, static-web, worker, scheduled-job, or reviewed remote-desktop workloads from GitHub or local source to Sealos Cloud. Reject unsupported desktop, mobile, CLI, library, extension, hardware-dependent, mixed, and unidentified targets before readiness scoring or build. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
+description: Deploy workloads from GitHub or local source to Sealos Cloud. In DEPLOY mode, Phase 1 stops only when AI is certain the project cannot run on Sealos; every uncertain case continues silently into readiness scoring. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
 metadata:
   author: labring
   compatibility: Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
@@ -13,8 +13,9 @@ metadata:
 Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
 
 
-Deploy compatible cloud workloads to Sealos Cloud, stopping unsupported targets
-before build or deployment.
+Deploy cloud workloads to Sealos Cloud. Phase 1 begins with an internal AI
+judgment that has no separate artifact or report: obvious impossibility stops,
+everything else proceeds into readiness scoring.
 
 ## kubectl Safety Rules (all phases)
 
@@ -144,7 +145,6 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 
 | Script | Usage | Purpose |
 |--------|-------|---------|
-| `workload-eligibility.mjs` | `node workload-eligibility.mjs <repo-dir>` | Read-only fail-closed workload classification; decision is stdout-only |
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
 | `find-template-references.mjs` | `node find-template-references.mjs --work-dir <repo-dir> --skill-dir <SKILL_DIR> --analysis <analysis.json> [--github-url <url>] [--catalog-dir <dir>]` | Find exact and similar `labring-actions/templates@kb-0.9` catalog references; `--catalog-dir` is for tests/offline use |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
@@ -177,7 +177,7 @@ This skill references knowledge files from co-installed internal skills. These a
 <SKILL_DIR>/../
 ├── sealos-deploy/           ← this skill (user entry point) = <SKILL_DIR>
 ├── dockerfile-skill/        ← Phase 3: Dockerfile generation knowledge
-├── cloud-native-readiness/  ← Phase 0.4 eligibility policy + Phase 1 assessment criteria
+├── cloud-native-readiness/  ← Phase 1 entry judgment + assessment criteria
 └── docker-to-sealos/       ← Phase 5: Sealos template rules
 ```
 
@@ -193,8 +193,7 @@ Paths used in pipeline.md follow the pattern:
 | Phase | Action | Skip When |
 |-------|--------|-----------|
 | 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
-| 0.4 — Eligibility | Confirm the repository root is a supported cloud workload | Any non-eligible result → stop |
-| 1 — Assess | Clone repo (or use current project), analyze deployability | Score too low → stop |
+| 1 — Assess | Stop only when AI is certain deployment is impossible; otherwise continue silently into readiness scoring and record risks | Existing deployment → UPDATE path; low score does not reject |
 | 1.5 — Catalog References | Find exact `spec.gitRepo` and topology-similar templates as untrusted evidence | Catalog unavailable → continue without references |
 | 2 — Detect | Find existing image (Docker Hub / GHCR / README) | Found → jump to Phase 5 |
 | 3 — Dockerfile | Generate Dockerfile if missing | Already has one → skip |
@@ -213,11 +212,14 @@ Input (GitHub URL / local path)
 [Phase 0] Preflight ── fail → guide user to fix and STOP
   │ pass
   ▼
-[Phase 0.4] Eligibility ── ineligible/ambiguous → STOP with evidence
-  │ eligible
+[Mode Detection] ── existing deployment → UPDATE path (U1–U3) → Done
+  │ DEPLOY
   ▼
-[Phase 1] Assess ── not suitable → STOP with reason
-  │ suitable
+[Phase 1] Assess
+  ├── opening judgment: certainly impossible → STOP with a short reason
+  └── otherwise: no separate output → score and record risks
+  │ low score still continues
+  │
   ▼
 [Phase 1.5] Catalog references
   │ exact/similar evidence (catalog failure is non-blocking)

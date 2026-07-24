@@ -134,11 +134,15 @@ Based on this data, these characteristics almost guarantee containerization read
 - Desktop/Electron apps with web component
 - Projects with heavy local file processing
 
-### Likely Fail (Score 0-3)
+### High Risk / Needs Investigation (Score 0-3)
 - Pure CLI tools with no web server
 - Desktop-only applications
 - Projects requiring GPU without web API
 - Embedded systems code
+
+These are historical low-readiness patterns, not Phase 1 entry-stop rules. Each may
+still have a Job, remote UI, hosted API, simulator, published image, or other online
+runtime path that requires investigation.
 
 ## Sealos Template Structure Reference
 

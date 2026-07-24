@@ -1,6 +1,6 @@
 ---
 name: cloud-native-readiness
-description: Determine whether a repository contains a supported cloud workload, then assess eligible targets for cloud-native readiness with a 0-12 score. Use for containerization readiness, Docker/Kubernetes compatibility, deployment feasibility, workload eligibility, or pre-deployment assessment. Also triggers on "/cloud-native-readiness".
+description: Assess cloud-native readiness with a 0-12 score. At the start of Phase 1, stop only when AI is certain the project cannot run on Sealos; otherwise continue silently. Use for containerization readiness, Docker/Kubernetes compatibility, deployment feasibility, workload eligibility, or pre-deployment assessment. Also triggers on "/cloud-native-readiness".
 ---
 
 # Cloud Native Readiness Assessment Skill
@@ -9,7 +9,7 @@ description: Determine whether a repository contains a supported cloud workload,
 
 This skill evaluates a repository's readiness for cloud-native microservice deployment through a 3-phase workflow:
 
-1. **Assess** - Reject unsupported workload types, then score eligible targets
+1. **Assess** - Stop only an obviously impossible target; otherwise score it
 2. **Detect** - Check if Docker artifacts already exist (Dockerfile, docker-compose, container images)
 3. **Route** - If artifacts exist, return the result directly; if not, invoke `dockerfile-skill` to containerize
 
@@ -19,8 +19,8 @@ This skill evaluates a repository's readiness for cloud-native microservice depl
 cloud-native-readiness
   │
   ├─ Phase 1: Cloud-Native Assessment
-  │    ├─ Eligibility fails or needs review → Report evidence, END
-  │    └─ Eligible → Calculate readiness score
+  │    ├─ Certainly cannot run on Sealos → Short reason, END
+  │    └─ Otherwise → Calculate readiness score
   │
   ├─ Phase 2: Existing Artifacts Detection
   │    ├─ Found Dockerfile/docker-compose/image → Report existing setup, END
@@ -50,9 +50,10 @@ When invoked, ALWAYS follow this sequence:
 
 Load and execute: [modules/assess.md](modules/assess.md)
 
-Apply [knowledge/deployment-eligibility.md](knowledge/deployment-eligibility.md)
-before assigning a readiness score. Continue only when the requested root is
-classified `eligible`.
+Begin Phase 1 with one internal AI judgment: if the project is certainly
+impossible to run on Sealos, stop with one short concrete reason. Otherwise say
+nothing about the judgment and continue into scoring. Do not create a separate
+status, score, report, candidate list, evidence object, prompt, or file for it.
 
 **Evaluates 6 dimensions** (each scored 0-2):
 
@@ -69,7 +70,7 @@ classified `eligible`.
 - **10-12**: Excellent — fully cloud-native ready
 - **7-9**: Good — ready with minor adjustments
 - **4-6**: Fair — needs some refactoring before containerization
-- **0-3**: Poor — significant rework needed, not recommended for containerization now
+- **0-3**: Poor — high-risk containerization attempt; continue with explicit warnings when requested
 
 **Output**: Structured readiness report with score, findings, and recommendations.
 
@@ -94,32 +95,28 @@ Load and execute: [modules/route.md](modules/route.md)
 
 **Decision Matrix**:
 
-An `ineligible` or unresolved `needs_review` result always stops before artifact
-detection or Dockerfile generation. Apply the score matrix only to `eligible` targets.
-
 | Readiness Score | Artifacts Exist | Action |
 |-----------------|-----------------|--------|
 | ≥ 7 | Yes, complete | Report existing setup. Done. |
 | ≥ 7 | Yes, partial | Report gaps, suggest improvements. Done. |
 | ≥ 7 | No | Invoke `dockerfile-skill` to generate. |
 | 4-6 | Any | Report issues + remediation steps. Optionally proceed with `dockerfile-skill`. |
-| 0-3 | Any | Report blockers. Do NOT invoke `dockerfile-skill`. |
+| 0-3 | Any | Report severe concerns; if containerization/deployment was requested, attempt it with warnings. |
 
 ## Readiness Report Format
 
 The final output MUST use this format:
 
-For a stopped eligibility result, report its workload type, reason codes, evidence,
-and next action without inventing a readiness score.
+If the preliminary AI check stops the workflow, give only its short concrete reason
+and do not produce this report. Otherwise use the following readiness format:
 
 ```markdown
 # Cloud-Native Readiness Report
 
 ## Summary
 - **Project**: {name}
-- **Eligibility**: {eligible | ineligible | needs_review} — {workload type}
 - **Score**: {score}/12 ({rating})
-- **Verdict**: {Ready | Ready with caveats | Needs work | Not recommended}
+- **Verdict**: {Ready | Ready with caveats | Needs work | High risk}
 
 ## Assessment Details
 
@@ -152,7 +149,6 @@ and next action without inventing a readiness score.
 
 ## Supporting Resources
 
-- **Deployment Eligibility**: [knowledge/deployment-eligibility.md](knowledge/deployment-eligibility.md) — Supported workload types and fail-closed routing
 - **Assessment Criteria**: [knowledge/criteria.md](knowledge/criteria.md) — Detailed scoring rubrics
 - **Anti-Patterns**: [knowledge/anti-patterns.md](knowledge/anti-patterns.md) — Common cloud-native anti-patterns
 - **Examples**: [examples/](examples/) — Sample readiness reports

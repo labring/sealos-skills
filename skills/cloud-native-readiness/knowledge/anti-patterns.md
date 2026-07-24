@@ -1,8 +1,13 @@
 # Cloud-Native Anti-Patterns
 
-Common patterns that indicate a project is NOT ready for containerization.
+Common patterns that raise containerization or production-runtime risk.
 
-## Critical Anti-Patterns (Blockers)
+These findings lower readiness and require remediation or explicit handling. None is
+proof that an application can never run online, so none may independently trigger the
+Phase 1 entry stop. Later safety, build, template, or runtime checks may still stop
+on a concrete unresolved failure.
+
+## High-Risk Anti-Patterns (Warnings)
 
 ### 1. Local File Storage for User Data
 ```

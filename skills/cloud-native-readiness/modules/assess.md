@@ -7,19 +7,14 @@ Evaluate a project against 6 cloud-native dimensions to produce a readiness scor
 **Data source**: Patterns derived from 164 production-deployed Sealos Cloud templates.
 See [knowledge/sealos-patterns.md](../knowledge/sealos-patterns.md) for the full dataset.
 
-## Step 0: Deployment Eligibility Gate
+## Phase 1 Entry Check
 
-Read and apply
-[deployment-eligibility.md](../knowledge/deployment-eligibility.md) before scoring.
+This is one internal AI question: if you are certain the selected project cannot run
+on Sealos in any reasonable form, report the short concrete reason and STOP.
+Otherwise, continue silently.
 
-- `eligible` → continue with the readiness assessment.
-- `ineligible` → report workload type and evidence, then STOP.
-- `needs_review` → inspect entry points and runtime evidence, but STOP unless the
-  requested root can be explicitly resolved as `eligible`.
-
-Do not inspect Docker artifacts, calculate a score, or invoke `dockerfile-skill`
-before eligibility passes. Keep the decision in memory; do not create a project
-artifact for it.
+Do not classify the result, score it, create an evidence object, add it to the
+readiness report, or write an artifact.
 
 ## Pre-Assessment: Fast-Track Rules
 
@@ -47,8 +42,10 @@ Apply if ANY of these match:
 - Projects with heavy local file processing or GPU requirements
 - Projects requiring persistent local state with no external DB
 
-Desktop/mobile apps, CLI tools, libraries, browser extensions, and embedded systems
-are handled by the eligibility gate and are not assigned a readiness score.
+Desktop/mobile, CLI, library, browser-extension, embedded, and unknown signals are
+review warnings rather than automatic rejections. Continue scoring whatever can be
+observed, record uncertainty explicitly, and let later build/runtime checks establish
+whether the selected unit actually works.
 
 ## Execution Steps
 
@@ -339,16 +336,11 @@ Sum all dimension scores (0-12) and determine rating:
 
 ```yaml
 assessment:
-  eligibility:
-    status: "eligible"
-    workload_type: "web_service | static_web | worker | scheduled_job | remote_desktop"
-    reason_codes: ["STABLE_REASON_CODE"]
-    evidence: ["repository-relative evidence"]
   project_name: "{name}"
   project_type: "monorepo | single-app"
   overall_score: {0-12}
   rating: "Excellent | Good | Fair | Poor"
-  verdict: "Ready | Ready with caveats | Needs work | Not recommended"
+  verdict: "Ready | Ready with caveats | Needs work | High risk"
 
   dimensions:
     statelessness:

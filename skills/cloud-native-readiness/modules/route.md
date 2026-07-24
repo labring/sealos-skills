@@ -2,12 +2,8 @@
 
 ## Purpose
 
-Based first on deployment eligibility, then on the assessment score and artifact
-detection results, determine the next action.
-
-If eligibility is `ineligible` or unresolved `needs_review`, report its evidence and
-STOP. Do not route to artifact detection or `dockerfile-skill`. The matrix below
-applies only to an `eligible` target.
+Based on the assessment score and artifact detection results, determine the next
+action. The Phase 1 entry judgment produces no routing input.
 
 ## Decision Matrix
 
@@ -20,7 +16,7 @@ applies only to an `eligible` target.
 │ ≥ 7 (Good+)    │ None             │ HANDOFF: Invoke dockerfile-skill    │
 │ 4-6 (Fair)     │ Complete         │ REPORT: Show artifacts + concerns   │
 │ 4-6 (Fair)     │ Partial/None     │ ASK: Confirm with user, then optionally handoff │
-│ 0-3 (Poor)     │ Any              │ STOP: Report blockers, do NOT containerize │
+│ 0-3 (Poor)     │ Any              │ WARN: Report risks; attempt if requested   │
 └─────────────────┴──────────────────┴─────────────────────────────────────┘
 ```
 
@@ -30,12 +26,8 @@ applies only to an `eligible` target.
 
 Read the assessment result and artifact inventory from previous modules.
 
-Confirm that the in-memory eligibility result is `eligible` before reading or using
-the readiness score. A score never overrides an eligibility stop.
-
 ```yaml
 input:
-  eligibility_status: "eligible"
   assessment_score: {0-12}
   assessment_rating: "{Excellent | Good | Fair | Poor}"
   artifacts_status: "{complete | partial | none}"
@@ -112,33 +104,34 @@ When score is 4-6:
      - What patterns to add (e.g., SIGTERM handler, health endpoint)
      - What dependencies to externalize
 
-### Step 5: Route — STOP (Poor Score)
+### Step 5: Route — WARN (Poor Score)
 
 When score is 0-3:
 
-1. **Output the readiness report** with blockers
+1. **Output the readiness report** with severe concerns
 
 2. **Provide remediation roadmap**:
    ```markdown
    ## Remediation Steps (Priority Order)
 
-   ### 1. [Highest impact blocker]
+   ### 1. [Highest impact risk]
    - What: {describe the issue}
-   - Why: {why it blocks containerization}
+   - Why: {how it may cause build or runtime failure}
    - How: {specific code changes needed}
    - Effort: {low | medium | high}
 
-   ### 2. [Next blocker]
+   ### 2. [Next risk]
    ...
    ```
 
-3. **Do NOT invoke dockerfile-skill**
-   - Generating a Dockerfile for a project that isn't ready leads to:
-     - Broken containers
-     - Silent runtime failures
-     - False sense of deployment readiness
+3. **Choose the least surprising next action**
+   - If the user asked only for an assessment, offer remediation or a guarded
+     containerization attempt.
+   - If the user already asked to containerize or deploy, continue with
+     `dockerfile-skill` and carry the severe concerns forward.
+   - Stop only when a concrete build, validation, security, or runtime check fails.
 
-4. **Offer to re-assess** after the user makes changes
+4. **Offer to re-assess** after any remediation
 
 ## Final Output
 
@@ -152,5 +145,6 @@ Regardless of route taken, always end with a clear summary:
 - 🔧 Minor improvements suggested for your existing Docker setup (see above).
 - 🐳 Generating Docker configuration now via dockerfile-skill...
 - ⚠️ Some concerns noted. Would you like to proceed anyway or address them first?
-- 🚫 Not recommended for containerization yet. See remediation steps above.
+- ⚠️ Readiness is poor, but the target was not rejected. Proceeding only as far as
+  concrete build and runtime checks allow.
 ```

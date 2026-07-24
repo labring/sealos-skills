@@ -109,9 +109,9 @@ Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code
 ### Deployment pipeline (sealos-deploy)
 
 ```text
-Preflight → Eligibility → Mode Detection → DEPLOY or UPDATE
+Preflight → Mode Detection → DEPLOY or UPDATE
 
-DEPLOY: Assess → Catalog references → Detect image → Dockerfile → Build & Push → Template → Deploy
+DEPLOY: Assess (including the obvious-impossibility entry judgment) → Catalog references → Detect image → Dockerfile → Build & Push → Template → Deploy
 UPDATE: Build & Push → kubectl set image → Verify rollout (auto-rollback on failure)
 ```
 

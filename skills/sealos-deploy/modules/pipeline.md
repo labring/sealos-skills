@@ -1,51 +1,12 @@
 # Deployment Pipeline
 
-After preflight passes, execute the deployment eligibility gate, then Phase 1–6 in
-order. Phase 1.5 gathers catalog references only after Phase 1 has established the
-current project's deployment requirements.
+After preflight passes, detect deployment mode. UPDATE mode uses the update path;
+DEPLOY mode runs Phase 1–6 in order. Phase 1.5 gathers catalog references only
+after Phase 1 has established the current project's deployment requirements.
 
 `SKILL_DIR` refers to the directory containing this skill's SKILL.md. Sibling skills are at `<SKILL_DIR>/../`.
 
 Use `ENV` from preflight to choose between script mode (Node.js available) and fallback mode (AI-native).
-
-## Phase 0.4: Deployment Eligibility Gate
-
-Run this gate before creating `.sealos/`, detecting deployment mode, matching a
-template, readiness scoring, Dockerfile generation, image detection, or build.
-
-Read and apply the canonical policy:
-`<SKILL_DIR>/../cloud-native-readiness/knowledge/deployment-eligibility.md`.
-
-When Node.js is available, run:
-
-```bash
-node "<SKILL_DIR>/scripts/workload-eligibility.mjs" "$WORK_DIR"
-```
-
-The script is read-only and prints the decision to stdout. Keep the parsed object as
-`ELIGIBILITY_DECISION` in the current execution context; never write it to `.sealos/`
-or another project file.
-
-| Exit | Status | Action |
-|------|--------|--------|
-| `0` | `eligible` | Continue with the requested repository root |
-| `2` | `ineligible` | Report workload type/evidence and STOP |
-| `3` | `needs_review` | Inspect evidence; keep deployment blocked until explicitly resolved |
-| other | execution error | Report the classifier error and STOP |
-
-Parse stdout even for exits `2` and `3`; those are classification results, not script
-failures. A mixed repository remains `needs_review` in this workflow: list the
-detected units and STOP rather than selecting and deploying a nested directory.
-
-For other `needs_review` results, inspect entry points and runtime evidence. Continue
-only when the requested root itself can be explicitly resolved as `eligible`; record
-that in-memory decision with `source: "ai-review"` and specific repository-relative
-evidence. An ordinary desktop/mobile client cannot be overridden by a Dockerfile,
-readiness score, registry image, or user willingness to proceed.
-
-If Node.js is unavailable, perform the same review manually and keep the result in
-memory. Missing or ambiguous evidence fails closed. No `.sealos/config.json` field or
-resume state may skip or override this gate.
 
 ## Artifact Directory
 
@@ -88,7 +49,10 @@ node "<SKILL_DIR>/scripts/validate-artifacts.mjs" --dir "$WORK_DIR"
 
 Writers should validate on write; readers should validate before trusting resume/update state.
 
-At the very start of the pipeline (before Phase 1), create the base artifact directory:
+Do not create `.sealos/` merely to run deployment mode detection or the Phase 1
+entry check. In DEPLOY mode, create the base artifact directory only after the
+Phase 1 entry check continues. If mode detection must reconstruct deployment
+state, create it immediately before writing that state.
 
 ```bash
 mkdir -p "$WORK_DIR/.sealos" "$WORK_DIR/.sealos/template"
@@ -111,7 +75,9 @@ If `.sealos/config.json` exists, read it. User-provided values take priority ove
   "skip_phases": ["assess"]
 }
 ```
-All fields are optional. If a field is present, it overrides the corresponding auto-detected value.
+All fields are optional. If a field is present, it overrides the corresponding
+auto-detected value. `skip_phases: ["assess"]` may reuse or skip readiness scoring,
+but it never skips the Phase 1 entry judgment in DEPLOY mode.
 
 ## Deployment Mode Detection
 
@@ -209,7 +175,7 @@ Default: Update
 | Condition | Meaning | Behavior |
 |-----------|---------|----------|
 | `.sealos/state.json` has `last_deploy` | Already deployed | Enter UPDATE mode (handled above) |
-| `.sealos/analysis.json` exists | Phase 1 completed | Ask user: skip assessment? |
+| `.sealos/analysis.json` exists | Phase 1 scoring completed | After the Phase 1 entry judgment, ask whether to reuse the assessment |
 | `Dockerfile` exists | Phase 3 completed | Skip Dockerfile generation |
 | `.sealos/build/build-result.json` exists and `outcome: "success"` | Phase 4 completed | Ask user: skip rebuild? |
 | `.sealos/template/index.yaml` exists | Phase 5 completed | Ask user: skip template generation? |
@@ -217,6 +183,10 @@ Default: Update
 If any artifacts exist, report to user:
 `"Found artifacts from a previous deploy attempt. [list found artifacts]."`
 Ask: `"Resume from where it left off? Or restart from Phase 1?"`
+
+Resuming or reusing `.sealos/analysis.json` skips only Phase 1 scoring and analysis.
+Every DEPLOY path still begins with the Phase 1 entry judgment. UPDATE mode skips
+Phase 1 entirely because mode detection has already verified a running deployment.
 
 If restart → remove `.sealos/analysis.json`, `.sealos/template-references.json`,
 `.sealos/template-references/`, `.sealos/build/`, and
@@ -229,7 +199,24 @@ If restart → remove `.sealos/analysis.json`, `.sealos/template-references.json
 `WORK_DIR`, `GITHUB_URL`, `REPO_NAME`, and README context are already resolved in preflight (Step 2).
 Use those directly — no need to re-derive.
 
-### 1.2 Deterministic Scoring
+**Opening judgment — this is not a separate phase or output.**
+
+Ask one internal question: **Am I certain this selected project cannot run on
+Sealos in any reasonable form?**
+
+- If yes, give the user one short, concrete reason and STOP. A confirmed
+  Windows-only native desktop application with no server, web, remote-desktop,
+  container, or alternative runtime target is an example.
+- Otherwise, say nothing about this judgment and continue immediately with
+  Phase 1 scoring. Uncertainty always continues.
+
+Do not run a dedicated classifier or create a status, score, report, candidate
+list, evidence object, user prompt, or file for this judgment.
+
+After this judgment continues, create the base artifact directory as described
+above.
+
+### 1.1 Deterministic Scoring
 
 **If Node.js available:**
 ```bash
@@ -248,15 +235,18 @@ Perform the scoring yourself by reading project files and applying these rules:
 6. Check Docker: `Dockerfile` or `docker-compose.yml` exists?
 
 Score 6 dimensions (0-2 each, max 12). For detailed criteria, read:
-`<SKILL_DIR>/../cloud-native-readiness/knowledge/scoring-criteria.md`
+`<SKILL_DIR>/../cloud-native-readiness/knowledge/criteria.md`
 
 **Decision:**
-- `score < 4` → STOP. Tell user: "This project scored {N}/12 ({verdict}). Not suitable for containerized deployment because: {dimension_details for 0-score dimensions}."
-- `score >= 4` → CONTINUE.
+- `score < 4` → WARN and CONTINUE. Tell the user: "This project scored
+  {N}/12 ({verdict}). Deployment is high risk because:
+  {dimension_details for 0-score dimensions}. The pipeline will continue until a
+  concrete build, validation, safety, or runtime check fails."
+- `score >= 4` → CONTINUE and carry any concerns forward.
 
-### 1.3 AI Quick Assessment
+### 1.2 AI Quick Assessment
 
-Use structured signals from Phase 1.2 score-model output directly:
+Use structured signals from Phase 1.1 score-model output directly:
 - `signals.primary_language` — primary language (priority-sorted when multiple detected)
 - `signals.framework` — detected frameworks
 - `signals.package_manager` — detected package manager (npm/yarn/pnpm/bun/pip/go/etc.)
@@ -275,14 +265,11 @@ Based on the score result and your own analysis of the project, assess:
 3. Determine: ports, required env vars, database dependencies, special concerns
 
 If the score is borderline (4-6), also read:
-- `<SKILL_DIR>/../cloud-native-readiness/knowledge/scoring-criteria.md` — detailed rubrics
-- `<SKILL_DIR>/../cloud-native-readiness/knowledge/anti-patterns.md` — disqualifying patterns
+- `<SKILL_DIR>/../cloud-native-readiness/knowledge/criteria.md` — detailed rubrics
+- `<SKILL_DIR>/../cloud-native-readiness/knowledge/anti-patterns.md` — high-risk patterns and remediation
 
-**STOP conditions:**
-- Desktop/GUI application (Electron without server, Qt, GTK)
-- Mobile app without backend
-- CLI tool / library / SDK (no network service)
-- No identifiable entry point or build system
+Record uncertain workload types, missing entry points, and other risks as analysis
+facts. Do not turn those signals into another stop decision later in Phase 1.
 
 Record for later phases: `language`, `framework`, `ports`, `env_vars`, `databases`, `has_dockerfile`
 
@@ -346,15 +333,14 @@ Repository Analysis:
   - Database: <postgres/mysql/redis/... or "none detected">
   - Dockerfile: <yes/no>
   - Score: <N>/12 (<verdict>)
-  - Decision: <continue | stop>
+  - Decision: continue
 ```
 
 Output rules:
 - Keep the summary short and decision-oriented
 - Do not dump the full `env_vars` object or dimension-by-dimension internals unless the user asks
 - Do not add a default "full details" block after this summary
-- If the assessment stops the pipeline, briefly state the top blocker(s)
-- If the assessment continues, state the next phase in one short line
+- State the next phase in one short line
 
 ---
 
