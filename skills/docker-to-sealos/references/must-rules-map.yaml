@@ -180,19 +180,19 @@ must_rules:
     enforcement:
       type: manual
       note: "Defines accepted converter inputs; generated artifacts are enforced separately by R001."
-  - must: "Before generated template use, resolve every non-database workload image with `crane digest`, verify the resolved manifest includes `linux/amd64`, and emit only immutable `repository@sha256:<digest>` references."
+  - must: "Before generated template use, resolve every emitted workload image selector through the registry HTTP API, or accept a caller-supplied immutable digest override, and emit only `repository@sha256:<digest>` references. Do not pre-screen third-party image architecture in this converter."
     enforcement:
       type: manual
-      note: "R001 enforces the emitted digest form; linux/amd64 registry verification is exercised by the converter tests and must occur before artifact validation."
+      note: "R001 enforces the emitted digest form; converter tests exercise registry HTTP resolution, digest overrides, and the absence of architecture pre-screening."
   - must: "For a Compose service that has `build:` but no `image:`, pass its Phase 4 result with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image."
     enforcement:
       type: manual
-      note: "The converter rejects build-only services without a matching override and resolves every supplied override to a verified digest."
+      note: "The converter rejects build-only services without a matching override, preserves supplied immutable digests, and resolves selector overrides through the registry HTTP API."
   - must: "Compose database service images are dependency and engine-classification evidence; after conversion to KubeBlocks, the generated template need not emit the original database image."
     enforcement:
       type: manual
       note: "Database conversion behavior is covered by compose converter tests and the KubeBlocks database workload rules."
-  - must: "Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve variables first, then resolve the resulting image to an immutable digest with `crane`."
+  - must: "Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve variables first, then resolve the resulting selector through the registry HTTP API or use a caller-supplied immutable digest."
     enforcement:
       type: rule
       target: R018

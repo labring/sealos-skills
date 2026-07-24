@@ -11,7 +11,7 @@ rules:
     description: Emitted workload image and originImageName fields must use immutable repository@sha256 digest references.
     severity: error
   - id: R018
-    description: Disallow Compose-style variable expressions in managed workload image/originImageName fields; resolve variables before crane digest resolution.
+    description: Disallow Compose-style variable expressions in managed workload image/originImageName fields; resolve variables before registry HTTP digest resolution or use a caller-supplied immutable digest.
     severity: error
   - id: R002
     description: App resources must not use spec.template.

@@ -3,6 +3,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 
+const IMAGE_ARCHITECTURE_MISMATCH_PATTERN =
+  /\bexec format error\b|\bno matching manifest\b|\bno match for platform in manifest\b|image operating system .+ cannot be used on this platform/i;
+
 const SIGNALS = [
   { id: "traceback", pattern: /Traceback \(most recent call last\):/ },
   { id: "http_exception", pattern: /\bHTTPException\b/ },
@@ -11,7 +14,9 @@ const SIGNALS = [
   { id: "error", pattern: /\bERROR\b|:ERROR:/ },
   { id: "critical", pattern: /\bCRITICAL\b|:CRITICAL:/ },
   { id: "oom_killed", pattern: /\bOOMKilled\b|exit code 137|\bKilled\b/i },
-  { id: "backoff", pattern: /\bBackOff\b|\bCrashLoopBackOff\b|\bImagePullBackOff\b/ },
+  { id: "image_pull_failure", pattern: /\bErrImagePull\b|\bImagePullBackOff\b/ },
+  { id: "image_architecture_mismatch", pattern: IMAGE_ARCHITECTURE_MISMATCH_PATTERN },
+  { id: "backoff", pattern: /\bBackOff\b|\bCrashLoopBackOff\b/ },
   { id: "migration_failure", pattern: /migration.*failed|failed.*migration/i },
   { id: "bootstrap_failure", pattern: /bootstrap.*failed|failed.*bootstrap/i },
   { id: "auth_failure", pattern: /authentication failed|permission denied|access denied|unauthorized/i },
@@ -242,6 +247,10 @@ function missingSecretName(message) {
   return unquoted?.[1] || null;
 }
 
+function imageArchitectureMismatch(message) {
+  return IMAGE_ARCHITECTURE_MISMATCH_PATTERN.test(String(message || ""));
+}
+
 function normalizeWarningEvent(event) {
   const reference = eventReference(event);
   const message = event.message || event.note || "";
@@ -260,6 +269,7 @@ function normalizeWarningEvent(event) {
       uid: reference.uid || null,
     },
     missingSecret: missingSecretName(message),
+    imageArchitectureMismatch: imageArchitectureMismatch(message),
   };
 }
 
@@ -578,6 +588,19 @@ function classifyEvents(result, warnings, baseline, secretNames) {
     };
     result.events.push(normalized);
     result.eventSummary[classification] += 1;
+
+    const activeArchitectureMismatch = warning.imageArchitectureMismatch && (
+      classification === "active-failure" || pod?.ready === false
+    );
+    if (activeArchitectureMismatch) {
+      result.findings.push({
+        source: "event",
+        signal: "image_architecture_mismatch",
+        reason: warning.reason,
+        involvedObject: warning.involvedObject,
+        message: trimLine(warning.message),
+      });
+    }
 
     if (classification === "active-failure") {
       result.findings.push({

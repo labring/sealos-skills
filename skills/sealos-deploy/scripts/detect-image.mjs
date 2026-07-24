@@ -11,8 +11,9 @@
  * Every parseable declaration is retained in the image inventory, including
  * database and infrastructure images. Registry names inferred from the GitHub
  * owner/repository are intentionally never queried. A selected primary image
- * must support linux/amd64 and is returned as an immutable digest
- * reference while preserving the exact declared tag used for resolution.
+ * is returned as an immutable digest reference while preserving the exact
+ * declared tag used for resolution. CPU architecture is not pre-screened;
+ * rare incompatibilities are diagnosed from the deployed runtime.
  *
  * Usage:
  *   node detect-image.mjs <github-url> [work-dir]
@@ -671,7 +672,6 @@ function extractComposeEvidence (workDir) {
       image_status: 'unavailable',
       image_ref: null,
       digest: null,
-      platforms: [],
     }
     services.push(service)
     currentState = {
@@ -923,90 +923,22 @@ async function fetchManifest (image, fetchImpl) {
   return { baseUrl, token, manifest, digest: responseDigest }
 }
 
-async function manifestPlatforms (resolved, image, fetchImpl, depth = 0) {
-  const { manifest } = resolved
-  if (Array.isArray(manifest.manifests)) {
-    const platforms = []
-    for (const entry of manifest.manifests) {
-      const hasConcretePlatform = entry.platform?.os &&
-        entry.platform?.architecture &&
-        entry.platform.os !== 'unknown' &&
-        entry.platform.architecture !== 'unknown'
-      if (hasConcretePlatform) {
-        const base = `${entry.platform.os}/${entry.platform.architecture}`
-        platforms.push(entry.platform.variant ? `${base}/${entry.platform.variant}` : base)
-        continue
-      }
-
-      // Some OCI indexes omit useful platform metadata (or emit
-      // unknown/unknown). Inspect the immutable child manifest/config instead
-      // of rejecting an otherwise valid amd64 image.
-      if (depth < 2 && /^sha256:[a-fA-F0-9]{64}$/.test(entry.digest || '')) {
-        const childImage = {
-          ...image,
-          selector: entry.digest,
-          declaredDigest: entry.digest,
-        }
-        const child = await fetchManifest(childImage, fetchImpl)
-        if (!child.error) {
-          platforms.push(...await manifestPlatforms(child, childImage, fetchImpl, depth + 1))
-        }
-      }
-    }
-    return platforms
-      .filter((platform, index, allPlatforms) => allPlatforms.indexOf(platform) === index)
-  }
-
-  if (manifest.os && manifest.architecture) {
-    return [`${manifest.os}/${manifest.architecture}`]
-  }
-
-  if (!manifest.config?.digest) return []
-  const blobUrl = `${resolved.baseUrl}/v2/${image.repository}/blobs/${manifest.config.digest}`
-  const response = await requestRegistry(
-    blobUrl,
-    resolved.token,
-    fetchImpl,
-    'application/vnd.oci.image.config.v1+json, application/vnd.docker.container.image.v1+json',
-  )
-  if (!response.ok) return []
-
-  const config = await response.json()
-  if (!config.os || !config.architecture) return []
-  return [`${config.os}/${config.architecture}`]
-}
-
 async function resolveRegistryImage (image, fetchImpl = globalThis.fetch) {
   try {
     const resolved = await fetchManifest(image, fetchImpl)
     if (resolved.error) {
-      return { status: 'unavailable', error: resolved.error, platforms: [] }
-    }
-
-    const platforms = await manifestPlatforms(resolved, image, fetchImpl)
-    if (!platforms.some(platform => (
-      platform === 'linux/amd64' || platform.startsWith('linux/amd64/')
-    ))) {
-      return {
-        status: 'unsupported_platform',
-        error: platforms.length > 0
-          ? 'declared image does not include linux/amd64'
-          : 'could not verify linux/amd64 support',
-        platforms,
-      }
+      return { status: 'unavailable', error: resolved.error }
     }
 
     return {
       status: 'verified',
       digest: resolved.digest,
       image_ref: `${image.displayImage}@${resolved.digest}`,
-      platforms,
     }
   } catch {
     return {
       status: 'unavailable',
       error: 'could not resolve the declared image from its registry',
-      platforms: [],
     }
   }
 }
@@ -1069,7 +1001,6 @@ function attachServiceResults (services, inventory) {
       image_status: imageStatus,
       image_ref: image.image_ref || null,
       digest: image.digest || null,
-      platforms: image.platforms,
     }
   })
 }
@@ -1085,7 +1016,6 @@ function publicInventoryEntry (group, resolution) {
     role: group.role,
     sources: group.sources,
     status: resolution.status,
-    platforms: resolution.platforms,
     digest: resolution.digest || null,
     image_ref: resolution.image_ref || null,
     error: resolution.error || null,
@@ -1102,7 +1032,6 @@ async function detectExistingImages (workDir, options = {}) {
       ? {
           status: 'unavailable',
           error: 'declared image contains an unresolved variable',
-          platforms: [],
         }
       : await resolveRegistryImage(group.parsed, fetchImpl)
     return {
@@ -1130,7 +1059,7 @@ async function detectExistingImages (workDir, options = {}) {
       found: false,
       reason: groups.length === 0
         ? 'no_explicit_image_declarations'
-        : 'no_verified_linux_amd64_image',
+        : 'no_resolved_image',
       ...base,
     }
   }
@@ -1160,7 +1089,6 @@ async function detectExistingImages (workDir, options = {}) {
     image: selected.image,
     tag: selected.resolution_tag,
     source: selectedSource.source,
-    platforms: selected.platforms,
     digest: selected.digest,
     image_ref: selected.image_ref,
     declared_ref: selectedSource.declared_ref,

@@ -18,7 +18,9 @@
 
 import { execFileSync, execSync } from 'child_process'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
+import { pathToFileURL } from 'url'
 import { validateArtifactData } from './artifact-validator.mjs'
 import { ensureGhScopesWithPrompt, hasGhCli, run } from './gh-auth-utils.mjs'
 
@@ -67,81 +69,54 @@ function imageRepository (image) {
   return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
 }
 
-function parseCraneJson (args, image) {
-  const raw = runFile('crane', args)
+function resolveBuildxMetadata (remoteImage, metadataPath) {
+  let metadata
   try {
-    const payload = JSON.parse(raw)
-    if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'))
+    if (metadata === null || typeof metadata !== 'object' || Array.isArray(metadata)) {
       throw new Error('document is not an object')
     }
-    return payload
   } catch (error) {
-    throw new Error(`crane returned invalid JSON while inspecting ${image}: ${error.message}`)
-  }
-}
-
-function platformName (platform) {
-  if (!platform || typeof platform !== 'object') return null
-  const os = String(platform.os || '').toLowerCase()
-  const architecture = String(platform.architecture || '').toLowerCase()
-  if (!os || !architecture) return null
-  const variant = platform.variant ? `/${String(platform.variant).toLowerCase()}` : ''
-  return `${os}/${architecture}${variant}`
-}
-
-function inspectImagePlatforms (imageRef) {
-  const manifest = parseCraneJson(['manifest', imageRef], imageRef)
-  const platforms = []
-
-  if (Array.isArray(manifest.manifests)) {
-    const repository = imageRepository(imageRef)
-    for (const descriptor of manifest.manifests) {
-      const declared = platformName(descriptor?.platform)
-      if (
-        declared
-        && !declared.startsWith('unknown/')
-        && !declared.includes('/unknown')
-      ) {
-        if (SHA256_DIGEST_RE.test(descriptor?.digest || '')) {
-          platforms.push(declared)
-        }
-        continue
-      }
-
-      const childDigest = descriptor?.digest
-      if (!SHA256_DIGEST_RE.test(childDigest || '')) continue
-      const childRef = `${repository}@${childDigest.toLowerCase()}`
-      try {
-        const config = parseCraneJson(['config', childRef], childRef)
-        const inspected = platformName(config)
-        if (inspected) platforms.push(inspected)
-      } catch {
-        // Attestation and other non-image descriptors may have no image config.
-      }
-    }
-  } else {
-    const config = parseCraneJson(['config', imageRef], imageRef)
-    const inspected = platformName(config)
-    if (inspected) platforms.push(inspected)
+    throw new Error(`Buildx returned invalid metadata for ${remoteImage}: ${error.message}`)
   }
 
-  return [...new Set(platforms)]
-}
-
-function resolvePushedImage (remoteImage) {
-  const digest = runFile('crane', ['digest', remoteImage]).toLowerCase()
+  const digest = String(metadata['containerimage.digest'] || '').toLowerCase()
   if (!SHA256_DIGEST_RE.test(digest)) {
-    throw new Error(`crane returned an invalid digest for ${remoteImage}: ${digest}`)
+    throw new Error(`Buildx metadata contains an invalid containerimage.digest for ${remoteImage}`)
   }
 
-  const imageRef = `${imageRepository(remoteImage)}@${digest}`
-  const platforms = inspectImagePlatforms(imageRef)
-  if (!platforms.some(platform => platform === 'linux/amd64' || platform.startsWith('linux/amd64/'))) {
-    throw new Error(
-      `pushed image ${imageRef} does not provide linux/amd64`
-    )
+  return {
+    digest,
+    imageRef: `${imageRepository(remoteImage)}@${digest}`,
+    platforms: ['linux/amd64'],
   }
-  return { digest, imageRef, platforms }
+}
+
+function buildxArgs (remoteImage, metadataPath) {
+  return [
+    'buildx',
+    'build',
+    '--platform',
+    'linux/amd64',
+    '--tag',
+    remoteImage,
+    '--push',
+    '--metadata-file',
+    metadataPath,
+    '.',
+  ]
+}
+
+function runDockerBuildx ({ workDir, remoteImage, metadataPath }) {
+  execFileSync(
+    'docker',
+    buildxArgs(remoteImage, metadataPath),
+    {
+      cwd: workDir,
+      stdio: 'pipe',
+      timeout: 600000,
+    },
+  )
 }
 
 // ── Registry Detection ───────────────────────────────────
@@ -338,8 +313,9 @@ async function autoDetectRegistry () {
 
 // ── Build & Push ─────────────────────────────────────────
 
-async function buildAndPush (workDir, repoName, registryInfo) {
-  const tag = getDateTag()
+async function buildAndPush (workDir, repoName, registryInfo, dependencies = {}) {
+  const executeBuildx = dependencies.executeBuildx || runDockerBuildx
+  const tag = dependencies.tag || getDateTag()
   const sanitized = repoName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')
   const startedAt = new Date().toISOString()
 
@@ -363,13 +339,13 @@ async function buildAndPush (workDir, repoName, registryInfo) {
     return { success: false, error: 'No Dockerfile found in work directory' }
   }
 
+  let metadataDir = null
   try {
-    execSync(
-      `docker buildx build --platform linux/amd64 -t ${remoteImage} --push .`,
-      { cwd: workDir, stdio: 'pipe', timeout: 600000 },
-    )
+    metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sealos-buildx-metadata-'))
+    const metadataPath = path.join(metadataDir, 'metadata.json')
+    executeBuildx({ workDir, remoteImage, metadataPath })
 
-    const resolvedImage = resolvePushedImage(remoteImage)
+    const resolvedImage = resolveBuildxMetadata(remoteImage, metadataPath)
     let warning = null
     let requiresImagePullSecret = false
     if (registryInfo.registry === 'ghcr') {
@@ -418,6 +394,10 @@ async function buildAndPush (workDir, repoName, registryInfo) {
       finished_at: new Date().toISOString(),
     })
     return { success: false, error }
+  } finally {
+    if (metadataDir) {
+      fs.rmSync(metadataDir, { recursive: true, force: true })
+    }
   }
 }
 
@@ -443,58 +423,77 @@ function parseArgs (argv) {
   return parsed
 }
 
-const args = parseArgs(process.argv)
+async function main () {
+  const args = parseArgs(process.argv)
 
-if (!args.workDir || !args.repoName) {
-  console.error('Usage: node build-push.mjs <work-dir> <repo-name> [--registry ghcr|dockerhub] [--user <user>]')
-  process.exit(1)
-}
-
-// Determine registry
-let registryInfo
-
-if (args.registry === 'ghcr') {
-  // Explicit GHCR
-  const ghcrResult = await ensureGhcrRegistry({ triggerLogin: true })
-  if (!ghcrResult.ok) {
-    console.log(JSON.stringify({ success: false, ...(ghcrResult.error ? ghcrResult : { error: 'Failed to prepare GHCR registry access' }) }))
-    process.exit(1)
+  if (!args.workDir || !args.repoName) {
+    console.error('Usage: node build-push.mjs <work-dir> <repo-name> [--registry ghcr|dockerhub] [--user <user>]')
+    process.exitCode = 1
+    return
   }
-  registryInfo = ghcrResult.registryInfo
-} else if (args.registry === 'dockerhub') {
-  // Explicit Docker Hub
-  if (!args.user) {
-    const dh = detectDockerHub()
-    if (!dh) {
-      console.log(JSON.stringify({ success: false, error: 'Not logged in to Docker Hub. Run: docker login' }))
-      process.exit(1)
+
+  // Determine registry
+  let registryInfo
+
+  if (args.registry === 'ghcr') {
+    // Explicit GHCR
+    const ghcrResult = await ensureGhcrRegistry({ triggerLogin: true })
+    if (!ghcrResult.ok) {
+      console.log(JSON.stringify({ success: false, ...(ghcrResult.error ? ghcrResult : { error: 'Failed to prepare GHCR registry access' }) }))
+      process.exitCode = 1
+      return
     }
-    registryInfo = dh
+    registryInfo = ghcrResult.registryInfo
+  } else if (args.registry === 'dockerhub') {
+    // Explicit Docker Hub
+    if (!args.user) {
+      const dh = detectDockerHub()
+      if (!dh) {
+        console.log(JSON.stringify({ success: false, error: 'Not logged in to Docker Hub. Run: docker login' }))
+        process.exitCode = 1
+        return
+      }
+      registryInfo = dh
+    } else {
+      registryInfo = { registry: 'dockerhub', user: args.user }
+    }
   } else {
-    registryInfo = { registry: 'dockerhub', user: args.user }
+    // Auto-detect
+    try {
+      registryInfo = await autoDetectRegistry()
+    } catch (error) {
+      const structured = error && typeof error === 'object' && 'error' in error
+      console.log(JSON.stringify({
+        success: false,
+        ...(structured ? error : { error: error.message }),
+      }))
+      process.exitCode = 1
+      return
+    }
+    if (!registryInfo) {
+      console.log(JSON.stringify({
+        success: false,
+        error: 'No container registry available. Install gh CLI (brew install gh && gh auth login) or run docker login.',
+      }))
+      process.exitCode = 1
+      return
+    }
   }
-} else {
-  // Auto-detect
-  try {
-    registryInfo = await autoDetectRegistry()
-  } catch (error) {
-    const structured = error && typeof error === 'object' && 'error' in error
-    console.log(JSON.stringify({
-      success: false,
-      ...(structured ? error : { error: error.message }),
-    }))
-    process.exit(1)
-  }
-  if (!registryInfo) {
-    console.log(JSON.stringify({
-      success: false,
-      error: 'No container registry available. Install gh CLI (brew install gh && gh auth login) or run docker login.',
-    }))
-    process.exit(1)
-  }
+
+  const result = await buildAndPush(path.resolve(args.workDir), args.repoName, registryInfo)
+  console.log(JSON.stringify(result, null, 2))
+
+  if (!result.success) process.exitCode = 1
 }
 
-const result = await buildAndPush(path.resolve(args.workDir), args.repoName, registryInfo)
-console.log(JSON.stringify(result, null, 2))
+const isMain = process.argv[1] &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 
-if (!result.success) process.exit(1)
+if (isMain) await main()
+
+export {
+  buildAndPush,
+  buildxArgs,
+  resolveBuildxMetadata,
+  runDockerBuildx,
+}

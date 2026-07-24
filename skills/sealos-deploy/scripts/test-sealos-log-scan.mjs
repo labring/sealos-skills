@@ -18,6 +18,7 @@ function pod({
   restartCount = 0,
   readyTransitionTime = "2026-07-15T00:00:20Z",
   uid = "pod-uid",
+  state = { running: {} },
 } = {}) {
   return {
     metadata: { name: "demo-0", uid, labels: { app: APP } },
@@ -25,7 +26,7 @@ function pod({
     status: {
       phase: ready ? "Running" : "Pending",
       conditions: [{ type: "Ready", status: ready ? "True" : "False", lastTransitionTime: readyTransitionTime }],
-      containerStatuses: [{ name: APP, ready, restartCount, state: { running: {} } }],
+      containerStatuses: [{ name: APP, ready, restartCount, state }],
     },
   };
 }
@@ -245,4 +246,76 @@ test("log findings and kubectl errors exit 1 while parameter errors exit 2", () 
   const integerResult = runScan(fixture(), ["--min-window-seconds", "60x"]);
   assert.equal(integerResult.status, 2);
   assert.equal(reportFrom(integerResult).ok, false);
+});
+
+test("reports third-party image architecture mismatches from pod status and Warning Events", () => {
+  const waitingPod = pod({
+    ready: false,
+    state: {
+      waiting: {
+        reason: "ErrImagePull",
+        message: "no matching manifest for linux/amd64 in the manifest list entries",
+      },
+    },
+  });
+  const pullEvent = warning({
+    reason: "Failed",
+    message: "Failed to pull image acme/web@sha256:deadbeef: no matching manifest for linux/amd64",
+  });
+  const result = runScan(fixture({ pods: [waitingPod], events: [pullEvent] }));
+  assert.equal(result.status, 1);
+  const report = reportFrom(result);
+  assert.ok(report.findings.some((finding) => finding.signal === "image_pull_failure"));
+  assert.ok(report.findings.some((finding) => finding.signal === "image_architecture_mismatch"));
+});
+
+test("reports exec format errors as architecture mismatches", () => {
+  const result = runScan(fixture({
+    logs: { "demo-0/demo/current": "standard_init_linux.go: exec user process caused: exec format error\n" },
+  }));
+  assert.equal(result.status, 1);
+  const report = reportFrom(result);
+  assert.ok(report.findings.some((finding) => finding.signal === "image_architecture_mismatch"));
+});
+
+test("does not classify an unrelated application platform message as an image mismatch", () => {
+  const result = runScan(fixture({
+    logs: { "demo-0/demo/current": "client does not support the requested platform feature\n" },
+  }));
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = reportFrom(result);
+  assert.ok(!report.findings.some((finding) => finding.signal === "image_architecture_mismatch"));
+});
+
+test("does not infer an architecture mismatch from a generic pull failure", () => {
+  const pullingPod = pod({
+    ready: false,
+    state: {
+      waiting: {
+        reason: "ImagePullBackOff",
+        message: "unauthorized: authentication required",
+      },
+    },
+  });
+  const result = runScan(fixture({ pods: [pullingPod] }));
+  assert.equal(result.status, 1);
+  const report = reportFrom(result);
+  assert.ok(report.findings.some((finding) => finding.signal === "image_pull_failure"));
+  assert.ok(!report.findings.some((finding) => finding.signal === "image_architecture_mismatch"));
+});
+
+test("a recovered architecture Warning can converge as historical-transient", () => {
+  const architectureWarning = warning({
+    reason: "Failed",
+    message: "Failed to pull image acme/web@sha256:deadbeef: no matching manifest for linux/amd64",
+  });
+  const recovered = fixture({ pods: [pod()], events: [architectureWarning] });
+  const recoveryBaseline = agedBaseline(recovered);
+  const result = compare(recovered, recoveryBaseline);
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const report = reportFrom(result);
+  assert.equal(report.ok, true);
+  assert.equal(report.events[0].classification, "historical-transient");
+  assert.ok(!report.findings.some((finding) => finding.signal === "image_architecture_mismatch"));
 });

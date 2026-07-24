@@ -94,7 +94,7 @@ with mock.patch.dict(os.environ, {"DOCKER_TO_SEALOS_ARTIFACTS": "template/demo/i
 
 **What to Mock:**
 - Network fetches such as `_read_json_url` and `_read_text_url` in `skills/docker-to-sealos/scripts/compose_to_template.py`.
-- External binaries such as `crane` through `shutil.which` and `subprocess.run` in `skills/docker-to-sealos/scripts/test_compose_to_template.py`.
+- Registry HTTP responses by passing a deterministic `requester` callback to `resolve_registry_digest` in `skills/docker-to-sealos/scripts/test_compose_to_template.py`.
 - Environment variables such as `DOCKER_TO_SEALOS_ARTIFACTS` in `skills/docker-to-sealos/scripts/test_quality_gate.py`.
 
 **What NOT to Mock:**
@@ -156,17 +156,22 @@ python3 -m unittest discover skills/docker-to-sealos/scripts -p 'test_*.py'
 
 **Async Testing:**
 ```python
-digest = "sha256:" + ("a" * 64)
-manifest = json.dumps({
-    "manifests": [{
-        "digest": digest,
-        "platform": {"os": "linux", "architecture": "amd64"},
-    }],
-})
-with mock.patch("compose_to_template.require_crane_binary", return_value="/usr/local/bin/crane"):
-    with mock.patch("compose_to_template.run_crane_command", side_effect=[digest, manifest]):
-        result = resolve_image_reference("nginx:latest")
-        self.assertEqual(f"nginx@{digest}", result)
+import hashlib
+
+manifest = b'{"schemaVersion":2}'
+digest = f"sha256:{hashlib.sha256(manifest).hexdigest()}"
+
+def requester(url, headers):
+    self.assertEqual(
+        "https://registry-1.docker.io/v2/library/nginx/manifests/latest",
+        url,
+    )
+    return 200, {"Docker-Content-Digest": digest}, manifest
+
+self.assertEqual(
+    digest,
+    resolve_registry_digest("nginx:latest", requester=requester),
+)
 ```
 
 **Error Testing:**

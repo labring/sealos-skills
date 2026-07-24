@@ -977,8 +977,9 @@ def check_no_compose_image_variables(context: ScanContext) -> List[Violation]:
                 default_pattern=r"^\s*metadata\s*:" if field_name == "originImageName" else r"^\s*containers\s*:",
                 message=(
                     "image references must be concrete and must not contain Compose-style variables; "
-                    "resolve variables first, then resolve the resulting image to an immutable "
-                    "digest with crane before emitting template artifacts"
+                    "resolve variables first, then resolve the resulting selector through the "
+                    "registry HTTP API or use a caller-supplied immutable digest before emitting "
+                    "template artifacts"
                 ),
             )
     return violations

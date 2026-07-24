@@ -249,7 +249,6 @@
           "role",
           "sources",
           "status",
-          "platforms",
           "digest",
           "image_ref",
           "error"
@@ -338,11 +337,11 @@
             "type": "string",
             "enum": [
               "verified",
-              "unsupported_platform",
               "unavailable"
             ]
           },
           "platforms": {
+            "description": "Optional legacy registry metadata. Third-party image selection does not depend on this field.",
             "type": "array",
             "uniqueItems": true,
             "items": {
@@ -426,7 +425,6 @@
             "type": "string",
             "enum": [
               "verified",
-              "unsupported_platform",
               "unavailable",
               "build_required",
               "built"

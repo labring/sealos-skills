@@ -46,7 +46,6 @@ if [ -n "$PYTHON_BIN" ]; then
   "$PYTHON_BIN" -c 'import yaml' 2>/dev/null
 fi
 kompose version 2>/dev/null || true
-crane version 2>/dev/null || true
 
 # Optional (enables GHCR push — preferred over Docker Hub)
 gh --version 2>/dev/null
@@ -71,7 +70,6 @@ ENV.node      = true/false
 ENV.python    = true/false
 ENV.pyyaml    = true/false
 ENV.kompose   = true/false
-ENV.crane     = true/false
 ENV.kubectl   = true/false   (required before Phase 6 and for all updates)
 ENV.gh        = true/false   (enables zero-interaction GHCR push)
 ENV.curl      = true/false
@@ -159,10 +157,6 @@ docker info 2>/dev/null
 
 **Compose conversion tools:**
 - `kompose` is required when a supported root Compose file must be converted.
-- `crane` is required whenever Phase 4 verifies a pushed build or Compose
-  conversion emits a non-database workload image, including an already
-  digest-pinned input, because both paths resolve the exact selector and verify
-  `linux/amd64`.
 - Record missing tools during preflight, but stop only if Phase 5 reaches the matching path.
 - Do not install these tools automatically from this workflow.
 
@@ -227,8 +221,6 @@ of those two request paths is available.
 Detect these now and report them early, but do **not** stop before the run reaches Phase 5:
 - Python or PyYAML missing
 - supported root Compose file present and `kompose` missing
-- a service requires Phase 4 build/push and `crane` is missing
-- Compose contains a non-database workload image and `crane` is missing
 
 These findings become hard blockers when Phase 5 reaches the matching generation or validation path.
 

@@ -121,7 +121,7 @@ Evidence contract:
 - `spec.source`: official compose/docs/release artifact URL or identifier.
 - `spec.images`: source selector → resolved digest mappings. `source` records the
   exact selector from the official bundle and may be `latest`, `stable`, `v2`,
-  another tag, or tagless; `resolved` records the `linux/amd64` digest reference
+  another tag, or tagless; `resolved` records the immutable digest reference
   that must appear in the generated workload. A plain string is accepted only
   as a legacy shorthand when source and final reference are already identical.
 - `spec.components`: workload names that must be emitted as managed app workloads.
@@ -193,15 +193,19 @@ explicit version, or another tag) or omit the tag. Tags are source selectors,
 not final template references.
 
 Resolve Compose variable image expressions (for example `${IMAGE}` or
-`${IMAGE:-ghcr.io/example/app}`) first. For every non-database workload that
-will be emitted, run `crane digest <resolved-input-reference>`, inspect that
-immutable result for `linux/amd64`, and use `<repository>@sha256:<digest>` for
-both the container image and `originImageName`. Do not search for or substitute
-a different tag.
+`${IMAGE:-ghcr.io/example/app}`) first. For every workload container that will
+be emitted, resolve the exact resulting selector through the registry HTTP API
+and use `<repository>@sha256:<digest>` for the container image and, where
+applicable, `originImageName`. A caller-supplied immutable digest may be used
+directly after syntax validation. Do not search for or substitute a different
+tag, and do not pre-screen third-party image architecture in this converter.
 
 For a service with `build:` but no `image:`, pass the built and pushed result as
-`--image-override SERVICE=IMAGE`. The override is still resolved and checked for
-`linux/amd64`; the converter must not rewrite the source Compose file.
+`--image-override SERVICE=IMAGE`. Phase 4 should supply its immutable digest;
+the converter validates and preserves that digest. If an override is still a
+selector, resolve it through the same registry HTTP API. The converter must not
+rewrite the source Compose file. The local build path owns its `linux/amd64`
+contract outside this converter.
 
 Database service images remain dependency and engine-classification evidence.
 When a database service is transformed to a KubeBlocks `Cluster`, preserve its

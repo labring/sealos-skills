@@ -66,6 +66,7 @@
               "pattern": "^[^\\s@]+@sha256:[0-9a-fA-F]{64}$"
             },
             "platforms": {
+              "description": "Platforms explicitly requested from Buildx for this build.",
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import hashlib
 import json
 import re
 import tempfile
@@ -23,6 +24,7 @@ from compose_to_template import (
     parse_image_overrides,
     resolve_image_reference,
     resolve_kompose_shapes,
+    resolve_registry_digest,
 )
 
 TEST_IMAGE_DIGEST = "sha256:" + ("a" * 64)
@@ -62,39 +64,15 @@ class ComposeToTemplateTests(unittest.TestCase):
     def setUp(self):
         self._svgl_json_patcher = mock.patch("compose_to_template._read_json_url", return_value=[])
         self._svgl_json_patcher.start()
-        self._crane_binary_patcher = mock.patch(
-            "compose_to_template.require_crane_binary",
-            return_value="/usr/local/bin/crane",
+        self._registry_digest_patcher = mock.patch(
+            "compose_to_template.resolve_registry_digest",
+            return_value=TEST_IMAGE_DIGEST,
         )
-        self._crane_binary_patcher.start()
-        self._crane_command_patcher = mock.patch(
-            "compose_to_template.run_crane_command",
-            side_effect=self._fake_crane_command,
-        )
-        self._crane_command_mock = self._crane_command_patcher.start()
+        self._registry_digest_mock = self._registry_digest_patcher.start()
 
     def tearDown(self):
-        self._crane_command_patcher.stop()
-        self._crane_binary_patcher.stop()
+        self._registry_digest_patcher.stop()
         self._svgl_json_patcher.stop()
-
-    @staticmethod
-    def _fake_crane_command(crane_bin: str, args: List[str]) -> str:
-        if crane_bin == "/usr/local/bin/crane" and len(args) == 2 and args[0] == "digest":
-            return TEST_IMAGE_DIGEST
-        if crane_bin == "/usr/local/bin/crane" and len(args) == 2 and args[0] == "manifest":
-            return json.dumps(
-                {
-                    "schemaVersion": 2,
-                    "manifests": [
-                        {
-                            "digest": TEST_IMAGE_DIGEST,
-                            "platform": {"os": "linux", "architecture": "amd64"},
-                        }
-                    ],
-                }
-            )
-        raise AssertionError(f"unexpected crane command: {crane_bin} {args}")
 
     @staticmethod
     def _digest_ref(repository: str) -> str:
@@ -1183,14 +1161,8 @@ class ComposeToTemplateTests(unittest.TestCase):
                 endpoint_item.get("value"),
             )
             self.assertEqual(
-                [
-                    mock.call("/usr/local/bin/crane", ["digest", "ghcr.io/example/demo:1.0.0"]),
-                    mock.call(
-                        "/usr/local/bin/crane",
-                        ["manifest", self._digest_ref("ghcr.io/example/demo")],
-                    ),
-                ],
-                self._crane_command_mock.call_args_list,
+                [mock.call("ghcr.io/example/demo:1.0.0")],
+                self._registry_digest_mock.call_args_list,
             )
             for helper_name, key in (
                 ("SEALOS_DATABASE_POSTGRES_HOST", "host"),
@@ -1863,74 +1835,121 @@ class ComposeToTemplateTests(unittest.TestCase):
                 resolved = resolve_image_reference(image)
                 self.assertEqual(self._digest_ref("ghcr.io/example/demo"), resolved)
 
-        expected_calls = []
-        for image in inputs:
-            expected_calls.extend(
-                [
-                    mock.call("/usr/local/bin/crane", ["digest", image]),
-                    mock.call(
-                        "/usr/local/bin/crane",
-                        ["manifest", self._digest_ref("ghcr.io/example/demo")],
-                    ),
-                ]
-            )
-        self.assertEqual(expected_calls, self._crane_command_mock.call_args_list)
+        self.assertEqual(
+            [mock.call(image) for image in inputs],
+            self._registry_digest_mock.call_args_list,
+        )
 
-    def test_resolve_image_reference_rejects_invalid_crane_digest(self):
+    def test_resolve_image_reference_rejects_invalid_registry_digest(self):
         with mock.patch(
-            "compose_to_template.run_crane_command",
+            "compose_to_template.resolve_registry_digest",
             return_value="sha256:not-a-valid-digest",
         ):
             with self.assertRaisesRegex(ValueError, "invalid sha256 digest"):
                 resolve_image_reference("ghcr.io/example/demo:1.2.3")
 
-    def test_resolve_image_reference_rejects_arm64_only_image(self):
-        def arm64_only_crane(crane_bin: str, args: List[str]) -> str:
-            if args[0] == "digest":
-                return TEST_IMAGE_DIGEST
-            if args[0] == "manifest":
-                return json.dumps(
-                    {
-                        "schemaVersion": 2,
-                        "manifests": [
-                            {
-                                "digest": TEST_IMAGE_DIGEST,
-                                "platform": {"os": "linux", "architecture": "arm64"},
-                            }
-                        ],
-                    }
-                )
-            raise AssertionError(f"unexpected crane command: {crane_bin} {args}")
+    def test_resolve_image_reference_does_not_inspect_architecture(self):
+        resolver = mock.Mock(return_value=TEST_IMAGE_DIGEST)
+        self.assertEqual(
+            self._digest_ref("ghcr.io/example/demo"),
+            resolve_image_reference(
+                "ghcr.io/example/demo:arm64-only",
+                digest_resolver=resolver,
+            ),
+        )
+        resolver.assert_called_once_with("ghcr.io/example/demo:arm64-only")
 
-        with mock.patch(
-            "compose_to_template.run_crane_command",
-            side_effect=arm64_only_crane,
-        ):
-            with self.assertRaisesRegex(ValueError, "does not provide linux/amd64"):
-                resolve_image_reference("ghcr.io/example/demo:stable")
+    def test_resolve_image_reference_passes_through_declared_digest_without_network(self):
+        uppercase_digest = "sha256:" + ("A" * 64)
+        self.assertEqual(
+            self._digest_ref("ghcr.io/example/demo"),
+            resolve_image_reference(f"ghcr.io/example/demo:stable@{uppercase_digest}"),
+        )
+        self._registry_digest_mock.assert_not_called()
 
-    def test_resolve_image_reference_checks_single_manifest_config(self):
-        def single_manifest_crane(crane_bin: str, args: List[str]) -> str:
-            if args[0] == "digest":
-                return TEST_IMAGE_DIGEST
-            if args[0] == "manifest":
-                return json.dumps(
-                    {
-                        "schemaVersion": 2,
-                        "config": {"digest": TEST_IMAGE_DIGEST},
-                    }
-                )
-            if args[0] == "config":
-                return json.dumps({"os": "linux", "architecture": "amd64"})
-            raise AssertionError(f"unexpected crane command: {crane_bin} {args}")
-
-        with mock.patch(
-            "compose_to_template.run_crane_command",
-            side_effect=single_manifest_crane,
-        ):
+    def test_resolve_image_reference_has_no_external_binary_dependency(self):
+        with mock.patch("shutil.which", return_value=None):
             self.assertEqual(
                 self._digest_ref("ghcr.io/example/demo"),
-                resolve_image_reference("ghcr.io/example/demo:v2"),
+                resolve_image_reference("ghcr.io/example/demo:stable"),
+            )
+
+    def test_registry_digest_resolver_handles_anonymous_docker_hub_bearer_auth(self):
+        manifest = b'{"schemaVersion":2,"mediaType":"application/test"}'
+        digest = f"sha256:{hashlib.sha256(manifest).hexdigest()}"
+        requests = []
+
+        def requester(url: str, headers: Dict[str, str]):
+            requests.append((url, dict(headers)))
+            if url.startswith("https://auth.docker.io/token"):
+                return 200, {}, b'{"token":"anonymous-token"}'
+            if "Authorization" in headers:
+                return 200, {"Docker-Content-Digest": digest}, manifest
+            return (
+                401,
+                {
+                    "WWW-Authenticate": (
+                        'Bearer realm="https://auth.docker.io/token",'
+                        'service="registry.docker.io",'
+                        'scope="repository:library/nginx:pull"'
+                    )
+                },
+                b"",
+            )
+
+        self.assertEqual(
+            digest,
+            resolve_registry_digest("nginx:latest", requester=requester),
+        )
+        self.assertEqual(
+            "https://registry-1.docker.io/v2/library/nginx/manifests/latest",
+            requests[0][0],
+        )
+        self.assertIn("service=registry.docker.io", requests[1][0])
+        self.assertIn("scope=repository%3Alibrary%2Fnginx%3Apull", requests[1][0])
+        self.assertEqual("Bearer anonymous-token", requests[2][1]["Authorization"])
+
+    def test_registry_digest_resolver_uses_manifest_hash_when_header_is_absent(self):
+        manifest = b'{"schemaVersion":2}'
+
+        def requester(url: str, headers: Dict[str, str]):
+            self.assertEqual(
+                "https://ghcr.io/v2/example/demo/manifests/stable",
+                url,
+            )
+            self.assertNotIn("Authorization", headers)
+            return 200, {}, manifest
+
+        self.assertEqual(
+            f"sha256:{hashlib.sha256(manifest).hexdigest()}",
+            resolve_registry_digest(
+                "ghcr.io/example/demo:stable",
+                requester=requester,
+            ),
+        )
+
+    def test_registry_digest_resolver_rejects_an_invalid_manifest_body(self):
+        def requester(url: str, headers: Dict[str, str]):
+            return 200, {}, b"not a manifest"
+
+        with self.assertRaisesRegex(ValueError, "invalid manifest"):
+            resolve_registry_digest(
+                "ghcr.io/example/demo:stable",
+                requester=requester,
+            )
+
+    def test_registry_digest_resolver_rejects_a_mismatched_digest_header(self):
+        def requester(url: str, headers: Dict[str, str]):
+            return (
+                200,
+                {"Docker-Content-Digest": "sha256:" + ("b" * 64)},
+                b'{"schemaVersion":2}',
+            )
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            resolve_registry_digest(
+                "ghcr.io/example/demo:stable",
+                requester=requester,
             )
 
     def test_build_only_proxy_uses_image_override_without_editing_compose(self):

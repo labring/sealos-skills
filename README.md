@@ -177,8 +177,8 @@ On a typical deploy, the agent will:
   `labring-actions/templates@kb-0.9` catalog
 - reuse that official template verbatim and go directly to deployment when the
   source is aligned; otherwise preserve the project's complete service
-  topology, reuse or build each required AMD64 image, pin emitted images by
-  digest, and generate a Sealos template from the current project
+  topology, pin reusable third-party images by digest, build missing images
+  for AMD64, and generate a Sealos template from the current project
 - collect required template inputs and dry-run every template before deployment
 - deploy and verify rollout
 - verify the actual Sealos App URL, logs, login/setup flow for web apps, and resource footprint before reporting the app as usable

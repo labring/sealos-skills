@@ -316,9 +316,6 @@ function validateAnalysisSemantics(data, errors) {
       if (image.digest === null || image.image_ref !== `${image.image}@${image.digest}`) {
         pushError(errors, `${pointer}.digest`, 'must match the immutable image_ref')
       }
-      if (!supportsLinuxAmd64(image.platforms)) {
-        pushError(errors, `${pointer}.platforms`, 'verified images must include linux/amd64')
-      }
       if (image.error !== null) {
         pushError(errors, `${pointer}.error`, 'must be null for a verified image')
       }
@@ -362,8 +359,8 @@ function validateAnalysisSemantics(data, errors) {
       if (service.digest === null || service.image_ref !== `${service.image_ref?.split('@')[0]}@${service.digest}`) {
         pushError(errors, `${pointer}.digest`, 'must match the immutable image_ref')
       }
-      if (!supportsLinuxAmd64(service.platforms || [])) {
-        pushError(errors, `${pointer}.platforms`, 'deployable service images must include linux/amd64')
+      if (service.image_status === 'built' && !supportsLinuxAmd64(service.platforms || [])) {
+        pushError(errors, `${pointer}.platforms`, 'locally built service images must target linux/amd64')
       }
     }
   }

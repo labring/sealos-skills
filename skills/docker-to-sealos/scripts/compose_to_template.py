@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -14,9 +15,9 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 import yaml
@@ -100,6 +101,15 @@ WEBSOCKET_VALUE_HINTS = (
     "socket.io",
 )
 SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
+REGISTRY_REQUEST_TIMEOUT = 20
+REGISTRY_MANIFEST_ACCEPT = ", ".join(
+    (
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    )
+)
 COMPOSE_BRACED_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 COMPOSE_SIMPLE_VAR_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 SEALOS_CPU_REQUEST_BY_LIMIT = {
@@ -467,140 +477,205 @@ def split_image_reference(image: str) -> Tuple[str, Optional[str], Optional[str]
     return text, None, digest
 
 
-def require_crane_binary() -> str:
-    crane_bin = shutil.which("crane")
-    if not crane_bin:
-        raise ValueError(
-            "crane is required to resolve workload images to immutable digests "
-            "but was not found in PATH"
-        )
-    return crane_bin
+RegistryRequester = Callable[
+    [str, Mapping[str, str]],
+    Tuple[int, Mapping[str, str], bytes],
+]
 
 
-def run_crane_command(crane_bin: str, args: Sequence[str]) -> str:
-    command = [crane_bin, *args]
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
-        raise ValueError(f"crane command failed ({' '.join(command)}): {detail}")
-    return result.stdout.strip()
-
-
-def load_crane_json(crane_bin: str, args: Sequence[str], image: str) -> Mapping[str, Any]:
-    raw = run_crane_command(crane_bin, args)
+def _registry_request(
+    url: str,
+    headers: Mapping[str, str],
+) -> Tuple[int, Mapping[str, str], bytes]:
+    request = Request(url, headers=dict(headers))
     try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"crane returned invalid JSON while inspecting {image!r}: {exc.msg}"
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ValueError(f"crane returned a non-object document while inspecting {image!r}")
-    return payload
+        with urlopen(request, timeout=REGISTRY_REQUEST_TIMEOUT) as response:
+            return response.status, response.headers, response.read()
+    except HTTPError as exc:
+        return exc.code, exc.headers or {}, exc.read()
+    except (URLError, TimeoutError, OSError) as exc:
+        raise ValueError(f"registry request failed: {exc}") from exc
 
 
-def is_linux_amd64_platform(platform: Any) -> bool:
-    return (
-        isinstance(platform, dict)
-        and str(platform.get("os", "")).lower() == "linux"
-        and str(platform.get("architecture", "")).lower() == "amd64"
-    )
+def _parse_bearer_challenge(challenge: str) -> Dict[str, str]:
+    scheme, separator, parameters = challenge.partition(" ")
+    if not separator or scheme.lower() != "bearer":
+        raise ValueError("registry requires an unsupported authentication scheme")
+
+    parsed: Dict[str, str] = {}
+    pattern = re.compile(r'([A-Za-z][A-Za-z0-9_-]*)=(?:"((?:[^"\\]|\\.)*)"|([^,\s]+))')
+    for match in pattern.finditer(parameters):
+        quoted_value, bare_value = match.group(2), match.group(3)
+        value = quoted_value if quoted_value is not None else bare_value
+        parsed[match.group(1).lower()] = re.sub(r"\\(.)", r"\1", value or "")
+    if not parsed.get("realm"):
+        raise ValueError("registry bearer challenge does not include a token realm")
+    return parsed
 
 
-def verify_linux_amd64_image(crane_bin: str, image: str) -> None:
-    manifest = load_crane_json(crane_bin, ["manifest", image], image)
-    descriptors = manifest.get("manifests")
+def _registry_location(repository: str) -> Tuple[str, str]:
+    if not repository or repository.startswith("/") or "://" in repository:
+        raise ValueError(f"invalid image repository: {repository!r}")
 
-    if isinstance(descriptors, list):
-        platformless_descriptors: List[Mapping[str, Any]] = []
-        for descriptor in descriptors:
-            if not isinstance(descriptor, dict):
-                continue
-            platform = descriptor.get("platform")
-            digest = descriptor.get("digest")
-            if is_linux_amd64_platform(platform):
-                if not isinstance(digest, str) or SHA256_DIGEST_RE.fullmatch(digest) is None:
-                    raise ValueError(
-                        f"linux/amd64 descriptor for {image!r} has an invalid digest: {digest!r}"
-                    )
-                return
+    parts = repository.split("/")
+    first = parts[0]
+    if len(parts) > 1 and ("." in first or ":" in first or first == "localhost"):
+        registry = first
+        registry_repository = "/".join(parts[1:])
+    else:
+        registry = "registry-1.docker.io"
+        registry_repository = repository
+        if "/" not in registry_repository:
+            registry_repository = f"library/{registry_repository}"
 
-            if not isinstance(platform, dict):
-                platformless_descriptors.append(descriptor)
-                continue
-            descriptor_os = str(platform.get("os", "")).lower()
-            descriptor_arch = str(platform.get("architecture", "")).lower()
-            if not descriptor_os or not descriptor_arch or "unknown" in {descriptor_os, descriptor_arch}:
-                platformless_descriptors.append(descriptor)
+    if registry in {"docker.io", "index.docker.io", "registry-1.docker.io"}:
+        registry = "registry-1.docker.io"
+        if "/" not in registry_repository:
+            registry_repository = f"library/{registry_repository}"
+    if not registry_repository:
+        raise ValueError(f"invalid image repository: {repository!r}")
+    return registry, registry_repository
 
-        repository, _, _ = split_image_reference(image)
-        inspection_errors: List[str] = []
-        for descriptor in platformless_descriptors:
-            digest = descriptor.get("digest")
-            if not isinstance(digest, str) or SHA256_DIGEST_RE.fullmatch(digest) is None:
-                inspection_errors.append(f"invalid child digest {digest!r}")
-                continue
-            child_ref = f"{repository}@{digest.lower()}"
-            try:
-                config = load_crane_json(crane_bin, ["config", child_ref], child_ref)
-            except ValueError as exc:
-                inspection_errors.append(str(exc))
-                continue
-            if is_linux_amd64_platform(config):
-                return
 
-        detail = ""
-        if inspection_errors:
-            detail = f"; platformless child inspection failed: {'; '.join(inspection_errors)}"
-        raise ValueError(f"image {image!r} does not provide linux/amd64{detail}")
+def _bearer_token(
+    challenge: str,
+    registry_repository: str,
+    requester: RegistryRequester,
+) -> str:
+    parameters = _parse_bearer_challenge(challenge)
+    realm = parameters["realm"]
+    parsed_realm = urlparse(realm)
+    if parsed_realm.scheme not in {"http", "https"} or not parsed_realm.netloc:
+        raise ValueError("registry bearer challenge contains an invalid token realm")
 
-    if descriptors is not None:
-        raise ValueError(f"crane returned an invalid manifest list while inspecting {image!r}")
-
-    config = load_crane_json(crane_bin, ["config", image], image)
-    if not is_linux_amd64_platform(config):
-        actual_os = str(config.get("os", "unknown"))
-        actual_arch = str(config.get("architecture", "unknown"))
-        raise ValueError(
-            f"image {image!r} does not provide linux/amd64 "
-            f"(single-image platform is {actual_os}/{actual_arch})"
+    query = list(parse_qsl(parsed_realm.query, keep_blank_values=True))
+    existing_keys = {key for key, _ in query}
+    if parameters.get("service") and "service" not in existing_keys:
+        query.append(("service", parameters["service"]))
+    if "scope" not in existing_keys:
+        query.append(
+            (
+                "scope",
+                parameters.get("scope") or f"repository:{registry_repository}:pull",
+            )
         )
+    token_url = urlunparse(parsed_realm._replace(query=urlencode(query)))
+    status, _, body = requester(
+        token_url,
+        {
+            "Accept": "application/json",
+            "User-Agent": "docker-to-sealos/1.0",
+        },
+    )
+    if status < 200 or status >= 300:
+        raise ValueError(f"registry token request failed with HTTP {status}")
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("registry token endpoint returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("registry token endpoint returned an invalid response")
+    token = payload.get("token") or payload.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise ValueError("registry token endpoint did not return a bearer token")
+    return token
+
+
+def resolve_registry_digest(
+    image: str,
+    *,
+    requester: Optional[RegistryRequester] = None,
+) -> str:
+    repository, tag, declared_digest = split_image_reference(image)
+    if not repository:
+        raise ValueError(f"invalid image reference: {image!r}")
+    if declared_digest is not None:
+        if SHA256_DIGEST_RE.fullmatch(declared_digest) is None:
+            raise ValueError(
+                f"image {image!r} contains an invalid sha256 digest: {declared_digest!r}"
+            )
+        return declared_digest.lower()
+
+    registry, registry_repository = _registry_location(repository)
+    selector = tag or "latest"
+    manifest_url = (
+        f"https://{registry}/v2/{quote(registry_repository, safe='/')}/"
+        f"manifests/{quote(selector, safe=':')}"
+    )
+    request_headers = {
+        "Accept": REGISTRY_MANIFEST_ACCEPT,
+        "User-Agent": "docker-to-sealos/1.0",
+    }
+    requester = requester or _registry_request
+    status, response_headers, body = requester(manifest_url, request_headers)
+    if status == 401:
+        challenge = str(response_headers.get("WWW-Authenticate") or "")
+        token = _bearer_token(challenge, registry_repository, requester)
+        request_headers = dict(request_headers)
+        request_headers["Authorization"] = f"Bearer {token}"
+        status, response_headers, body = requester(manifest_url, request_headers)
+    if status < 200 or status >= 300:
+        raise ValueError(
+            f"registry manifest request failed for {image!r} with HTTP {status}"
+        )
+
+    try:
+        manifest = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"registry returned an invalid manifest for {image!r}"
+        ) from exc
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
+        raise ValueError(f"registry returned an invalid manifest for {image!r}")
+
+    computed_digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
+    header_digest = str(response_headers.get("Docker-Content-Digest") or "").strip()
+    if header_digest:
+        if SHA256_DIGEST_RE.fullmatch(header_digest) is None:
+            raise ValueError(
+                f"registry returned an invalid sha256 digest for {image!r}: "
+                f"{header_digest!r}"
+            )
+        header_digest = header_digest.lower()
+        if header_digest != computed_digest:
+            raise ValueError(
+                f"registry digest for {image!r} does not match the returned manifest"
+            )
+        return header_digest
+    return computed_digest
 
 
 def resolve_image_reference(
     image: str,
     *,
     digest_cache: Optional[Dict[str, str]] = None,
-    platform_cache: Optional[Set[str]] = None,
+    digest_resolver: Optional[Callable[[str], str]] = None,
 ) -> str:
     source_image = image.strip()
     repository, _, declared_digest = split_image_reference(source_image)
     if not repository:
         raise ValueError(f"invalid image reference: {image!r}")
+    if declared_digest is not None:
+        if SHA256_DIGEST_RE.fullmatch(declared_digest) is None:
+            raise ValueError(
+                f"image {source_image!r} contains an invalid sha256 digest: "
+                f"{declared_digest!r}"
+            )
+        return f"{repository}@{declared_digest.lower()}"
+
     digest_cache = digest_cache if digest_cache is not None else {}
-    platform_cache = platform_cache if platform_cache is not None else set()
-    crane_bin = require_crane_binary()
     source_digest = digest_cache.get(source_image)
     if source_digest is None:
-        source_digest = run_crane_command(crane_bin, ["digest", source_image])
+        resolver = digest_resolver or resolve_registry_digest
+        source_digest = resolver(source_image)
         if SHA256_DIGEST_RE.fullmatch(source_digest) is None:
             raise ValueError(
-                f"crane returned an invalid sha256 digest for {source_image!r}: "
+                f"registry returned an invalid sha256 digest for {source_image!r}: "
                 f"{source_digest!r}"
             )
         source_digest = source_digest.lower()
         digest_cache[source_image] = source_digest
-    if declared_digest is not None and declared_digest.lower() != source_digest:
-        raise ValueError(
-            f"registry digest for {source_image!r} does not match its declared digest "
-            f"({source_digest} != {declared_digest.lower()})"
-        )
-
-    immutable_ref = f"{repository}@{source_digest}"
-    if immutable_ref not in platform_cache:
-        verify_linux_amd64_image(crane_bin, immutable_ref)
-        platform_cache.add(immutable_ref)
-    return immutable_ref
+    return f"{repository}@{source_digest}"
 
 
 def image_repository_basename(image: str) -> str:
@@ -2802,14 +2877,12 @@ def build_documents(
     }
 
     digest_cache: Dict[str, str] = {}
-    platform_cache: Set[str] = set()
     resolved_images: Dict[str, str] = {}
     for service_name, _ in app_services:
         source_image = normalized_images[service_name]
         resolved_images[service_name] = resolve_image_reference(
             source_image,
             digest_cache=digest_cache,
-            platform_cache=platform_cache,
         )
 
     docs: List[Dict[str, Any]] = []

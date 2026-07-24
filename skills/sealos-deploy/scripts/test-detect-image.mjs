@@ -300,7 +300,6 @@ test('uses README before CI and Compose and resolves every declared tag to a dig
     assert.equal(localWorker.image_status, 'build_required')
     assert.equal(localWorker.image_ref, null)
     assert.equal(localWorker.digest, null)
-    assert.deepEqual(localWorker.platforms, [])
 
     assert.ok(registry.calls.some(url => url.endsWith('/manifests/latest')))
     assert.ok(registry.calls.some(url => url.endsWith('/manifests/v2')))
@@ -526,13 +525,11 @@ test('returns uniform service fields for quoted keys, defaulted images, and buil
     assert.equal(web.image_status, 'verified')
     assert.match(web.image_ref, /^localhost:5000\/acme\/web@sha256:/)
     assert.match(web.digest, /^sha256:/)
-    assert.deepEqual(web.platforms, ['linux/amd64'])
 
     assert.equal(worker.build, './worker')
     assert.equal(worker.image_status, 'build_required')
     assert.equal(worker.image_ref, null)
     assert.equal(worker.digest, null)
-    assert.deepEqual(worker.platforms, [])
 
     for (const service of result.service_inventory) {
       assert.deepEqual(
@@ -544,7 +541,6 @@ test('returns uniform service fields for quoted keys, defaulted images, and buil
           'image_ref',
           'image_status',
           'name',
-          'platforms',
           'role',
           'source',
           'source_file',
@@ -573,7 +569,7 @@ test('uses the same root Compose filename precedence as template generation', as
   })
 })
 
-test('rejects a declared image that lacks linux/amd64', async () => {
+test('resolves an architecture-specific image without pre-screening its platform', async () => {
   await withFixture({
     'README.md': 'Run `docker pull ghcr.io/acme/arm-only:stable`.',
   }, async workDir => {
@@ -585,11 +581,9 @@ test('rejects a declared image that lacks linux/amd64', async () => {
     })
 
     const result = await detectExistingImages(workDir, { fetchImpl: registry.fetchImpl })
-    assert.equal(result.found, false)
-    assert.equal(result.reason, 'no_verified_linux_amd64_image')
-    assert.equal(result.image_inventory[0].status, 'unsupported_platform')
-    assert.deepEqual(result.image_inventory[0].platforms, ['linux/arm64'])
-    assert.equal(result.image_inventory[0].image_ref, null)
+    assert.equal(result.found, true)
+    assert.equal(result.image_inventory[0].status, 'verified')
+    assert.match(result.image_inventory[0].image_ref, /^ghcr\.io\/acme\/arm-only@sha256:/)
   })
 })
 
@@ -649,7 +643,7 @@ test('requires manifest body, response header, and requested digest to agree', a
   })
 })
 
-test('inspects platformless OCI index children before rejecting amd64', async () => {
+test('does not inspect platformless OCI index children after resolving the index digest', async () => {
   const configDigest = digestFor('a')
   const childManifest = singleManifest(configDigest)
   const childDigest = manifestDigest(childManifest)
@@ -676,7 +670,8 @@ test('inspects platformless OCI index children before rejecting amd64', async ()
     const result = await detectExistingImages(workDir, { fetchImpl: registry.fetchImpl })
 
     assert.equal(result.found, true)
-    assert.deepEqual(result.platforms, ['linux/amd64'])
+    assert.equal(result.image_ref, `ghcr.io/acme/platformless@${result.digest}`)
+    assert.ok(!registry.calls.some(url => url.endsWith(`/manifests/${childDigest}`)))
   })
 })
 

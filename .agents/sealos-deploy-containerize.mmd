@@ -1,40 +1,43 @@
 flowchart TD
-    A["User runs /sealos-deploy<br/>Input: GitHub URL, local path, or current project"]
+    A["User runs /sealos-deploy<br/>GitHub URL, local path, or current project"]
+    P0["Phase 0 - Preflight<br/>Capabilities, Sealos auth, workspace, and project context"]
+    M{"Existing live deployment?"}
 
-    subgraph P0["Phase 0 - Preflight"]
-        P01["Check basic local tools needed for analysis only<br/>git, node, python, curl, jq"]
-        P02["Resolve WORK_DIR, clone if needed,<br/>detect git metadata, read README"]
-        P03["Do not require Sealos auth,<br/>region switch, workspace switch, namespace switch"]
-        P04["Do not require Docker daemon,<br/>gh auth, kubectl, kubeconfig"]
-        P05["Ready summary<br/>Record project context"]
-    end
+    U1["Phase U1 - Choose rebuild or restart"]
+    U2["Phase U2 - Apply in-place update"]
+    U3["Phase U3 - Verify rollout and runtime<br/>Rollback on failure"]
 
-    subgraph D["Prepare Path"]
-        D1["Phase 1 - Assess<br/>score-model.mjs or AI fallback"]
-        D2{"Score >= 4?"}
-        D3["Write .sealos/analysis.json<br/>Present analysis summary"]
+    P1{"Phase 1 - Is deployment certainly impossible?"}
+    Stop1["Stop with one concrete reason"]
+    Assess["Score readiness and record project requirements<br/>Low score warns but does not reject"]
+    P15{"Phase 1.5 - Unique verified official template?"}
+    Official["Reuse official template verbatim"]
 
-        D4["Phase 2 - Discover Images and Topology<br/>README, then CI, then Compose declarations"]
-        D5{"Every emitted non-database workload has<br/>a verified linux/amd64 digest?"}
-        D6["Retain the complete service inventory<br/>Reuse verified images by service"]
+    P2["Phase 2 - Discover images and full topology<br/>README, then CI, then Compose"]
+    Digest{"Every emitted container workload has<br/>an immutable digest?"}
+    Reuse["Reuse digest-pinned images<br/>No third-party architecture pre-screen"]
+    P3["Phase 3 - Prepare Dockerfile only for missing services"]
+    P4["Phase 4 - Build and push missing services<br/>Target linux/amd64; digest from Buildx metadata"]
+    P5["Phase 5 - Generate complete Sealos template"]
+    P55["Phase 5.5 - Validate, configure, and confirm"]
+    P6["Phase 6 - Resolve inputs, dry-run, and deploy"]
+    P65{"Phase 6.5 - Runtime truth pass"}
+    Recover{"Confirmed image architecture mismatch<br/>and buildable source?"}
+    Stop2["Report the exact blocking service, image, or runtime cause"]
+    Done["Deployment accepted"]
 
-        D7["Phase 3 - Dockerfile<br/>Reuse, fix, or generate Dockerfile"]
-        D8["Validate Dockerfile<br/>Prepare .dockerignore if needed"]
-
-        D9["Phase 4 - Generate delivery artifacts"]
-        D10["Write build-request.json"]
-        D11["Write delivery-manifest.json"]
-        D12["Write .sealos/template/index.yaml"]
-        D13["Phase 5 - Upload delivery bundle<br/>to GitHub persistent storage"]
-        D14["Write upload-result.json<br/>Return commit SHA / artifact paths / URL"]
-
-        DStop1["Stop - unsuitable project"]
-    end
-
-    A --> P01 --> P02 --> P03 --> P04 --> P05 --> D1
-    D1 --> D2
-    D2 -- "No" --> DStop1
-    D2 -- "Yes" --> D3 --> D4 --> D5
-    D5 -- "Yes" --> D6 --> D9
-    D5 -- "No - build only missing services" --> D7 --> D8 --> D9
-    D9 --> D10 --> D11 --> D12 --> D13 --> D14
+    A --> P0 --> M
+    M -- "Yes" --> U1 --> U2 --> U3 --> Done
+    M -- "No" --> P1
+    P1 -- "Yes" --> Stop1
+    P1 -- "No or uncertain" --> Assess --> P15
+    P15 -- "Yes" --> Official --> P6
+    P15 -- "No" --> P2 --> Digest
+    Digest -- "Yes" --> Reuse --> P5
+    Digest -- "No - build only missing services" --> P3 --> P4 --> P5
+    P5 --> P55 --> P6 --> P65
+    P65 -- "Pass" --> Done
+    P65 -- "Architecture mismatch" --> Recover
+    Recover -- "Yes" --> P3
+    Recover -- "No" --> Stop2
+    P65 -- "Other runtime failure" --> Stop2

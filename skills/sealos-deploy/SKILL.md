@@ -3,7 +3,7 @@ name: sealos-deploy
 description: Deploy workloads from GitHub or local source to Sealos Cloud. In DEPLOY mode, Phase 1 stops only when AI is certain the project cannot run on Sealos; every uncertain case continues silently into readiness scoring. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
 metadata:
   author: labring
-  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. crane is required for pushed-image verification and Compose workload image resolution. git is required when cloning from a GitHub URL or when git metadata is needed. Phase 6 requires either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose.
+  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Phase 6 requires either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose.
 ---
 
 # Sealos Deploy
@@ -12,11 +12,10 @@ metadata:
 
 Sealos auth/workspace and kubectl access to the selected workspace are required
 before cloud resources are created. Docker, buildx, and gh CLI are required
-only when the selected path needs local build/push. crane is required for
-pushed-image verification and Compose workload image resolution. git is
-required when cloning from a GitHub URL or when git metadata is needed. Phase 6
-requires either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML;
-root Compose conversion also requires kompose.
+only when the selected path needs local build/push. git is required when
+cloning from a GitHub URL or when git metadata is needed. Phase 6 requires
+either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML; root Compose
+conversion also requires kompose.
 
 
 Deploy cloud workloads to Sealos Cloud. Phase 1 begins with an internal AI
@@ -109,7 +108,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploy started" > "$LOG_FILE"
 [2026-03-05 14:30:04] Route: continue_standard_pipeline → Phase 2
 
 [2026-03-05 14:30:04] === Phase 2: Discover Images and Topology ===
-[2026-03-05 14:30:05] README: owner/frontend:latest → owner/frontend@sha256:<digest> (linux/amd64)
+[2026-03-05 14:30:05] README: owner/frontend:latest → owner/frontend@sha256:<digest>
 [2026-03-05 14:30:05] Compose: frontend + build-only api + postgres + redis retained
 [2026-03-05 14:30:05] Decision: build api only → Phase 3
 
@@ -166,22 +165,22 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
 | `find-template-references.mjs` | `node find-template-references.mjs --work-dir <repo-dir> --skill-dir <SKILL_DIR> --analysis <analysis.json> --reuse-official-template <true\|false> [--github-url <url>] [--catalog-dir <dir>]` | Select a remotely verified unique exact official template for the Phase 6 fast path, or continue the standard pipeline; `--catalog-dir` is matching-only for tests/offline inspection |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
-| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |
-| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build and push a linux/amd64 image, then resolve and record its immutable digest (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
+| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Inventory declared images and Compose topology, then resolve each exact selector to an immutable digest |
+| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build and push a linux/amd64 image, then record the immutable digest returned by Buildx (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update app-scoped GHCR pull Secret and optionally patch an existing Deployment to reference it |
 | `gh-refresh-scopes.mjs` | `node gh-refresh-scopes.mjs write:packages` | Refresh GHCR package access in the current TTY; `write:packages` is sufficient for both push and private pull in this workflow |
 | `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--args-file <mode-0600-file>]` (`--args-json` only for confirmed non-sensitive values) | Resolve the current region from `~/.sealos/auth.json`, build the correct Template API URL, and post a local template YAML |
 | `sealos-launchpad-network.mjs` | `node sealos-launchpad-network.mjs --app <app> --app-url <url> [--expected-port <port>] [--region <url>] [--kubeconfig <path>]` | Read-only Launchpad public-network discovery check with App URL and Service port matching |
 | `sealos-footprint.mjs` | `node sealos-footprint.mjs --namespace <ns> --app <app>` | Read-only inventory of Instance/App/workloads/Jobs/KubeBlocks/PVCs for deploy debug and cleanup planning |
 | `sealos-live-smoke.mjs` | `node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-method json-token\|cookie-json] [--login-path <path>] [--username <user>] [--password <pass>] [--auth-path <path>]` | Read-only or credentialed HTTP smoke test for the real Sealos App entry URL |
-| `sealos-log-scan.mjs` | `node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300] [--baseline <report.json\|json>] [--min-window-seconds 60]` | Read-only JSON scan of Pod/init/main logs plus Warning Event convergence after readiness, login, and random 404 checks |
+| `sealos-log-scan.mjs` | `node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300] [--baseline <report.json\|json>] [--min-window-seconds 60]` | Read-only JSON scan of Pod/init/main logs, image pull and architecture signals, plus Warning Event convergence after readiness, login, and random 404 checks |
 | `sealos-auth.mjs` | `node sealos-auth.mjs check\|login\|list\|switch` | Sealos Cloud authentication & workspace switching |
 
 All scripts output JSON. Run via Bash and parse the result.
 
 For public web applications, run `sealos-launchpad-network.mjs` before HTTP smoke. Acceptance requires `ok: true`, an open public network, the expected Service port, and an App URL host match. The script emits an allowlisted network summary and excludes raw Launchpad application data, environment variables, Secrets, and kubeconfig content.
 
-Runtime Event acceptance uses two scans. Capture the first report after readiness with no baseline, wait at least 60 seconds, then pass that report through `--baseline` for the final scan. Extend `--min-window-seconds` to cover one full known reconciliation, probe, or scheduled-work period. An initial Warning Event is an observation; a Warning that advances after the baseline, an unresolved referenced Secret, a Ready transition, a Pod replacement, or a restart delta is an active failure.
+Runtime Event acceptance uses two scans. Capture the first report after readiness with no baseline, wait at least 60 seconds, then pass that report through `--baseline` for the final scan. Extend `--min-window-seconds` to cover one full known reconciliation, probe, or scheduled-work period. An ordinary initial Warning Event is an observation; an image-architecture mismatch on a current unready workload or one that recurs after the baseline is blocking. After a successful rebuild, an unchanged old architecture Warning may converge to `historical-transient` against a fresh recovery baseline. A Warning that advances after the baseline, an unresolved referenced Secret, a Ready transition, a Pod replacement, or a restart delta is an active failure.
 
 For intentional fault injection, retain a pre-injection report as evidence. After recovery reaches Ready, capture a fresh recovery baseline and compare the final scan against that recovery baseline after the full stability window.
 
@@ -213,7 +212,7 @@ Paths used in pipeline.md follow the pattern:
 | 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
 | 1 — Assess | Stop only when AI is certain deployment is impossible; otherwise continue silently into readiness scoring and record risks | Existing deployment → UPDATE path; low score does not reject |
 | 1.5 — Official Template | A unique, source-aligned official `spec.gitRepo` match is reused verbatim and jumps to Phase 6; otherwise continue | No safe unique exact match → Phase 2 |
-| 2 — Discover | Inventory project-declared images and the complete service topology; resolve reusable images to verified `linux/amd64` digests | Every emitted non-database workload covered → Phase 5 |
+| 2 — Discover | Inventory project-declared images and the complete service topology; resolve every reusable selector to an immutable digest without pre-screening third-party image architecture | Every emitted non-database workload covered → Phase 5 |
 | 3 — Dockerfile | Inspect, repair, or generate Dockerfiles only for services still needing a build | No service needs a build |
 | 4 — Build & Push | Build only missing non-database workload services for `linux/amd64`, push, and resolve each result to a digest | No service needs a build |
 | 5 — Template | Generate Sealos application template | — |
@@ -248,7 +247,7 @@ Input (GitHub URL / local path)
   │                                                        │
   └── no safe unique exact match                           │
         └── [Phase 2] Inventory images + full topology     │
-              ├── every app has amd64 digest ───────┐      │
+              ├── every app has immutable digest ──┐      │
               └── one or more apps need build       │      │
                     ▼                               │      │
                   [Phase 3] Dockerfile per service  │      │
@@ -264,7 +263,7 @@ Input (GitHub URL / local path)
 [Phase 6] Resolve template inputs → dry-run → deploy ── 401 → re-auth
 │                                  409 → instance exists
 ▼
-[Phase 6.5] Runtime Truth Pass ── network/runtime/log/login issue → debug template or runtime config
+[Phase 6.5] Runtime Truth Pass ── network/runtime/log/login/rare image architecture issue → diagnose and recover
 │
 ▼
 Done — app deployed ✓

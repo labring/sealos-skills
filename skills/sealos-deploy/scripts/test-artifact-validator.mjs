@@ -53,7 +53,7 @@ test('accepts the Phase 1 artifact before image discovery', () => {
   assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
-test('accepts a floating source selector after amd64 digest resolution', () => {
+test('accepts a floating source selector after immutable digest resolution', () => {
   const imageRef = `acme/web@${digest}`
   const result = validateArtifactData('analysis', analysis({
     image_ref: imageRef,
@@ -72,7 +72,6 @@ test('accepts a floating source selector after amd64 digest resolution', () => {
         declared_ref: 'acme/web:latest',
       }],
       status: 'verified',
-      platforms: ['linux/amd64', 'linux/arm64'],
       digest,
       image_ref: imageRef,
       error: null,
@@ -90,7 +89,7 @@ test('accepts a floating source selector after amd64 digest resolution', () => {
   assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
-test('rejects a verified inventory image without linux/amd64', () => {
+test('accepts a third-party digest without pre-screening its platform', () => {
   const imageRef = `acme/web@${digest}`
   const result = validateArtifactData('analysis', analysis({
     image_ref: imageRef,
@@ -114,17 +113,23 @@ test('rejects a verified inventory image without linux/amd64', () => {
       image_ref: imageRef,
       error: null,
     }],
-    service_inventory: [],
+    service_inventory: [{
+      name: 'web',
+      role: 'application',
+      source: 'compose',
+      source_file: 'compose.yaml',
+      declared_image: 'acme/web:stable',
+      build: null,
+      image_status: 'verified',
+      image_ref: imageRef,
+      digest,
+    }],
   }))
 
-  assert.equal(result.valid, false)
-  assert.ok(result.errors.some(error => (
-    error.path === '$.image_inventory[0].platforms'
-    && error.message.includes('linux/amd64')
-  )))
+  assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
-test('accepts a successful build result only after digest and amd64 verification', () => {
+test('accepts a successful build result with a Buildx digest and amd64 target', () => {
   const result = validateArtifactData('build-result', {
     outcome: 'success',
     registry: 'ghcr',
@@ -145,7 +150,7 @@ test('accepts a successful build result only after digest and amd64 verification
   assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
-test('rejects a successful build result without linux/amd64', () => {
+test('rejects a successful build result without a linux/amd64 target', () => {
   const result = validateArtifactData('build-result', {
     outcome: 'success',
     registry: 'ghcr',

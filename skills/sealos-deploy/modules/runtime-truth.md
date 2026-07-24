@@ -5,6 +5,7 @@
 - [Capture live identity](#capture-live-identity)
 - [Verify Launchpad public networking](#verify-launchpad-public-networking)
 - [Capture the runtime baseline](#capture-the-runtime-baseline)
+- [Diagnose image runtime failures](#diagnose-image-runtime-failures)
 - [Exercise the application](#exercise-the-application)
 - [Verify Event convergence](#verify-event-convergence)
 - [Acceptance checklist](#acceptance-checklist)
@@ -66,7 +67,9 @@ The helper emits only allowlisted network fields. Treat `launchpad_api_error`, `
 
 ## Capture The Runtime Baseline
 
-Capture the initial runtime baseline after readiness. This scan records Warning Events as observations while preserving log, Pod readiness, and kubectl failures as blocking findings:
+Capture the initial runtime baseline after readiness. This scan records ordinary
+Warning Events as observations while preserving log, Pod readiness, kubectl,
+and exact image-architecture failures as blocking findings:
 
 ```bash
 RUNTIME_EVIDENCE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sealos-runtime.XXXXXX")
@@ -77,6 +80,32 @@ node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
   --namespace "$NAMESPACE" --app "$APP_NAME" --since 10m --tail 300 \
   > "$INITIAL_BASELINE"
 ```
+
+## Diagnose Image Runtime Failures
+
+Third-party images are digest-pinned in Phase 2 without an architecture
+pre-screen. The live cluster is the source of truth for the rare incompatible
+image. Treat these exact signals as an architecture mismatch:
+
+- `no matching manifest`
+- `no match for platform in manifest`
+- image operating system cannot be used on this platform
+- `exec format error`
+
+`sealos-log-scan.mjs` reports current or recurring instances as
+`image_architecture_mismatch` from Pod status, Warning Events, or logs. After a
+successful rebuild, an unchanged Warning tied to a Ready workload may converge
+to `historical-transient` against a fresh recovery baseline.
+`ErrImagePull` and `ImagePullBackOff` alone are only
+`image_pull_failure`; first check registry access, visibility, name, and digest
+instead of assuming an architecture mismatch.
+
+For a confirmed mismatch, record the affected service and immutable image
+reference. If that service has buildable source, route only that service back
+through Phase 3/4, build with `--platform linux/amd64`, replace its template
+image with the digest returned by Buildx, and redeploy. If source is not
+available, report the incompatible image and stop. Do not substitute a guessed
+tag and do not accept the deployment.
 
 ## Exercise The Application
 
@@ -173,6 +202,8 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 - A random missing path returns HTTP 404 and the follow-up log scan has no traceback-style `HTTPException` / `NotFound` noise.
 - SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` is absent from smoke responses.
 - Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
+- The runtime report contains no `image_architecture_mismatch`; any confirmed
+  mismatch was rebuilt from source for `linux/amd64` or reported as blocking.
 - The final runtime report has `ok: true`, zero `active-failure` Events, zero restart deltas, and a complete stability window.
 - Private object-storage flows pass authenticated upload, application read/download, content consistency, and raw-object access restriction checks. Optional local and managed branches each pass their branch-specific workflow.
 - Main business containers keep `command`/`args` short and close to the official entrypoint; repeated file preparation, permission repair, database bootstrap, or compatibility self-healing belongs in initContainers, Jobs, or ConfigMap scripts.

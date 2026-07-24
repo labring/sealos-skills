@@ -505,7 +505,7 @@ The output always contains:
 - `service_inventory`: every Compose service, including database, cache,
   proxy, queue, object-storage, and build-only services.
 - backward-compatible primary fields (`found`, `image`, `tag`, `source`,
-  `digest`, `image_ref`) only when one verified primary image is
+  `digest`, `image_ref`) only when one digest-resolved primary image is
   unambiguous at the highest-priority evidence level.
 
 **If Node.js is unavailable:** read the same three evidence sources in the same
@@ -513,7 +513,7 @@ order and construct the same inventories manually. Query only the exact
 declared selector through the registry API. Do not add owner/repository guesses
 or a Docker Hub search fallback.
 
-### 2.3 Selector, Platform, and Digest Rules
+### 2.3 Selector and Digest Rules
 
 Treat the selector written by the project as valid input. `latest`, `stable`,
 `v2`, `2.1`, an exact version, a digest, and an omitted tag are all allowed.
@@ -523,22 +523,27 @@ a different or “more precise” tag.
 For every declared image:
 
 1. Resolve that exact selector from its registry.
-2. Verify that its manifest or image config contains `linux/amd64`.
-3. Record its immutable manifest digest as
+2. Verify the returned manifest body, registry digest header, and any
+   caller-declared digest agree.
+3. Record the immutable manifest digest as
    `<repository>@sha256:<64-hex-digest>`.
 4. Preserve the original declaration, selector, source file, service, role,
-   platforms, and resolution status as evidence.
+   and resolution status as evidence.
 
-An image that cannot be fetched or whose `linux/amd64` support cannot be
-proved is not reusable. Keep it in the inventory with its failure status; do
-not silently replace it with another tag or architecture.
+Do not pre-screen a third-party image for CPU architecture. A project-provided
+image is overwhelmingly likely to include `linux/amd64` or be multi-platform,
+and rejecting it from manifest metadata creates more false negatives than it
+prevents. If its exact selector resolves to a valid digest, reuse it
+optimistically. Phase 6/6.5 diagnoses the rare architecture mismatch from
+actual runtime evidence such as `no matching manifest` or `exec format error`.
 
-The Node detector uses anonymous registry access. If an exact declaration is
-private but an already-authenticated local `docker` or `crane` session can
-inspect it, the AI may perform the same selector, digest, and platform checks
-through that session and update the inventory. Never print or persist registry
-credentials. Authentication failure is a per-image reuse failure, not a reason
-to reject the project or remove its service from the topology.
+An image that cannot be fetched is not reusable yet. Keep it in the inventory
+with its failure status; do not silently replace it with another tag. The Node
+detector uses anonymous registry access. An authenticated registry path or an
+upstream-provided immutable digest may resolve a private declaration later.
+Never print or persist registry credentials. Authentication failure is a
+per-image reuse failure, not a reason to reject the project or remove its
+service from the topology.
 
 ### 2.4 Complete-Topology Rule
 
@@ -571,12 +576,12 @@ because Phase 1 did not recognize it.
 Make the build decision for every service that Phase 5 will emit as a container
 workload:
 
-- verified `linux/amd64` digest image → reuse it; no Phase 3/4 work for that
+- exact selector resolved to an immutable digest → reuse it; no Phase 3/4 work
+  for that service;
+- `build:` or Dockerfile with no resolved published image → Phase 3/4 for that
   service;
-- `build:` or Dockerfile with no verified published image → Phase 3/4 for that
-  service;
-- declared image unavailable or non-amd64, but buildable source exists →
-  build a `linux/amd64` replacement in Phase 3/4;
+- declared image unavailable, but buildable source exists → build a
+  `linux/amd64` replacement in Phase 3/4;
 - database service with a supported KubeBlocks transformation → retain it for
   Phase 5 conversion; its original database image does not need to be built;
 - non-database infrastructure service → apply the same image reuse/build rules
@@ -584,7 +589,7 @@ workload:
   used as a reason to omit the workload.
 
 Skip directly to Phase 5 only when every emitted non-database workload already
-has a verified reusable image and no service still needs a build. Finding one
+has a digest-pinned reusable image and no service still needs a build. Finding one
 image must never cause the rest of a multi-service project to be skipped.
 
 ---
@@ -594,7 +599,7 @@ image must never cause the rest of a multi-service project to be skipped.
 Run this phase only for emitted non-database workload services that Phase 2
 marked as needing a build. In a multi-service Compose project, use each
 service's own build context and Dockerfile; do not regenerate or overwrite
-services that already have a verified image. This includes build-only proxies,
+services that already have a digest-pinned image. This includes build-only proxies,
 gateways, workers, queues, caches, search services, storage services, and other
 infrastructure that will remain container workloads.
 
@@ -678,7 +683,7 @@ __pycache__
 
 Registry selection is deferred to this phase because it's only needed when building.
 Skip this phase only when Phase 2 proved that every emitted non-database
-workload already has a reusable `linux/amd64` digest. In a mixed project, build
+workload already has a reusable immutable digest. In a mixed project, build
 only the services still marked as build-required and preserve every previously
 resolved service image.
 
@@ -800,15 +805,25 @@ If the user chose GHCR:
 GH_USER=$(gh api user -q .login)
 gh auth token | docker login ghcr.io -u "$GH_USER" --password-stdin
 IMAGE="ghcr.io/$GH_USER/<repo-name>:$TAG"
-docker buildx build --platform linux/amd64 -t "$IMAGE" --push -f Dockerfile "$WORK_DIR"
+BUILD_METADATA=$(mktemp)
+docker buildx build --platform linux/amd64 -t "$IMAGE" --push \
+  --metadata-file "$BUILD_METADATA" -f Dockerfile "$WORK_DIR"
 ```
 
 If the user chose Docker Hub:
 ```bash
 DOCKER_HUB_USER=$(docker info 2>/dev/null | sed -n 's/^ Username: //p')
 IMAGE="$DOCKER_HUB_USER/<repo-name>:$TAG"
-docker buildx build --platform linux/amd64 -t "$IMAGE" --push -f Dockerfile "$WORK_DIR"
+BUILD_METADATA=$(mktemp)
+docker buildx build --platform linux/amd64 -t "$IMAGE" --push \
+  --metadata-file "$BUILD_METADATA" -f Dockerfile "$WORK_DIR"
 ```
+
+Read `containerimage.digest` from `$BUILD_METADATA` with `jq`, require a
+`sha256:<64-hex>` value, set
+`IMAGE_REF="${IMAGE%:*}@${DIGEST}"`, then delete the metadata file. Buildx
+metadata is the digest authority for an image built by this workflow; do not
+install or invoke a second image-inspection binary.
 
 If `$IMAGE` is a GHCR image, immediately verify it is anonymously pullable before proceeding:
 
@@ -850,14 +865,14 @@ Always write `.sealos/build/build-result.json` when Phase 4 runs:
 This avoids leaving an empty `build/` directory after a failed build and makes resume/debug behavior inspectable.
 
 On success, `.sealos/build/build-result.json` must record the pushed tag,
-resolved digest, immutable `image_ref`, and verified platform list. The build
-helper resolves the exact pushed tag and refuses a success artifact unless its
-manifest contains `linux/amd64`.
+Buildx metadata digest, immutable `image_ref`, and requested build platform.
+The helper builds with `--platform linux/amd64` and refuses a success artifact
+unless Buildx returns a valid digest.
 
 ### Update analysis.json
 
 For each successful build, update the matching `service_inventory` entry with
-`image_status: "built"`, the verified platforms, digest, and immutable
+`image_status: "built"`, the requested build platforms, digest, and immutable
 `image_ref`. Set top-level `image_ref` only when the completed topology has
 exactly one application workload; otherwise keep it `null`. Never replace the
 whole project's inventory with the last image that happened to build.
@@ -980,8 +995,9 @@ represents. Never apply one top-level `analysis.json.image_ref` to every
 workload. Pass each available per-service digest with
 `--image-override SERVICE=IMAGE`; this is required for build-only Compose
 services and leaves the project's Compose file unchanged. The converter
-rechecks each effective image for `linux/amd64`, even when `IMAGE` is already a
-digest. Treat the converter's database classification as immutable:
+requires each effective image to resolve to an immutable digest but does not
+pre-screen third-party image architecture. Treat the converter's database
+classification as immutable:
 application-specific edits must not replace a KubeBlocks database `Cluster`
 with a Deployment, StatefulSet, Service, or other generic workload. Likewise,
 do not drop cache, queue, search, storage, proxy, gateway, or worker services;
@@ -1007,9 +1023,8 @@ After generating the base template, check if the app needs its public URL config
 **Critical MUST rules (always apply):**
 - `metadata.name`: hardcoded lowercase, no variables
 - Every emitted container image reference: immutable
-  `<repository>@sha256:<digest>` with verified `linux/amd64` support. Source
-  tags such as `latest`, `stable`, `v2`, and exact versions are all valid
-  resolution inputs.
+  `<repository>@sha256:<digest>`. Source tags such as `latest`, `stable`, `v2`,
+  exact versions, and omitted tags are all valid resolution inputs.
 - PVC requests: `<= 1Gi`
 - Container defaults: `cpu: 200m/20m`, `memory: 256Mi/25Mi`
 - Init containers must define explicit resources; do not rely on namespace defaults. For expensive init work such as framework install, database migration, asset compilation, or `bench new-site`, allocate enough memory for the task.
@@ -1444,6 +1459,17 @@ non-empty before the Ingress can serve traffic. If the URL returns
      logs pod/<pod> -n "$NAMESPACE" -c <init-container> --previous --tail=200
    ```
 3. Look for common signatures:
+   - `no matching manifest`, `no match for platform in manifest`, an image OS
+     that cannot run on this platform, or `exec format error`: the reused
+     third-party image is incompatible with the live `linux/amd64` runtime.
+     Record the exact service and digest. If that service has buildable source,
+     route only it back through Phase 3/4, build with
+     `--platform linux/amd64`, update the template image digest, and redeploy.
+     If no buildable source exists, report the incompatibility and stop; never
+     accept the deployment.
+   - `ErrImagePull` or `ImagePullBackOff` without an architecture signature:
+     diagnose registry authentication, visibility, name, and digest instead of
+     assuming an architecture problem.
    - `OOMKilled` or exit `137`: increase init container memory and recreate the Pod.
    - `Permission denied` on mounted paths: add `fsGroup` or a one-shot permission repair for existing PVCs.
    - App-specific migration/bootstrap errors: repair the failed bootstrap state, then rerun the init path.
@@ -1593,8 +1619,12 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 
 For CronJobs, confirm that each named resource exists and has the intended
 schedule. For operator-managed resources such as KubeBlocks clusters, inspect
-their status and owned workloads. Phase 6.5 then verifies the complete live
-footprint, dependencies, logs, network path, and user flow before success.
+their status and owned workloads. If rollout or Job waiting times out, do not
+stop with an opaque timeout: inspect Pod waiting/terminated state, Warning
+Events, and current/previous logs with `sealos-log-scan.mjs`. Apply the
+architecture-mismatch recovery rule from Phase 6.3.1 when its exact signatures
+appear. Phase 6.5 then verifies the complete live footprint, dependencies,
+logs, network path, and user flow before success.
 
 App URL: `https://<app_host>.<CLOUD_DOMAIN>`
 
@@ -1778,11 +1808,13 @@ node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --registry do
 # Without Node.js:
 TAG=$(date +%Y%m%d-%H%M%S)
 PUSHED_IMAGE="<selected-user>/$REPO_NAME:$TAG"
-docker buildx build --platform linux/amd64 -t "$PUSHED_IMAGE" --push -f Dockerfile "$WORK_DIR"
+BUILD_METADATA=$(mktemp)
+docker buildx build --platform linux/amd64 -t "$PUSHED_IMAGE" --push \
+  --metadata-file "$BUILD_METADATA" -f Dockerfile "$WORK_DIR"
 ```
 
-Record the pushed tag for build diagnostics, verify that it contains
-`linux/amd64`, and resolve it to an immutable digest. Set
+Record the pushed tag and requested `linux/amd64` target for build diagnostics,
+and read its immutable digest from Buildx metadata. Set
 `NEW_IMAGE=<repository>@sha256:<digest>`. Never pass the temporary pushed tag
 to Phase U2.
 

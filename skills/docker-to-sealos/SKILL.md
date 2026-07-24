@@ -179,10 +179,10 @@ For managed or private object storage, live validation must upload known bytes t
 ### Images and pull policy
 
 - Input image references may use any tag (`latest`, `stable`, `v2`, `2.1`, an explicit version, or another registry tag) or be tagless.
-- Before generated template use, resolve every non-database workload image with `crane digest`, verify the resolved manifest includes `linux/amd64`, and emit only immutable `repository@sha256:<digest>` references.
+- Before generated template use, resolve every emitted workload image selector through the registry HTTP API, or accept a caller-supplied immutable digest override, and emit only `repository@sha256:<digest>` references. Do not pre-screen third-party image architecture in this converter.
 - For a Compose service that has `build:` but no `image:`, pass its Phase 4 result with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image.
 - Compose database service images are dependency and engine-classification evidence; after conversion to KubeBlocks, the generated template need not emit the original database image.
-- Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve variables first, then resolve the resulting image to an immutable digest with `crane`.
+- Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve variables first, then resolve the resulting selector through the registry HTTP API or use a caller-supplied immutable digest.
 - Generated workload `image` fields and application `originImageName` annotations must use immutable `repository@sha256:<digest>` references.
 - Application `originImageName` must match container image.
 - Known public-image managed app workloads must omit `template.spec.imagePullSecrets`; when a registry-authenticated workload needs a pull Secret, it may reference only the app-scoped Secret `${{ defaults.app_name }}`.
