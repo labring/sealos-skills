@@ -91,7 +91,7 @@ Skills reference paths with `<SKILL_DIR>` for self and `<SKILL_DIR>/../other-ski
 
 ### Prepare pipeline (sealos-deploy)
 ```text
-Preflight → Eligibility → Assess → Optional Railpack Probe → Catalog References → Detect Image
+Preflight → Eligibility → Assess → Optional Railpack Probe → Detect Image
           → Dockerfile → Build/Reuse Image → Template → Finish
 
 Build/Reuse Image:
@@ -99,13 +99,12 @@ Build/Reuse Image:
   - no reusable image → write build-request.json and delegate to k8s-kaniko-job
 ```
 
-State for the prepare workflow is tracked through `.sealos/analysis.json`, `.sealos/template-references.json` plus `.sealos/template-references/`, `.sealos/build-request.json`, `.sealos/build-result.json`, `.sealos/template/index.yaml`, and `.sealos/delivery-manifest.json`. Catalog references are untrusted evidence and never replace the generated template or skip normal prepare phases. `.sealos/config.json` remains an optional user override file. The deployment eligibility decision is read-only, remains in the current execution context, and is not written as a project artifact. Database and S3 skills operate through `sealos-cli` and local env files, not through the prepare artifact state.
+State for the prepare workflow is tracked through `.sealos/analysis.json`, `.sealos/build-request.json`, `.sealos/build-result.json`, `.sealos/template/index.yaml`, and `.sealos/delivery-manifest.json`. `.sealos/config.json` remains an optional user override file. The deployment eligibility decision is read-only, remains in the current execution context, and is not written as a project artifact. Database and S3 skills operate through `sealos-cli` and local env files, not through the prepare artifact state.
 
 ## Key paths
 - `skills/sealos-deploy/SKILL.md` — primary entry point for the prepare workflow
 - `skills/cloud-native-readiness/knowledge/deployment-eligibility.md` — canonical supported-workload policy
 - `skills/sealos-deploy/scripts/workload-eligibility.mjs` — deterministic, read-only workload classifier
-- `skills/sealos-deploy/scripts/find-template-references.mjs` — sparse catalog discovery and bounded exact/similar reference artifact
 - `skills/sealos-deploy/config.json` — prepare/build defaults
 - `skills/sealos-deploy/scripts/` — scoring, image detection, and artifact validation scripts
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
@@ -148,8 +147,6 @@ State for the prepare workflow is tracked through `.sealos/analysis.json`, `.sea
   coverage, and quality-gate tests.
 - For changed `sealos-deploy` JavaScript helpers, run `node --check` and the matching
   test file.
-- For template catalog reference behavior, run
-  `node skills/sealos-deploy/scripts/find-template-references.test.mjs`.
 - Run `node skills/sealos-deploy/scripts/test-workload-eligibility.mjs` whenever the
   eligibility policy, classifier, or gate semantics change.
 - Run the preview artifact-validator, image-detection, Railpack-probe, and

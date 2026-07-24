@@ -14,7 +14,6 @@ const SCHEMA_FILES = {
   'build-request': 'build-request.schema.json',
   'build-result': { dir: KANIKO_SCHEMA_DIR, file: 'build-result.schema.json' },
   'delivery-manifest': 'delivery-manifest.schema.json',
-  'template-references': 'template-references.schema.json',
 }
 
 function isPlainObject(value) {
@@ -292,53 +291,17 @@ function validateNumberSchema(schema, value, pointer, errors) {
   }
 }
 
-function resolveLocalRefs(schema, rootSchema) {
-  if (Array.isArray(schema)) {
-    return schema.map((item) => resolveLocalRefs(item, rootSchema))
-  }
-  if (!isPlainObject(schema)) {
-    return schema
-  }
-
-  if (typeof schema.$ref === 'string') {
-    if (!schema.$ref.startsWith('#/')) {
-      throw new Error(`Unsupported schema reference: ${schema.$ref}`)
-    }
-
-    const target = schema.$ref
-      .slice(2)
-      .split('/')
-      .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'))
-      .reduce((current, segment) => current?.[segment], rootSchema)
-
-    if (!isPlainObject(target)) {
-      throw new Error(`Unresolved schema reference: ${schema.$ref}`)
-    }
-
-    const siblings = Object.fromEntries(
-      Object.entries(schema).filter(([key]) => key !== '$ref'),
-    )
-    return resolveLocalRefs({ ...target, ...siblings }, rootSchema)
-  }
-
-  return Object.fromEntries(
-    Object.entries(schema).map(([key, value]) => [key, resolveLocalRefs(value, rootSchema)]),
-  )
-}
-
 function loadSchema(kind) {
   const schemaRef = SCHEMA_FILES[kind]
   if (!schemaRef) {
     throw new Error(`Unknown artifact kind: ${kind}`)
   }
 
-  let schema
   if (typeof schemaRef === 'string') {
-    schema = JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, schemaRef), 'utf-8'))
-  } else {
-    schema = JSON.parse(fs.readFileSync(path.join(schemaRef.dir, schemaRef.file), 'utf-8'))
+    return JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, schemaRef), 'utf-8'))
   }
-  return resolveLocalRefs(schema, schema)
+
+  return JSON.parse(fs.readFileSync(path.join(schemaRef.dir, schemaRef.file), 'utf-8'))
 }
 
 function validateAnalysisSemantics(data, errors) {
@@ -533,89 +496,11 @@ function validateBuildResultSemantics(data, errors) {
   }
 }
 
-function validateTemplateReferencesSemantics(data, errors) {
-  const exactCount = data.references.filter((reference) => reference.match === 'exact').length
-  const similarCount = data.references.filter((reference) => reference.match === 'similar').length
-
-  if (data.summary.exact_count !== exactCount) {
-    pushError(errors, '$.summary.exact_count', `must equal the number of exact references (${exactCount})`)
-  }
-  if (data.summary.similar_count !== similarCount) {
-    pushError(errors, '$.summary.similar_count', `must equal the number of similar references (${similarCount})`)
-  }
-
-  let sawSimilar = false
-  const catalogPaths = new Set()
-  const referencePaths = new Set()
-
-  for (let index = 0; index < data.references.length; index++) {
-    const reference = data.references[index]
-    const pointer = `$.references[${index}]`
-
-    if (reference.match === 'similar') {
-      sawSimilar = true
-      if (reference.score >= 100) {
-        pushError(errors, `${pointer}.score`, 'must be below 100 for a similar reference')
-      }
-    } else {
-      if (sawSimilar) {
-        pushError(errors, `${pointer}.match`, 'exact references must appear before similar references')
-      }
-      if (reference.score !== 100) {
-        pushError(errors, `${pointer}.score`, 'must equal 100 for an exact reference')
-      }
-      if (reference.git_repo === null) {
-        pushError(errors, `${pointer}.git_repo`, 'must identify a repository for an exact reference')
-      }
-    }
-
-    if (catalogPaths.has(reference.catalog_path)) {
-      pushError(errors, `${pointer}.catalog_path`, 'must be unique')
-    }
-    catalogPaths.add(reference.catalog_path)
-
-    if (referencePaths.has(reference.reference_path)) {
-      pushError(errors, `${pointer}.reference_path`, 'must be unique')
-    }
-    referencePaths.add(reference.reference_path)
-  }
-
-  if (!data.catalog.available) {
-    if (data.catalog.source !== 'unavailable') {
-      pushError(errors, '$.catalog.source', 'must be unavailable when the catalog is unavailable')
-    }
-    if (data.catalog.template_count !== 0) {
-      pushError(errors, '$.catalog.template_count', 'must be zero when the catalog is unavailable')
-    }
-    if (data.catalog.skipped_templates !== 0) {
-      pushError(errors, '$.catalog.skipped_templates', 'must be zero when the catalog is unavailable')
-    }
-    if (data.references.length !== 0) {
-      pushError(errors, '$.references', 'must be empty when the catalog is unavailable')
-    }
-  } else if (data.catalog.source === 'unavailable') {
-    pushError(errors, '$.catalog.source', 'must not be unavailable when the catalog is available')
-  }
-
-  if (data.catalog.stale && data.catalog.source !== 'cache') {
-    pushError(errors, '$.catalog.stale', 'may only be true for a cached catalog')
-  }
-
-  if (data.project.repo_reference === null && exactCount > 0) {
-    pushError(errors, '$.summary.exact_count', 'must be zero when the project repository is unknown')
-  }
-
-  if (data.references.length > data.catalog.template_count) {
-    pushError(errors, '$.references', 'cannot contain more references than parsed catalog templates')
-  }
-}
-
 function validateDeliveryManifestSemantics(data, errors) {
   const artifactSet = new Set(data.artifacts)
 
   for (const requiredArtifact of [
     '.sealos/analysis.json',
-    '.sealos/template-references.json',
     '.sealos/build-request.json',
     '.sealos/build-result.json',
     '.sealos/template/index.yaml',
@@ -653,7 +538,6 @@ const SEMANTIC_VALIDATORS = {
   'build-request': validateBuildRequestSemantics,
   'build-result': validateBuildResultSemantics,
   'delivery-manifest': validateDeliveryManifestSemantics,
-  'template-references': validateTemplateReferencesSemantics,
 }
 
 export function inferArtifactKind(filePath) {
@@ -669,8 +553,6 @@ export function inferArtifactKind(filePath) {
       return 'build-result'
     case 'delivery-manifest.json':
       return 'delivery-manifest'
-    case 'template-references.json':
-      return 'template-references'
     default:
       return null
   }

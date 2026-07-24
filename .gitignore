@@ -4,8 +4,6 @@ skills/sealos-deploy-workspace/
 # Deployment artifacts (auto-generated, not committed)
 .sealos/analysis.json
 .sealos/build/
-.sealos/template-references.json
-.sealos/template-references/
 
 # Generated docs exports (keep Mermaid sources, ignore rendered outputs)
 docs/*.svg

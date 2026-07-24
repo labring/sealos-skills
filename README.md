@@ -37,9 +37,6 @@ You only need a `skills.sh` compatible AI agent and a project to prepare.
 During the prepare flow, Seakills will:
 
 - inspect the project and resolve GitHub metadata
-- find exact `spec.gitRepo` and topology-similar references from
-  `labring-actions/templates@kb-0.9` without copying them into the generated
-  template or bypassing current validation
 - detect reusable Docker Hub or GHCR images
 - reuse, repair, or generate a Dockerfile
 - write `.sealos/build-request.json`
@@ -53,10 +50,9 @@ During the prepare flow, Seakills will:
 On a typical prepare run, the agent will:
 
 1. Assess the project structure and runtime needs.
-2. Gather exact or structurally similar catalog references as untrusted evidence.
-3. Reuse an existing image or build one when needed.
-4. Generate a Sealos template.
-5. Write a delivery manifest listing the generated artifacts.
+2. Reuse an existing image or build one when needed.
+3. Generate a Sealos template.
+4. Write a delivery manifest listing the generated artifacts.
 
 ## What `/sealos-database` Handles
 
