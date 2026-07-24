@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Sealos Cloud deployment, database, S3 object storage, and Sealos Desktop app skills for AI agents.",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "repository": "https://github.com/labring/sealos-skills"
   },
   "plugins": [
@@ -14,7 +14,7 @@
       "name": "sealos",
       "source": "./",
       "description": "Deploy local or GitHub projects to Sealos Cloud, connect cloud databases and S3 object storage, generate Dockerfiles and Sealos templates, assess cloud-native readiness, and build Sealos Desktop apps.",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "category": "coding",
       "commands": "./commands/",
       "tags": [
