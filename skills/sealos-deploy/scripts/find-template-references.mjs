@@ -843,16 +843,58 @@ function readProjectSources(workDir) {
   for (const relativePath of PROJECT_FILES) {
     const filePath = path.join(workDir, relativePath)
     try {
-      const stat = fs.lstatSync(filePath)
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_PROJECT_FILE_BYTES) {
+      const source = readBoundedRegularFile(filePath, MAX_PROJECT_FILE_BYTES)
+      if (source === null) {
         continue
       }
-      content.push(`\n# ${relativePath}\n${fs.readFileSync(filePath, 'utf8')}`)
+      content.push(`\n# ${relativePath}\n${source}`)
     } catch {
       // Optional project evidence is best effort.
     }
   }
   return content.join('\n')
+}
+
+function readBoundedRegularFile(filePath, maximumBytes) {
+  if (typeof fs.constants.O_NOFOLLOW !== 'number') {
+    return null
+  }
+
+  let descriptor
+  try {
+    descriptor = fs.openSync(
+      filePath,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    )
+    const stat = fs.fstatSync(descriptor)
+    if (!stat.isFile() || stat.size > maximumBytes) {
+      return null
+    }
+
+    const buffer = Buffer.alloc(maximumBytes + 1)
+    let totalBytes = 0
+    while (totalBytes < buffer.length) {
+      const bytesRead = fs.readSync(
+        descriptor,
+        buffer,
+        totalBytes,
+        buffer.length - totalBytes,
+        null,
+      )
+      if (bytesRead === 0) {
+        break
+      }
+      totalBytes += bytesRead
+    }
+    if (totalBytes > maximumBytes) {
+      return null
+    }
+    return buffer.subarray(0, totalBytes).toString('utf8')
+  } finally {
+    if (descriptor !== undefined) {
+      fs.closeSync(descriptor)
+    }
+  }
 }
 
 function countComposeWorkloads(source) {
