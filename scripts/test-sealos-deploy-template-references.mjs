@@ -116,7 +116,9 @@ spec:
         - name: ${name}
           image: \${{ defaults.app_image.value }}
 ${databaseDocument}${extraResource}`
-  fs.writeFileSync(path.join(directory, 'index.yaml'), yaml)
+  const templatePath = path.join(directory, 'index.yaml')
+  fs.writeFileSync(templatePath, yaml)
+  return templatePath
 }
 
 function runDiscovery({
@@ -125,6 +127,7 @@ function runDiscovery({
   selectedSkillDir = skillDir,
   catalogDir,
   githubUrl,
+  reuseOfficialTemplate = false,
   env = process.env,
 }) {
   const args = [
@@ -132,6 +135,7 @@ function runDiscovery({
     '--work-dir', workDir,
     '--skill-dir', selectedSkillDir,
     '--analysis', analysisPath,
+    '--reuse-official-template', String(reuseOfficialTemplate),
   ]
   if (catalogDir) {
     args.push('--catalog-dir', catalogDir)
@@ -182,7 +186,66 @@ function withFixture(callback) {
   }
 }
 
-test('discovers every exact repository match before ranked similar references', () => {
+function createVerifiedOfficialGitEnv(
+  fixtureRoot,
+  catalogDir,
+  reportedOrigin = repository,
+) {
+  const fakeBin = path.join(fixtureRoot, 'bin')
+  const fakeGit = path.join(fakeBin, 'git')
+  fs.mkdirSync(fakeBin, { recursive: true })
+  fs.writeFileSync(fakeGit, `#!/bin/sh
+set -eu
+
+for variable in GIT_CONFIG_PARAMETERS GIT_CONFIG GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; do
+  eval "value=\\\${$variable-}"
+  if [ -n "$value" ]; then
+    printf '%s\\n' "unsafe inherited git environment: $variable" >&2
+    exit 97
+  fi
+done
+
+if [ "\${1:-}" = "clone" ]; then
+  destination=''
+  for argument in "$@"; do
+    destination="$argument"
+  done
+  /bin/mkdir -p "$destination/.git"
+  /bin/cp -R "$SEALOS_TEST_CATALOG_SOURCE/${templateRoot}" "$destination/${templateRoot}"
+  exit 0
+fi
+
+case "\${1:-}" in
+  sparse-checkout|checkout)
+    exit 0
+    ;;
+  rev-parse)
+    printf '%s\\n' '0123456789abcdef0123456789abcdef01234567'
+    exit 0
+    ;;
+  config)
+    printf '%s\\n' '${reportedOrigin}'
+    exit 0
+    ;;
+  status)
+    exit 0
+    ;;
+esac
+
+printf '%s\\n' "unexpected fake git invocation: $*" >&2
+exit 1
+`)
+  fs.chmodSync(fakeGit, 0o755)
+
+  return {
+    ...process.env,
+    HOME: path.join(fixtureRoot, 'home'),
+    PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ''}`,
+    SEALOS_TEST_CATALOG_SOURCE: catalogDir,
+  }
+}
+
+test('records multiple exact matches without selecting one for automatic reuse', () => {
   withFixture(({ workDir, catalogDir }) => {
     fs.writeFileSync(
       path.join(workDir, 'README.md'),
@@ -207,7 +270,12 @@ test('discovers every exact repository match before ranked similar references', 
     })
     const analysisPath = writeAnalysis(workDir)
 
-    const result = runDiscovery({ workDir, analysisPath, catalogDir })
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      catalogDir,
+      reuseOfficialTemplate: true,
+    })
     assert.equal(result.status, 0, result.stderr || result.stdout)
 
     const artifact = readArtifact(workDir)
@@ -215,19 +283,25 @@ test('discovers every exact repository match before ranked similar references', 
     assert.equal(artifact.catalog.source, 'local')
     assert.equal(artifact.catalog.template_count, 4)
     assert.equal(artifact.summary.exact_count, 2)
-    assert.equal(artifact.summary.similar_count, 2)
+    assert.equal(artifact.summary.similar_count, 0)
     assert.deepEqual(
-      artifact.references.slice(0, 2).map((reference) => reference.name),
+      artifact.references.map((reference) => reference.name),
       ['exact-alpha', 'exact-beta'],
     )
-    assert.ok(artifact.references.slice(2).every((reference) => reference.match === 'similar'))
-    assert.equal(artifact.references[2].name, 'similar-postgres')
     assert.ok(artifact.references.every((reference) => fs.existsSync(path.join(workDir, reference.reference_path))))
+    assert.deepEqual(artifact.decision, {
+      route: 'continue_standard_pipeline',
+      reuse_requested: true,
+      reference_name: null,
+      template_path: null,
+      reason: 'found 2 exact template matches; automatic reuse requires exactly one',
+    })
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
     validateArtifact(workDir)
   })
 })
 
-test('matches monorepo templates only when the repository subtree also matches', () => {
+test('does not automatically reuse an exact repository-subdirectory template', () => {
   withFixture(({ workDir, catalogDir }) => {
     writeTemplate(catalogDir, 'repo-root', {
       gitRepo: 'https://github.com/acme/monorepo',
@@ -248,6 +322,7 @@ test('matches monorepo templates only when the repository subtree also matches',
       analysisPath,
       catalogDir,
       githubUrl: 'https://github.com/acme/monorepo/tree/develop/apps/api',
+      reuseOfficialTemplate: true,
     })
     assert.equal(result.status, 0, result.stderr || result.stdout)
 
@@ -257,8 +332,334 @@ test('matches monorepo templates only when the repository subtree also matches',
     assert.equal(artifact.project.repo_subdir, 'apps/api')
     assert.equal(
       artifact.references.find((reference) => reference.name === 'repo-root')?.match,
-      'similar',
+      undefined,
     )
+    assert.equal(artifact.decision.route, 'continue_standard_pipeline')
+    assert.equal(artifact.decision.reuse_requested, true)
+    assert.match(artifact.decision.reason, /subdirectory/)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
+    validateArtifact(workDir)
+  })
+})
+
+test('atomically copies one remotely verified official template byte-for-byte', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    const sourceTemplate = writeTemplate(catalogDir, 'official-exact', {
+      gitRepo: 'https://github.com/acme/example',
+      databaseKind: 'Postgresql',
+      extraResource: `---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: exact-content
+data:
+  marker: "preserve comments and bytes"
+`,
+    })
+    writeTemplate(catalogDir, 'unrelated-template', {
+      gitRepo: 'https://github.com/other/project',
+    })
+    const expected = fs.readFileSync(sourceTemplate)
+    const env = createVerifiedOfficialGitEnv(fixtureRoot, catalogDir)
+    const analysisPath = writeAnalysis(workDir)
+
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      reuseOfficialTemplate: true,
+      env,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const artifact = readArtifact(workDir)
+    const deployedTemplate = path.join(workDir, '.sealos', 'template', 'index.yaml')
+    assert.equal(artifact.version, '2.0')
+    assert.equal(artifact.catalog.source, 'refreshed', JSON.stringify(artifact, null, 2))
+    assert.equal(artifact.catalog.verified_for_reuse, true)
+    assert.match(artifact.catalog.commit, /^[0-9a-f]{40}$/)
+    assert.equal(artifact.summary.exact_count, 1)
+    assert.equal(artifact.summary.similar_count, 0)
+    assert.deepEqual(artifact.decision, {
+      route: 'deploy_official_template',
+      reuse_requested: true,
+      reference_name: 'official-exact',
+      template_path: '.sealos/template/index.yaml',
+      reason: 'one exact official template match was selected for direct deployment',
+    })
+    assert.deepEqual(fs.readFileSync(deployedTemplate), expected)
+
+    const output = JSON.parse(result.stdout)
+    assert.equal(output.route, 'deploy_official_template')
+    assert.equal(output.template_path, '.sealos/template/index.yaml')
+    validateArtifact(workDir)
+
+    const fallback = runDiscovery({
+      workDir,
+      analysisPath,
+      catalogDir,
+      reuseOfficialTemplate: false,
+    })
+    assert.equal(fallback.status, 0, fallback.stderr || fallback.stdout)
+    assert.equal(readArtifact(workDir).decision.route, 'continue_standard_pipeline')
+    assert.equal(fs.existsSync(deployedTemplate), false)
+    validateArtifact(workDir)
+  })
+})
+
+test('refuses to write through a symlinked .sealos directory', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'local-exact', {
+      gitRepo: 'https://github.com/acme/example',
+    })
+    const outsideDirectory = path.join(fixtureRoot, 'outside-sealos')
+    const outsideMarker = path.join(outsideDirectory, 'keep.txt')
+    const analysisPath = path.join(fixtureRoot, 'analysis.json')
+    fs.mkdirSync(outsideDirectory, { recursive: true })
+    fs.writeFileSync(outsideMarker, 'outside content must remain unchanged\n')
+    fs.writeFileSync(
+      analysisPath,
+      `${JSON.stringify(analysisFor(workDir), null, 2)}\n`,
+    )
+    fs.symlinkSync(outsideDirectory, path.join(workDir, '.sealos'), 'dir')
+
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      catalogDir,
+      reuseOfficialTemplate: true,
+    })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /must not contain symlinks/)
+    assert.equal(
+      fs.readFileSync(outsideMarker, 'utf8'),
+      'outside content must remain unchanged\n',
+    )
+    assert.equal(
+      fs.existsSync(path.join(outsideDirectory, 'template-references.json')),
+      false,
+    )
+    assert.equal(fs.existsSync(path.join(outsideDirectory, 'template')), false)
+  })
+})
+
+test('refuses to copy an official template through a symlinked output directory', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'official-exact', {
+      gitRepo: 'https://github.com/acme/example',
+    })
+    const analysisPath = writeAnalysis(workDir)
+    const outsideTemplateDirectory = path.join(fixtureRoot, 'outside-template')
+    const outsideIndex = path.join(outsideTemplateDirectory, 'index.yaml')
+    fs.mkdirSync(outsideTemplateDirectory, { recursive: true })
+    fs.writeFileSync(outsideIndex, 'outside content must remain unchanged\n')
+    fs.symlinkSync(
+      outsideTemplateDirectory,
+      path.join(workDir, '.sealos', 'template'),
+      'dir',
+    )
+
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      reuseOfficialTemplate: true,
+      env: createVerifiedOfficialGitEnv(fixtureRoot, catalogDir),
+    })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /must not contain symlinks/)
+    assert.equal(
+      fs.readFileSync(outsideIndex, 'utf8'),
+      'outside content must remain unchanged\n',
+    )
+  })
+})
+
+test('strips caller Git configuration before verifying the official checkout', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'official-exact', {
+      gitRepo: 'https://github.com/acme/example',
+    })
+    const analysisPath = writeAnalysis(workDir)
+    const env = {
+      ...createVerifiedOfficialGitEnv(fixtureRoot, catalogDir),
+      GIT_CONFIG_PARAMETERS: "'url.file:///tmp/attacker.insteadOf=https://github.com/labring-actions/templates.git'",
+      GIT_CONFIG: path.join(fixtureRoot, 'attacker.gitconfig'),
+      GIT_DIR: path.join(fixtureRoot, 'attacker.git'),
+      GIT_WORK_TREE: path.join(fixtureRoot, 'attacker-worktree'),
+      GIT_INDEX_FILE: path.join(fixtureRoot, 'attacker-index'),
+      GIT_OBJECT_DIRECTORY: path.join(fixtureRoot, 'attacker-objects'),
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: path.join(fixtureRoot, 'attacker-alternates'),
+    }
+
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      reuseOfficialTemplate: true,
+      env,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const artifact = readArtifact(workDir)
+    assert.equal(artifact.catalog.verified_for_reuse, true)
+    assert.equal(artifact.decision.route, 'deploy_official_template')
+    validateArtifact(workDir)
+  })
+})
+
+test('never resumes a forged local official template without fresh verification', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'official-exact', {
+      gitRepo: 'https://github.com/acme/example',
+    })
+    const analysisPath = writeAnalysis(workDir)
+    const initial = runDiscovery({
+      workDir,
+      analysisPath,
+      reuseOfficialTemplate: true,
+      env: createVerifiedOfficialGitEnv(fixtureRoot, catalogDir),
+    })
+    assert.equal(initial.status, 0, initial.stderr || initial.stdout)
+
+    const priorArtifact = readArtifact(workDir)
+    assert.equal(priorArtifact.decision.route, 'deploy_official_template')
+    const forgedYaml = `apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: forged-local-template
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forged
+spec:
+  template:
+    spec:
+      containers:
+        - name: forged
+          image: attacker.example/forged:1
+`
+    fs.writeFileSync(
+      path.join(workDir, priorArtifact.references[0].reference_path),
+      forgedYaml,
+    )
+    fs.writeFileSync(
+      path.join(workDir, priorArtifact.decision.template_path),
+      forgedYaml,
+    )
+
+    const retry = runDiscovery({
+      workDir,
+      analysisPath,
+      reuseOfficialTemplate: true,
+      env: {
+        ...process.env,
+        HOME: path.join(fixtureRoot, 'empty-home'),
+        PATH: '',
+      },
+    })
+    assert.equal(retry.status, 0, retry.stderr || retry.stdout)
+
+    const retriedArtifact = readArtifact(workDir)
+    assert.equal(retriedArtifact.catalog.verified_for_reuse, false)
+    assert.equal(retriedArtifact.decision.route, 'continue_standard_pipeline')
+    assert.equal(
+      fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')),
+      false,
+    )
+    validateArtifact(workDir)
+  })
+})
+
+test('never deploys directly from an explicit local catalog directory', () => {
+  withFixture(({ workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'local-exact', {
+      gitRepo: 'https://github.com/acme/example',
+    })
+    const analysisPath = writeAnalysis(workDir)
+
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      catalogDir,
+      reuseOfficialTemplate: true,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const artifact = readArtifact(workDir)
+    assert.equal(artifact.catalog.source, 'local')
+    assert.equal(artifact.catalog.verified_for_reuse, false)
+    assert.equal(artifact.decision.route, 'continue_standard_pipeline')
+    assert.match(artifact.decision.reason, /not verified/)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
+    validateArtifact(workDir)
+  })
+})
+
+test('rejects a refreshed catalog checkout whose origin is not official', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'spoofed-exact', {
+      gitRepo: 'https://github.com/acme/example',
+    })
+    const analysisPath = writeAnalysis(workDir)
+    const env = createVerifiedOfficialGitEnv(
+      fixtureRoot,
+      catalogDir,
+      'https://github.com/attacker/templates.git',
+    )
+
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      reuseOfficialTemplate: true,
+      env,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const artifact = readArtifact(workDir)
+    assert.equal(artifact.catalog.available, false)
+    assert.equal(artifact.catalog.verified_for_reuse, false)
+    assert.equal(artifact.decision.route, 'continue_standard_pipeline')
+    assert.match(artifact.reason, /origin is not/)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
+    validateArtifact(workDir)
+  })
+})
+
+test('artifact validation rejects a standard route for an eligible requested reuse', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'official-exact', {
+      gitRepo: 'https://github.com/acme/example',
+    })
+    const env = createVerifiedOfficialGitEnv(fixtureRoot, catalogDir)
+    const analysisPath = writeAnalysis(workDir)
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      reuseOfficialTemplate: true,
+      env,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const artifactPath = path.join(workDir, '.sealos', 'template-references.json')
+    const artifact = readArtifact(workDir)
+    assert.equal(artifact.decision.route, 'deploy_official_template', JSON.stringify(artifact, null, 2))
+    const reason = 'incorrectly continued despite eligible official-template reuse'
+    artifact.decision = {
+      route: 'continue_standard_pipeline',
+      reuse_requested: true,
+      reference_name: null,
+      template_path: null,
+      reason,
+    }
+    artifact.reason = reason
+    fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`)
+
+    const validation = spawnSync(process.execPath, [
+      validatorScript,
+      'template-references',
+      artifactPath,
+    ], { encoding: 'utf8' })
+    assert.notEqual(validation.status, 0)
+    assert.match(validation.stdout, /must deploy the unique exact official template/)
   })
 })
 
@@ -287,19 +688,31 @@ metadata:
     assert.ok(reference.features.images.includes('ghcr.io/acme/example:240711'))
     assert.equal(reference.features.persistent, true)
     assert.ok(!reference.warnings.some((warning) => warning.includes('240711')))
+    assert.equal(readArtifact(workDir).decision.route, 'continue_standard_pipeline')
+    assert.equal(readArtifact(workDir).decision.reuse_requested, false)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
+    validateArtifact(workDir)
   })
 })
 
 test('records an unavailable catalog without blocking deployment', () => {
   withFixture(({ workDir, catalogDir }) => {
     const analysisPath = writeAnalysis(workDir)
-    const result = runDiscovery({ workDir, analysisPath, catalogDir })
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      catalogDir,
+      reuseOfficialTemplate: true,
+    })
     assert.equal(result.status, 0, result.stderr || result.stdout)
 
     const artifact = readArtifact(workDir)
     assert.equal(artifact.catalog.available, false)
     assert.equal(artifact.catalog.source, 'unavailable')
     assert.deepEqual(artifact.references, [])
+    assert.equal(artifact.decision.route, 'continue_standard_pipeline')
+    assert.equal(artifact.decision.reuse_requested, true)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
     validateArtifact(workDir)
   })
 })
@@ -344,6 +757,34 @@ test('treats an unsafe catalog template root as a nonblocking parse failure', ()
   })
 })
 
+test('continues without materializing a similar template when no exact match exists', () => {
+  withFixture(({ workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'candidate', {
+      gitRepo: 'https://github.com/other/project',
+      description: 'Next.js API backed by PostgreSQL',
+      databaseKind: 'Postgresql',
+    })
+    const analysisPath = writeAnalysis(workDir)
+
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      catalogDir,
+      reuseOfficialTemplate: true,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const artifact = readArtifact(workDir)
+    assert.equal(artifact.summary.exact_count, 0)
+    assert.equal(artifact.summary.similar_count, 0)
+    assert.deepEqual(artifact.references, [])
+    assert.equal(artifact.decision.route, 'continue_standard_pipeline')
+    assert.match(artifact.decision.reason, /no exact/)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
+    validateArtifact(workDir)
+  })
+})
+
 test('ignores symlinked project evidence files', () => {
   withFixture(({ fixtureRoot, workDir, catalogDir }) => {
     const outsideReadme = path.join(fixtureRoot, 'outside-readme.md')
@@ -360,6 +801,8 @@ test('ignores symlinked project evidence files', () => {
     const artifact = readArtifact(workDir)
     assert.equal(artifact.project.features.websocket, false)
     assert.equal(artifact.project.features.object_storage, false)
+    assert.equal(artifact.summary.similar_count, 0)
+    validateArtifact(workDir)
   })
 })
 
@@ -387,6 +830,37 @@ test('records invalid catalog configuration without attempting discovery', () =>
   })
 })
 
+test('does not deploy an exact match from a non-official configured catalog', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    const copiedSkill = path.join(fixtureRoot, 'sealos-deploy')
+    fs.cpSync(skillDir, copiedSkill, { recursive: true })
+    const configPath = path.join(copiedSkill, 'config.json')
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
+    config.template_catalog.repository = 'https://github.com/acme/templates.git'
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`)
+    writeTemplate(catalogDir, 'exact-but-not-official', {
+      gitRepo: 'https://github.com/acme/example',
+    })
+    const analysisPath = writeAnalysis(workDir)
+
+    const result = runDiscovery({
+      workDir,
+      analysisPath,
+      selectedSkillDir: copiedSkill,
+      catalogDir,
+      reuseOfficialTemplate: true,
+    })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const artifact = readArtifact(workDir)
+    assert.equal(artifact.summary.exact_count, 1)
+    assert.equal(artifact.decision.route, 'continue_standard_pipeline')
+    assert.match(artifact.decision.reason, /not the supported official/)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
+    validateArtifact(workDir, copiedSkill)
+  })
+})
+
 test('records a disabled catalog without attempting network access', () => {
   withFixture(({ fixtureRoot, workDir }) => {
     const copiedSkill = path.join(fixtureRoot, 'sealos-deploy')
@@ -401,6 +875,7 @@ test('records a disabled catalog without attempting network access', () => {
       workDir,
       analysisPath,
       selectedSkillDir: copiedSkill,
+      reuseOfficialTemplate: true,
       env: {
         ...process.env,
         PATH: '',
@@ -410,11 +885,14 @@ test('records a disabled catalog without attempting network access', () => {
     const artifact = readArtifact(workDir)
     assert.equal(artifact.catalog.available, false)
     assert.match(artifact.reason, /disabled/)
+    assert.equal(artifact.decision.route, 'continue_standard_pipeline')
+    assert.equal(artifact.decision.reuse_requested, true)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
     validateArtifact(workDir, copiedSkill)
   })
 })
 
-test('falls back to a stale index-only cache when Git refresh fails', () => {
+test('uses a stale cache only for matching and never for direct deployment', () => {
   withFixture(({ fixtureRoot, workDir }) => {
     const fakeHome = path.join(fixtureRoot, 'home')
     const digest = crypto
@@ -447,6 +925,7 @@ test('falls back to a stale index-only cache when Git refresh fails', () => {
       workDir,
       analysisPath,
       githubUrl: 'https://github.com/acme/example',
+      reuseOfficialTemplate: true,
       env: {
         ...process.env,
         HOME: fakeHome,
@@ -459,7 +938,14 @@ test('falls back to a stale index-only cache when Git refresh fails', () => {
     assert.equal(artifact.catalog.available, true)
     assert.equal(artifact.catalog.source, 'cache')
     assert.equal(artifact.catalog.stale, true)
+    assert.equal(artifact.catalog.verified_for_reuse, false)
     assert.equal(artifact.references[0].match, 'exact')
+    assert.equal(artifact.decision.route, 'continue_standard_pipeline')
+    assert.match(artifact.decision.reason, /not verified/)
+    assert.equal(
+      fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')),
+      false,
+    )
     validateArtifact(workDir)
   })
 })
@@ -475,18 +961,40 @@ test('rejects an invalid analysis artifact instead of hiding the error', () => {
   })
 })
 
-test('artifact semantic validation rejects similar references scored as exact', () => {
+test('rejects an invalid reuse option before writing artifacts', () => {
   withFixture(({ workDir, catalogDir }) => {
-    writeTemplate(catalogDir, 'similar', {
-      gitRepo: 'https://github.com/other/project',
+    const analysisPath = writeAnalysis(workDir)
+    const result = spawnSync(process.execPath, [
+      discoveryScriptFor(skillDir),
+      '--work-dir', workDir,
+      '--skill-dir', skillDir,
+      '--analysis', analysisPath,
+      '--catalog-dir', catalogDir,
+      '--reuse-official-template', 'yes',
+    ], { encoding: 'utf8' })
+
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /must be true or false/)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template-references.json')), false)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'template', 'index.yaml')), false)
+  })
+})
+
+test('artifact semantic validation rejects similar references in version 2.0', () => {
+  withFixture(({ workDir, catalogDir }) => {
+    writeTemplate(catalogDir, 'exact', {
+      gitRepo: 'https://github.com/acme/example',
     })
-    const analysisPath = writeAnalysis(workDir, { databases: [] })
+    const analysisPath = writeAnalysis(workDir)
     const result = runDiscovery({ workDir, analysisPath, catalogDir })
     assert.equal(result.status, 0, result.stderr || result.stdout)
 
     const artifactPath = path.join(workDir, '.sealos', 'template-references.json')
     const artifact = readArtifact(workDir)
-    artifact.references[0].score = 100
+    artifact.references[0].match = 'similar'
+    artifact.references[0].score = 99
+    artifact.summary.exact_count = 0
+    artifact.summary.similar_count = 1
     fs.writeFileSync(artifactPath, `${JSON.stringify(artifact, null, 2)}\n`)
 
     const validation = spawnSync(process.execPath, [
@@ -495,7 +1003,7 @@ test('artifact semantic validation rejects similar references scored as exact', 
       artifactPath,
     ], { encoding: 'utf8' })
     assert.notEqual(validation.status, 0)
-    assert.match(validation.stdout, /must be below 100/)
+    assert.match(validation.stdout, /version 2.0 does not select similar template references/)
   })
 })
 

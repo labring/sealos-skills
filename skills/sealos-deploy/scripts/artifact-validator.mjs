@@ -6,6 +6,9 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SCHEMA_DIR = path.join(__dirname, '..', 'schemas')
+const OFFICIAL_TEMPLATE_CATALOG = 'https://github.com/labring-actions/templates.git'
+const OFFICIAL_TEMPLATE_CATALOG_REF = 'kb-0.9'
+const DEPLOYMENT_TEMPLATE_PATH = '.sealos/template/index.yaml'
 
 const SCHEMA_FILES = {
   config: 'config.schema.json',
@@ -345,6 +348,7 @@ function validateStateSemantics(data, errors) {
     if ((entry.action === 'deploy' || entry.action === 'set-image') && entry.status === 'success') {
       latestSuccessfulImage = entry.image
     }
+
   }
 
   if (latestSuccessfulImage && latestSuccessfulImage !== lastDeploy.image) {
@@ -353,7 +357,8 @@ function validateStateSemantics(data, errors) {
 }
 
 function validateTemplateReferencesSemantics(data, errors) {
-  const exactCount = data.references.filter((reference) => reference.match === 'exact').length
+  const exactReferences = data.references.filter((reference) => reference.match === 'exact')
+  const exactCount = exactReferences.length
   const similarCount = data.references.filter((reference) => reference.match === 'similar').length
 
   if (data.summary.exact_count !== exactCount) {
@@ -361,6 +366,9 @@ function validateTemplateReferencesSemantics(data, errors) {
   }
   if (data.summary.similar_count !== similarCount) {
     pushError(errors, '$.summary.similar_count', `must equal the number of similar references (${similarCount})`)
+  }
+  if (similarCount !== 0) {
+    pushError(errors, '$.references', 'version 2.0 does not select similar template references')
   }
 
   let sawSimilar = false
@@ -426,6 +434,86 @@ function validateTemplateReferencesSemantics(data, errors) {
 
   if (data.references.length > data.catalog.template_count) {
     pushError(errors, '$.references', 'cannot contain more references than parsed catalog templates')
+  }
+
+  const officialCatalog = (
+    data.catalog.repository === OFFICIAL_TEMPLATE_CATALOG
+    && data.catalog.ref === OFFICIAL_TEMPLATE_CATALOG_REF
+  )
+  if (
+    data.catalog.verified_for_reuse
+    && (
+      !data.catalog.available
+      || data.catalog.source !== 'refreshed'
+      || data.catalog.commit === null
+      || !officialCatalog
+    )
+  ) {
+    pushError(
+      errors,
+      '$.catalog.verified_for_reuse',
+      'may be true only for a refreshed official catalog with a concrete commit',
+    )
+  }
+  const shouldDeployOfficialTemplate = (
+    data.decision.reuse_requested
+    && data.catalog.available
+    && officialCatalog
+    && data.catalog.source === 'refreshed'
+    && data.catalog.verified_for_reuse
+    && data.catalog.commit !== null
+    && data.project.repo_subdir === null
+    && exactCount === 1
+  )
+
+  if (shouldDeployOfficialTemplate) {
+    if (data.decision.route !== 'deploy_official_template') {
+      pushError(
+        errors,
+        '$.decision.route',
+        'must deploy the unique exact official template when reuse was requested',
+      )
+    }
+    if (data.decision.reference_name !== exactReferences[0].name) {
+      pushError(
+        errors,
+        '$.decision.reference_name',
+        'must identify the unique exact official template',
+      )
+    }
+    if (data.decision.template_path !== DEPLOYMENT_TEMPLATE_PATH) {
+      pushError(
+        errors,
+        '$.decision.template_path',
+        `must equal ${DEPLOYMENT_TEMPLATE_PATH} for official-template deployment`,
+      )
+    }
+  } else {
+    if (data.decision.route !== 'continue_standard_pipeline') {
+      pushError(
+        errors,
+        '$.decision.route',
+        'must continue the standard pipeline when official-template reuse is not eligible',
+      )
+    }
+    if (data.decision.reference_name !== null) {
+      pushError(
+        errors,
+        '$.decision.reference_name',
+        'must be null when continuing the standard pipeline',
+      )
+    }
+    if (data.decision.template_path !== null) {
+      pushError(
+        errors,
+        '$.decision.template_path',
+        'must be null when continuing the standard pipeline',
+      )
+    }
+  }
+
+  if (data.reason !== data.decision.reason) {
+    pushError(errors, '$.reason', 'must match decision.reason')
   }
 }
 

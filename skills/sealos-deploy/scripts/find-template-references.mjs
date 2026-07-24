@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
 /**
- * Discover exact and structurally similar Sealos templates.
+ * Discover exact Sealos templates.
  *
- * Catalog YAML is treated as untrusted reference data. This script never
- * renders, applies, or executes a catalog template.
+ * A unique exact match can be copied byte-for-byte to the deployment template
+ * path only when the caller explicitly requests official-template reuse. This
+ * script never renders, applies, or executes a catalog template.
  */
 
 import crypto from 'node:crypto'
@@ -20,11 +21,11 @@ const DEFAULT_CATALOG = Object.freeze({
   ref: 'kb-0.9',
   template_root: 'template',
   cache_ttl_seconds: 86400,
-  similar_limit: 3,
 })
 
 const MAX_TEMPLATE_BYTES = 1024 * 1024
 const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024
+const DEPLOYMENT_TEMPLATE_PATH = '.sealos/template/index.yaml'
 const DATABASES = ['postgres', 'mysql', 'mongodb', 'redis', 'kafka', 'sqlite']
 const ROLE_WORDS = ['web', 'frontend', 'backend', 'api', 'gateway', 'worker', 'scheduler', 'cron', 'realtime']
 const PROJECT_FILES = [
@@ -46,13 +47,20 @@ function compareCodepoints(left, right) {
 
 function usage() {
   console.error(
-    'Usage: node find-template-references.mjs --work-dir <dir> --skill-dir <dir> --analysis <analysis.json> [--github-url <url>] [--catalog-dir <dir>]',
+    'Usage: node find-template-references.mjs --work-dir <dir> --skill-dir <dir> --analysis <analysis.json> [--github-url <url>] [--catalog-dir <dir>] [--reuse-official-template true|false]',
   )
 }
 
 function parseArgs(argv) {
   const result = {}
-  const allowed = new Set(['work-dir', 'skill-dir', 'analysis', 'github-url', 'catalog-dir'])
+  const allowed = new Set([
+    'work-dir',
+    'skill-dir',
+    'analysis',
+    'github-url',
+    'catalog-dir',
+    'reuse-official-template',
+  ])
 
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index]
@@ -75,12 +83,21 @@ function parseArgs(argv) {
   return result
 }
 
-function sortedUnique(values) {
-  return [...new Set(values.filter(Boolean))].sort(compareCodepoints)
+function parseBooleanOption(value, optionName) {
+  if (value === undefined) {
+    return false
+  }
+  if (value === 'true') {
+    return true
+  }
+  if (value === 'false') {
+    return false
+  }
+  throw new Error(`--${optionName} must be true or false`)
 }
 
-function uniqueInOrder(values) {
-  return [...new Set(values.filter(Boolean))]
+function sortedUnique(values) {
+  return [...new Set(values.filter(Boolean))].sort(compareCodepoints)
 }
 
 function boundedText(value, maximumLength) {
@@ -512,27 +529,77 @@ function validateCatalogConfig(rawConfig) {
   ) {
     errors.push('cache_ttl_seconds must be an integer from 0 to 31536000')
   }
-  if (!Number.isInteger(catalog.similar_limit) || catalog.similar_limit < 1 || catalog.similar_limit > 5) {
-    errors.push('similar_limit must be an integer from 1 to 5')
-  }
   return { catalog, errors }
 }
 
 function runGit(args, cwd = undefined) {
+  const gitEnv = { ...process.env }
+  for (const key of Object.keys(gitEnv)) {
+    // This checkout is a trust boundary. Do not inherit any Git-specific
+    // process configuration that can rewrite URLs, replace object stores, or
+    // redirect the worktree/repository being verified.
+    if (key.startsWith('GIT_')) {
+      delete gitEnv[key]
+    }
+  }
+  gitEnv.GIT_CONFIG_NOSYSTEM = '1'
+  gitEnv.GIT_CONFIG_GLOBAL = os.devNull
+  gitEnv.GIT_CONFIG_SYSTEM = os.devNull
+  gitEnv.GIT_TERMINAL_PROMPT = '0'
+
   const result = spawnSync('git', args, {
     cwd,
     encoding: 'utf8',
     timeout: 120000,
-    env: {
-      ...process.env,
-      GIT_TERMINAL_PROMPT: '0',
-    },
+    env: gitEnv,
   })
   return {
     ok: result.status === 0,
     stdout: result.stdout?.trim() ?? '',
     error: result.error?.message || result.stderr?.trim() || `git exited ${result.status}`,
   }
+}
+
+function normalizeCatalogRepository(value) {
+  try {
+    const parsed = new URL(value)
+    return `${parsed.protocol}//${parsed.host.toLowerCase()}${parsed.pathname
+      .replace(/\/+$/, '')
+      .replace(/\.git$/i, '')
+      .toLowerCase()}`
+  } catch {
+    return null
+  }
+}
+
+function verifyOfficialCheckout(catalogDir, catalog, expectedCommit) {
+  const revision = runGit(['rev-parse', 'HEAD'], catalogDir)
+  const origin = runGit(['config', '--local', '--get', 'remote.origin.url'], catalogDir)
+  const status = runGit([
+    'status',
+    '--porcelain=v1',
+    '--untracked-files=all',
+    '--',
+    catalog.template_root,
+  ], catalogDir)
+  const commit = revision.ok ? normalizeCommit(revision.stdout) : null
+
+  if (!revision.ok || !commit || commit !== normalizeCommit(expectedCommit)) {
+    return { ok: false, error: 'catalog HEAD does not match the fetched official commit' }
+  }
+  if (
+    !origin.ok
+    || normalizeCatalogRepository(origin.stdout) !== normalizeCatalogRepository(catalog.repository)
+  ) {
+    return { ok: false, error: 'catalog origin is not the configured official repository' }
+  }
+  if (!status.ok || status.stdout) {
+    return { ok: false, error: 'catalog template files differ from the fetched official commit' }
+  }
+  if (!catalogRootExists(catalogDir, catalog)) {
+    return { ok: false, error: 'catalog template root is unavailable after verification' }
+  }
+  return { ok: true, commit }
 }
 
 function cacheIdentity(catalog) {
@@ -648,15 +715,18 @@ function cloneCatalog(cacheDir, catalog) {
   const sparse = configureSparseCheckout(temporary, catalog)
   const checkout = sparse.ok ? runGit(['checkout', '--detach'], temporary) : sparse
   const revision = checkout.ok ? runGit(['rev-parse', 'HEAD'], temporary) : checkout
-  if (!revision.ok || !catalogRootExists(temporary, catalog)) {
+  const verified = revision.ok
+    ? verifyOfficialCheckout(temporary, catalog, revision.stdout)
+    : revision
+  if (!verified.ok) {
     fs.rmSync(temporary, { recursive: true, force: true })
-    return { ok: false, error: revision.error || 'catalog root was not checked out' }
+    return { ok: false, error: verified.error || 'catalog root was not checked out' }
   }
 
-  writeCatalogState(temporary, catalog, revision.stdout)
+  writeCatalogState(temporary, catalog, verified.commit)
   fs.rmSync(cacheDir, { recursive: true, force: true })
   fs.renameSync(temporary, cacheDir)
-  return { ok: true, commit: normalizeCommit(revision.stdout) }
+  return { ok: true, commit: verified.commit }
 }
 
 function refreshCatalog(cacheDir, catalog) {
@@ -667,14 +737,17 @@ function refreshCatalog(cacheDir, catalog) {
   const fetch = runGit(['fetch', '--depth', '1', 'origin', catalog.ref], cacheDir)
   const checkout = fetch.ok ? runGit(['checkout', '--detach', 'FETCH_HEAD'], cacheDir) : fetch
   const revision = checkout.ok ? runGit(['rev-parse', 'HEAD'], cacheDir) : checkout
-  if (!revision.ok || !catalogRootExists(cacheDir, catalog)) {
-    return { ok: false, error: revision.error || 'catalog root was not refreshed' }
+  const verified = revision.ok
+    ? verifyOfficialCheckout(cacheDir, catalog, revision.stdout)
+    : revision
+  if (!verified.ok) {
+    return { ok: false, error: verified.error || 'catalog root was not refreshed' }
   }
-  writeCatalogState(cacheDir, catalog, revision.stdout)
-  return { ok: true, commit: normalizeCommit(revision.stdout) }
+  writeCatalogState(cacheDir, catalog, verified.commit)
+  return { ok: true, commit: verified.commit }
 }
 
-function resolveCatalog(catalog, explicitDirectory) {
+function resolveCatalog(catalog, explicitDirectory, requireVerifiedRefresh) {
   if (explicitDirectory) {
     const directory = path.resolve(explicitDirectory)
     if (!catalogRootExists(directory, catalog)) {
@@ -687,6 +760,7 @@ function resolveCatalog(catalog, explicitDirectory) {
       commit: revision.ok ? normalizeCommit(revision.stdout) : null,
       source: 'local',
       stale: false,
+      verifiedForReuse: false,
       reason: 'using explicit local catalog',
     }
   }
@@ -701,18 +775,21 @@ function resolveCatalog(catalog, explicitDirectory) {
   const state = readCatalogState(cacheDir)
   const hasCache = catalogRootExists(cacheDir, catalog)
 
-  if (hasCache && stateIsFresh(state, catalog)) {
+  if (hasCache && stateIsFresh(state, catalog) && !requireVerifiedRefresh) {
     return {
       available: true,
       directory: cacheDir,
       commit: normalizeCommit(state.commit),
       source: 'cache',
       stale: false,
+      verifiedForReuse: false,
       reason: 'using fresh catalog cache',
     }
   }
 
-  const refresh = hasCache ? refreshCatalog(cacheDir, catalog) : cloneCatalog(cacheDir, catalog)
+  const refresh = requireVerifiedRefresh
+    ? cloneCatalog(cacheDir, catalog)
+    : (hasCache ? refreshCatalog(cacheDir, catalog) : cloneCatalog(cacheDir, catalog))
   if (refresh.ok) {
     return {
       available: true,
@@ -720,6 +797,7 @@ function resolveCatalog(catalog, explicitDirectory) {
       commit: refresh.commit,
       source: 'refreshed',
       stale: false,
+      verifiedForReuse: isOfficialCatalog(catalog),
       reason: hasCache ? 'catalog cache refreshed' : 'catalog cache created',
     }
   }
@@ -731,11 +809,13 @@ function resolveCatalog(catalog, explicitDirectory) {
       commit: stateMatches(state, catalog) ? normalizeCommit(state.commit) : null,
       source: 'cache',
       stale: true,
+      verifiedForReuse: false,
       reason: `catalog refresh failed; using stale cache: ${refresh.error}`,
     }
   }
   return {
     available: false,
+    verifiedForReuse: false,
     reason: `catalog unavailable: ${refresh.error}`,
   }
 }
@@ -972,92 +1052,6 @@ function inferProjectRepo(workDir, requestedUrl) {
   return parsed
 }
 
-function jaccard(left, right) {
-  const leftSet = new Set(left)
-  const rightSet = new Set(right)
-  const union = new Set([...leftSet, ...rightSet])
-  if (union.size === 0) {
-    return 0
-  }
-  let intersection = 0
-  for (const value of leftSet) {
-    if (rightSet.has(value)) {
-      intersection += 1
-    }
-  }
-  return intersection / union.size
-}
-
-function sameSet(left, right) {
-  return left.length === right.length && left.every((value) => right.includes(value))
-}
-
-function scoreSimilarity(project, entry) {
-  let score = 0
-  const reasons = []
-
-  if (project.databases.length === 0 && entry.databases.length === 0) {
-    score += 10
-    reasons.push('both are database-free')
-  } else if (sameSet(project.databases, entry.databases)) {
-    score += 30
-    reasons.push('same database set')
-  } else {
-    const overlap = project.databases.filter((database) => entry.databases.includes(database))
-    if (overlap.length > 0) {
-      score += 20
-      reasons.push(`shared database: ${overlap.join(', ')}`)
-    }
-  }
-
-  const workloadDifference = Math.abs(project.app_workloads - Math.max(1, entry.appWorkloads))
-  score += workloadDifference === 0 ? 20 : (workloadDifference === 1 ? 12 : 4)
-  reasons.push(`similar workload count (${Math.max(1, entry.appWorkloads)})`)
-
-  if (project.persistent === entry.persistent) {
-    score += 12
-    reasons.push(`matching ${project.persistent ? 'persistent' : 'ephemeral'} storage shape`)
-  }
-  if (project.object_storage === entry.objectStorage) {
-    score += 8
-    if (project.object_storage) {
-      reasons.push('both use object storage')
-    }
-  }
-  if (project.websocket === entry.websocket) {
-    score += 5
-    if (project.websocket) {
-      reasons.push('both use WebSocket traffic')
-    }
-  }
-
-  const roleSimilarity = jaccard(project.roles, entry.roles)
-  score += Math.round(roleSimilarity * 15)
-  if (roleSimilarity > 0) {
-    reasons.push('overlapping service roles')
-  }
-
-  const tokenSimilarity = jaccard(project.tokens, entry.tokens)
-  score += Math.round(tokenSimilarity * 10)
-  if (tokenSimilarity > 0) {
-    reasons.push('overlapping project signals')
-  }
-
-  if (
-    project.framework
-    && entry.tokens.some((token) => project.framework.toLowerCase().includes(token))
-  ) {
-    score += 5
-    reasons.push('framework signal overlap')
-  }
-
-  score -= Math.min(15, entry.warnings.length * 3)
-  return {
-    score: Math.max(0, Math.min(99, score)),
-    reasons: uniqueInOrder(reasons).slice(0, 6),
-  }
-}
-
 function isExactRepoMatch(projectRepo, entryRepo) {
   if (!projectRepo || !entryRepo || projectRepo.fullName !== entryRepo.fullName) {
     return false
@@ -1079,9 +1073,8 @@ function sourceUrl(catalog, commit, catalogPath) {
   return `https://raw.githubusercontent.com/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}/${commit}/${encodedPath}`
 }
 
-function selectReferences(entries, project, projectRepo, limit) {
+function selectReferences(entries, projectRepo) {
   const exact = []
-  const similar = []
 
   for (const entry of entries) {
     if (isExactRepoMatch(projectRepo, entry.normalizedRepo)) {
@@ -1094,8 +1087,6 @@ function selectReferences(entries, project, projectRepo, limit) {
           projectRepo.subdir ? `same repository subtree: ${projectRepo.subdir}` : 'same repository root',
         ],
       })
-    } else {
-      similar.push({ entry, match: 'similar', ...scoreSimilarity(project, entry) })
     }
   }
 
@@ -1103,17 +1094,56 @@ function selectReferences(entries, project, projectRepo, limit) {
     compareCodepoints(left.entry.name, right.entry.name)
     || compareCodepoints(left.entry.catalogPath, right.entry.catalogPath)
   ))
-  similar.sort((left, right) => (
-    right.score - left.score
-    || compareCodepoints(left.entry.name, right.entry.name)
-    || compareCodepoints(left.entry.catalogPath, right.entry.catalogPath)
-  ))
-  return [...exact, ...similar.slice(0, limit)].slice(0, 15)
+  return exact.slice(0, 15)
+}
+
+function resolveSafeWorkspaceOutput(workDir, relativePath) {
+  const workspaceRoot = fs.realpathSync(workDir)
+  const segments = relativePath.split('/').filter(Boolean)
+  if (
+    path.isAbsolute(relativePath)
+    || segments.length === 0
+    || segments.some((segment) => segment === '.' || segment === '..')
+  ) {
+    throw new Error(`unsafe workspace output path: ${relativePath}`)
+  }
+
+  let current = workspaceRoot
+  for (let index = 0; index < segments.length; index += 1) {
+    current = path.join(current, segments[index])
+    let stat
+    try {
+      stat = fs.lstatSync(current)
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        break
+      }
+      throw error
+    }
+
+    if (!stat) {
+      break
+    }
+
+    if (stat.isSymbolicLink()) {
+      throw new Error(`workspace output path must not contain symlinks: ${relativePath}`)
+    }
+    if (index < segments.length - 1 && !stat.isDirectory()) {
+      throw new Error(`workspace output parent must be a directory: ${relativePath}`)
+    }
+
+    const resolved = fs.realpathSync(current)
+    if (resolved !== workspaceRoot && !resolved.startsWith(`${workspaceRoot}${path.sep}`)) {
+      throw new Error(`workspace output escapes the project: ${relativePath}`)
+    }
+  }
+
+  return path.join(workspaceRoot, ...segments)
 }
 
 function materializeReferences(workDir, selected, catalog, commit, isLocal) {
-  const sealosDir = path.join(workDir, '.sealos')
-  const destination = path.join(sealosDir, 'template-references')
+  const sealosDir = resolveSafeWorkspaceOutput(workDir, '.sealos')
+  const destination = resolveSafeWorkspaceOutput(workDir, '.sealos/template-references')
   fs.mkdirSync(sealosDir, { recursive: true })
   fs.rmSync(destination, { recursive: true, force: true })
   fs.mkdirSync(destination, { recursive: true })
@@ -1161,15 +1191,165 @@ function publicProjectFeatures(features) {
   return publicFeatures
 }
 
-function writeArtifact(workDir, artifact) {
+function isOfficialCatalog(catalog) {
+  return (
+    catalog.repository === DEFAULT_CATALOG.repository
+    && catalog.ref === DEFAULT_CATALOG.ref
+  )
+}
+
+function decideRoute({
+  catalog,
+  catalogVerifiedForReuse,
+  project,
+  references,
+  reuseRequested,
+}) {
+  const exactReferences = references.filter((reference) => reference.match === 'exact')
+
+  if (!reuseRequested) {
+    return {
+      route: 'continue_standard_pipeline',
+      reuse_requested: false,
+      reference_name: null,
+      template_path: null,
+      reason: 'official template reuse was not requested',
+    }
+  }
+  if (exactReferences.length === 0) {
+    return {
+      route: 'continue_standard_pipeline',
+      reuse_requested: true,
+      reference_name: null,
+      template_path: null,
+      reason: 'no exact official template match was found',
+    }
+  }
+  if (exactReferences.length !== 1) {
+    return {
+      route: 'continue_standard_pipeline',
+      reuse_requested: true,
+      reference_name: null,
+      template_path: null,
+      reason: `found ${exactReferences.length} exact template matches; automatic reuse requires exactly one`,
+    }
+  }
+  if (!isOfficialCatalog(catalog)) {
+    return {
+      route: 'continue_standard_pipeline',
+      reuse_requested: true,
+      reference_name: null,
+      template_path: null,
+      reason: 'the configured catalog is not the supported official template catalog',
+    }
+  }
+  if (project.repo_subdir !== null) {
+    return {
+      route: 'continue_standard_pipeline',
+      reuse_requested: true,
+      reference_name: null,
+      template_path: null,
+      reason: 'repository subdirectory selections are not eligible for automatic official-template reuse',
+    }
+  }
+  if (!catalogVerifiedForReuse) {
+    return {
+      route: 'continue_standard_pipeline',
+      reuse_requested: true,
+      reference_name: null,
+      template_path: null,
+      reason: 'the official template catalog was not verified from its remote source in this run',
+    }
+  }
+
+  return {
+    route: 'deploy_official_template',
+    reuse_requested: true,
+    reference_name: exactReferences[0].name,
+    template_path: DEPLOYMENT_TEMPLATE_PATH,
+    reason: 'one exact official template match was selected for direct deployment',
+  }
+}
+
+function copyTemplateAtomically(workDir, sourcePath) {
+  const destination = resolveSafeWorkspaceOutput(workDir, DEPLOYMENT_TEMPLATE_PATH)
+  const destinationDirectory = path.dirname(destination)
+  const temporary = path.join(
+    destinationDirectory,
+    `.index.yaml.tmp-${process.pid}-${Date.now()}`,
+  )
+
+  fs.mkdirSync(destinationDirectory, { recursive: true })
+  try {
+    fs.copyFileSync(sourcePath, temporary, fs.constants.COPYFILE_EXCL)
+    fs.renameSync(temporary, destination)
+  } finally {
+    fs.rmSync(temporary, { force: true })
+  }
+}
+
+function findPreviousOfficialMaterialization(workDir) {
+  try {
+    const artifactPath = resolveSafeWorkspaceOutput(
+      workDir,
+      '.sealos/template-references.json',
+    )
+    const artifact = safeReadJson(artifactPath)
+    const validation = validateArtifactData('template-references', artifact)
+    if (
+      !validation.valid
+      || artifact.decision.route !== 'deploy_official_template'
+      || artifact.decision.template_path !== DEPLOYMENT_TEMPLATE_PATH
+    ) {
+      return null
+    }
+
+    const reference = artifact.references.find(
+      (candidate) => (
+        candidate.match === 'exact'
+        && candidate.name === artifact.decision.reference_name
+      ),
+    )
+    if (!reference) {
+      return null
+    }
+
+    const deploymentPath = resolveSafeWorkspaceOutput(workDir, DEPLOYMENT_TEMPLATE_PATH)
+    const referencePath = resolveSafeWorkspaceOutput(workDir, reference.reference_path)
+    const deploymentYaml = readBoundedRegularFile(deploymentPath, MAX_TEMPLATE_BYTES)
+    const referenceYaml = readBoundedRegularFile(referencePath, MAX_TEMPLATE_BYTES)
+    return deploymentYaml !== null && deploymentYaml === referenceYaml
+      ? deploymentPath
+      : null
+  } catch {
+    return null
+  }
+}
+
+function emitArtifactSummary(workDir, artifact) {
+  console.log(JSON.stringify({
+    artifact: path.join(workDir, '.sealos', 'template-references.json'),
+    catalog_available: artifact.catalog.available,
+    catalog_verified_for_reuse: artifact.catalog.verified_for_reuse,
+    exact_references: artifact.summary.exact_count,
+    similar_references: artifact.summary.similar_count,
+    route: artifact.decision.route,
+    reuse_requested: artifact.decision.reuse_requested,
+    reference_name: artifact.decision.reference_name,
+    template_path: artifact.decision.template_path,
+    reason: artifact.reason,
+  }))
+}
+
+function writeArtifact(workDir, artifact, emitSummary = true) {
   const validation = validateArtifactData('template-references', artifact)
   if (!validation.valid) {
     const details = validation.errors.map((error) => `${error.path}: ${error.message}`).join('; ')
     throw new Error(`refusing to write invalid template reference artifact: ${details}`)
   }
 
-  const sealosDir = path.join(workDir, '.sealos')
-  const outputPath = path.join(sealosDir, 'template-references.json')
+  const sealosDir = resolveSafeWorkspaceOutput(workDir, '.sealos')
+  const outputPath = resolveSafeWorkspaceOutput(workDir, '.sealos/template-references.json')
   const temporaryPath = `${outputPath}.tmp-${process.pid}-${Date.now()}`
   fs.mkdirSync(sealosDir, { recursive: true })
   fs.writeFileSync(temporaryPath, `${JSON.stringify(artifact, null, 2)}\n`, {
@@ -1177,18 +1357,14 @@ function writeArtifact(workDir, artifact) {
     mode: 0o600,
   })
   fs.renameSync(temporaryPath, outputPath)
-  console.log(JSON.stringify({
-    artifact: outputPath,
-    catalog_available: artifact.catalog.available,
-    exact_references: artifact.summary.exact_count,
-    similar_references: artifact.summary.similar_count,
-    reason: artifact.reason,
-  }))
+  if (emitSummary) {
+    emitArtifactSummary(workDir, artifact)
+  }
 }
 
-function baseArtifact(catalog, project, reason) {
+function baseArtifact(catalog, project, reuseRequested, reason) {
   return {
-    version: '1.0',
+    version: '2.0',
     generated_at: new Date().toISOString(),
     catalog: {
       available: false,
@@ -1199,6 +1375,7 @@ function baseArtifact(catalog, project, reason) {
       commit: null,
       source: 'unavailable',
       stale: false,
+      verified_for_reuse: false,
       template_count: 0,
       skipped_templates: 0,
       reason,
@@ -1208,6 +1385,13 @@ function baseArtifact(catalog, project, reason) {
     summary: {
       exact_count: 0,
       similar_count: 0,
+    },
+    decision: {
+      route: 'continue_standard_pipeline',
+      reuse_requested: reuseRequested,
+      reference_name: null,
+      template_path: null,
+      reason,
     },
     reference_dir: '.sealos/template-references',
     reason,
@@ -1226,6 +1410,17 @@ try {
 const workDir = path.resolve(args['work-dir'])
 const skillDir = path.resolve(args['skill-dir'])
 const analysisPath = path.resolve(args.analysis)
+let reuseRequested
+try {
+  reuseRequested = parseBooleanOption(
+    args['reuse-official-template'],
+    'reuse-official-template',
+  )
+} catch (error) {
+  usage()
+  console.error(error.message)
+  process.exit(1)
+}
 
 let analysis
 try {
@@ -1263,12 +1458,19 @@ const publicProject = {
   repo_subdir: projectRepo?.subdir ?? null,
   features: publicProjectFeatures(projectFeatures),
 }
+const previousOfficialMaterialization = findPreviousOfficialMaterialization(workDir)
 
 function writeUnavailable(reason) {
-  const destination = path.join(workDir, '.sealos', 'template-references')
+  const destination = resolveSafeWorkspaceOutput(
+    workDir,
+    '.sealos/template-references',
+  )
   fs.rmSync(destination, { recursive: true, force: true })
   fs.mkdirSync(destination, { recursive: true })
-  writeArtifact(workDir, baseArtifact(catalog, publicProject, reason))
+  if (previousOfficialMaterialization) {
+    fs.rmSync(previousOfficialMaterialization, { force: true })
+  }
+  writeArtifact(workDir, baseArtifact(catalog, publicProject, reuseRequested, reason))
 }
 
 if (configReadError || configErrors.length > 0) {
@@ -1282,7 +1484,7 @@ if (!catalog.enabled) {
 
 let resolved
 try {
-  resolved = resolveCatalog(catalog, args['catalog-dir'])
+  resolved = resolveCatalog(catalog, args['catalog-dir'], reuseRequested)
 } catch (error) {
   writeUnavailable(`template catalog could not be prepared: ${error.message}`)
   process.exit(0)
@@ -1302,9 +1504,7 @@ try {
 
 const selected = selectReferences(
   parsed.entries,
-  projectFeatures,
   projectRepo,
-  catalog.similar_limit,
 )
 let references
 try {
@@ -1321,12 +1521,27 @@ try {
 }
 const exactCount = references.filter((reference) => reference.match === 'exact').length
 const similarCount = references.filter((reference) => reference.match === 'similar').length
-const reason = exactCount > 0
-  ? `found ${exactCount} exact and ${similarCount} similar template reference(s)`
-  : `found ${similarCount} structurally similar template reference(s); no exact repository match`
+const decision = decideRoute({
+  catalog,
+  catalogVerifiedForReuse: resolved.verifiedForReuse,
+  project: publicProject,
+  references,
+  reuseRequested,
+})
+let selectedExact = null
+if (decision.route === 'deploy_official_template') {
+  selectedExact = selected.find(({ entry }) => entry.name === decision.reference_name)
+  if (!selectedExact) {
+    console.error('The selected official template could not be resolved for materialization')
+    process.exit(1)
+  }
+} else if (previousOfficialMaterialization) {
+  fs.rmSync(previousOfficialMaterialization, { force: true })
+}
+const reason = decision.reason
 
-writeArtifact(workDir, {
-  version: '1.0',
+const artifact = {
+  version: '2.0',
   generated_at: new Date().toISOString(),
   catalog: {
     available: true,
@@ -1335,6 +1550,7 @@ writeArtifact(workDir, {
     commit: resolved.commit,
     source: resolved.source,
     stale: resolved.stale,
+    verified_for_reuse: resolved.verifiedForReuse,
     template_count: parsed.entries.length,
     skipped_templates: parsed.skipped,
     reason: resolved.reason,
@@ -1345,6 +1561,20 @@ writeArtifact(workDir, {
     exact_count: exactCount,
     similar_count: similarCount,
   },
+  decision,
   reference_dir: '.sealos/template-references',
   reason,
-})
+}
+
+if (selectedExact) {
+  try {
+    writeArtifact(workDir, artifact, false)
+    copyTemplateAtomically(workDir, selectedExact.entry.filePath)
+    emitArtifactSummary(workDir, artifact)
+  } catch (error) {
+    console.error(`Official template decision could not be completed: ${error.message}`)
+    process.exit(1)
+  }
+} else {
+  writeArtifact(workDir, artifact)
+}

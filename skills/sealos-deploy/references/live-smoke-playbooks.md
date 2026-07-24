@@ -4,7 +4,8 @@ Use these playbooks after a Sealos Template API deployment reaches rollout succe
 
 ## Runtime Truth Pass
 
-Run this pass after Phase 6 for every deployment unless the user explicitly asks for deploy-only output.
+Run this pass after Phase 6 for every deployment. Resource creation alone is
+not a successful deployment and never skips this pass.
 
 1. Capture the namespace, app name, Instance name, and actual App URL from the Template API response or the `apps.app.sealos.io` resource.
 2. Inspect runtime state with the Sealos kubeconfig:

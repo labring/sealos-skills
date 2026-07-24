@@ -36,7 +36,7 @@ Run all checks:
 docker --version 2>/dev/null
 git --version 2>/dev/null
 
-# Optional (enables script acceleration)
+# Optional before deployment; Node.js 18+ is one Phase 6 request path
 node --version 2>/dev/null
 
 # Conditional (required for Phase 5 template generation and validation)
@@ -51,7 +51,8 @@ crane version 2>/dev/null || true
 # Optional (enables GHCR push — preferred over Docker Hub)
 gh --version 2>/dev/null
 
-# Conditional (required for update-mode rollout operations)
+# Conditional at entry; required before Phase 6 creates resources because
+# Phase 6.5 verifies every deployment against the live workspace
 # Check PATH first, then fallback to ~/.agents/bin/
 kubectl version --client 2>/dev/null || ~/.agents/bin/kubectl version --client 2>/dev/null
 
@@ -71,11 +72,13 @@ ENV.python    = true/false
 ENV.pyyaml    = true/false
 ENV.kompose   = true/false
 ENV.crane     = true/false
-ENV.kubectl   = true/false   (required for update-mode rollout operations)
+ENV.kubectl   = true/false   (required before Phase 6 and for all updates)
 ENV.gh        = true/false   (enables zero-interaction GHCR push)
 ENV.curl      = true/false
 ENV.jq        = true/false
 ```
+
+Record Node as usable for Phase 6 only when its major version is 18 or newer.
 
 ### 1.2 Docker Daemon Check
 
@@ -121,26 +124,33 @@ docker info 2>/dev/null
 - Ask for the registry destination later in Phase 4, then enforce the matching login path
 
 **Node.js:**
-- If missing, no problem. Pipeline uses fallback mode:
+- If missing, earlier phases use fallback mode:
   - `score-model.mjs` → AI reads files and applies scoring rules directly
   - `find-template-references.mjs` → AI reads a usable cached catalog and writes
-    bounded exact/similar reference evidence; if no cache is usable, Phase 1.5
-    is skipped as non-blocking
+    an exact-match result for diagnostics, but continues to Phase 2 because
+    direct reuse requires a verified official refresh in the current run
   - `detect-image.mjs` → AI runs curl commands for Docker Hub / GHCR API
   - `build-push.mjs` → AI runs `docker buildx` commands directly
   - `sealos-auth.mjs` → AI runs curl to exchange token for kubeconfig (workspace list/switch not available in fallback mode)
+- Before Phase 6 submits a deployment, at least one request path must exist:
+  Node.js 18+ for `deploy-template.mjs`, or `jq` for the curl fallback. If both
+  are unavailable, stop before creating cloud resources.
 
 **Template catalog cache:**
 - Phase 1.5 uses `labring-actions/templates` branch `kb-0.9` by default
 - Reuse `~/.sealos/cache/template-catalog/` across runs
 - The cache must be an index-only sparse Git checkout of
   `template/*/index.yaml`; do not fetch catalog logos or README files
-- A refresh failure may fall back to a usable existing cache
+- A refresh failure may fall back to a usable existing cache for exact matching,
+  but cached or stale YAML is never deployed directly
 - Missing Node.js, Git/network failure, a corrupt catalog entry, or an
   unavailable cache must never block deployment; continue without catalog
-  references
+  reuse
+- Phase 1.5 does not perform structural-similarity matching, selection, or
+  referencing in the current implementation; that behavior is a documented
+  future TODO
 - `--catalog-dir` is only for tests or explicit offline operation, not routine
-  user configuration
+  user configuration, and never enables the direct-deploy route
 
 **Python:**
 - Python with PyYAML is required when the run reaches Phase 5.
@@ -153,14 +163,18 @@ docker info 2>/dev/null
 - Record missing tools during preflight, but stop only if Phase 5 reaches the matching path.
 - Do not install these tools automatically from this workflow.
 
-**kubectl (required for in-place updates):**
-- Needed for updating already-deployed apps with `kubectl set image` and `kubectl rollout`
+**kubectl (required before deployment and for in-place updates):**
+- Needed for the mandatory Phase 6.5 live-workspace acceptance pass, the
+  Template API fallback, and standard-path `kubectl set image` / rollout
+  operations
 - If `kubectl` is missing, ask:
   - `Missing kubectl. Install it now? (y/n)`
   - If user answers `y`:
     - macOS: run `brew install kubectl`
     - Debian/Ubuntu: run `sudo apt install kubectl`
 - If `kubectl` is available outside PATH, use the absolute path for all kubectl commands
+- If it remains unavailable, read-only analysis may continue, but stop before
+  Phase 6 creates any cloud resources
 
 ## Step 2: Capability Classification
 
@@ -191,13 +205,19 @@ Detect these now and report them early, but do **not** stop the run yet:
 
 These findings become hard blockers only if the run later determines that local image build/push is required.
 
-### 2.3 Update-Path Warnings
+### 2.3 Live-Workspace Warnings
 
-Detect these now and report them early, but do **not** stop a fresh deploy:
+Detect these now and report them early. They do not block project analysis, but
+they must be resolved before Phase 6 creates resources:
 - `kubectl` missing
 - kubeconfig present but unusable
 
-These become hard blockers only if the run enters UPDATE mode or needs rollout verification through kubectl.
+They are hard blockers for every deployment's Phase 6.5 runtime acceptance and
+for all UPDATE operations.
+
+Also record `Node.js 18+ and jq both missing` as a later deployment blocker.
+Analysis may continue, but Phase 6 cannot submit a Template request until one
+of those two request paths is available.
 
 ### 2.4 Template-Path Warnings
 
@@ -214,14 +234,14 @@ At the end of preflight, explicitly tell the user:
 - which items are ready
 - which items are warnings only
 - which later path each warning would block
-- whether Phase 1.5 can refresh or reuse the template catalog after source
-  analysis
+- whether Phase 1.5 can verify a unique official template and the current
+  source after analysis
 
 Example:
 - "Docker is not ready. This will block Phase 4 local build, but we can still continue to detect whether an existing image can be reused."
-- "`kubectl` is missing. Fresh deploy can continue, but UPDATE mode and rollout verification will be blocked until it is installed."
+- "`kubectl` is missing. Project analysis can continue, but no cloud resources will be created until Phase 6.5 runtime verification is available."
 - "Python with PyYAML is missing. Earlier analysis can continue, but Phase 5 template generation and validation will stop."
-- "The template catalog cannot refresh, so Phase 1.5 will use a usable cache or continue without references after source analysis."
+- "The template catalog cannot be verified from the official remote, so Phase 1.5 may report cached matches but will continue to Phase 2."
 
 ## Step 3: Project Context
 

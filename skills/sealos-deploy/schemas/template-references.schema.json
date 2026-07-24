@@ -11,13 +11,14 @@
     "project",
     "references",
     "summary",
+    "decision",
     "reference_dir",
     "reason"
   ],
   "properties": {
     "version": {
       "type": "string",
-      "const": "1.0"
+      "const": "2.0"
     },
     "generated_at": {
       "type": "string",
@@ -33,6 +34,7 @@
         "commit",
         "source",
         "stale",
+        "verified_for_reuse",
         "template_count",
         "skipped_templates",
         "reason"
@@ -70,6 +72,9 @@
           ]
         },
         "stale": {
+          "type": "boolean"
+        },
+        "verified_for_reuse": {
           "type": "boolean"
         },
         "template_count": {
@@ -156,6 +161,55 @@
         "similar_count": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route",
+        "reuse_requested",
+        "reference_name",
+        "template_path",
+        "reason"
+      ],
+      "properties": {
+        "route": {
+          "type": "string",
+          "enum": [
+            "deploy_official_template",
+            "continue_standard_pipeline"
+          ]
+        },
+        "reuse_requested": {
+          "type": "boolean"
+        },
+        "reference_name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "template_path": {
+          "anyOf": [
+            {
+              "type": "string",
+              "const": ".sealos/template/index.yaml"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },

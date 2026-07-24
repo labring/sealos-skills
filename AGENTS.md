@@ -111,13 +111,15 @@ Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code
 ```text
 Preflight → Mode Detection → DEPLOY or UPDATE
 
-DEPLOY: Assess (including the obvious-impossibility entry judgment) → Catalog references → Detect image → Dockerfile → Build & Push → Template → Deploy
+DEPLOY: Assess (including the obvious-impossibility entry judgment) → Official template lookup
+  ├→ unique safe exact match: reuse official YAML → Resolve inputs → Dry-run → Deploy → Runtime Truth
+  └→ otherwise: Detect image → (reuse image | Dockerfile → Build & Push) → Template → Configure → Dry-run → Deploy → Runtime Truth
 UPDATE: Build & Push → kubectl set image → Verify rollout (auto-rollback on failure)
 ```
 
 Mode detection reads `.sealos/state.json` `last_deploy` field. If a running deployment is found (verified via kubectl), the skill enters UPDATE mode and skips assess/template/deploy phases. If not, it runs the full DEPLOY pipeline.
 
-State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot), `.sealos/template-references.json` plus `.sealos/template-references/` (exact/similar catalog evidence), and `.sealos/config.json` (optional user overrides). Catalog evidence never materializes the generated template or skips normal phases. The `last_deploy` section in `state.json` records app name, namespace, image, and URL so later deploys can update in place instead of starting over.
+State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot), `.sealos/template-references.json` plus `.sealos/template-references/` (exact catalog decision and provenance), and `.sealos/config.json` (optional user overrides). A unique, source-aligned official match is copied verbatim to `.sealos/template/index.yaml` and skips Phases 2–5.5; every other result follows the standard build-and-generate route. Similar-template reference matching is a documented TODO and is not executed.
 
 ## Key paths
 

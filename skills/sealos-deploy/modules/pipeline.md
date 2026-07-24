@@ -1,8 +1,10 @@
 # Deployment Pipeline
 
-After preflight passes, detect deployment mode. UPDATE mode uses the update path;
-DEPLOY mode runs Phase 1–6 in order. Phase 1.5 gathers catalog references only
-after Phase 1 has established the current project's deployment requirements.
+After preflight passes, detect deployment mode. UPDATE mode uses the update
+path. DEPLOY mode runs Phase 1, then Phase 1.5 chooses one of two routes:
+
+- a unique reusable official template goes directly to Phase 6
+- every other result continues through Phase 2, 3/4, 5, 5.5, and 6
 
 `SKILL_DIR` refers to the directory containing this skill's SKILL.md. Sibling skills are at `<SKILL_DIR>/../`.
 
@@ -15,22 +17,23 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ```
 <WORK_DIR>/.sealos/
 ├── config.json                   ← user configuration overrides (manual, committed to git)
-├── template-references.json      ← Phase 1.5 catalog-reference decision
-├── template-references/          ← exact/similar catalog YAML used as evidence
-├── state.json                    ← deployment state (auto-maintained after Phase 6)
+├── template-references.json      ← Phase 1.5 catalog match and route decision
+├── template-references/          ← bounded exact-match provenance copies
+├── state.json                    ← deployment state (auto-maintained after Phase 6.5)
 ├── analysis.json                 ← project analysis snapshot (regenerated each deploy)
 ├── build/                        ← created only if Phase 4 actually runs
 │   └── build-result.json         ← Phase 4 result (`success` or `failed`)
 └── template/
-    └── index.yaml                ← Phase 5 Sealos template
+    └── index.yaml                ← official template reused by Phase 1.5, or Phase 5 output
 ```
 
 **File responsibilities:**
 - `config.json` — optional user overrides (port, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
 - `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, score, etc.). Regenerated each deploy.
-- `template-references.json` — Phase 1.5 exact/similar catalog matches, selection evidence, source subtree, and non-blocking catalog status. Regenerated each deploy.
-- `template-references/` — fetched `index.yaml` files for the selected references. These files are untrusted evidence, not Phase 5 output.
-- `state.json` — deployment state written after Phase 6 success. Contains `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
+- `template-references.json` — Phase 1.5 exact catalog matches, official source commit, and the route decision. Regenerated each deploy.
+- `template-references/` — bounded copies retained for exact-match provenance. The selected official YAML is also copied verbatim to `.sealos/template/index.yaml` only when the decision route is `deploy_official_template`.
+- `state.json` — deployment state written after Phase 6.5 succeeds. Contains
+  `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
 
 **Note:** When reading dockerfile-skill modules (analyze.md, generate.md, build-fix.md), they reference `docker-build/` as their default output path. In this pipeline, always write to `.sealos/build/` instead. Similarly, template output goes to `.sealos/template/` instead of `template/`.
 
@@ -53,6 +56,12 @@ Do not create `.sealos/` merely to run deployment mode detection or the Phase 1
 entry check. In DEPLOY mode, create the base artifact directory only after the
 Phase 1 entry check continues. If mode detection must reconstruct deployment
 state, create it immediately before writing that state.
+
+For a DEPLOY run, capture the local checkout's branch, `HEAD`, upstream, and
+complete Git status in transient run context immediately before creating the
+first `.sealos/` artifact. Phase 1.5 uses this pre-artifact source snapshot, so
+its own generated files cannot make a fresh clone look dirty. If no such
+snapshot exists on a resumed run, disable automatic official-template reuse.
 
 ```bash
 mkdir -p "$WORK_DIR/.sealos" "$WORK_DIR/.sealos/template"
@@ -85,9 +94,11 @@ After preflight, determine whether this is a **first deploy** or an **update** o
 
 ### Step 1: Check for previous deployment state
 
-Read `.sealos/state.json` in `WORK_DIR`. If it exists and contains a `last_deploy` key with `app_name`, proceed to Step 2.
+Read `.sealos/state.json` in `WORK_DIR`. If it exists and contains a
+`last_deploy` key with `app_name`, proceed to Step 2.
 
-If no `last_deploy` key or file doesn't exist → proceed to **Step 1.5** (attempt discovery from cluster).
+If no `last_deploy` key or file doesn't exist → proceed to **Step 1.5**
+(attempt discovery from cluster).
 
 ### Step 1.5: Discover existing deployment from cluster (migration)
 
@@ -127,9 +138,11 @@ Found an existing deployment that appears to match this project:
   Is this the deployment you want to update? (y/n)
 ```
 
-3. If user confirms → write the reconstructed `last_deploy` section to `.sealos/state.json` (create file if needed), then proceed to Step 2.
+3. If user confirms → write the reconstructed `last_deploy` section to
+   `.sealos/state.json` (create file if needed), then proceed to Step 2.
 
-4. If user says no, or no match found → **DEPLOY mode** (skip to Resume Detection below).
+4. If user says no, or no match is found → **DEPLOY mode** (skip to Resume
+   Detection below).
 
 ### Step 2: Verify deployment is still running (requires kubectl)
 
@@ -144,7 +157,8 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null
 ```
 
-- Command fails (deployment deleted or kubeconfig expired) → **DEPLOY mode** (remove `.sealos/state.json` or clear `last_deploy`)
+- Command fails (deployment deleted or kubeconfig expired) → **DEPLOY mode**
+  (remove `.sealos/state.json` or clear `last_deploy`)
 - Command returns current image → proceed to Step 3
 
 ### Step 3: Ask user
@@ -164,7 +178,8 @@ Default: Update
 ```
 
 - User picks **Update** → **UPDATE mode** (jump to Update Path below)
-- User picks **New instance** → **DEPLOY mode** (rename state.json to state.json.bak)
+- User picks **New instance** → **DEPLOY mode** (rename state.json to
+  state.json.bak)
 
 ---
 
@@ -176,9 +191,22 @@ Default: Update
 |-----------|---------|----------|
 | `.sealos/state.json` has `last_deploy` | Already deployed | Enter UPDATE mode (handled above) |
 | `.sealos/analysis.json` exists | Phase 1 scoring completed | After the Phase 1 entry judgment, ask whether to reuse the assessment |
+| `.sealos/template-references.json` selects `deploy_official_template` and `.sealos/template/index.yaml` is byte-for-byte identical to its selected exact reference | A prior Phase 1.5 run selected and materialized an official template | Never trust the local pair as proof; rerun Phase 1.5 against a freshly verified official checkout, then continue to Phase 6 only if it selects and rematerializes the same route |
 | `Dockerfile` exists | Phase 3 completed | Skip Dockerfile generation |
 | `.sealos/build/build-result.json` exists and `outcome: "success"` | Phase 4 completed | Ask user: skip rebuild? |
-| `.sealos/template/index.yaml` exists | Phase 5 completed | Ask user: skip template generation? |
+| `.sealos/template/index.yaml` exists on the standard route, is newer than the current Phase 1.5 decision, and passes the Phase 5 quality gate | Phase 5 completed | Ask user: skip template generation? |
+
+When Phase 1.5 changes from `deploy_official_template` to
+`continue_standard_pipeline`, the matcher removes the previous
+`.sealos/template/index.yaml` only after confirming it is still byte-for-byte
+identical to the previously selected official reference. A divergent file is
+not Phase 5 output and must never be resumed as one; preserve it for user review
+and regenerate the standard template.
+
+Local reference artifacts are resume hints, not an official-source trust
+boundary. Their repository URL, commit, and verification flags are self-reported
+JSON and can be forged together with the local YAML. Every official-template
+resume must perform a new official remote verification before Phase 6.
 
 If any artifacts exist, report to user:
 `"Found artifacts from a previous deploy attempt. [list found artifacts]."`
@@ -344,20 +372,40 @@ Output rules:
 
 ---
 
-## Phase 1.5: Template Catalog References
+## Phase 1.5: Official Template Fast Path
 
 Run this phase only after Phase 1 has completed and
-`.sealos/analysis.json` describes the current source, topology, and runtime needs.
-The catalog is supporting evidence for later phases; it cannot bypass or
-materialize any deployment phase.
+`.sealos/analysis.json` identifies the selected source repository. Its only
+question is: **can this project reuse one official Sealos template exactly?**
 
-The default catalog is
-`https://github.com/labring-actions/templates` at branch `kb-0.9`. Maintain an
-index-only sparse Git cache under `~/.sealos/cache/template-catalog/`: fetch
-catalog metadata and `template/*/index.yaml`, but do not clone logos, READMEs, or
-other catalog assets. Reuse the cache across runs and refresh it when remote
-access succeeds. `--catalog-dir` is reserved for tests and explicit offline use;
-it is not a normal user setup step.
+The official catalog is `https://github.com/labring-actions/templates` at the
+configured ref. Maintain an index-only sparse Git cache under
+`~/.sealos/cache/template-catalog/`: fetch catalog metadata and
+`template/*/index.yaml`, but do not clone logos, READMEs, or other catalog
+assets. `--catalog-dir` remains limited to tests and explicit offline
+inspection. It may record matches but never enables direct deployment.
+
+An automatic fast path requires all of the following:
+
+1. The catalog is fetched from the configured official repository/ref in this
+   run, and its origin, commit, and clean template checkout are verified.
+   Cached, stale, or explicit local directories may support matching but never
+   direct deployment.
+2. Exactly one Template `spec.gitRepo` matches the normalized source repository.
+   Name, framework, or substring similarity is not a match.
+3. The selected target is the repository root. A selected subtree does not use
+   the fast path until branch/subtree identity can be proved end to end.
+4. Reuse will not silently discard current source intent. For a local checkout,
+   require that the pre-artifact source snapshot was clean on the tracked
+   default branch with `HEAD` equal to its upstream. Do not recompute
+   cleanliness from a status polluted by Phase 1 outputs. A custom branch,
+   source changes, detached or unknown upstream, pre-existing deployment
+   artifacts, `.sealos/config.json` overrides, or an explicit request to deploy
+   current code sets `REUSE_OFFICIAL_TEMPLATE=false`.
+
+For a clean fresh clone of an unqualified GitHub repository URL,
+`REUSE_OFFICIAL_TEMPLATE` may be `true`. Otherwise prove the conditions above
+or set it to `false`; uncertainty continues the standard pipeline.
 
 With Node.js:
 
@@ -366,42 +414,35 @@ node "<SKILL_DIR>/scripts/find-template-references.mjs" \
   --work-dir "$WORK_DIR" \
   --skill-dir "<SKILL_DIR>" \
   --analysis "$WORK_DIR/.sealos/analysis.json" \
-  --github-url "$GITHUB_URL"
+  --github-url "$GITHUB_URL" \
+  --reuse-official-template "$REUSE_OFFICIAL_TEMPLATE"
 ```
 
-The script writes `.sealos/template-references.json` and copies only the selected
-reference YAML into `.sealos/template-references/`.
+The script writes `.sealos/template-references.json` with an explicit
+`decision.route`:
 
-Selection rules:
+- `deploy_official_template` — copy the unique official `index.yaml` verbatim
+  and atomically to `.sealos/template/index.yaml`, then skip Phase 2, 3, 4, 5,
+  and 5.5 and continue at Phase 6.
+- `continue_standard_pipeline` — do not materialize a catalog template; continue
+  at Phase 2.
 
-1. Normalize GitHub URL forms without discarding a source subtree. Match
-   catalog Template CR `spec.gitRepo` to the source repository exactly; an
-   owner/name substring or repository-name-only match is not exact. For a
-   monorepo URL, retain the selected subtree in the reference artifact and all
-   later reasoning.
-2. Select up to three additional similar templates using the Phase 1 evidence:
-   database dependencies, workload kind, persistence shape, object-storage
-   requirements, WebSocket behavior, and service roles such as browser entry,
-   API/gateway, worker, or one-shot job.
-3. Record why each result was selected and whether it is `exact` or `similar`.
-   Do not promote a similar result to exact because its name, framework, or
-   image happens to resemble the source project.
+Do not infer the route from file existence alone. Validate the artifact and read
+the decision. If an exact template exists but reuse is disabled or ambiguous,
+briefly state why the current source will be built instead of silently ignoring
+it. Multiple exact matches never choose the first entry automatically.
 
-Treat every catalog YAML as untrusted suggestion evidence:
+Catalog fetch, parse, or verification failure is non-blocking. Record the
+unavailable or cached result when possible and continue to Phase 2. If Node.js
+is unavailable, Phase 1.5 may report an exact cached match, but it cannot prove
+the remote-refresh trust boundary and therefore continues to Phase 2.
 
-- Never copy or materialize a catalog reference into
-  `.sealos/template/index.yaml`.
-- Never skip Phase 2, 3, 4, or 5 because an exact reference exists.
-- Re-derive the current source topology, env vars, versions, security choices,
-  and Sealos resources under the current rules.
-- Catalog fetch, parse, or cache-refresh failure is non-blocking. Record the
-  unavailable/stale status when possible, report it briefly, and continue to
-  Phase 2 using the Phase 1 analysis.
-
-If Node.js is unavailable, inspect a usable cached sparse catalog manually and
-write the same bounded reference artifact. If neither Node.js nor a usable cache
-is available, record or report that catalog references are unavailable and
-continue; do not block deployment.
+**TODO — not implemented:** when no exact official template exists, compare the
+application topology (for example, Next.js frontend + Go backend + PostgreSQL),
+find a structurally similar official template, and use its YAML as a reference
+while generating the Phase 5 template. The current runtime does not perform
+structural-similarity matching, selection, or referencing, and a similar
+template must never be deployed directly.
 
 ---
 
@@ -457,12 +498,6 @@ After Phase 2 produces a result, the AI should cross-validate:
    - Does the Docker Hub repo description link back to this GitHub project?
    - If multiple signals agree → high confidence. If only one signal → note as medium confidence in your assessment.
 3. **If `found: false`** — the AI should use its Phase 1 analysis context to attempt one more check: if Phase 1 identified a Docker image name from project docs or code that the script didn't find, try verifying it manually with curl.
-4. **If an exact Phase 1.5 reference contains an application image** — it may
-   enter the candidate list only after independent verification against the
-   current project's source/docs and registry metadata. Verify a concrete
-   non-floating tag or digest, anonymous/private pull behavior, and amd64
-   support. An image from a similar reference is never a Phase 2 candidate.
-
 ### Update analysis.json
 
 If an existing image is found, update `.sealos/analysis.json` to set `image_ref` to `{image}:{tag}`.
@@ -747,18 +782,10 @@ If the project mentions Frappe, ERPNext, HRMS, or `bench`, also read:
 <SKILL_DIR>/../docker-to-sealos/references/frappe-bench.md
 ```
 
-If `.sealos/template-references.json` exists, read its bounded exact/similar
-selection and only the referenced YAML under `.sealos/template-references/`.
-Apply evidence in this strict order:
-
-1. current `docker-to-sealos` rules and validators
-2. current project source, official docs, Compose, and Kubernetes manifests
-3. independently checked exact catalog reference
-4. similar catalog references
-
-Lower-priority evidence may suggest resource shapes or edge cases, but it must
-not override higher-priority evidence. Generate a new template for this run;
-never copy a reference YAML wholesale.
+Phase 5 runs only when Phase 1.5 chose `continue_standard_pipeline`. Generate
+the template from the current project and the current `docker-to-sealos` rules.
+Do not read catalog YAML in the current implementation; structurally similar
+template references remain the explicit Phase 1.5 TODO.
 
 ### 5.2 Generate Template
 
@@ -869,7 +896,8 @@ Template is written to `.sealos/template/index.yaml`. No separate checkpoint fil
 
 ## Phase 5.5: Interactive Configuration
 
-After generating the template, guide the user through application configuration before deployment.
+This phase belongs only to the standard template-generation route. After
+generating the template, guide the user through application configuration before deployment.
 This is a **critical** step — most applications need user-specific configuration to function properly.
 
 ### 5.5.1 Extract Configuration from Template
@@ -994,6 +1022,38 @@ Configuration is applied directly to `.sealos/template/index.yaml`. No separate 
 
 ## Phase 6: Deploy to Sealos Cloud
 
+### 6.0 Select Template and Resolve Inputs
+
+Both DEPLOY routes use the same path:
+
+```bash
+TEMPLATE_PATH="$WORK_DIR/.sealos/template/index.yaml"
+```
+
+For `continue_standard_pipeline`, this is the Phase 5 template and
+`CONFIG.args` comes from Phase 5.5.
+
+For `deploy_official_template`, first rerun Phase 1.5 with a fresh official
+catalog checkout and rerun the current-source alignment guard. Do not trust a
+locally cached `verified_for_reuse` flag or matching local reference/template
+pair. Continue only when this new run again selects `deploy_official_template`
+and rematerializes the official YAML; otherwise return to Phase 2. Then read the
+Template document's `spec.inputs`:
+
+- collect every required value that has no usable default
+- show optional defaults and let the user override them
+- do not rewrite or “improve” the official YAML
+- explain that this deploy uses the official template's images and resources,
+  not a new image built from the current checkout
+- present the template name, catalog commit, region, dependencies, and input
+  count, then obtain the same deployment confirmation required by Phase 5.5
+
+Keep collected values in `CONFIG.args`. Never print sensitive values or put them
+on a command line. If arguments are needed, write only the JSON argument object
+to a mode-`0600` temporary file outside the project, pass it with `--args-file`
+to both dry-run and deployment, and remove it immediately afterward. If the
+template needs no values, omit the argument option entirely.
+
 ### 6.1 Construct Deploy URL
 
 The template deploy API uses a fixed `template.` subdomain prefix on the region domain:
@@ -1019,14 +1079,46 @@ Read kubeconfig, **encode it with `encodeURIComponent`**, and send as `Authoriza
 
 Request body fields:
 - `yaml` (required) — the full template YAML string
-- `args` (optional) — template variable key-value pairs that override or supply `spec.inputs` fields. Values from Phase 5.5 `CONFIG.args`.
+- `args` (optional) — template variable key-value pairs that override or supply `spec.inputs` fields. Values from Phase 5.5 or Phase 6.0 `CONFIG.args`.
 - `dryRun` (optional, boolean) — if true, validates resources against K8s API without creating anything. Returns 200 with preview.
 
 **With Node.js (preferred):**
 ```bash
-node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --dry-run
-node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --args-json '{"ADMIN_EMAIL":"user@example.com"}'
+# When CONFIG.args is empty:
+if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH" --dry-run; then
+  echo "Template dry-run failed; deployment was not submitted." >&2
+  exit 1
+fi
+if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH"; then
+  echo "Template deployment did not return success; follow the Phase 6.3 response or uncertainty path and do not retry automatically." >&2
+  exit 1
+fi
+
+# When CONFIG.args is non-empty, create a new private file outside the project.
+PRIVATE_ARGS_FILE=$(mktemp)
+chmod 600 "$PRIVATE_ARGS_FILE"
+cleanup_node_args_file() {
+  rm -f "$PRIVATE_ARGS_FILE"
+}
+trap cleanup_node_args_file EXIT HUP INT TERM
+# AI writes CONFIG.args as one JSON object to PRIVATE_ARGS_FILE without logging it.
+
+if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH" --dry-run --args-file "$PRIVATE_ARGS_FILE"; then
+  echo "Template dry-run failed; deployment was not submitted." >&2
+  exit 1
+fi
+if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH" --args-file "$PRIVATE_ARGS_FILE"; then
+  echo "Template deployment did not return success; follow the Phase 6.3 response or uncertainty path and do not retry automatically." >&2
+  exit 1
+fi
+cleanup_node_args_file
+trap - EXIT HUP INT TERM
 ```
+
+The dry-run is mandatory for both routes. Use the exact same template and args
+for dry-run and the real request. Continue only after dry-run succeeds.
+The private args file belongs to this workflow and is removed on success,
+failure, or interruption. Never repurpose or delete a caller-owned file.
 
 This script is the preferred execution path because it:
 - reads `~/.sealos/auth.json` directly instead of fragile shell parsing
@@ -1036,35 +1128,103 @@ This script is the preferred execution path because it:
 
 **Without Node.js (curl fallback):**
 ```bash
-# encodeURIComponent via Python (almost always available)
-KUBECONFIG_ENCODED=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read(), safe=''))" < ~/.sealos/kubeconfig)
+# Copy CONFIG.args into a private temporary file; never modify or remove a
+# caller-owned args file.
+INPUT_ARGS_FILE=${ARGS_FILE:-}
+ARGS_FILE=$(mktemp)
+AUTH_CONFIG=$(mktemp)
+DRY_RUN_REQUEST=$(mktemp)
+DEPLOY_REQUEST=$(mktemp)
+DRY_RUN_RESPONSE=$(mktemp)
+DEPLOY_RESPONSE=$(mktemp)
+chmod 600 "$ARGS_FILE" "$AUTH_CONFIG" "$DRY_RUN_REQUEST" "$DEPLOY_REQUEST" \
+  "$DRY_RUN_RESPONSE" "$DEPLOY_RESPONSE"
 
-# Build JSON body with args — use jq if available
-TEMPLATE_YAML=$(cat .sealos/template/index.yaml)
-jq -n --arg yaml "$TEMPLATE_YAML" \
-  --argjson args '{"ADMIN_EMAIL":"user@example.com"}' \
-  '{yaml: $yaml, args: $args}' | \
-  curl -sf -X POST "$DEPLOY_URL" \
-    -H "Authorization: $KUBECONFIG_ENCODED" \
+cleanup_template_request_files() {
+  rm -f "$ARGS_FILE" "$AUTH_CONFIG" "$DRY_RUN_REQUEST" "$DEPLOY_REQUEST" \
+    "$DRY_RUN_RESPONSE" "$DEPLOY_RESPONSE"
+}
+trap cleanup_template_request_files EXIT HUP INT TERM
+
+# Keep the encoded kubeconfig out of curl's argv and process listings. `jq @uri`
+# provides the same encodeURIComponent-compatible encoding used by the Node path.
+if ! KUBECONFIG_ENCODED=$(jq -sRr @uri < ~/.sealos/kubeconfig); then
+  echo "Could not encode kubeconfig for the template request." >&2
+  exit 1
+fi
+if ! printf 'header = "Authorization: %s"\n' "$KUBECONFIG_ENCODED" > "$AUTH_CONFIG"; then
+  echo "Could not prepare private template authorization." >&2
+  exit 1
+fi
+unset KUBECONFIG_ENCODED
+
+if [ -n "$INPUT_ARGS_FILE" ]; then
+  if ! jq -e 'if type == "object" then . else error("args must be an object") end' \
+    "$INPUT_ARGS_FILE" > "$ARGS_FILE" 2>/dev/null; then
+    echo "Template arguments must be a JSON object; deployment was not submitted." >&2
+    exit 1
+  fi
+else
+  printf '%s\n' '{}' > "$ARGS_FILE"
+fi
+
+if ! jq -n --rawfile yaml "$TEMPLATE_PATH" \
+  --slurpfile args "$ARGS_FILE" \
+  '{yaml: $yaml, args: ($args[0] // {}), dryRun: true}' > "$DRY_RUN_REQUEST"; then
+  echo "Could not prepare the template dry-run request." >&2
+  exit 1
+fi
+
+if ! DRY_RUN_STATUS=$(curl --config "$AUTH_CONFIG" -sS -X POST "$DEPLOY_URL" \
     -H "Content-Type: application/json" \
-    -d @-
+    --data-binary @"$DRY_RUN_REQUEST" \
+    -o "$DRY_RUN_RESPONSE" -w '%{http_code}'); then
+  echo "Template dry-run request failed; deployment was not submitted." >&2
+  exit 1
+fi
+case "$DRY_RUN_STATUS" in
+  2??) ;;
+  *)
+    echo "Template dry-run was rejected (HTTP $DRY_RUN_STATUS); deployment was not submitted." >&2
+    exit 1
+    ;;
+esac
+
+if ! jq -n --rawfile yaml "$TEMPLATE_PATH" \
+  --slurpfile args "$ARGS_FILE" \
+  '{yaml: $yaml, args: ($args[0] // {})}' > "$DEPLOY_REQUEST"; then
+  echo "Could not prepare the deployment request." >&2
+  exit 1
+fi
+
+if ! DEPLOY_STATUS=$(curl --config "$AUTH_CONFIG" -sS -X POST "$DEPLOY_URL" \
+    -H "Content-Type: application/json" \
+    --data-binary @"$DEPLOY_REQUEST" \
+    -o "$DEPLOY_RESPONSE" -w '%{http_code}'); then
+  echo "Template deployment request failed." >&2
+  exit 1
+fi
+case "$DEPLOY_STATUS" in
+  2??) ;;
+  *)
+    echo "Template deployment was rejected (HTTP $DEPLOY_STATUS)." >&2
+    exit 1
+    ;;
+esac
+
+# Raw API bodies may contain resolved defaults or credentials. Report only
+# transport status here; discover the instance and resources in Phase 6.5.
+printf 'Dry-run HTTP %s; deploy HTTP %s\n' "$DRY_RUN_STATUS" "$DEPLOY_STATUS"
+cleanup_template_request_files
+trap - EXIT HUP INT TERM
 ```
 
-**Without jq:**
-The AI should read the template YAML (already in context), construct the JSON body directly, write it to a temp file, and curl it:
-```bash
-# AI writes properly escaped JSON to temp file including args from Phase 5.5
-cat > /tmp/sealos-deploy-body.json << 'DEPLOY_EOF'
-{"yaml": "<AI inserts JSON-escaped template YAML here>", "args": {"ADMIN_EMAIL": "user@example.com"}}
-DEPLOY_EOF
+Never print the curl fallback response files. They may contain submitted inputs
+or server-resolved defaults. Phase 6.5 discovers the instance name and resource
+summary from the live workspace after the trap removes all temporary files.
 
-curl -sf -X POST "$DEPLOY_URL" \
-  -H "Authorization: $KUBECONFIG_ENCODED" \
-  -H "Content-Type: application/json" \
-  -d @/tmp/sealos-deploy-body.json
-
-rm -f /tmp/sealos-deploy-body.json
-```
+The curl fallback requires `jq`. If it is unavailable, use the preferred Node
+helper; do not hand-construct credential-bearing JSON or headers.
 
 ### 6.3 Handle Response
 
@@ -1075,16 +1235,32 @@ All error responses use a unified format:
 
 | Status | Meaning | Action |
 |--------|---------|--------|
-| 201 | Deployed successfully | Extract instance name and resources from response |
-| 200 | Dry-run preview (`dryRun: true`) | Show resource preview and quota |
-| 400 | Validation error — `INVALID_PARAMETER` (missing yaml/name) or `INVALID_VALUE` (bad YAML, missing required args) | Read `error.message`, fix template or provide missing `args`, retry |
+| 201 | Resources created | Use only the allowlisted instance/resource summary, then run Phase 6.5 |
+| 200 | Dry-run accepted (`dryRun: true`) | Show only allowlisted resource names and quota; never show resolved args/defaults |
+| 400 | Validation error — `INVALID_PARAMETER` or `INVALID_VALUE` | Use the allowlisted type/code, compare `spec.inputs` with the supplied keys, and rerun local validation; never print the raw response |
 | 401 | `AUTHENTICATION_REQUIRED` — missing or invalid kubeconfig | Re-run auth: `node sealos-auth.mjs login`, or switch workspace: `node sealos-auth.mjs switch <ns>` |
 | 403 | `FORBIDDEN` — insufficient permissions | Inform user, check kubeconfig namespace permissions |
 | 409 | `ALREADY_EXISTS` — instance already exists | Inform user, suggest different app name |
-| 422 | `RESOURCE_ERROR` — K8s rejected resource spec | Read `error.details` for K8s rejection reason, fix template |
-| 503 | `SERVICE_UNAVAILABLE` — K8s cluster unreachable | **Fall back to kubectl (6.4)** |
+| 422 | `RESOURCE_ERROR` — K8s rejected resource spec | Use the allowlisted type/code and the same rendered file's server-side dry-run diagnostics; do not expose raw API details |
+| 500/503 during dry-run | Template service unavailable before a create request | The real request was not sent; Phase 6.4 may be used |
+| Network error, timeout, invalid response, or 5xx during the real request | Deployment outcome is unknown | Do not automatically retry or fall back; follow the uncertainty gate below |
 
-On 201 success, the response contains:
+After the real deployment request is sent, a transport failure or 5xx does not
+prove that nothing was created:
+
+1. Perform a read-only inventory of recently created Sealos Instances/Apps and
+   the namespace footprint for the template's resource kinds.
+2. If matching resources exist, treat the request as submitted and continue
+   with readiness and Phase 6.5 instead of creating another copy.
+3. If no matching footprint is yet visible, stop with outcome `unknown`.
+   Server-side `random(...)` values may make the created names unknowable, so
+   absence cannot be proved safely and this run must not retry or fall back.
+
+Never retry or generate a second random app name or host after an ambiguous
+real request. A later user-requested new deployment must be described as
+potentially duplicating the unknown first request.
+
+The preferred helper emits only an allowlisted response shape:
 ```json
 {
   "name": "myapp-abcdefgh",
@@ -1092,29 +1268,35 @@ On 201 success, the response contains:
   "resourceType": "instance",
   "displayName": "...",
   "createdAt": "...",
-  "args": { ... },
   "resources": [
     { "name": "myapp-abcdefgh", "uid": "...", "resourceType": "deployment", "quota": { "cpu": 0.1, "memory": 0.25, "storage": 0, "replicas": 1 } }
   ]
 }
 ```
-Extract the instance name and present to user.
+Response `args`, messages, arbitrary nested fields, and resolved defaults are
+always omitted. Extract the instance name without exposing those fields.
 
 ### 6.3.1 Post-Deploy Readiness Verification
 
-After a 201 response, do not assume the app is usable. Verify Kubernetes readiness:
+After a 201 response, do not assume the app is usable. Inventory the actual
+resource names returned by the allowlisted response and declared by the
+template, then verify Kubernetes readiness:
 
 ```bash
 NAMESPACE=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   config view --minify -o jsonpath='{.contexts[0].context.namespace}')
 
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  get pod,svc,endpoints,ingress -n "$NAMESPACE" -l app=<app-name>
+  get deployment,statefulset,daemonset,job,cronjob,pod,svc,endpoints,ingress \
+  -n "$NAMESPACE"
 ```
 
-For the public app Service, endpoints must be non-empty before the Ingress can serve traffic. If the URL returns `no healthy upstream` or HTTP 503:
+Scope subsequent checks to those actual names and owner references; do not
+assume an `app=<name>` label. For each public app Service, endpoints must be
+non-empty before the Ingress can serve traffic. If the URL returns
+`no healthy upstream` or HTTP 503:
 
-1. Check `endpoints/<app-name>`; empty endpoints means the backend Pod is not Ready.
+1. Check the endpoint object named by that Service; empty endpoints means the backend Pod is not Ready.
 2. Check Pod init container status and previous logs:
    ```bash
    KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
@@ -1125,7 +1307,7 @@ For the public app Service, endpoints must be non-empty before the Ingress can s
    - `Permission denied` on mounted paths: add `fsGroup` or a one-shot permission repair for existing PVCs.
    - App-specific migration/bootstrap errors: repair the failed bootstrap state, then rerun the init path.
 4. Only report the app as usable after the endpoint exists and an HTTP request to the public URL returns a non-5xx response.
-5. Continue to Phase 6.5 before writing deployment state or reporting success.
+5. Continue to Phase 6.5 before finalizing deployment state or reporting success.
 
 For templates with KubeBlocks-supported databases, runtime truth must include the database control plane and generated connection surface:
 
@@ -1155,9 +1337,14 @@ For login success followed by 404, route mismatch, or SDK endpoint errors:
 4. Repair the template by aligning the bundle versions, restoring the missing route/service, or correcting reverse-proxy path handling.
 5. Redeploy and rerun the browser login pass.
 
-### 6.4 Fallback: kubectl apply (when Template API is unavailable)
+### 6.4 Fallback: kubectl apply (standard route, before API creation)
 
-If the Template API returns 503/500 or is unreachable, deploy directly via kubectl using the local kubeconfig.
+Use this path only for `continue_standard_pipeline` when the Template API is
+known to be unavailable before the real deployment request is sent. The
+official-template route may use Template expressions that this local workflow
+cannot render equivalently; if its API dry-run cannot run, stop and retry the
+official API later. Never fall back after a timeout, connection interruption,
+invalid response, or 5xx from a real deployment request.
 
 **Step 1 — Gather cluster context:**
 ```bash
@@ -1173,41 +1360,72 @@ CERT_SECRET=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify
 
 **Step 2 — Render template variables:**
 
-The template YAML from Phase 5 contains `${{ }}` variables. The AI must replace them with actual values:
+The selected template YAML contains `${{ }}` variables. The AI must replace them with actual values:
 
 | Variable | Value |
 |----------|-------|
 | `${{ defaults.app_name }}` | Generate: `<app>-<random8>` (e.g., `edict-xn22k4ie`) |
 | `${{ defaults.app_host }}` | Generate: `<app>-<random8>` (e.g., `edict-2v4jryz1`) |
 | `${{ defaults.<key> }}` | Other defaults: generate per their `value` pattern |
-| `${{ inputs.<key> }}` | User-provided values from Phase 5.5 `CONFIG.args` |
+| `${{ inputs.<key> }}` | User-provided values from `CONFIG.args` collected in Phase 5.5 or Phase 6.0 |
 | `${{ random(N) }}` | Random alphanumeric string of length N |
 | `${{ SEALOS_CLOUD_DOMAIN }}` | `CLOUD_DOMAIN` from Step 1 |
 | `${{ SEALOS_CERT_SECRET_NAME }}` | `CERT_SECRET` from Step 1 |
 | `${{ SEALOS_NAMESPACE }}` | `NAMESPACE` from Step 1 |
 
-**Important:** `${{ inputs.xxx }}` values come from the user in Phase 5.5. If any required input was not provided, the AI must ask the user now before proceeding.
+**Important:** `${{ inputs.xxx }}` values come from `CONFIG.args`. If any required input was not provided, ask the user now before proceeding.
 
 The AI reads the template YAML, performs all variable substitutions, and produces rendered K8s resource documents.
 
-**Step 3 — Split and apply:**
+**Step 3 — Split, dry-run, and apply:**
 
 The rendered YAML is a multi-document file (separated by `---`). Split it into individual resources:
 
 1. **Skip** the first document (`kind: Template`) — this is the Sealos template metadata, not a K8s resource
-2. **Apply** the remaining documents (Deployment, Service, Ingress, App, etc.) via kubectl:
+2. Put the remaining rendered resources in a mode-`0600` temporary file because
+   they may contain user inputs.
+3. Run a server-side dry-run against that exact file.
+4. Only after the dry-run succeeds, apply that same file:
 
 ```bash
-# AI writes the rendered resources (without the Template CR) to a temp file
-cat > /tmp/sealos-deploy-rendered.yaml << 'EOF'
-<rendered Deployment + Service + Ingress + App YAML>
-EOF
+RENDERED_FILE=$(mktemp)
+DRY_RUN_LOG=$(mktemp)
+APPLY_LOG=$(mktemp)
+chmod 600 "$RENDERED_FILE" "$DRY_RUN_LOG" "$APPLY_LOG"
+cleanup_rendered_file() {
+  rm -f "$RENDERED_FILE" "$DRY_RUN_LOG" "$APPLY_LOG"
+}
+trap cleanup_rendered_file EXIT HUP INT TERM
+# AI writes the rendered resources (without the Template CR) to RENDERED_FILE.
 
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify apply -f /tmp/sealos-deploy-rendered.yaml -n "$NAMESPACE"
-rm -f /tmp/sealos-deploy-rendered.yaml
+if KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  apply --dry-run=server -o name -f "$RENDERED_FILE" -n "$NAMESPACE" \
+  > "$DRY_RUN_LOG" 2>&1; then
+  if ! KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+    apply -o name -f "$RENDERED_FILE" -n "$NAMESPACE" \
+    > "$APPLY_LOG" 2>&1; then
+    echo "Resource apply failed; private diagnostics were removed." >&2
+    exit 1
+  fi
+else
+  echo "Server-side dry-run failed; resources were not applied and private diagnostics were removed." >&2
+  exit 1
+fi
+
+# `-o name` should emit only kind/name lines. Apply an allowlist before showing
+# even that summary; never print the raw dry-run or apply logs.
+sed -nE '/^[a-z0-9.]+\/[A-Za-z0-9._-]+$/p' "$APPLY_LOG"
+cleanup_rendered_file
+trap - EXIT HUP INT TERM
 ```
 
 **Step 4 — Handle apply errors:**
+
+The AI may inspect the private log files only long enough to classify an error.
+It must not echo, attach, or persist the raw diagnostics because admission
+errors can contain submitted Secret or environment values. Report only an
+allowlisted error category, resource kind/name, and safe field path; redact all
+values before explaining a fix.
 
 | Error | Fix |
 |-------|-----|
@@ -1216,26 +1434,39 @@ rm -f /tmp/sealos-deploy-rendered.yaml
 | `Forbidden` | Kubeconfig may be expired — re-run auth |
 | `already exists` | Resource exists from a previous deploy — use `kubectl apply` (idempotent) |
 
-**Step 5 — Verify deployment:**
-```bash
-# Wait for pod to be ready (max 120s)
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  wait --for=condition=available deployment/<app-name> -n "$NAMESPACE" --timeout=120s
+**Step 5 — Verify every rendered workload:**
 
-# Get pod status
+Read the kinds and names from the exact rendered file used above. Do not assume
+one Deployment, derive an application name, or rely on an `app=<name>` label.
+Wait for every application workload with the kind-appropriate operation:
+
+```bash
+# Run once for every Deployment, StatefulSet, or DaemonSet in RENDERED_FILE.
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  get pods -l app=<app-name> -n "$NAMESPACE"
+  rollout status <kind>/<name> -n "$NAMESPACE" --timeout=120s
+
+# Run once for every one-shot Job in RENDERED_FILE.
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  wait --for=condition=complete job/<name> -n "$NAMESPACE" --timeout=120s
 ```
+
+For CronJobs, confirm that each named resource exists and has the intended
+schedule. For operator-managed resources such as KubeBlocks clusters, inspect
+their status and owned workloads. Phase 6.5 then verifies the complete live
+footprint, dependencies, logs, network path, and user flow before success.
 
 App URL: `https://<app_host>.<CLOUD_DOMAIN>`
 
 ### 6.5 Runtime Truth Pass
 
-Execute `<SKILL_DIR>/modules/runtime-truth.md` after every Template API or kubectl fallback deploy. Complete its Launchpad network, App URL, login, log, Event convergence, object-storage, and footprint gates before writing deployment state or reporting success.
+Execute `<SKILL_DIR>/modules/runtime-truth.md` after every Template API or
+kubectl fallback deploy. Complete its applicable network, runtime, log, user
+flow, dependency, and footprint gates before writing deployment state or
+reporting success.
 
 ### Write state.json
 
-**This is critical for enabling future updates.** After a successful deploy, write `.sealos/state.json`:
+After Phase 6.5 verifies the deployment, write `.sealos/state.json`:
 
 ```json
 {
@@ -1265,19 +1496,33 @@ Execute `<SKILL_DIR>/modules/runtime-truth.md` after every Template API or kubec
 }
 ```
 
-The `last_deploy` section is what **Deployment Mode Detection** reads on subsequent runs to decide between DEPLOY and UPDATE mode. Without it, every `/sealos-deploy` creates a new instance.
+The `last_deploy` section is what **Deployment Mode Detection** reads on
+subsequent runs to decide between DEPLOY and UPDATE mode. Without it, every
+`/sealos-deploy` creates a new instance.
 
-The `history` array is append-only — every subsequent update (via Update Path) adds an entry. See the **Update History** section at the end of this file for the full schema and rules.
+The `history` array is append-only — every subsequent update adds an entry. See
+the **Update History** section at the end of this file for the full schema and
+rules.
 
 Sources for each field:
 - `app_name`: from Template API response `name` or the rendered `defaults.app_name` (kubectl apply)
 - `app_host`: from the rendered `defaults.app_host` value, or parsed from the Ingress host
 - `namespace`: from kubeconfig context
 - `region`: from `~/.sealos/auth.json` `region` field (strip `https://`)
-- `image`: from `analysis.json` `image_ref`
-- `docker_hub_user`: from Phase 4 `DOCKER_HUB_USER` (null if Phase 2 found existing image)
+- `image` on the standard route: from `analysis.json` `image_ref`
+- `image` on the official-template route: after Phase 6.5, read the image from
+  the live primary application Deployment selected by the public
+  Service/Ingress; if no public workload exists, use the verified primary
+  application workload. Fall back to the selected official reference's
+  application image only when it matches the live resource. Never write an
+  empty image.
+- `docker_hub_user`: from Phase 4 `DOCKER_HUB_USER`; use `null` when Phase 2
+  found an existing image or Phase 1.5 reused an official template
 - `repo_name`: from `analysis.json` `project.repo_name`
 - `url`: constructed from `app_host` and `region`
+
+For an official-template deployment, set the history note to
+`Initial deployment from official template <name>@<catalog-commit>`.
 
 ---
 
@@ -1296,12 +1541,13 @@ For test deployments, delete the Sealos `Instance` and application resources bef
 
 ## Output
 
-On success, present to user:
+On success, present the route that actually ran.
 
+For the standard route:
 ```
 ✓ Assessed: {language} + {framework}, score {N}/12 — {verdict}
 ✓ Image: {IMAGE_REF} ({source: existing/built})
-✓ Template: .sealos/template/index.yaml
+✓ Template: generated at .sealos/template/index.yaml
 ✓ Configured: {N} inputs set ({M} required, {K} optional)
 ✓ Deployed to Sealos Cloud ({region})
 
@@ -1310,20 +1556,37 @@ App URL: https://<app-access-url>
 To update this deployment later, run: /sealos-deploy
 ```
 
+For the official-template route:
+```
+✓ Official template: {template-name} ({catalog-commit})
+✓ Local image build and template generation: skipped
+✓ Configured: {N} template inputs
+✓ Deployed to Sealos Cloud ({region})
+```
+
+Show `Primary deployed image` only when the live footprint identifies one
+unambiguous primary application image. Show `App URL` only when Phase 6.5
+verified a public endpoint. Otherwise show the verified workload/resource
+summary; workers and scheduled workloads may have neither field.
+
 If any `inputs` were configured, also show:
 ```
 Configuration applied:
   ADMIN_EMAIL: admin@example.com
-  OPENAI_API_KEY: sk-***...*** (masked)
+  OPENAI_API_KEY: <configured>
+  ADMIN_PASSWORD: <configured>
 ```
-Mask sensitive values (API keys, passwords) — show only first 3 and last 3 characters.
+For API keys, passwords, tokens, private keys, and other sensitive fields, show
+only the fixed `<configured>` placeholder. Never reveal prefixes, suffixes, or
+length-derived masks; short secrets must not be reconstructable.
 
 ---
 ---
 
 # Update Path
 
-**This section is only executed in UPDATE mode** (entered via Deployment Mode Detection above).
+**This section is only executed in UPDATE mode** (entered via Deployment Mode
+Detection above).
 
 The update path skips Assess, Detect Image, Dockerfile, and Template generation — it reuses the existing deployment and only pushes a new image.
 

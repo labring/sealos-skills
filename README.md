@@ -160,24 +160,30 @@ During the deploy, database, and object-storage flows, Sealos Skills will:
 - guide the user through Sealos login when needed
 - use `sealos-cli` for Sealos Cloud database creation, connection details, and database operations
 - use `sealos-cli s3` for Sealos object storage buckets, credentials, quota checks, object operations, and presigned URLs
-- use or help prepare a container registry path such as Docker Hub or GHCR
+- use or help prepare a container registry path such as Docker Hub or GHCR when
+  the selected route needs to build and push an image
 
-For an actual deployment, you will still need a Sealos Cloud account and access to a container registry, but these do not need to be fully set up before the skill starts. For database and object-storage work, you need a Sealos Cloud account and a workspace that can create the requested resources.
+For an actual deployment, you need a Sealos Cloud account. Container-registry
+access is required only when the selected route builds and pushes a new image.
+For database and object-storage work, you need a Sealos Cloud account and a
+workspace that can create the requested resources.
 
 ## What Sealos Deploy Handles
 
 On a typical deploy, the agent will:
 
 - assess the project structure and runtime needs
-- find exact `spec.gitRepo` and topology-similar references from
-  `labring-actions/templates@kb-0.9` as evidence without copying them into the
-  generated template or bypassing current validation
-- reuse an existing image or build one when needed
-- generate a Sealos template
+- look for a unique exact project match in the official
+  `labring-actions/templates@kb-0.9` catalog
+- reuse that official template verbatim and go directly to deployment when the
+  source is aligned; otherwise reuse or build an image and generate a Sealos
+  template from the current project
+- collect required template inputs and dry-run every template before deployment
 - deploy and verify rollout
 - verify the actual Sealos App URL, logs, login/setup flow for web apps, and resource footprint before reporting the app as usable
 
-Later runs can switch to an in-place update flow when an existing deployment is detected.
+Later runs can switch to an in-place update flow when an existing deployment is
+detected.
 
 ## What Sealos Database Handles
 

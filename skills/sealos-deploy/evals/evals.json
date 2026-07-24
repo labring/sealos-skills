@@ -122,15 +122,17 @@
     },
     {
       "id": 10,
-      "prompt": "/sealos-deploy https://github.com/toeverything/affine",
-      "expected_output": "Phase 1 begins with the silent internal judgment, completes readiness analysis before dynamic catalog discovery, writes bounded exact/similar template references, and continues the normal deployment flow",
+      "prompt": "/sealos-deploy https://github.com/toeverything/affine — use the unchanged default-branch source. The refreshed official catalog contains one exact spec.gitRepo match.",
+      "expected_output": "Phase 1 completes, Phase 1.5 records the unique trusted exact match, copies that official YAML verbatim, skips Phases 2–5.5, resolves required inputs in Phase 6, dry-runs and deploys with the same args, then completes Phase 6.5",
       "files": [],
       "assertions": [
         {"name": "runs-analysis-first", "description": "The entry judgment produces no separate result, and Phase 1 completes readiness analysis before catalog discovery"},
-        {"name": "discovers-dynamically", "description": "Searches catalog Template spec.gitRepo values for exact matches and ranks structurally similar references without a maintained project whitelist"},
-        {"name": "writes-template-references", "description": "Writes .sealos/template-references.json for available, stale, disabled, and unavailable catalog outcomes"},
-        {"name": "references-do-not-bypass", "description": "Treats catalog YAML as untrusted evidence and never bypasses current analysis, image verification, template generation, or validation"},
-        {"name": "catalog-failure-nonblocking", "description": "Continues the normal deployment flow when catalog fetch, refresh, or parsing is unavailable"}
+        {"name": "selects-unique-official-exact", "description": "Requires one exact spec.gitRepo match from a fresh official catalog with concrete commit provenance"},
+        {"name": "materializes-verbatim-template", "description": "Copies the selected official YAML verbatim to .sealos/template/index.yaml and records decision.route as deploy_official_template"},
+        {"name": "skips-build-and-generation", "description": "Skips Phases 2, 3, 4, 5, and 5.5 instead of detecting or building an image or generating another template"},
+        {"name": "resolves-official-inputs", "description": "Collects missing required spec.inputs in Phase 6 without modifying the official YAML or exposing sensitive values"},
+        {"name": "dry-runs-before-deploy", "description": "Uses the same official YAML and args for a successful dry-run before the real Template API request"},
+        {"name": "runs-runtime-truth", "description": "Continues through Phase 6.5 and records the primary image found in the live deployment"}
       ]
     },
     {
@@ -172,10 +174,11 @@
     },
     {
       "id": 14,
-      "prompt": "/sealos-deploy https://github.com/danny-avila/LibreChat，使用官方多组件 Compose；模板中 RAG 固定使用 OpenAI embeddings，并且 PostgreSQL 需要 vector 扩展。只允许使用该 skill 已有的产物。",
+      "prompt": "/sealos-deploy 当前本地修改过的 https://github.com/danny-avila/LibreChat checkout，使用本地官方多组件 Compose；模板中 RAG 固定使用 OpenAI embeddings，并且 PostgreSQL 需要 vector 扩展。不要忽略本地改动，只允许使用该 skill 已有的产物。",
       "expected_output": "Generates the existing Sealos template artifact with pinned component images, official health probes, valid runtime credentials, and a database final-state gate; the complete docker-to-sealos quality gate passes against the exact final template before deployment, with no new artifact type introduced",
       "files": [],
       "assertions": [
+        {"name": "does-not-bypass-local-changes", "description": "Phase 1.5 records continue_standard_pipeline and does not replace the modified checkout with an official catalog template"},
         {"name": "pins-component-images", "description": "Resolves :latest or floating LibreChat component tags to an explicit version tag or digest"},
         {"name": "uses-official-rag-health", "description": "Uses /health on port 8000 for LibreChat RAG probes instead of probing /"},
         {"name": "validates-format-constrained-credentials", "description": "Does not use bare random() defaults for LibreChat CREDS_KEY/CREDS_IV hex contracts"},
@@ -244,6 +247,76 @@
         {"name": "skips-phase-one", "description": "Skips Phase 1, including its entry judgment and readiness scoring, in UPDATE mode"},
         {"name": "enters-mode-detection", "description": "Continues to verify the live application and choose DEPLOY versus UPDATE"},
         {"name": "preserves-runtime-validation", "description": "Still verifies rollout and runtime truth during the update path"}
+      ]
+    },
+    {
+      "id": 20,
+      "prompt": "Deploy an unchanged default-branch repository that has no exact spec.gitRepo entry in the official Sealos template catalog.",
+      "expected_output": "Phase 1.5 records continue_standard_pipeline and immediately continues to Phase 2 without looking for or using a similar template",
+      "files": [],
+      "assertions": [
+        {"name": "records-no-exact-route", "description": "Writes decision.route as continue_standard_pipeline with a no-exact-match reason"},
+        {"name": "continues-to-phase-two", "description": "Continues directly to existing-image detection"},
+        {"name": "does-not-run-similarity", "description": "Does not structurally match, select, or reference similar templates"},
+        {"name": "does-not-materialize-catalog-yaml", "description": "Does not copy any catalog YAML to .sealos/template/index.yaml"}
+      ]
+    },
+    {
+      "id": 21,
+      "prompt": "The official catalog has an exact repository match, but the current local checkout is dirty and on a custom branch. Deploy the current source without losing those changes.",
+      "expected_output": "Phase 1.5 explains that the exact official template cannot replace the current checkout, records continue_standard_pipeline, and builds from the current source",
+      "files": [],
+      "assertions": [
+        {"name": "preserves-current-source-intent", "description": "Does not silently deploy the official release while ignoring local or branch changes"},
+        {"name": "disables-official-reuse", "description": "Invokes exact matching with official-template reuse disabled"},
+        {"name": "explains-standard-route", "description": "Briefly explains why the exact match continues through the standard pipeline"},
+        {"name": "does-not-copy-official-template", "description": "Leaves .sealos/template/index.yaml for Phase 5 generation"}
+      ]
+    },
+    {
+      "id": 22,
+      "prompt": "Deploy a project while the official template catalog cannot be refreshed and no trustworthy non-stale cache is available.",
+      "expected_output": "Phase 1.5 records an unavailable catalog result and continues to Phase 2 without blocking deployment or attempting similarity matching",
+      "files": [],
+      "assertions": [
+        {"name": "catalog-failure-is-nonblocking", "description": "Catalog network, Git, or parse failure does not stop the deployment"},
+        {"name": "records-unavailable-decision", "description": "Writes continue_standard_pipeline with an unavailable-catalog reason when possible"},
+        {"name": "continues-to-phase-two", "description": "Proceeds with current-source image detection and later phases"},
+        {"name": "does-not-use-stale-template", "description": "Does not directly deploy an untrusted or stale catalog YAML"}
+      ]
+    },
+    {
+      "id": 23,
+      "prompt": "Deploy a fresh, unchanged default-branch clone with one exact official template match. The repository does not ignore .sealos/, and Phase 1 has just created the untracked .sealos/analysis.json.",
+      "expected_output": "Phase 1.5 ignores only its own generated analysis artifact when checking source cleanliness, selects the unique freshly verified official template, and takes the Phase 6 fast path",
+      "files": [],
+      "assertions": [
+        {"name": "does-not-misclassify-generated-analysis", "description": "Does not treat the workflow-created .sealos/analysis.json as a user source change"},
+        {"name": "still-detects-real-overrides", "description": "Would still disable reuse for any other tracked or untracked change, including .sealos/config.json"},
+        {"name": "takes-exact-fast-path", "description": "Records deploy_official_template and skips Phases 2 through 5.5"}
+      ]
+    },
+    {
+      "id": 24,
+      "prompt": "Resume a first deployment whose local .sealos/template-references.json claims verified_for_reuse=true and whose copied YAML claims an official exact match, but the official catalog cannot be freshly fetched or verified now.",
+      "expected_output": "The resumed Phase 1.5 refuses to trust the local claim or YAML, records continue_standard_pipeline, removes only a byte-identical prior official materialization when safe, and continues to Phase 2",
+      "files": [],
+      "assertions": [
+        {"name": "requires-fresh-remote-proof", "description": "Reruns official origin, commit, and checkout verification instead of trusting local verified_for_reuse metadata"},
+        {"name": "does-not-deploy-forged-local-yaml", "description": "Does not enter Phase 6 with only the local artifact or copied template as evidence"},
+        {"name": "continues-standard-route", "description": "Falls back non-blockingly to Phase 2 when fresh verification is unavailable"}
+      ]
+    },
+    {
+      "id": 25,
+      "prompt": "The real Template API deployment POST times out after its body was sent. The selected official template uses random app names. Continue safely.",
+      "expected_output": "Treats the outcome as unknown, performs a read-only live footprint inventory, never generates a second random identity, and stops without retrying or using kubectl fallback",
+      "files": [],
+      "assertions": [
+        {"name": "does-not-assume-failure", "description": "Recognizes that a timeout after submission may still have created resources"},
+        {"name": "inventories-before-mutation", "description": "Checks recent Instances, Apps, and template resource kinds and names before any retry"},
+        {"name": "prevents-duplicate-random-deploy", "description": "Preserves resolved identifiers and never renders a second random app name or host"},
+        {"name": "stops-ambiguous-retry", "description": "If no footprint is visible, keeps the outcome unknown and does not retry or use kubectl fallback"}
       ]
     }
   ]

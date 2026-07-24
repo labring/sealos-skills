@@ -88,7 +88,10 @@ node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$APP_URL"
 
 For login-gated web applications, identify the first-run, registration, or login flow from upstream docs, source code, the rendered template, or observed network/API behavior. Complete the flow and verify at least one authenticated page or API route.
 
-If administrator credentials were collected in Phase 5.5, use those exact deploy-time values for the login smoke. Mask the password in command echoes, logs, summaries, and final output.
+If administrator credentials were collected in Phase 5.5 or official-template
+Phase 6.0, use those exact deploy-time values for the login smoke. Keep them in
+the private deploy-time argument file or equivalent in-memory configuration;
+mask them in command echoes, logs, summaries, and final output.
 
 When credentials and API paths are known, use the helper for the repeatable HTTP portion:
 
