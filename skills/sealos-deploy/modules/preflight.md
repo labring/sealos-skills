@@ -55,6 +55,10 @@ Notes:
 - `GITHUB_TOKEN` may exist in the sandbox for a later source materialization or kaniko phase, but this skill does not prompt for or refresh GitHub auth.
 - `S3_ENDPOINT` and the S3 secret may exist in the DevBox runtime for a later kaniko phase, but they are conditional blockers only when a new image must be built.
 - `railpack` is an optional build-environment detector. It strengthens Dockerfile generation inputs when available, but it must not become an entry blocker.
+- Phase 1.6 uses an index-only sparse cache of
+  `labring-actions/templates@kb-0.9` under
+  `~/.sealos/cache/template-catalog/`. Catalog refresh failure may use a usable
+  stale cache or continue without references; it is never an entry blocker.
 
 ## Step 2: Capability Classification
 
@@ -99,6 +103,7 @@ Record but do not stop:
 
 - `jq` missing
 - `railpack` missing
+- template catalog network refresh unavailable
 
 ## Step 3: Resolve Project Context
 
@@ -179,6 +184,7 @@ At the end of preflight, present:
 - whether sandbox helpers like `kubectl` and `GITHUB_TOKEN` are present
 - whether VersityGW S3 settings appear to be present
 - whether Railpack build-environment probing is available
+- whether Phase 1.6 can refresh or reuse the template catalog
 - whether a later kaniko phase would use the active sandbox namespace and current service account
 - whether a later sandbox kaniko phase would be able to run if the project needs a new image
 
