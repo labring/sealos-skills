@@ -125,14 +125,13 @@
     {
       "id": 10,
       "prompt": "/sealos-deploy https://github.com/toeverything/affine",
-      "expected_output": "Runs workload eligibility and Phase 1 analysis before dynamic catalog discovery, writes bounded exact/similar template references, and continues the normal image, build, generation, validation, and deployment flow",
+      "expected_output": "Runs the workload eligibility gate before Phase 0.5 template matching; after an eligible result, writes template-match.json and continues normally when no materialized template exists",
       "files": [],
       "assertions": [
-        {"name": "runs-analysis-first", "description": "Resolves an eligible deployment target and completes Phase 1 analysis before catalog discovery"},
-        {"name": "discovers-dynamically", "description": "Searches catalog Template spec.gitRepo values for exact matches and ranks structurally similar references without a maintained project whitelist"},
-        {"name": "writes-template-references", "description": "Writes .sealos/template-references.json for available, stale, disabled, and unavailable catalog outcomes"},
-        {"name": "references-do-not-bypass", "description": "Treats catalog YAML as untrusted evidence and never bypasses current analysis, image verification, template generation, or validation"},
-        {"name": "catalog-failure-nonblocking", "description": "Continues the normal deployment flow when catalog fetch, refresh, or parsing is unavailable"}
+        {"name": "runs-eligibility-first", "description": "Resolves a supported deployment target before template matching or Phase 1 scoring"},
+        {"name": "runs-template-fast-path", "description": "Checks configured GitHub repo to Sealos template mappings after eligibility and before Phase 1 assessment"},
+        {"name": "writes-template-match", "description": "Writes .sealos/template-match.json for both matched and unmatched outcomes"},
+        {"name": "does-not-false-positive", "description": "Does not skip source analysis/build/template generation unless a matched template is materialized"}
       ]
     },
     {

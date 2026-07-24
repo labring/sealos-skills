@@ -96,11 +96,6 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploy started" > "$LOG_FILE"
 [2026-03-05 14:30:03] Language: python, Framework: fastapi, Port: 8000
 [2026-03-05 14:30:03] Decision: CONTINUE
 
-[2026-03-05 14:30:04] === Phase 1.5: Template Catalog References ===
-[2026-03-05 14:30:04] Catalog: labring-actions/templates@kb-0.9
-[2026-03-05 14:30:04] Exact: 1, Similar: 3
-[2026-03-05 14:30:04] Evidence: .sealos/template-references.json
-
 [2026-03-05 14:30:04] === Phase 2: Detect Image ===
 [2026-03-05 14:30:05] Docker Hub: owner/repo:latest (arm64 only, no amd64)
 [2026-03-05 14:30:05] GHCR: not found
@@ -146,7 +141,7 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 |--------|-------|---------|
 | `workload-eligibility.mjs` | `node workload-eligibility.mjs <repo-dir>` | Read-only fail-closed workload classification; decision is stdout-only |
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
-| `find-template-references.mjs` | `node find-template-references.mjs --work-dir <repo-dir> --skill-dir <SKILL_DIR> --analysis <analysis.json> [--github-url <url>] [--catalog-dir <dir>]` | Find exact and similar `labring-actions/templates@kb-0.9` catalog references; `--catalog-dir` is for tests/offline use |
+| `detect-template.mjs` | `node detect-template.mjs [--github-url <url>] --work-dir <repo-dir> --skill-dir <SKILL_DIR>` | Detect configured GitHub repo → Sealos template fast-path matches |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |
 | `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build amd64 image & push to the selected registry (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
@@ -194,8 +189,8 @@ Paths used in pipeline.md follow the pattern:
 |-------|--------|-----------|
 | 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
 | 0.4 — Eligibility | Confirm the repository root is a supported cloud workload | Any non-eligible result → stop |
+| 0.5 — Template Fast Path | Match GitHub repo to a configured Sealos template | No match, or match cannot materialize template YAML |
 | 1 — Assess | Clone repo (or use current project), analyze deployability | Score too low → stop |
-| 1.5 — Catalog References | Find exact `spec.gitRepo` and topology-similar templates as untrusted evidence | Catalog unavailable → continue without references |
 | 2 — Detect | Find existing image (Docker Hub / GHCR / README) | Found → jump to Phase 5 |
 | 3 — Dockerfile | Generate Dockerfile if missing | Already has one → skip |
 | 4 — Build & Push | `docker buildx` → GHCR (auto via gh CLI) or Docker Hub (fallback) | — |
@@ -213,14 +208,13 @@ Input (GitHub URL / local path)
 [Phase 0] Preflight ── fail → guide user to fix and STOP
   │ pass
   ▼
-[Phase 0.4] Eligibility ── ineligible/ambiguous → STOP with evidence
-  │ eligible
-  ▼
+[Phase 0.5] Template fast path
+  │
+  ├── materialized template match ───────┐
+  │                                      │
+  ▼                                      │
 [Phase 1] Assess ── not suitable → STOP with reason
   │ suitable
-  ▼
-[Phase 1.5] Catalog references
-  │ exact/similar evidence (catalog failure is non-blocking)
   ▼
 [Phase 2] Detect existing image
   │
@@ -236,7 +230,7 @@ Input (GitHub URL / local path)
   │
   ▼
 [Phase 5] Generate Sealos Template
-  │ apply current rules/source before exact/similar references
+  ◄──────────────────────────────────────┘
   │
   ▼
 [Phase 5.5] Configure ── present env vars → ask user for inputs → confirm
