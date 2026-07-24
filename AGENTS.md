@@ -47,7 +47,7 @@ Apply this policy whenever changes from `main` are merged into the branch named 
 - Do not merge main's plugin and marketplace surfaces: `.codex-plugin/`, `.claude-plugin/`, `.codebuddy-plugin/`, `.agents/plugins/`, `commands/`, `distribution/`, `marketplaces/`, `plugins/`, `plugin.json`, `marketplace.json`, `gemini-extension.json`, `qwen-extension.json`, or `openclaw.plugin.json`.
 - Do not merge main's current `assets/`; they contain plugin branding and Codex usage media. Evaluate future non-plugin assets separately.
 - Do not merge main's `.planning/` history. If the preview branch has planning artifacts of its own, preserve the target branch's versions.
-- Evaluate root `scripts/` files manually. Merge a script only when it validates behavior intentionally shared with the preview branch. Do not merge `scripts/validate-codex-plugin.py` or `scripts/test-sealos-deploy-template-fast-path.mjs`, because they validate main-only plugin or full-deploy behavior.
+- Evaluate root `scripts/` files manually. Merge a script only when it validates behavior intentionally shared with the preview branch. Do not merge `scripts/validate-codex-plugin.py` or `scripts/test-sealos-deploy-template-references.mjs`, because they validate main-only plugin or full-deploy behavior.
 
 ### Merge Procedure
 
@@ -109,15 +109,15 @@ Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code
 ### Deployment pipeline (sealos-deploy)
 
 ```text
-Preflight → Mode Detection → DEPLOY or UPDATE
+Preflight → Eligibility → Mode Detection → DEPLOY or UPDATE
 
-DEPLOY: Assess → Detect image → Dockerfile → Build & Push → Template → Deploy
+DEPLOY: Assess → Catalog references → Detect image → Dockerfile → Build & Push → Template → Deploy
 UPDATE: Build & Push → kubectl set image → Verify rollout (auto-rollback on failure)
 ```
 
 Mode detection reads `.sealos/state.json` `last_deploy` field. If a running deployment is found (verified via kubectl), the skill enters UPDATE mode and skips assess/template/deploy phases. If not, it runs the full DEPLOY pipeline.
 
-State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot), and `.sealos/config.json` (optional user overrides). The `last_deploy` section in `state.json` records app name, namespace, image, and URL so later deploys can update in place instead of starting over.
+State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot), `.sealos/template-references.json` plus `.sealos/template-references/` (exact/similar catalog evidence), and `.sealos/config.json` (optional user overrides). Catalog evidence never materializes the generated template or skips normal phases. The `last_deploy` section in `state.json` records app name, namespace, image, and URL so later deploys can update in place instead of starting over.
 
 ## Key paths
 
@@ -162,6 +162,7 @@ State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.j
 - For `docker-to-sealos` changes without a template artifact, run `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1 python3 skills/docker-to-sealos/scripts/quality_gate.py`.
 - Add or update `test_check_consistency.py`, `test_compose_to_template.py`, or `test_check_must_coverage.py` coverage with the behavior they enforce.
 - For changed `sealos-deploy` JavaScript helpers, run `node --check <changed-script.mjs>` and the matching `test-*.mjs` file.
+- For template catalog reference behavior, run `node scripts/test-sealos-deploy-template-references.mjs`.
 - Run `node skills/sealos-deploy/scripts/test-sealos-footprint.mjs` and `node skills/sealos-deploy/scripts/test-sealos-live-smoke.mjs` when their helpers or runtime contract changes.
 - Keep `skills/sealos-deploy/evals/` aligned with user-visible deploy behavior.
 - Run `python3 scripts/validate-codex-plugin.py` when manifests, commands, distribution metadata, assets, or skill inventory changes.

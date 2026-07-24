@@ -123,9 +123,24 @@ docker info 2>/dev/null
 **Node.js:**
 - If missing, no problem. Pipeline uses fallback mode:
   - `score-model.mjs` → AI reads files and applies scoring rules directly
+  - `find-template-references.mjs` → AI reads a usable cached catalog and writes
+    bounded exact/similar reference evidence; if no cache is usable, Phase 1.5
+    is skipped as non-blocking
   - `detect-image.mjs` → AI runs curl commands for Docker Hub / GHCR API
   - `build-push.mjs` → AI runs `docker buildx` commands directly
   - `sealos-auth.mjs` → AI runs curl to exchange token for kubeconfig (workspace list/switch not available in fallback mode)
+
+**Template catalog cache:**
+- Phase 1.5 uses `labring-actions/templates` branch `kb-0.9` by default
+- Reuse `~/.sealos/cache/template-catalog/` across runs
+- The cache must be an index-only sparse Git checkout of
+  `template/*/index.yaml`; do not fetch catalog logos or README files
+- A refresh failure may fall back to a usable existing cache
+- Missing Node.js, Git/network failure, a corrupt catalog entry, or an
+  unavailable cache must never block deployment; continue without catalog
+  references
+- `--catalog-dir` is only for tests or explicit offline operation, not routine
+  user configuration
 
 **Python:**
 - Python with PyYAML is required when the run reaches Phase 5.
@@ -199,13 +214,14 @@ At the end of preflight, explicitly tell the user:
 - which items are ready
 - which items are warnings only
 - which later path each warning would block
-- whether Phase 0.5 template fast path can run from the resolved GitHub repo metadata
+- whether Phase 1.5 can refresh or reuse the template catalog after source
+  analysis
 
 Example:
 - "Docker is not ready. This will block Phase 4 local build, but we can still continue to detect whether an existing image can be reused."
 - "`kubectl` is missing. Fresh deploy can continue, but UPDATE mode and rollout verification will be blocked until it is installed."
 - "Python with PyYAML is missing. Earlier analysis can continue, but Phase 5 template generation and validation will stop."
-- "Template fast path will check configured GitHub repo → Sealos template mappings before source analysis."
+- "The template catalog cannot refresh, so Phase 1.5 will use a usable cache or continue without references after source analysis."
 
 ## Step 3: Project Context
 

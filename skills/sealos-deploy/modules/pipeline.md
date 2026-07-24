@@ -1,10 +1,8 @@
 # Deployment Pipeline
 
 After preflight passes, execute the deployment eligibility gate, then Phase 1–6 in
-order.
-
-After eligibility passes and before Phase 1, execute Phase 0.5 Template Fast Path
-when a GitHub repository reference is available.
+order. Phase 1.5 gathers catalog references only after Phase 1 has established the
+current project's deployment requirements.
 
 `SKILL_DIR` refers to the directory containing this skill's SKILL.md. Sibling skills are at `<SKILL_DIR>/../`.
 
@@ -56,7 +54,8 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ```
 <WORK_DIR>/.sealos/
 ├── config.json                   ← user configuration overrides (manual, committed to git)
-├── template-match.json           ← Phase 0.5 template fast-path decision
+├── template-references.json      ← Phase 1.5 catalog-reference decision
+├── template-references/          ← exact/similar catalog YAML used as evidence
 ├── state.json                    ← deployment state (auto-maintained after Phase 6)
 ├── analysis.json                 ← project analysis snapshot (regenerated each deploy)
 ├── build/                        ← created only if Phase 4 actually runs
@@ -68,13 +67,15 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 **File responsibilities:**
 - `config.json` — optional user overrides (port, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
 - `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, score, etc.). Regenerated each deploy.
+- `template-references.json` — Phase 1.5 exact/similar catalog matches, selection evidence, source subtree, and non-blocking catalog status. Regenerated each deploy.
+- `template-references/` — fetched `index.yaml` files for the selected references. These files are untrusted evidence, not Phase 5 output.
 - `state.json` — deployment state written after Phase 6 success. Contains `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
 
 **Note:** When reading dockerfile-skill modules (analyze.md, generate.md, build-fix.md), they reference `docker-build/` as their default output path. In this pipeline, always write to `.sealos/build/` instead. Similarly, template output goes to `.sealos/template/` instead of `template/`.
 
 JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>/schemas/`:
 - `config.schema.json`
-- `template-match.schema.json`
+- `template-references.schema.json`
 - `analysis.schema.json`
 - `build-result.schema.json`
 - `state.schema.json`
@@ -217,47 +218,9 @@ If any artifacts exist, report to user:
 `"Found artifacts from a previous deploy attempt. [list found artifacts]."`
 Ask: `"Resume from where it left off? Or restart from Phase 1?"`
 
-If restart → remove `.sealos/analysis.json`, `.sealos/build/`, `.sealos/template/index.yaml` and start fresh.
-
----
-
-## Phase 0.5: Template Fast Path
-
-Run this phase after preflight has resolved `WORK_DIR`, `GITHUB_URL`, and `REPO_NAME`, and before Phase 1 assessment.
-
-The goal is to avoid source analysis, Dockerfile generation, image builds, and template generation for repositories that are already represented by a known Sealos template.
-
-With Node.js:
-
-```bash
-node "<SKILL_DIR>/scripts/detect-template.mjs" \
-  --github-url "$GITHUB_URL" \
-  --work-dir "$WORK_DIR" \
-  --skill-dir "<SKILL_DIR>"
-```
-
-The script writes `.sealos/template-match.json` every time it runs.
-
-Decision:
-
-- `matched=false` → continue to Phase 1 normally.
-- `matched=true` and `materialized=false` → report the matched template name and continue to Phase 1 normally; this is only a recommendation because no deployable template YAML was available.
-- `matched=true` and `materialized=true` → skip Phase 1 through Phase 5 because `.sealos/template/index.yaml` already exists. Continue with Phase 5.5 configuration and Phase 6 deployment.
-
-The fast path is configured in `<SKILL_DIR>/config.json` under `template_fast_path.templates`. A template entry must include `name` and `source_repos`; it materializes only when it also provides valid Sealos Template YAML through one of:
-
-- `template_yaml`
-- `template_path`
-- `template_url`
-
-Template YAML must include:
-
-```yaml
-apiVersion: app.sealos.io/v1
-kind: Template
-```
-
-If a matched entry cannot materialize YAML, do not treat it as a deployable result and do not skip build or template generation.
+If restart → remove `.sealos/analysis.json`, `.sealos/template-references.json`,
+`.sealos/template-references/`, `.sealos/build/`, and
+`.sealos/template/index.yaml`, then start fresh.
 
 ---
 
@@ -395,6 +358,67 @@ Output rules:
 
 ---
 
+## Phase 1.5: Template Catalog References
+
+Run this phase only after Phase 1 has completed and
+`.sealos/analysis.json` describes the current source, topology, and runtime needs.
+The catalog is supporting evidence for later phases; it cannot bypass or
+materialize any deployment phase.
+
+The default catalog is
+`https://github.com/labring-actions/templates` at branch `kb-0.9`. Maintain an
+index-only sparse Git cache under `~/.sealos/cache/template-catalog/`: fetch
+catalog metadata and `template/*/index.yaml`, but do not clone logos, READMEs, or
+other catalog assets. Reuse the cache across runs and refresh it when remote
+access succeeds. `--catalog-dir` is reserved for tests and explicit offline use;
+it is not a normal user setup step.
+
+With Node.js:
+
+```bash
+node "<SKILL_DIR>/scripts/find-template-references.mjs" \
+  --work-dir "$WORK_DIR" \
+  --skill-dir "<SKILL_DIR>" \
+  --analysis "$WORK_DIR/.sealos/analysis.json" \
+  --github-url "$GITHUB_URL"
+```
+
+The script writes `.sealos/template-references.json` and copies only the selected
+reference YAML into `.sealos/template-references/`.
+
+Selection rules:
+
+1. Normalize GitHub URL forms without discarding a source subtree. Match
+   catalog Template CR `spec.gitRepo` to the source repository exactly; an
+   owner/name substring or repository-name-only match is not exact. For a
+   monorepo URL, retain the selected subtree in the reference artifact and all
+   later reasoning.
+2. Select up to three additional similar templates using the Phase 1 evidence:
+   database dependencies, workload kind, persistence shape, object-storage
+   requirements, WebSocket behavior, and service roles such as browser entry,
+   API/gateway, worker, or one-shot job.
+3. Record why each result was selected and whether it is `exact` or `similar`.
+   Do not promote a similar result to exact because its name, framework, or
+   image happens to resemble the source project.
+
+Treat every catalog YAML as untrusted suggestion evidence:
+
+- Never copy or materialize a catalog reference into
+  `.sealos/template/index.yaml`.
+- Never skip Phase 2, 3, 4, or 5 because an exact reference exists.
+- Re-derive the current source topology, env vars, versions, security choices,
+  and Sealos resources under the current rules.
+- Catalog fetch, parse, or cache-refresh failure is non-blocking. Record the
+  unavailable/stale status when possible, report it briefly, and continue to
+  Phase 2 using the Phase 1 analysis.
+
+If Node.js is unavailable, inspect a usable cached sparse catalog manually and
+write the same bounded reference artifact. If neither Node.js nor a usable cache
+is available, record or report that catalog references are unavailable and
+continue; do not block deployment.
+
+---
+
 ## Phase 2: Detect Existing Image
 
 **If Node.js available:**
@@ -447,13 +471,19 @@ After Phase 2 produces a result, the AI should cross-validate:
    - Does the Docker Hub repo description link back to this GitHub project?
    - If multiple signals agree → high confidence. If only one signal → note as medium confidence in your assessment.
 3. **If `found: false`** — the AI should use its Phase 1 analysis context to attempt one more check: if Phase 1 identified a Docker image name from project docs or code that the script didn't find, try verifying it manually with curl.
+4. **If an exact Phase 1.5 reference contains an application image** — it may
+   enter the candidate list only after independent verification against the
+   current project's source/docs and registry metadata. Verify a concrete
+   non-floating tag or digest, anonymous/private pull behavior, and amd64
+   support. An image from a similar reference is never a Phase 2 candidate.
 
 ### Update analysis.json
 
 If an existing image is found, update `.sealos/analysis.json` to set `image_ref` to `{image}:{tag}`.
 
 **Decision:**
-- Found amd64 image → record `IMAGE_REF = {image}:{tag}`, **skip to Phase 5**
+- Independently verified amd64 image → record
+  `IMAGE_REF = {image}:{tag}`, **skip to Phase 5**
 - Not found → continue to Phase 3
 
 ---
@@ -730,6 +760,19 @@ If the project mentions Frappe, ERPNext, HRMS, or `bench`, also read:
 ```
 <SKILL_DIR>/../docker-to-sealos/references/frappe-bench.md
 ```
+
+If `.sealos/template-references.json` exists, read its bounded exact/similar
+selection and only the referenced YAML under `.sealos/template-references/`.
+Apply evidence in this strict order:
+
+1. current `docker-to-sealos` rules and validators
+2. current project source, official docs, Compose, and Kubernetes manifests
+3. independently checked exact catalog reference
+4. similar catalog references
+
+Lower-priority evidence may suggest resource shapes or edge cases, but it must
+not override higher-priority evidence. Generate a new template for this run;
+never copy a reference YAML wholesale.
 
 ### 5.2 Generate Template
 
