@@ -7,8 +7,12 @@
     "https://bja.sealos.run",
     "https://hzh.sealos.run"
   ],
-  "template_fast_path": {
+  "template_catalog": {
     "enabled": true,
-    "templates": []
+    "repository": "https://github.com/labring-actions/templates.git",
+    "ref": "kb-0.9",
+    "template_root": "template",
+    "cache_ttl_seconds": 86400,
+    "similar_limit": 3
   }
 }

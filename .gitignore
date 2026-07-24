@@ -3,6 +3,8 @@ skills/sealos-deploy-workspace/
 
 # Deployment artifacts (auto-generated, not committed)
 .sealos/analysis.json
+.sealos/template-references.json
+.sealos/template-references/
 .sealos/build/
 
 docs

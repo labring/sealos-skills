@@ -169,6 +169,9 @@ For an actual deployment, you will still need a Sealos Cloud account and access 
 On a typical deploy, the agent will:
 
 - assess the project structure and runtime needs
+- find exact `spec.gitRepo` and topology-similar references from
+  `labring-actions/templates@kb-0.9` as evidence without copying them into the
+  generated template or bypassing current validation
 - reuse an existing image or build one when needed
 - generate a Sealos template
 - deploy and verify rollout
