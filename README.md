@@ -1,5 +1,11 @@
 # Sealos Skills
 
+<!-- README-I18N:START -->
+
+**English** | [简体中文](./readmes/README.zh-CN.md) | [繁體中文](./readmes/README.zh-TW.md) | [日本語](./readmes/README.ja.md) | [한국어](./readmes/README.ko.md) | [Español](./readmes/README.es.md) | [Français](./readmes/README.fr.md) | [Deutsch](./readmes/README.de.md) | [Português (Brasil)](./readmes/README.pt-BR.md) | [Русский](./readmes/README.ru.md) | [العربية](./readmes/README.ar.md) | [हिन्दी](./readmes/README.hi.md) | [Bahasa Indonesia](./readmes/README.id.md)
+
+<!-- README-I18N:END -->
+
 Deploy projects to [Sealos Cloud](https://sealos.io) from your AI agent.
 
 Sealos Skills is a plugin-first skill pack centered on Sealos Cloud development and deployment. It helps an AI agent inspect a project, prepare missing deployment artifacts, connect Sealos Cloud databases and object storage for development, build or reuse a container image, ship the app to Sealos Cloud, and view deployed resources in a local read-only canvas.
