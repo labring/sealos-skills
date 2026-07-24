@@ -619,6 +619,185 @@ function inlineNames (value) {
     .filter(name => /^[A-Za-z0-9_.-]+$/.test(name))
 }
 
+function splitInlineYamlItems (value) {
+  const items = []
+  let start = 0
+  let quote = null
+  let depth = 0
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if ((character === '"' || character === "'") && value[index - 1] !== '\\') {
+      quote = quote === character ? null : (quote || character)
+      continue
+    }
+    if (quote) continue
+    if (character === '[' || character === '{') depth += 1
+    if (character === ']' || character === '}') depth = Math.max(0, depth - 1)
+    if (character === ',' && depth === 0) {
+      items.push(value.slice(start, index).trim())
+      start = index + 1
+    }
+  }
+
+  items.push(value.slice(start).trim())
+  return items.filter(Boolean)
+}
+
+function inlineYamlMapping (value) {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+
+  const mapping = new Map()
+  const body = trimmed.slice(1, -1)
+  for (const item of splitInlineYamlItems(body)) {
+    let quote = null
+    let depth = 0
+    let separator = -1
+
+    for (let index = 0; index < item.length; index += 1) {
+      const character = item[index]
+      if ((character === '"' || character === "'") && item[index - 1] !== '\\') {
+        quote = quote === character ? null : (quote || character)
+        continue
+      }
+      if (quote) continue
+      if (character === '[' || character === '{') depth += 1
+      if (character === ']' || character === '}') depth = Math.max(0, depth - 1)
+      if (character === ':' && depth === 0) {
+        separator = index
+        break
+      }
+    }
+
+    if (separator < 0) continue
+    const key = stripQuotes(item.slice(0, separator).trim())
+    if (!key) continue
+    mapping.set(key, item.slice(separator + 1).trim())
+  }
+  return mapping
+}
+
+function buildArgName (raw) {
+  let value = String(raw || '').trim().replace(/^-\s*/, '')
+  if (!value) return null
+
+  const mapping = parseYamlMapping(value)
+  if (mapping) value = mapping.key
+  else {
+    value = stripQuotes(value)
+    const equals = value.indexOf('=')
+    if (equals >= 0) value = value.slice(0, equals)
+  }
+
+  value = stripQuotes(value.trim())
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) ? value : null
+}
+
+function addBuildArg (build, raw) {
+  const name = buildArgName(raw)
+  if (name && !build.args.includes(name)) build.args.push(name)
+}
+
+function addBuildArgs (build, raw) {
+  const value = String(raw || '').trim()
+  if (!value) return
+
+  if (value.startsWith('[') && value.endsWith(']')) {
+    for (const item of splitInlineYamlItems(value.slice(1, -1))) {
+      addBuildArg(build, item)
+    }
+    return
+  }
+
+  const mapping = inlineYamlMapping(value)
+  if (mapping) {
+    for (const name of mapping.keys()) addBuildArg(build, name)
+    return
+  }
+
+  addBuildArg(build, value)
+}
+
+function createBuildPlan (context = '.') {
+  return {
+    context: stripQuotes(String(context || '').trim()) || '.',
+    dockerfile: 'Dockerfile',
+    target: null,
+    args: [],
+    origin: null,
+  }
+}
+
+function applyBuildMapping (build, mapping) {
+  if (mapping.has('context')) {
+    build.context = stripQuotes(mapping.get('context')) || '.'
+  }
+  if (mapping.has('dockerfile')) {
+    build.dockerfile = stripQuotes(mapping.get('dockerfile')) || 'Dockerfile'
+  }
+  if (mapping.has('target')) {
+    build.target = stripQuotes(mapping.get('target')) || null
+  }
+  if (mapping.has('args')) addBuildArgs(build, mapping.get('args'))
+}
+
+function parseBuildDeclaration (raw) {
+  const value = String(raw || '').trim()
+  if (!value) return createBuildPlan()
+
+  const mapping = inlineYamlMapping(value)
+  if (mapping) {
+    const build = createBuildPlan()
+    applyBuildMapping(build, mapping)
+    return build
+  }
+
+  return createBuildPlan(value)
+}
+
+function finalizeBuildPlan (build, composePath) {
+  if (!build) return null
+
+  const unresolved = [build.context, build.dockerfile]
+    .some(value => value.includes('$'))
+  const remoteContext = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|git@)/.test(build.context)
+  if (unresolved || remoteContext) return build
+
+  const composeDir = path.dirname(composePath)
+  const contextPath = path.isAbsolute(build.context)
+    ? build.context
+    : path.resolve(composeDir, build.context)
+  const dockerfilePath = path.isAbsolute(build.dockerfile)
+    ? build.dockerfile
+    : path.resolve(contextPath, build.dockerfile)
+
+  try {
+    if (fs.statSync(dockerfilePath).isFile()) build.origin = 'existing'
+  } catch {
+    // Phase 3 will generate or minimally repair a missing local Dockerfile.
+  }
+  return build
+}
+
+function implicitProjectService (workDir) {
+  const build = finalizeBuildPlan(
+    createBuildPlan(),
+    path.join(workDir, 'compose.yaml'),
+  )
+  return {
+    name: path.basename(workDir) || 'project',
+    role: 'application',
+    source: 'project',
+    source_file: '.',
+    declared_image: null,
+    build,
+    image_status: 'build_required',
+    image_ref: null,
+    digest: null,
+  }
+}
+
 function extractComposeEvidence (workDir) {
   const declarations = []
   const services = []
@@ -687,9 +866,10 @@ function extractComposeEvidence (workDir) {
     const inlineImage = inlineBody.match(/\bimage:\s*(\$\{[^}]+\}|"[^"]+"|'[^']+'|[^,}]+)/)
     if (inlineImage) setServiceImage(currentState, inlineImage[1])
 
-    const inlineBuild = inlineBody.match(/\bbuild:\s*("[^"]+"|'[^']+'|[^,}]+)/)
-    if (inlineBuild) {
-      service.build = stripQuotes(inlineBuild[1].trim()) || '.'
+    const inlineService = inlineYamlMapping(inlineBody)
+    const inlineBuild = inlineService?.get('build')
+    if (inlineBuild !== undefined) {
+      service.build = parseBuildDeclaration(inlineBuild)
       if (!service.declared_image) service.image_status = 'build_required'
     }
 
@@ -744,9 +924,43 @@ function extractComposeEvidence (workDir) {
         continue
       }
       if (activeBlock.name === 'build') {
+        if (
+          activeBlock.argsIndent !== undefined &&
+          indent > activeBlock.argsIndent
+        ) {
+          addBuildArg(currentState.service.build, content)
+          continue
+        }
+        if (
+          activeBlock.argsIndent !== undefined &&
+          indent <= activeBlock.argsIndent
+        ) {
+          activeBlock.argsIndent = undefined
+        }
+
         const buildMapping = parseYamlMapping(content)
-        if (buildMapping?.key === 'context' && buildMapping.value) {
-          currentState.service.build = stripQuotes(buildMapping.value)
+        if (buildMapping) {
+          if (activeBlock.propertyIndent === undefined) {
+            activeBlock.propertyIndent = indent
+          }
+          if (indent !== activeBlock.propertyIndent) continue
+
+          if (buildMapping.key === 'context') {
+            currentState.service.build.context =
+              stripQuotes(buildMapping.value) || '.'
+          } else if (buildMapping.key === 'dockerfile') {
+            currentState.service.build.dockerfile =
+              stripQuotes(buildMapping.value) || 'Dockerfile'
+          } else if (buildMapping.key === 'target') {
+            currentState.service.build.target =
+              stripQuotes(buildMapping.value) || null
+          } else if (buildMapping.key === 'args') {
+            if (buildMapping.value) {
+              addBuildArgs(currentState.service.build, buildMapping.value)
+            } else {
+              activeBlock.argsIndent = indent
+            }
+          }
         }
         continue
       }
@@ -761,7 +975,7 @@ function extractComposeEvidence (workDir) {
 
     const buildMatch = content.match(/^\s*build:\s*(.*)$/)
     if (buildMatch) {
-      currentState.service.build = stripQuotes(buildMatch[1]) || '.'
+      currentState.service.build = parseBuildDeclaration(buildMatch[1])
       currentState.service.image_status = 'build_required'
       if (!buildMatch[1]) activeBlock = { name: 'build', indent }
       continue
@@ -803,6 +1017,10 @@ function extractComposeEvidence (workDir) {
       selectionRank = 3
     }
     state.declaration.selectionRank = selectionRank
+  }
+
+  for (const state of states.values()) {
+    state.service.build = finalizeBuildPlan(state.service.build, composePath)
   }
 
   return { declarations, services }
@@ -1042,6 +1260,9 @@ async function detectExistingImages (workDir, options = {}) {
 
   const imageInventory = inventory.map(entry => entry.public)
   const serviceInventory = attachServiceResults(evidence.services, imageInventory)
+  const fallbackServiceInventory = serviceInventory.length === 0
+    ? [implicitProjectService(workDir)]
+    : serviceInventory
   // `role` is descriptive topology evidence only. It must not disqualify a
   // product whose real application image happens to be named nginx, cache,
   // postgres, and so on. Project declaration context and Compose topology
@@ -1049,18 +1270,14 @@ async function detectExistingImages (workDir, options = {}) {
   const verifiedCandidates = inventory
     .filter(entry => entry.public.status === 'verified')
 
-  const base = {
-    image_inventory: imageInventory,
-    service_inventory: serviceInventory,
-  }
-
   if (verifiedCandidates.length === 0) {
     return {
       found: false,
       reason: groups.length === 0
         ? 'no_explicit_image_declarations'
         : 'no_resolved_image',
-      ...base,
+      image_inventory: imageInventory,
+      service_inventory: fallbackServiceInventory,
     }
   }
 
@@ -1075,7 +1292,8 @@ async function detectExistingImages (workDir, options = {}) {
     return {
       found: false,
       reason: 'ambiguous_primary_images',
-      ...base,
+      image_inventory: imageInventory,
+      service_inventory: fallbackServiceInventory,
     }
   }
 
@@ -1092,7 +1310,8 @@ async function detectExistingImages (workDir, options = {}) {
     digest: selected.digest,
     image_ref: selected.image_ref,
     declared_ref: selectedSource.declared_ref,
-    ...base,
+    image_inventory: imageInventory,
+    service_inventory: serviceInventory,
   }
 }
 

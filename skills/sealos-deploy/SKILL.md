@@ -112,15 +112,15 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploy started" > "$LOG_FILE"
 [2026-03-05 14:30:05] Compose: frontend + build-only api + postgres + redis retained
 [2026-03-05 14:30:05] Decision: build api only → Phase 3
 
-[2026-03-05 14:30:06] === Phase 3: Dockerfile ===
-[2026-03-05 14:30:06] Existing Dockerfile: none
-[2026-03-05 14:30:07] Generated: python-fastapi template, port 8000
+[2026-03-05 14:30:06] === Phase 3: Prepare Per-Service Build ===
+[2026-03-05 14:30:06] Service: api; context: services/api
+[2026-03-05 14:30:06] Dockerfile: services/api/Dockerfile (existing, preserved)
 
 [2026-03-05 14:30:08] === Phase 4: Build & Push ===
 [2026-03-05 14:30:08] Registry: ghcr (auto-detected via gh CLI)
-[2026-03-05 14:30:30] Build: ✓ ghcr.io/zhujingyang/repo:20260305-143022
+[2026-03-05 14:30:30] Build api: ✓ ghcr.io/zhujingyang/repo-api:20260305-143022
 [2026-03-05 14:30:32] GHCR pullability: private package detected — deploy will auto-create image pull Secret from gh CLI
-[2026-03-05 14:30:33] IMAGE_REF=ghcr.io/zhujingyang/repo@sha256:<digest>
+[2026-03-05 14:30:33] IMAGE_REF=ghcr.io/zhujingyang/repo-api@sha256:<digest>
 
 [2026-03-05 14:30:34] === Phase 5: Template ===
 [2026-03-05 14:30:35] Output: .sealos/template/index.yaml
@@ -165,8 +165,8 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
 | `find-template-references.mjs` | `node find-template-references.mjs --work-dir <repo-dir> --skill-dir <SKILL_DIR> --analysis <analysis.json> --reuse-official-template <true\|false> [--github-url <url>] [--catalog-dir <dir>]` | Select a remotely verified unique exact official template for the Phase 6 fast path, or continue the standard pipeline; `--catalog-dir` is matching-only for tests/offline inspection |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
-| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Inventory declared images and Compose topology, then resolve each exact selector to an immutable digest |
-| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build and push a linux/amd64 image, then record the immutable digest returned by Buildx (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
+| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Inventory declared images and the service topology, normalize per-service build plans, and resolve each exact selector to an immutable digest |
+| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--service <name>] [--context <path>] [--dockerfile <path>] [--target <stage>] [--build-arg <NAME[=value]>]... [--registry ghcr\|dockerhub] [--user <user>]` | Build and push one planned service for linux/amd64, write its per-service result, and record the immutable digest returned by Buildx (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update app-scoped GHCR pull Secret and optionally patch an existing Deployment to reference it |
 | `gh-refresh-scopes.mjs` | `node gh-refresh-scopes.mjs write:packages` | Refresh GHCR package access in the current TTY; `write:packages` is sufficient for both push and private pull in this workflow |
 | `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--args-file <mode-0600-file>]` (`--args-json` only for confirmed non-sensitive values) | Resolve the current region from `~/.sealos/auth.json`, build the correct Template API URL, and post a local template YAML |
@@ -193,15 +193,15 @@ This skill references knowledge files from co-installed internal skills. These a
 ```
 <SKILL_DIR>/../
 ├── sealos-deploy/           ← this skill (user entry point) = <SKILL_DIR>
-├── dockerfile-skill/        ← Phase 3: Dockerfile generation knowledge
+├── dockerfile-skill/        ← Phase 3: constrained Dockerfile analysis and generation knowledge
 ├── cloud-native-readiness/  ← Phase 1 entry judgment + assessment criteria
 └── docker-to-sealos/       ← Phase 5: Sealos template rules
 ```
 
 Paths used in pipeline.md follow the pattern:
 ```
+<SKILL_DIR>/modules/dockerfile-integration.md
 <SKILL_DIR>/../dockerfile-skill/knowledge/error-patterns.md
-<SKILL_DIR>/../dockerfile-skill/templates/<lang>.dockerfile
 <SKILL_DIR>/../docker-to-sealos/references/sealos-specs.md
 ```
 
@@ -212,9 +212,9 @@ Paths used in pipeline.md follow the pattern:
 | 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
 | 1 — Assess | Stop only when AI is certain deployment is impossible; otherwise continue silently into readiness scoring and record risks | Existing deployment → UPDATE path; low score does not reject |
 | 1.5 — Official Template | A unique, source-aligned official `spec.gitRepo` match is reused verbatim and jumps to Phase 6; otherwise continue | No safe unique exact match → Phase 2 |
-| 2 — Discover | Inventory project-declared images and the complete service topology; resolve every reusable selector to an immutable digest without pre-screening third-party image architecture | Every emitted non-database workload covered → Phase 5 |
-| 3 — Dockerfile | Inspect, repair, or generate Dockerfiles only for services still needing a build | No service needs a build |
-| 4 — Build & Push | Build only missing non-database workload services for `linux/amd64`, push, and resolve each result to a digest | No service needs a build |
+| 2 — Discover | Inventory project-declared images and the complete service topology; resolve every reusable selector to an immutable digest without pre-screening third-party image architecture | Every final container workload covered → Phase 5 |
+| 3 — Prepare Build | Preserve or minimally prepare the exact context, Dockerfile, target, and build-argument names for each final container workload still needing a build, including an implicit application service for a no-Compose project; do not build here | No final container workload needs a build |
+| 4 — Build & Push | Build each missing final container workload for `linux/amd64` from its Phase 3 plan, push it, and resolve the result to a digest | No final container workload needs a build |
 | 5 — Template | Generate Sealos application template | — |
 | 5.5 — Configure | Validate the generated template, resolve its configuration, summarize the deploy, and obtain confirmation | Official-template fast path |
 | 6 — Deploy | Resolve any official-template inputs, dry-run, then deploy to Sealos Cloud | — |
@@ -247,10 +247,10 @@ Input (GitHub URL / local path)
   │                                                        │
   └── no safe unique exact match                           │
         └── [Phase 2] Inventory images + full topology     │
-              ├── every app has immutable digest ──┐      │
-              └── one or more apps need build       │      │
+              ├── every container has digest ─────┐      │
+              └── one or more containers need build │      │
                     ▼                               │      │
-                  [Phase 3] Dockerfile per service  │      │
+                  [Phase 3] Build plan per service  │      │
                     ▼                               │      │
                   [Phase 4] Build, push, digest     │      │
                     └───────────────────────────────┘      │

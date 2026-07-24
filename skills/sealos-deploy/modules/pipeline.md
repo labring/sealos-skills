@@ -22,7 +22,8 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ├── state.json                    ← deployment state (auto-maintained after Phase 6.5)
 ├── analysis.json                 ← project analysis snapshot (regenerated each deploy)
 ├── build/                        ← created only if Phase 4 actually runs
-│   └── build-result.json         ← Phase 4 result (`success` or `failed`)
+│   └── <service-key>/
+│       └── build-result.json     ← one Phase 4 result per built service
 └── template/
     └── index.yaml                ← official template reused by Phase 1.5, or Phase 5 output
 ```
@@ -35,7 +36,11 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 - `state.json` — deployment state written after Phase 6.5 succeeds. Contains
   `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
 
-**Note:** When reading dockerfile-skill modules (analyze.md, generate.md, build-fix.md), they reference `docker-build/` as their default output path. In this pipeline, always write to `.sealos/build/` instead. Similarly, template output goes to `.sealos/template/` instead of `template/`.
+**Dockerfile integration boundary:** Phase 3 reads
+`modules/dockerfile-integration.md`. It does not execute dockerfile-skill's
+standalone build/fix workflow and produces no dockerfile-skill report.
+`.sealos/build/` belongs only to Phase 4. Template output goes to
+`.sealos/template/`.
 
 JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>/schemas/`:
 - `config.schema.json`
@@ -68,7 +73,7 @@ mkdir -p "$WORK_DIR/.sealos" "$WORK_DIR/.sealos/template"
 ```
 
 Create `"$WORK_DIR/.sealos/build"` lazily when Phase 4 starts. If Phase 2
-proves that every emitted non-database workload has a reusable image and skips
+proves that every final container workload has a reusable image and skips
 Phase 4, `build/` should remain absent rather than exist as an empty directory.
 
 **Read user config (if exists):**
@@ -194,8 +199,7 @@ Default: Update
 | `.sealos/state.json` has `last_deploy` | Already deployed | Enter UPDATE mode (handled above) |
 | `.sealos/analysis.json` exists | Phase 1 scoring completed | After the Phase 1 entry judgment, ask whether to reuse the assessment |
 | `.sealos/template-references.json` selects `deploy_official_template` and `.sealos/template/index.yaml` is byte-for-byte identical to its selected exact reference | A prior Phase 1.5 run selected and materialized an official template | Never trust the local pair as proof; rerun Phase 1.5 against a freshly verified official checkout, then continue to Phase 6 only if it selects and rematerializes the same route |
-| `Dockerfile` exists | Phase 3 completed | Skip Dockerfile generation |
-| `.sealos/build/build-result.json` exists and `outcome: "success"` | Phase 4 completed | Ask user: skip rebuild? |
+| Every build-required service has a matching `.sealos/build/<service-key>/build-result.json` with `outcome: "success"` and the same effective build plan | Phase 4 completed for those services | Ask user: skip rebuilding those exact services? |
 | `.sealos/template/index.yaml` exists on the standard route, is newer than the current Phase 1.5 decision, and passes the Phase 5 quality gate | Phase 5 completed | Ask user: skip template generation? |
 
 When Phase 1.5 changes from `deploy_official_template` to
@@ -217,6 +221,9 @@ Ask: `"Resume from where it left off? Or restart from Phase 1?"`
 Resuming or reusing `.sealos/analysis.json` skips only Phase 1 scoring and analysis.
 Every DEPLOY path still begins with the Phase 1 entry judgment. UPDATE mode skips
 Phase 1 entirely because mode detection has already verified a running deployment.
+The mere existence of a root `Dockerfile` is never a Phase 3 checkpoint. Phase 3
+is a cheap per-service preparation pass and must re-resolve every build-required
+service's effective context and Dockerfile before Phase 4.
 
 If restart → remove `.sealos/analysis.json`, `.sealos/template-references.json`,
 `.sealos/template-references/`, `.sealos/build/`, and
@@ -482,10 +489,11 @@ matches are hints at most and must never become deployment input without a
 project declaration.
 
 A Dockerfile `FROM` line names a base image, not a published image of this
-project. Never put it in the reusable project-image inventory. Any
-non-database service with only `build:` remains in the service inventory and
-continues to Phase 3/4, regardless of whether its role is application, worker,
-proxy, gateway, queue, cache, search, storage, or other infrastructure.
+project. Never put it in the reusable project-image inventory. Any service that
+will remain a container workload and has only `build:` stays in the service
+inventory and continues to Phase 3/4, regardless of whether its role is
+application, database, worker, proxy, gateway, queue, cache, search, storage,
+or other infrastructure.
 
 ### 2.2 Run the Detector
 
@@ -571,6 +579,33 @@ remaining phases. Reconcile the `databases` list with database services found
 in the inventory so a dependency discovered in Compose cannot be lost merely
 because Phase 1 did not recognize it.
 
+When there are no Compose services and no unique reusable primary image,
+create or retain one implicit application service named from the selected
+project directory (normally `REPO_NAME`) so the ordinary single-application
+path is not lost:
+
+```json
+{
+  "name": "<repo-name>",
+  "role": "application",
+  "source": "project",
+  "source_file": ".",
+  "declared_image": null,
+  "build": {
+    "context": ".",
+    "dockerfile": "Dockerfile",
+    "target": null,
+    "args": [],
+    "origin": "existing"
+  },
+  "image_status": "build_required"
+}
+```
+
+Use `origin: null` when the root Dockerfile is absent. A unique README or CI
+image that already resolves to a digest keeps its normal image-reuse fast path
+and does not require this implicit build service.
+
 ### 2.6 Per-Service Routing
 
 Make the build decision for every service that Phase 5 will emit as a container
@@ -584,96 +619,137 @@ workload:
   `linux/amd64` replacement in Phase 3/4;
 - database service with a supported KubeBlocks transformation → retain it for
   Phase 5 conversion; its original database image does not need to be built;
-- non-database infrastructure service → apply the same image reuse/build rules
-  as an application service and retain it for Phase 5; its role must never be
-  used as a reason to omit the workload.
+- any database or infrastructure service that remains a container workload →
+  apply the same image reuse/build rules as an application service and retain
+  it for Phase 5; its role must never be used as a reason to omit the workload.
 
-Skip directly to Phase 5 only when every emitted non-database workload already
-has a digest-pinned reusable image and no service still needs a build. Finding one
-image must never cause the rest of a multi-service project to be skipped.
+Skip directly to Phase 5 only when every service that Phase 5 will emit as a
+container workload already has a digest-pinned reusable image. A service's
+application, database, or infrastructure role is not a build exclusion. Only a
+service that will be converted into a non-container Sealos-managed resource is
+outside the build route. Finding one image must never cause the rest of a
+multi-service project to be skipped.
 
 ---
 
-## Phase 3: Dockerfile
+## Phase 3: Prepare Per-Service Build Inputs
 
-Run this phase only for emitted non-database workload services that Phase 2
-marked as needing a build. In a multi-service Compose project, use each
-service's own build context and Dockerfile; do not regenerate or overwrite
-services that already have a digest-pinned image. This includes build-only proxies,
-gateways, workers, queues, caches, search services, storage services, and other
-infrastructure that will remain container workloads.
+Phase 3 is preparation-only. Run it for every service that Phase 5 will emit as
+a container workload when Phase 2 left that service at
+`image_status: "build_required"`. The service role does not matter: an
+application, custom database, proxy, worker, queue, cache, search engine, or
+storage service follows the same rule. Do not run it for a service that Phase 5
+will replace with a non-container Sealos-managed resource.
 
-### 3.1 Check Existing Dockerfile
+Do not build, push, or test-run an image in this phase. Phase 4 is the build
+authority.
 
-If `WORK_DIR/Dockerfile` exists:
-1. Read it and assess quality
-2. Reasonable (multi-stage or appropriate for language) → use directly, go to Phase 4
-3. Problematic (for example, missing essential dependencies or an unusable
-   runtime entrypoint) → fix, then Phase 4
+### 3.1 Resolve the Effective Build Plan
 
-A floating base-image tag is not itself a defect and must not trigger a
-rewrite. The final built workload image is resolved to a digest after push.
+For each build-required service, resolve and retain its own:
 
-### 3.2 Generate Dockerfile
+- build context, relative to `WORK_DIR`;
+- Dockerfile path, relative to that context;
+- optional build target;
+- build-argument names required by the declared build contract.
 
-If no Dockerfile exists, generate one.
+Store this plan in the existing `service_inventory[].build` object in
+`.sealos/analysis.json`:
 
-**Load the appropriate template from the internal dockerfile-skill:**
-```
-<SKILL_DIR>/../dockerfile-skill/templates/golang.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/nodejs-express.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/nodejs-nextjs.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/python-fastapi.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/python-django.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/java-springboot.dockerfile
-```
-
-Read the template matching the detected language/framework, then adapt it:
-- Replace placeholder ports with detected ports
-- Adjust build commands based on actual package manager (npm/yarn/pnpm/bun)
-- Add system dependencies if needed
-- Set correct entry point
-
-**Pre-load Phase 1 analysis for analyze.md:**
-
-Read `.sealos/analysis.json` before running analyze.md. The following fields are available
-as pre-loaded context, so analyze.md can skip its overlapping detection steps:
-`language`, `framework`, `package_manager`, `port`, `databases`, `has_dockerfile`, `complexity_tier`.
-
-**For detailed analysis guidance, read:**
-```
-<SKILL_DIR>/../dockerfile-skill/modules/analyze.md    — 17-step analysis process
-<SKILL_DIR>/../dockerfile-skill/modules/generate.md   — generation rules and best practices
+```json
+{
+  "context": "services/api",
+  "dockerfile": "docker/Dockerfile.prod",
+  "target": "runtime",
+  "args": ["NODE_ENV", "PUBLIC_BASE_URL"],
+  "origin": "existing"
+}
 ```
 
-**Validate generated Dockerfile:**
+`origin` is `existing`, `generated`, `repaired`, or `null`. Preserve build
+argument names only; never persist their secret values in `analysis.json`,
+logs, or build-result artifacts. Resolve values only at Phase 4 execution time.
+Honor Compose `build.context`, `build.dockerfile`, `build.target`, and argument
+names instead of falling back to the repository root. A root Dockerfile says
+nothing about whether another service's build plan is ready.
 
-After generating the Dockerfile, run validation if Node.js is available:
-```bash
-node "<SKILL_DIR>/../dockerfile-skill/scripts/validate-dockerfile.mjs" "$WORK_DIR/Dockerfile" --port=<detected_port> --json
-```
-If validation reports errors, fix the Dockerfile before proceeding to Phase 4.
-If Node.js is not available, manually verify the Validation Checklist in generate.md.
+For a project without Compose, operate on the implicit application service
+created in Phase 2. Its defaults are `context: "."`,
+`dockerfile: "Dockerfile"`, `target: null`, and `args: []`.
 
-**Key Dockerfile principles:**
-- Multi-stage build (builder + runtime)
-- Preserve a base image compatible with the project's runtime and
-  `linux/amd64`
-- Run as non-root user (USER 1001)
-- Proper `.dockerignore`
+### 3.2 Preserve Existing Dockerfiles by Default
 
-Also generate `.dockerignore`:
+When the effective Dockerfile exists, use it unchanged by default. Do not
+rewrite it merely because it:
+
+- is single-stage;
+- runs as root or uses a project-specific UID;
+- has cache-order or image-size opportunities;
+- omits `EXPOSE`;
+- uses a floating base-image selector such as `latest`, `stable`, or `v2`.
+
+These are not proof that the service cannot build or run. Preserve the
+project's custom build contract. Repair an existing Dockerfile only when there
+is a certain blocking defect for the selected service, or when Phase 4 returns
+a concrete build failure attributable to it. Make the smallest targeted
+change, set `origin: "repaired"`, and leave unrelated stages, services, and
+application configuration untouched.
+
+A linter or quality recommendation is diagnostic evidence, not automatic
+permission to rewrite a working Dockerfile.
+
+### 3.3 Generate Only When Missing
+
+Before preparing any service, read the deploy-specific restricted integration:
+
+```text
+<SKILL_DIR>/modules/dockerfile-integration.md
 ```
-.git
-node_modules
-__pycache__
-.env
-.env.local
-*.md
-.vscode
-.idea
-.sealos
-```
+
+That module is the execution boundary and overrides standalone dockerfile-skill
+workflow/output instructions. When the effective Dockerfile is absent, use the
+detected service source and dockerfile-skill only as stack-analysis and template
+knowledge. Pre-load the relevant Phase 1 analysis, then re-check language,
+framework, package manager, workspace boundaries, port, build command, runtime
+entrypoint, and system dependencies inside that service's own context. Do not
+duplicate a fixed template allowlist here; select from dockerfile-skill's
+maintained templates. Set `origin: "generated"` after producing the minimal
+usable Dockerfile.
+
+The dockerfile-skill integration is deliberately constrained. It may create or
+minimally repair the selected service's Dockerfile, a context-aware
+`.dockerignore`, and an auxiliary entrypoint or build script only when that
+Dockerfile requires it. It must not:
+
+- build or run an image;
+- create or replace Compose files;
+- create `.env` files or test credentials;
+- generate standalone deployment reports or deployment documentation;
+- change service topology, application configuration, or unrelated source.
+
+Phase 4 owns the real `linux/amd64` build. Phase 5 owns the Sealos topology and
+template. Phase 6.5 owns runtime validation.
+
+### 3.4 Treat `.dockerignore` as Part of the Build Context
+
+Preserve an existing `.dockerignore` by default. If it is missing, generate the
+smallest context-aware file from the service's real build inputs. Never apply a
+blind global list such as `*.md`: documentation sites, MDX builds, workspaces,
+migrations, scripts, patches, configuration, and static assets may require
+those files.
+
+Exclude known local noise and secret-bearing files only when they are not
+required build inputs, while keeping non-secret example files available. If a
+Phase 4 failure proves that a required input was excluded, minimally correct
+the ignore rule for that service.
+
+### 3.5 Completion
+
+Phase 3 is complete when every build-required final container service has an
+exact effective context, Dockerfile, optional target, and build-argument-name
+list ready for Phase 4. It produces no separate assessment, score, report, or
+artifact; the normalized per-service build plans in `analysis.json` are the
+contract.
 
 ---
 
@@ -681,11 +757,11 @@ __pycache__
 
 ### 4.0 Choose Image Destination
 
-Registry selection is deferred to this phase because it's only needed when building.
-Skip this phase only when Phase 2 proved that every emitted non-database
-workload already has a reusable immutable digest. In a mixed project, build
-only the services still marked as build-required and preserve every previously
-resolved service image.
+Registry selection is deferred to this phase because it is only needed when
+building. Skip this phase only when every final container workload already has
+a reusable immutable digest. In a mixed project, build only services still
+marked `build_required`, using each exact Phase 3 build plan, and preserve every
+previously resolved service image.
 
 Before any login step, tell the user:
 
@@ -770,7 +846,15 @@ Please run `docker login` in another terminal, then continue this deploy.
 
 ### 4.1 Build & Push
 
-Tag format: `<owner-or-user>/<repo-name>:YYYYMMDD-HHMMSS` (e.g., `ghcr.io/zhujingyang/kite:20260304-143022`). The timestamp ensures same-day rebuilds never collide.
+When the service name differs from the repository name, the helper uses its
+filesystem-safe unique service key in
+`<owner-or-user>/<repo-name>-<service-key>:YYYYMMDD-HHMMSS` (for example,
+`ghcr.io/zhujingyang/kite-api:20260304-143022`). The service suffix prevents
+multi-service builds from overwriting one another. When `--service` is omitted,
+or the implicit single-app service has the repository name, the helper retains
+the legacy single-application
+`<owner-or-user>/<repo-name>:YYYYMMDD-HHMMSS` form. The timestamp prevents
+same-day rebuild collisions.
 
 Before invoking the build helper, create the build artifact directory:
 
@@ -780,15 +864,25 @@ mkdir -p "$WORK_DIR/.sealos/build"
 
 **If Node.js available:**
 ```bash
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry ghcr
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry dockerhub --user "<user>"
+node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" \
+  --service "<service>" \
+  --context "<context>" \
+  --dockerfile "<dockerfile-relative-to-context>" \
+  --target "<optional-target>" \
+  --build-arg "<ARG_NAME>" \
+  --registry ghcr
 ```
-Run the command that matches the user's chosen destination:
-- GHCR: `node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry ghcr`
-- Docker Hub: `node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry dockerhub`
+
+Run one invocation for every build-required service. Omit `--target` when the
+plan has no target and repeat `--build-arg` for each required argument. Resolve
+argument values from the original project declaration, the current environment,
+or authorized user configuration at execution time; never persist or print
+secret values. For Docker Hub use
+`--registry dockerhub --user "<user>"`; the service/context/Dockerfile/target
+arguments remain identical.
 
 Success output returns the immutable image plus the pushed tag:
-`{ "success": true, "image": "<repository>@sha256:<digest>", "pushed_image": "<repository>:<tag>", "digest": "sha256:<digest>", "platforms": ["linux/amd64"], "registry": "ghcr" }`.
+`{ "success": true, "service": "<service>", "image": "<repository>@sha256:<digest>", "pushed_image": "<repository>:<tag>", "digest": "sha256:<digest>", "platforms": ["linux/amd64"], "registry": "ghcr" }`.
 Failure output remains `{ "success": false, "error": "..." }`.
 
 For GHCR success, record whether the image is anonymously pullable. If Phase 4 built a GHCR image and it is still private, continue with the GHCR image and let Phase 6 create/update the pull Secret automatically from `gh auth token`.
@@ -798,26 +892,43 @@ pull-secret flow for that service.
 **If Node.js not available (fallback — run docker directly):**
 ```bash
 TAG=$(date +%Y%m%d-%H%M%S)
+SERVICE="<service>"
+SERVICE_KEY="<filesystem-safe-unique-service-key>"
+REPO_NAME="<repo-name>"
+IMAGE_NAME="$REPO_NAME"
+if [ "$SERVICE" != "$REPO_NAME" ]; then
+  IMAGE_NAME="$REPO_NAME-$SERVICE_KEY"
+fi
+CONTEXT="$WORK_DIR/<context>"
+DOCKERFILE="<dockerfile-relative-to-context>"
 ```
 
 If the user chose GHCR:
 ```bash
 GH_USER=$(gh api user -q .login)
 gh auth token | docker login ghcr.io -u "$GH_USER" --password-stdin
-IMAGE="ghcr.io/$GH_USER/<repo-name>:$TAG"
+IMAGE="ghcr.io/$GH_USER/$IMAGE_NAME:$TAG"
 BUILD_METADATA=$(mktemp)
 docker buildx build --platform linux/amd64 -t "$IMAGE" --push \
-  --metadata-file "$BUILD_METADATA" -f Dockerfile "$WORK_DIR"
+  --metadata-file "$BUILD_METADATA" \
+  -f "$CONTEXT/$DOCKERFILE" \
+  "$CONTEXT"
 ```
 
 If the user chose Docker Hub:
 ```bash
 DOCKER_HUB_USER=$(docker info 2>/dev/null | sed -n 's/^ Username: //p')
-IMAGE="$DOCKER_HUB_USER/<repo-name>:$TAG"
+IMAGE="$DOCKER_HUB_USER/$IMAGE_NAME:$TAG"
 BUILD_METADATA=$(mktemp)
 docker buildx build --platform linux/amd64 -t "$IMAGE" --push \
-  --metadata-file "$BUILD_METADATA" -f Dockerfile "$WORK_DIR"
+  --metadata-file "$BUILD_METADATA" \
+  -f "$CONTEXT/$DOCKERFILE" \
+  "$CONTEXT"
 ```
+
+Add the plan's optional `--target` and repeated `--build-arg` flags to the
+fallback command as applicable. Do not echo a command line containing secret
+argument values.
 
 Read `containerimage.digest` from `$BUILD_METADATA` with `jq`, require a
 `sha256:<64-hex>` value, set
@@ -828,11 +939,11 @@ install or invoke a second image-inspection binary.
 If `$IMAGE` is a GHCR image, immediately verify it is anonymously pullable before proceeding:
 
 ```bash
-TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:$GH_USER/<repo-name>:pull" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
+TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:$GH_USER/$IMAGE_NAME:pull" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
 curl -fsSLI \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
-  "https://ghcr.io/v2/$GH_USER/<repo-name>/manifests/$TAG"
+  "https://ghcr.io/v2/$GH_USER/$IMAGE_NAME/manifests/$TAG"
 ```
 
 If that check returns 401/403 or the package visibility is still private, continue with the build but mark that Phase 6 must create/update the namespace image pull Secret before rollout.
@@ -840,34 +951,46 @@ If the run is using an existing public image instead of a new local build, skip 
 
 ### 4.2 Error Handling
 
-If build fails:
+If one service build fails:
 1. Read the error output
 2. Load error patterns from internal skill:
    ```
    <SKILL_DIR>/../dockerfile-skill/knowledge/error-patterns.md
    ```
-3. Match the error → apply fix to Dockerfile → retry
-4. Also consult if needed:
+3. Route only that service back to Phase 3
+4. Match the concrete error → minimally repair that service's Dockerfile,
+   `.dockerignore`, or build plan → retry the exact service
+5. Also consult if needed:
    ```
    <SKILL_DIR>/../dockerfile-skill/knowledge/system-deps.md
    <SKILL_DIR>/../dockerfile-skill/knowledge/best-practices.md
    ```
-5. Max 3 retry attempts
-6. If still failing → inform user with the specific error and suggest manual review
+6. Max 3 retry attempts for the failing service
+7. If still failing → inform user with the specific service and error and
+   suggest manual review
+
+Do not rerun or rewrite successful services, and do not invoke the standalone
+dockerfile-skill build/runtime workflow. Phase 4's actual `linux/amd64` Buildx
+result is the feedback loop.
 
 ### 4.3 Record Result
 
-Always write `.sealos/build/build-result.json` when Phase 4 runs:
+Always write `.sealos/build/<service-key>/build-result.json` for every service
+that Phase 4 attempts. `<service-key>` is the helper's filesystem-safe form of
+the original service name:
 
 - Success: `outcome: "success"` plus pushed image metadata
 - Failure: `outcome: "failed"` plus the captured error message
 
-This avoids leaving an empty `build/` directory after a failed build and makes resume/debug behavior inspectable.
+This avoids leaving an empty service directory after a failed build and makes
+resume/debug behavior inspectable without conflating multiple services.
 
-On success, `.sealos/build/build-result.json` must record the pushed tag,
-Buildx metadata digest, immutable `image_ref`, and requested build platform.
-The helper builds with `--platform linux/amd64` and refuses a success artifact
-unless Buildx returns a valid digest.
+Each result records the service identity, effective context, Dockerfile,
+optional target, build-argument names, pushed tag, and requested platform,
+without build-argument values. On success it also records the Buildx metadata
+digest and immutable `image_ref`. The helper builds with
+`--platform linux/amd64` and refuses a success artifact unless Buildx returns a
+valid digest.
 
 ### Update analysis.json
 
@@ -1797,28 +1920,50 @@ What would you like to update?
 
 ### Option 1: Rebuild
 
-Reuse the **exact same build logic as Phase 4** — same Dockerfile, same explicit registry choice, same build-push.mjs or fallback.
+Reuse the **exact same build logic as Phase 4** — same recorded service,
+context, Dockerfile, target, build-argument names, explicit registry choice,
+build-push.mjs, or fallback.
 Default to the registry used by `CURRENT_IMAGE`, but let the user switch if they want.
 
 ```bash
 # With Node.js:
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --registry ghcr
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --registry dockerhub
+node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" \
+  --service "$SERVICE" \
+  --context "$BUILD_CONTEXT" \
+  --dockerfile "$DOCKERFILE" \
+  --registry ghcr
 
 # Without Node.js:
 TAG=$(date +%Y%m%d-%H%M%S)
-PUSHED_IMAGE="<selected-user>/$REPO_NAME:$TAG"
+IMAGE_NAME="$REPO_NAME"
+if [ -n "$SERVICE" ] && [ "$SERVICE" != "$REPO_NAME" ]; then
+  IMAGE_NAME="$REPO_NAME-$SERVICE_KEY"
+fi
+PUSHED_IMAGE="<selected-user>/$IMAGE_NAME:$TAG"
 BUILD_METADATA=$(mktemp)
 docker buildx build --platform linux/amd64 -t "$PUSHED_IMAGE" --push \
-  --metadata-file "$BUILD_METADATA" -f Dockerfile "$WORK_DIR"
+  --metadata-file "$BUILD_METADATA" \
+  -f "$WORK_DIR/$BUILD_CONTEXT/$DOCKERFILE" \
+  "$WORK_DIR/$BUILD_CONTEXT"
 ```
+
+Add the recorded optional `--target` and repeated `--build-arg` flags in both
+paths. Resolve build-argument values at execution time and do not persist or
+print secret values; literal non-secret values may be recovered from the
+original project declaration. For a legacy single-app state without a recorded service
+plan, omit `--service` and use context `.`, Dockerfile `Dockerfile`, no target,
+and no build arguments. The helper then keeps the legacy unsuffixed
+`<repo-name>` image repository. A new analysis with an implicit single-app
+service uses that recorded service name normally.
 
 Record the pushed tag and requested `linux/amd64` target for build diagnostics,
 and read its immutable digest from Buildx metadata. Set
 `NEW_IMAGE=<repository>@sha256:<digest>`. Never pass the temporary pushed tag
 to Phase U2.
 
-If build fails → same error handling as Phase 4.2 (read error-patterns.md, fix Dockerfile, retry up to 3 times).
+If build fails → same error handling as Phase 4.2 (return only that service to
+the restricted Phase 3 preparation boundary, make a minimal evidence-backed
+repair, and retry up to 3 times).
 
 ### Option 2: Restart only
 

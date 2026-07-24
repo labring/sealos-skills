@@ -13,11 +13,12 @@ flowchart TD
     P15{"Phase 1.5 - Unique verified official template?"}
     Official["Reuse official template verbatim"]
 
-    P2["Phase 2 - Discover images and full topology<br/>README, then CI, then Compose"]
+    P2["Phase 2 - Discover images and full topology<br/>README, then CI, then Compose; implicit app for no-Compose source"]
     Digest{"Every emitted container workload has<br/>an immutable digest?"}
     Reuse["Reuse digest-pinned images<br/>No third-party architecture pre-screen"]
-    P3["Phase 3 - Prepare Dockerfile only for missing services"]
-    P4["Phase 4 - Build and push missing services<br/>Target linux/amd64; digest from Buildx metadata"]
+    P3["Phase 3 - Prepare each missing container service<br/>Preserve existing Dockerfile; exact context, path, target, and arg names"]
+    P4["Phase 4 - Build and push each planned service<br/>Target linux/amd64; digest from Buildx metadata"]
+    Repair{"Concrete build failure?"}
     P5["Phase 5 - Generate complete Sealos template"]
     P55["Phase 5.5 - Validate, configure, and confirm"]
     P6["Phase 6 - Resolve inputs, dry-run, and deploy"]
@@ -34,7 +35,9 @@ flowchart TD
     P15 -- "Yes" --> Official --> P6
     P15 -- "No" --> P2 --> Digest
     Digest -- "Yes" --> Reuse --> P5
-    Digest -- "No - build only missing services" --> P3 --> P4 --> P5
+    Digest -- "No - build only missing services" --> P3 --> P4 --> Repair
+    Repair -- "No" --> P5
+    Repair -- "Yes - return only failing service" --> P3
     P5 --> P55 --> P6 --> P65
     P65 -- "Pass" --> Done
     P65 -- "Architecture mismatch" --> Recover

@@ -403,7 +403,11 @@
             ]
           },
           "source": {
-            "const": "compose"
+            "type": "string",
+            "enum": [
+              "compose",
+              "project"
+            ]
           },
           "source_file": {
             "type": "string",
@@ -417,7 +421,54 @@
           },
           "build": {
             "anyOf": [
-              { "type": "string", "minLength": 1 },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "context",
+                  "dockerfile",
+                  "target",
+                  "args",
+                  "origin"
+                ],
+                "properties": {
+                  "context": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dockerfile": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "target": {
+                    "anyOf": [
+                      { "type": "string", "minLength": 1 },
+                      { "type": "null" }
+                    ]
+                  },
+                  "args": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  },
+                  "origin": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "existing",
+                          "generated",
+                          "repaired"
+                        ]
+                      },
+                      { "type": "null" }
+                    ]
+                  }
+                }
+              },
               { "type": "null" }
             ]
           },

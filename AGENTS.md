@@ -66,7 +66,7 @@ Apply this policy whenever changes from `main` are merged into the branch named 
 sealos plugin entry points ($sealos, /sealos)
   ├→ sealos-deploy (direct skills.sh entry point: /sealos-deploy)
   │   ├→ cloud-native-readiness   (Phase 1: score 0-12)
-  │   ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
+  │   ├→ dockerfile-skill         (Phase 3: constrained per-service Dockerfile preparation)
   │   └→ docker-to-sealos         (Phase 5: Compose → Sealos template)
   ├→ sealos-database (direct skills.sh entry point: /sealos-database)
   └→ sealos-s3       (direct skills.sh entry point: /sealos-s3)
@@ -113,13 +113,13 @@ Preflight → Mode Detection → DEPLOY or UPDATE
 
 DEPLOY: Assess (including the obvious-impossibility entry judgment) → Official template lookup
   ├→ unique safe exact match: reuse official YAML → Resolve inputs → Dry-run → Deploy → Runtime Truth
-  └→ otherwise: Discover README/CI/Compose images and full topology → per-service reuse or Dockerfile/Build & Push → digest-pinned Template → Configure → Dry-run → Deploy → Runtime Truth
+  └→ otherwise: Discover README/CI/Compose images and full topology → prepare exact per-service build plans → reuse or Build & Push → digest-pinned Template → Configure → Dry-run → Deploy → Runtime Truth
 UPDATE: Build & Push → resolve digest → kubectl set image → Verify rollout (auto-rollback on failure)
 ```
 
 Mode detection reads `.sealos/state.json` `last_deploy` field. If a running deployment is found (verified via kubectl), the skill enters UPDATE mode and skips assess/template/deploy phases. If not, it runs the full DEPLOY pipeline.
 
-State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot), `.sealos/template-references.json` plus `.sealos/template-references/` (exact catalog decision and provenance), and `.sealos/config.json` (optional user overrides). A unique, source-aligned official match is copied verbatim to `.sealos/template/index.yaml` and skips Phases 2–5.5; every other result follows the standard build-and-generate route. Similar-template reference matching is a documented TODO and is not executed.
+State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot and normalized per-service build plans), `.sealos/build/<service>/build-result.json` (independent Phase 4 results), `.sealos/template-references.json` plus `.sealos/template-references/` (exact catalog decision and provenance), and `.sealos/config.json` (optional user overrides). A unique, source-aligned official match is copied verbatim to `.sealos/template/index.yaml` and skips Phases 2–5.5; every other result follows the standard build-and-generate route. Similar-template reference matching is a documented TODO and is not executed.
 
 ## Key paths
 

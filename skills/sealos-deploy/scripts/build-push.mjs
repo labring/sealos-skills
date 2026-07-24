@@ -8,7 +8,8 @@
  *
  * Usage:
  *   node build-push.mjs <work-dir> <repo-name>              # auto-detect registry
- *   node build-push.mjs <work-dir> <repo-name> --registry ghcr
+ *   node build-push.mjs <work-dir> <repo-name> --service web --context apps/web --dockerfile Containerfile
+ *   node build-push.mjs <work-dir> <repo-name> --service api --target runtime --build-arg NODE_ENV
  *   node build-push.mjs <work-dir> <repo-name> --registry dockerhub --user <docker-hub-user>
  *
  * Output (JSON):
@@ -17,6 +18,7 @@
  */
 
 import { execFileSync, execSync } from 'child_process'
+import { createHash } from 'crypto'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -43,23 +45,101 @@ function sleep (ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function ensureBuildDir (workDir) {
-  const buildDir = path.join(workDir, '.sealos', 'build')
+function safeServiceKey (serviceName) {
+  const normalized = String(serviceName).trim()
+  const safe = normalized
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '')
+    .slice(0, 63)
+
+  if (safe && safe === normalized && safe !== '.' && safe !== '..') {
+    return safe
+  }
+
+  const prefix = safe || 'service'
+  const digest = createHash('sha256').update(normalized).digest('hex').slice(0, 8)
+  return `${prefix.slice(0, 54)}-${digest}`
+}
+
+function ensureBuildDir (workDir, serviceKey) {
+  const buildDir = path.join(workDir, '.sealos', 'build', serviceKey)
   fs.mkdirSync(buildDir, { recursive: true })
   return buildDir
 }
 
-function writeBuildResult (workDir, payload) {
+function writeBuildResult (workDir, serviceKey, payload) {
   const validation = validateArtifactData('build-result', payload)
   if (!validation.valid) {
     throw new Error(`Invalid build-result artifact: ${validation.errors.map(err => `${err.path} ${err.message}`).join('; ')}`)
   }
 
-  const buildDir = ensureBuildDir(workDir)
+  const buildDir = ensureBuildDir(workDir, serviceKey)
   fs.writeFileSync(
     path.join(buildDir, 'build-result.json'),
     JSON.stringify(payload, null, 2),
   )
+}
+
+function portablePath (workDir, absolutePath) {
+  const relative = path.relative(workDir, absolutePath)
+  if (relative === '') return '.'
+  if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+    return relative.split(path.sep).join('/')
+  }
+  return absolutePath
+}
+
+function parseBuildArg (value) {
+  const buildArg = String(value)
+  const separator = buildArg.indexOf('=')
+  const name = separator === -1 ? buildArg : buildArg.slice(0, separator)
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+    throw new Error(`Invalid build argument name: ${name || '(empty)'}`)
+  }
+  return { name, value: buildArg }
+}
+
+function redactBuildArgValues (value, buildArgs) {
+  let redacted = String(value || '')
+  for (const buildArg of buildArgs) {
+    if (buildArg.value === buildArg.name) continue
+    redacted = redacted.split(buildArg.value).join(`${buildArg.name}=<redacted>`)
+  }
+  return redacted
+}
+
+function resolveBuildSpec (workDir, repoName, options = {}) {
+  const serviceName = String(options.serviceName || repoName).trim()
+  if (!serviceName) {
+    throw new Error('Service name must not be empty')
+  }
+
+  const contextInput = options.buildContext || '.'
+  const dockerfileInput = options.dockerfile || 'Dockerfile'
+  const contextPath = path.resolve(workDir, contextInput)
+  const dockerfilePath = path.isAbsolute(dockerfileInput)
+    ? path.normalize(dockerfileInput)
+    : path.resolve(contextPath, dockerfileInput)
+  const target = options.target === undefined || options.target === null || options.target === ''
+    ? null
+    : String(options.target)
+  const buildArgs = (options.buildArgs || options.buildArgNames || []).map(parseBuildArg)
+
+  return {
+    serviceName,
+    serviceKey: safeServiceKey(serviceName),
+    contextPath,
+    dockerfilePath,
+    target,
+    buildArgs,
+    artifact: {
+      context: portablePath(workDir, contextPath),
+      dockerfile: portablePath(contextPath, dockerfilePath),
+      target,
+      build_arg_names: [...new Set(buildArgs.map(buildArg => buildArg.name))],
+    },
+  }
 }
 
 function imageRepository (image) {
@@ -92,25 +172,56 @@ function resolveBuildxMetadata (remoteImage, metadataPath) {
   }
 }
 
-function buildxArgs (remoteImage, metadataPath) {
-  return [
+function buildxArgs (remoteImage, metadataPath, {
+  buildContext = '.',
+  dockerfile = 'Dockerfile',
+  target = null,
+  buildArgs = [],
+} = {}) {
+  const args = [
     'buildx',
     'build',
     '--platform',
     'linux/amd64',
+    '-f',
+    dockerfile,
+  ]
+
+  if (target) {
+    args.push('--target', target)
+  }
+  for (const buildArg of buildArgs) {
+    args.push('--build-arg', typeof buildArg === 'string' ? buildArg : buildArg.value)
+  }
+
+  args.push(
     '--tag',
     remoteImage,
     '--push',
     '--metadata-file',
     metadataPath,
-    '.',
-  ]
+    buildContext,
+  )
+  return args
 }
 
-function runDockerBuildx ({ workDir, remoteImage, metadataPath }) {
+function runDockerBuildx ({
+  workDir,
+  remoteImage,
+  metadataPath,
+  buildContext = '.',
+  dockerfile = 'Dockerfile',
+  target = null,
+  buildArgs = [],
+}) {
   execFileSync(
     'docker',
-    buildxArgs(remoteImage, metadataPath),
+    buildxArgs(remoteImage, metadataPath, {
+      buildContext,
+      dockerfile,
+      target,
+      buildArgs,
+    }),
     {
       cwd: workDir,
       stdio: 'pipe',
@@ -313,11 +424,21 @@ async function autoDetectRegistry () {
 
 // ── Build & Push ─────────────────────────────────────────
 
-async function buildAndPush (workDir, repoName, registryInfo, dependencies = {}) {
-  const executeBuildx = dependencies.executeBuildx || runDockerBuildx
-  const tag = dependencies.tag || getDateTag()
-  const sanitized = repoName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')
+async function buildAndPush (workDir, repoName, registryInfo, options = {}) {
+  const executeBuildx = options.executeBuildx || runDockerBuildx
+  const tag = options.tag || getDateTag()
   const startedAt = new Date().toISOString()
+  let buildSpec
+
+  try {
+    buildSpec = resolveBuildSpec(workDir, repoName, options)
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+  const imageName = buildSpec.serviceName === repoName
+    ? repoName
+    : `${repoName}-${buildSpec.serviceKey}`
+  const sanitized = imageName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')
 
   let remoteImage
   if (registryInfo.registry === 'ghcr') {
@@ -326,24 +447,62 @@ async function buildAndPush (workDir, repoName, registryInfo, dependencies = {})
     remoteImage = `${registryInfo.user}/${sanitized}:${tag}`
   }
 
-  const dockerfilePath = path.join(workDir, 'Dockerfile')
-  if (!fs.existsSync(dockerfilePath)) {
-    writeBuildResult(workDir, {
+  const service = {
+    name: buildSpec.serviceName,
+    artifact_key: buildSpec.serviceKey,
+  }
+  const build = {
+    image_name: sanitized,
+    ...buildSpec.artifact,
+    started_at: startedAt,
+  }
+  const artifactPath = path.join(
+    workDir,
+    '.sealos',
+    'build',
+    buildSpec.serviceKey,
+    'build-result.json',
+  )
+
+  let preflightError = null
+  if (!fs.existsSync(buildSpec.contextPath) || !fs.statSync(buildSpec.contextPath).isDirectory()) {
+    preflightError = `Build context directory not found: ${buildSpec.artifact.context}`
+  } else if (!fs.existsSync(buildSpec.dockerfilePath) || !fs.statSync(buildSpec.dockerfilePath).isFile()) {
+    preflightError = `Dockerfile not found: ${buildSpec.artifact.dockerfile}`
+  }
+
+  if (preflightError) {
+    writeBuildResult(workDir, buildSpec.serviceKey, {
       outcome: 'failed',
       registry: registryInfo.registry,
-      build: { image_name: sanitized, started_at: startedAt },
+      service,
+      build,
       push: { remote_image: remoteImage },
-      error: 'No Dockerfile found in work directory',
+      error: preflightError,
       finished_at: new Date().toISOString(),
     })
-    return { success: false, error: 'No Dockerfile found in work directory' }
+    return {
+      success: false,
+      service: buildSpec.serviceName,
+      artifact: artifactPath,
+      error: preflightError,
+    }
   }
 
   let metadataDir = null
   try {
     metadataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sealos-buildx-metadata-'))
     const metadataPath = path.join(metadataDir, 'metadata.json')
-    executeBuildx({ workDir, remoteImage, metadataPath })
+    executeBuildx({
+      workDir,
+      remoteImage,
+      metadataPath,
+      buildContext: buildSpec.contextPath,
+      dockerfile: buildSpec.dockerfilePath,
+      target: buildSpec.target,
+      buildArgs: buildSpec.buildArgs,
+      serviceName: buildSpec.serviceName,
+    })
 
     const resolvedImage = resolveBuildxMetadata(remoteImage, metadataPath)
     let warning = null
@@ -356,10 +515,11 @@ async function buildAndPush (workDir, repoName, registryInfo, dependencies = {})
       }
     }
 
-    writeBuildResult(workDir, {
+    writeBuildResult(workDir, buildSpec.serviceKey, {
       outcome: 'success',
       registry: registryInfo.registry,
-      build: { image_name: sanitized, started_at: startedAt },
+      service,
+      build,
       push: {
         remote_image: remoteImage,
         digest: resolvedImage.digest,
@@ -377,6 +537,8 @@ async function buildAndPush (workDir, repoName, registryInfo, dependencies = {})
       digest: resolvedImage.digest,
       platforms: resolvedImage.platforms,
       registry: registryInfo.registry,
+      service: buildSpec.serviceName,
+      artifact: artifactPath,
     }
     if (warning) {
       result.warning = warning
@@ -384,16 +546,25 @@ async function buildAndPush (workDir, repoName, registryInfo, dependencies = {})
     }
     return result
   } catch (e) {
-    const error = e.stderr?.toString() || e.message
-    writeBuildResult(workDir, {
+    const error = redactBuildArgValues(
+      e.stderr?.toString() || e.message,
+      buildSpec.buildArgs,
+    )
+    writeBuildResult(workDir, buildSpec.serviceKey, {
       outcome: 'failed',
       registry: registryInfo.registry,
-      build: { image_name: sanitized, started_at: startedAt },
+      service,
+      build,
       push: { remote_image: remoteImage },
       error,
       finished_at: new Date().toISOString(),
     })
-    return { success: false, error }
+    return {
+      success: false,
+      service: buildSpec.serviceName,
+      artifact: artifactPath,
+      error,
+    }
   } finally {
     if (metadataDir) {
       fs.rmSync(metadataDir, { recursive: true, force: true })
@@ -405,7 +576,17 @@ async function buildAndPush (workDir, repoName, registryInfo, dependencies = {})
 
 function parseArgs (argv) {
   const args = argv.slice(2)
-  const parsed = { workDir: null, repoName: null, registry: null, user: null }
+  const parsed = {
+    workDir: null,
+    repoName: null,
+    registry: null,
+    user: null,
+    serviceName: null,
+    buildContext: '.',
+    dockerfile: 'Dockerfile',
+    target: null,
+    buildArgs: [],
+  }
 
   const positional = []
   for (let i = 0; i < args.length; i++) {
@@ -413,6 +594,16 @@ function parseArgs (argv) {
       parsed.registry = args[++i]
     } else if (args[i] === '--user' && args[i + 1]) {
       parsed.user = args[++i]
+    } else if (args[i] === '--service' && args[i + 1]) {
+      parsed.serviceName = args[++i]
+    } else if (args[i] === '--context' && args[i + 1]) {
+      parsed.buildContext = args[++i]
+    } else if (args[i] === '--dockerfile' && args[i + 1]) {
+      parsed.dockerfile = args[++i]
+    } else if (args[i] === '--target' && args[i + 1]) {
+      parsed.target = args[++i]
+    } else if (args[i] === '--build-arg' && args[i + 1]) {
+      parsed.buildArgs.push(args[++i])
     } else {
       positional.push(args[i])
     }
@@ -427,7 +618,7 @@ async function main () {
   const args = parseArgs(process.argv)
 
   if (!args.workDir || !args.repoName) {
-    console.error('Usage: node build-push.mjs <work-dir> <repo-name> [--registry ghcr|dockerhub] [--user <user>]')
+    console.error('Usage: node build-push.mjs <work-dir> <repo-name> [--service <name>] [--context <path>] [--dockerfile <path>] [--target <stage>] [--build-arg <NAME[=value]>]... [--registry ghcr|dockerhub] [--user <user>]')
     process.exitCode = 1
     return
   }
@@ -480,7 +671,18 @@ async function main () {
     }
   }
 
-  const result = await buildAndPush(path.resolve(args.workDir), args.repoName, registryInfo)
+  const result = await buildAndPush(
+    path.resolve(args.workDir),
+    args.repoName,
+    registryInfo,
+    {
+      serviceName: args.serviceName,
+      buildContext: args.buildContext,
+      dockerfile: args.dockerfile,
+      target: args.target,
+      buildArgs: args.buildArgs,
+    },
+  )
   console.log(JSON.stringify(result, null, 2))
 
   if (!result.success) process.exitCode = 1
@@ -494,6 +696,8 @@ if (isMain) await main()
 export {
   buildAndPush,
   buildxArgs,
+  parseArgs,
   resolveBuildxMetadata,
+  safeServiceKey,
   runDockerBuildx,
 }

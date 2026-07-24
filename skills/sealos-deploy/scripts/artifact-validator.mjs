@@ -363,6 +363,16 @@ function validateAnalysisSemantics(data, errors) {
         pushError(errors, `${pointer}.platforms`, 'locally built service images must target linux/amd64')
       }
     }
+
+    if (service.image_status === 'build_required' && service.build === null) {
+      pushError(errors, `${pointer}.build`, 'must define the per-service build plan when image_status is build_required')
+    }
+    if (
+      service.image_status === 'built'
+      && (service.build === null || service.build.origin === null)
+    ) {
+      pushError(errors, `${pointer}.build`, 'built services must retain the effective build plan and its origin')
+    }
   }
 }
 

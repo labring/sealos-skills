@@ -346,6 +346,34 @@
         {"name": "builds-amd64-only-after-runtime-proof", "description": "Builds the available source with --platform linux/amd64 only after exact runtime evidence such as no matching manifest or exec format error"},
         {"name": "digests-built-image", "description": "Uses the immutable digest returned by Buildx for the replacement image"}
       ]
+    },
+    {
+      "id": 28,
+      "prompt": "Deploy a Compose monorepo. frontend already has a digest-resolved image. api has build.context=services/api, build.dockerfile=docker/Dockerfile.prod, build.target=runtime, and build args NODE_ENV and API_TOKEN. search-db is an unsupported custom database with build.context=services/search-db. Both existing Dockerfiles are single-stage, run as root, omit EXPOSE, and use floating base tags, but there is no concrete build failure. The api context contains Markdown files required by its build.",
+      "expected_output": "Phase 3 preserves both existing Dockerfiles, records exact per-service build plans without argument values, and Phase 4 builds only api and search-db for linux/amd64 from their own contexts. The custom database remains a container workload, frontend is not rebuilt, and no standalone dockerfile-skill outputs are created",
+      "files": [],
+      "assertions": [
+        {"name": "preserves-existing-dockerfiles", "description": "Does not rewrite Dockerfiles solely for single-stage layout, root user, missing EXPOSE, cache style, or floating base selectors"},
+        {"name": "keeps-exact-service-build-plan", "description": "Records each service's context, Dockerfile, optional target, build-argument names, and existing origin in service_inventory[].build"},
+        {"name": "does-not-persist-build-arg-values", "description": "Retains NODE_ENV and API_TOKEN names but never writes secret argument values to analysis, logs, or build-result artifacts"},
+        {"name": "builds-all-final-container-roles", "description": "Builds the unsupported custom database because it remains a final container workload instead of excluding it by role"},
+        {"name": "builds-only-missing-services", "description": "Preserves the digest-resolved frontend and builds api and search-db independently for linux/amd64"},
+        {"name": "preserves-required-markdown", "description": "Does not blanket-ignore *.md or otherwise exclude files required by the api build context"},
+        {"name": "keeps-integration-boundary", "description": "Creates no Compose replacement, env or test-secret file, standalone report, deployment documentation, topology change, or unrelated application configuration"}
+      ]
+    },
+    {
+      "id": 29,
+      "prompt": "Resume deployment of a conventional single-app repository with no Compose file, no reusable published image, and an existing root Dockerfile. A previous run stopped after Phase 1 and the Dockerfile predates sealos-deploy.",
+      "expected_output": "Phase 2 creates or retains one implicit application service with context '.', Dockerfile 'Dockerfile', no target or build args, and existing origin. Phase 3 re-resolves and preserves that plan instead of treating root Dockerfile existence as a completed checkpoint, then Phase 4 builds it for linux/amd64",
+      "files": [],
+      "assertions": [
+        {"name": "creates-implicit-application-service", "description": "Keeps the ordinary no-Compose project in service_inventory as one build-required application service"},
+        {"name": "uses-root-build-defaults", "description": "Uses context '.', dockerfile 'Dockerfile', target null, args [], and origin existing"},
+        {"name": "does-not-use-root-file-as-checkpoint", "description": "Does not skip all Phase 3 preparation merely because a root Dockerfile exists"},
+        {"name": "preserves-existing-root-dockerfile", "description": "Uses the existing Dockerfile unchanged absent a certain blocker or concrete Phase 4 failure"},
+        {"name": "builds-single-app-for-amd64", "description": "Passes the normalized implicit-service plan to Phase 4 and builds linux/amd64"}
+      ]
     }
   ]
 }

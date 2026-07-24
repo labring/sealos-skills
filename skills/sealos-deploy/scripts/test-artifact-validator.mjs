@@ -53,6 +53,115 @@ test('accepts the Phase 1 artifact before image discovery', () => {
   assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
+test('accepts a structured per-service build plan with arg names only', () => {
+  const result = validateArtifactData('analysis', analysis({
+    service_inventory: [{
+      name: 'web',
+      role: 'application',
+      source: 'project',
+      source_file: '.',
+      declared_image: null,
+      build: {
+        context: '.',
+        dockerfile: 'Dockerfile',
+        target: 'runtime',
+        args: ['PUBLIC_MODE', 'PRIVATE_TOKEN'],
+        origin: 'existing',
+      },
+      image_status: 'build_required',
+      image_ref: null,
+      digest: null,
+    }],
+  }))
+
+  assert.equal(result.valid, true, JSON.stringify(result.errors))
+})
+
+test('rejects legacy build strings and persisted build arg values', () => {
+  const service = {
+    name: 'web',
+    role: 'application',
+    source: 'compose',
+    source_file: 'compose.yaml',
+    declared_image: null,
+    image_status: 'build_required',
+    image_ref: null,
+    digest: null,
+  }
+  const legacy = validateArtifactData('analysis', analysis({
+    service_inventory: [{
+      ...service,
+      build: './services/web',
+    }],
+  }))
+  const leakedValue = validateArtifactData('analysis', analysis({
+    service_inventory: [{
+      ...service,
+      build: {
+        context: './services/web',
+        dockerfile: 'Dockerfile',
+        target: null,
+        args: ['PRIVATE_TOKEN=secret'],
+        origin: null,
+      },
+    }],
+  }))
+
+  assert.equal(legacy.valid, false)
+  assert.ok(legacy.errors.some(error => error.path === '$.service_inventory[0].build'))
+  assert.equal(leakedValue.valid, false)
+  assert.ok(leakedValue.errors.some(error => (
+    error.path === '$.service_inventory[0].build'
+  )))
+})
+
+test('requires build-required and built services to retain their build plan', () => {
+  const buildRequired = validateArtifactData('analysis', analysis({
+    service_inventory: [{
+      name: 'worker',
+      role: 'application',
+      source: 'project',
+      source_file: '.',
+      declared_image: null,
+      build: null,
+      image_status: 'build_required',
+      image_ref: null,
+      digest: null,
+    }],
+  }))
+  const builtWithoutOrigin = validateArtifactData('analysis', analysis({
+    service_inventory: [{
+      name: 'worker',
+      role: 'application',
+      source: 'project',
+      source_file: '.',
+      declared_image: null,
+      build: {
+        context: '.',
+        dockerfile: 'Dockerfile',
+        target: null,
+        args: [],
+        origin: null,
+      },
+      image_status: 'built',
+      image_ref: `acme/worker@${digest}`,
+      digest,
+      platforms: ['linux/amd64'],
+    }],
+  }))
+
+  assert.equal(buildRequired.valid, false)
+  assert.ok(buildRequired.errors.some(error => (
+    error.path === '$.service_inventory[0].build'
+    && error.message.includes('per-service build plan')
+  )))
+  assert.equal(builtWithoutOrigin.valid, false)
+  assert.ok(builtWithoutOrigin.errors.some(error => (
+    error.path === '$.service_inventory[0].build'
+    && error.message.includes('origin')
+  )))
+})
+
 test('accepts a floating source selector after immutable digest resolution', () => {
   const imageRef = `acme/web@${digest}`
   const result = validateArtifactData('analysis', analysis({
@@ -133,8 +242,16 @@ test('accepts a successful build result with a Buildx digest and amd64 target', 
   const result = validateArtifactData('build-result', {
     outcome: 'success',
     registry: 'ghcr',
+    service: {
+      name: 'web',
+      artifact_key: 'web',
+    },
     build: {
       image_name: 'web',
+      context: 'apps/web',
+      dockerfile: 'apps/web/Dockerfile',
+      target: 'runtime',
+      build_arg_names: ['NODE_ENV'],
       started_at: '2026-07-24T00:00:00.000Z',
     },
     push: {
@@ -154,8 +271,16 @@ test('rejects a successful build result without a linux/amd64 target', () => {
   const result = validateArtifactData('build-result', {
     outcome: 'success',
     registry: 'ghcr',
+    service: {
+      name: 'web',
+      artifact_key: 'web',
+    },
     build: {
       image_name: 'web',
+      context: '.',
+      dockerfile: 'Dockerfile',
+      target: null,
+      build_arg_names: [],
       started_at: '2026-07-24T00:00:00.000Z',
     },
     push: {

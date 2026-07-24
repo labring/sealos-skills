@@ -296,7 +296,13 @@ test('uses README before CI and Compose and resolves every declared tag to a dig
     assert.equal(cache.image_ref, `redis@${cache.digest}`)
 
     const localWorker = result.service_inventory.find(service => service.name === 'local-worker')
-    assert.equal(localWorker.build, '.')
+    assert.deepEqual(localWorker.build, {
+      context: '.',
+      dockerfile: 'Dockerfile',
+      target: null,
+      args: [],
+      origin: null,
+    })
     assert.equal(localWorker.image_status, 'build_required')
     assert.equal(localWorker.image_ref, null)
     assert.equal(localWorker.digest, null)
@@ -421,6 +427,15 @@ test('does not query name-guessed images when the project declares none', async 
     assert.equal(result.reason, 'no_explicit_image_declarations')
     assert.equal(fetchCount, 0)
     assert.deepEqual(result.image_inventory, [])
+    assert.equal(result.service_inventory.length, 1)
+    assert.equal(result.service_inventory[0].source, 'project')
+    assert.deepEqual(result.service_inventory[0].build, {
+      context: '.',
+      dockerfile: 'Dockerfile',
+      target: null,
+      args: [],
+      origin: null,
+    })
   })
 })
 
@@ -447,6 +462,9 @@ test('does not treat Dockerfile FROM as a reusable project image', async () => {
     assert.deepEqual(evidence.declarations, [])
     assert.equal(result.found, false)
     assert.equal(fetchCount, 0)
+    assert.equal(result.service_inventory.length, 1)
+    assert.equal(result.service_inventory[0].source, 'project')
+    assert.equal(result.service_inventory[0].build.origin, 'existing')
   })
 })
 
@@ -465,6 +483,7 @@ test('treats role keywords as advisory when README declares the product image', 
     assert.equal(result.image, 'acme/nginx')
     assert.equal(result.image_inventory[0].role, 'infrastructure')
     assert.equal(result.image_ref, `acme/nginx@${result.digest}`)
+    assert.deepEqual(result.service_inventory, [])
   })
 })
 
@@ -526,7 +545,13 @@ test('returns uniform service fields for quoted keys, defaulted images, and buil
     assert.match(web.image_ref, /^localhost:5000\/acme\/web@sha256:/)
     assert.match(web.digest, /^sha256:/)
 
-    assert.equal(worker.build, './worker')
+    assert.deepEqual(worker.build, {
+      context: './worker',
+      dockerfile: 'Dockerfile',
+      target: null,
+      args: [],
+      origin: null,
+    })
     assert.equal(worker.image_status, 'build_required')
     assert.equal(worker.image_ref, null)
     assert.equal(worker.digest, null)
@@ -547,6 +572,79 @@ test('returns uniform service fields for quoted keys, defaulted images, and buil
         ].sort(),
       )
     }
+  })
+})
+
+test('records exact per-service Compose build plans without build arg values', async () => {
+  await withFixture({
+    'compose.yaml': [
+      'services:',
+      '  shorthand:',
+      '    build: ./short',
+      '  web:',
+      '    build:',
+      '      context: ./services/web',
+      '      dockerfile: docker/Dockerfile.prod',
+      '      target: runtime',
+      '      args:',
+      '        - PUBLIC_MODE=production',
+      '        - PRIVATE_TOKEN',
+      '  worker:',
+      '    build:',
+      '      context: ./services/worker',
+      '      dockerfile: Dockerfile.worker',
+      '      args:',
+      '        API_TOKEN: ${API_TOKEN}',
+      '        RELEASE: v2',
+      '  inline:',
+      '    build: {context: ./inline, dockerfile: Containerfile, target: final, args: [MODE=prod, ACCESS_TOKEN]}',
+    ].join('\n'),
+    'short/Dockerfile': 'FROM scratch\n',
+    'services/web/docker/Dockerfile.prod': 'FROM scratch\n',
+    'inline/Containerfile': 'FROM scratch\n',
+  }, async workDir => {
+    const result = await detectExistingImages(workDir)
+    const byName = new Map(
+      result.service_inventory.map(service => [service.name, service]),
+    )
+
+    assert.deepEqual(byName.get('shorthand').build, {
+      context: './short',
+      dockerfile: 'Dockerfile',
+      target: null,
+      args: [],
+      origin: 'existing',
+    })
+    assert.deepEqual(byName.get('web').build, {
+      context: './services/web',
+      dockerfile: 'docker/Dockerfile.prod',
+      target: 'runtime',
+      args: ['PUBLIC_MODE', 'PRIVATE_TOKEN'],
+      origin: 'existing',
+    })
+    assert.deepEqual(byName.get('worker').build, {
+      context: './services/worker',
+      dockerfile: 'Dockerfile.worker',
+      target: null,
+      args: ['API_TOKEN', 'RELEASE'],
+      origin: null,
+    })
+    assert.deepEqual(byName.get('inline').build, {
+      context: './inline',
+      dockerfile: 'Containerfile',
+      target: 'final',
+      args: ['MODE', 'ACCESS_TOKEN'],
+      origin: 'existing',
+    })
+
+    assert.ok(
+      JSON.stringify(result.service_inventory).includes('production') === false,
+      'build arg values must not be persisted',
+    )
+    assert.ok(
+      JSON.stringify(result.service_inventory).includes('${API_TOKEN}') === false,
+      'build arg expressions must not be persisted',
+    )
   })
 })
 
