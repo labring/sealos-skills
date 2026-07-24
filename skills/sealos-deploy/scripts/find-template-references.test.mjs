@@ -343,6 +343,25 @@ test('treats an unsafe catalog template root as a nonblocking parse failure', ()
   })
 })
 
+test('ignores symlinked project evidence files', () => {
+  withFixture(({ fixtureRoot, workDir, catalogDir }) => {
+    const outsideReadme = path.join(fixtureRoot, 'outside-readme.md')
+    fs.writeFileSync(outsideReadme, 'WebSocket service backed by S3 object storage.')
+    fs.symlinkSync(outsideReadme, path.join(workDir, 'README.md'))
+    writeTemplate(catalogDir, 'candidate', {
+      gitRepo: 'https://github.com/other/project',
+    })
+    const analysisPath = writeAnalysis(workDir, { databases: [] })
+
+    const result = runDiscovery({ workDir, analysisPath, catalogDir })
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+
+    const artifact = readArtifact(workDir)
+    assert.equal(artifact.project.features.websocket, false)
+    assert.equal(artifact.project.features.object_storage, false)
+  })
+})
+
 test('records invalid catalog configuration without attempting discovery', () => {
   withFixture(({ fixtureRoot, workDir, catalogDir }) => {
     const copiedSkill = path.join(fixtureRoot, 'sealos-deploy')
