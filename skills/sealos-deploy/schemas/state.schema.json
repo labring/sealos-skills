@@ -11,7 +11,16 @@
   ],
   "properties": {
     "version": {
-      "const": "1.0"
+      "type": "string",
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
+    },
+    "legacy_history_count": {
+      "description": "Explicit migration boundary for a version 1.1 state upgraded from version 1.0. Entries before this count are preserved under the legacy contract; later entries use the version 1.1 contract. Omit for native version 1.1 state.",
+      "type": "integer",
+      "minimum": 1
     },
     "last_deploy": {
       "type": "object",
@@ -22,7 +31,6 @@
         "namespace",
         "region",
         "image",
-        "docker_hub_user",
         "repo_name",
         "url",
         "deployed_at",
@@ -34,8 +42,15 @@
           "minLength": 1
         },
         "app_host": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "namespace": {
           "type": "string",
@@ -46,10 +61,121 @@
           "pattern": "^[a-z0-9.-]+$"
         },
         "image": {
-          "type": "string",
-          "minLength": 1
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "services": {
+          "description": "Per-container in-place update targets for current workflows. Required semantically for state version 1.1 but may be empty when the verified footprint has no updateable workload.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "primary",
+              "workload_kind",
+              "workload_name",
+              "container_name",
+              "image",
+              "pull_access",
+              "build"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "primary": {
+                "type": "boolean"
+              },
+              "workload_kind": {
+                "type": "string",
+                "enum": [
+                  "Deployment",
+                  "StatefulSet",
+                  "DaemonSet",
+                  "CronJob"
+                ]
+              },
+              "workload_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "container_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "image": {
+                "type": "string",
+                "pattern": "^[^\\s@]+@sha256:[0-9a-fA-F]{64}$"
+              },
+              "pull_access": {
+                "type": "string",
+                "enum": [
+                  "anonymous",
+                  "ghcr_secret_required",
+                  "indeterminate"
+                ]
+              },
+              "build": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "context",
+                      "dockerfile",
+                      "target",
+                      "build_arg_names"
+                    ],
+                    "properties": {
+                      "context": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "dockerfile": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "target": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "build_arg_names": {
+                        "type": "array",
+                        "uniqueItems": true,
+                        "items": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
         },
         "docker_hub_user": {
+          "description": "Deprecated legacy compatibility field. Current workflows ignore and do not emit it.",
+          "deprecated": true,
           "anyOf": [
             { "type": "string", "minLength": 1 },
             { "type": "null" }
@@ -60,8 +186,15 @@
           "minLength": 1
         },
         "url": {
-          "type": "string",
-          "pattern": "^https://"
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^https://"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "deployed_at": {
           "type": "string",
@@ -97,8 +230,15 @@
                 "const": "deploy"
               },
               "image": {
-                "type": "string",
-                "minLength": 1
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "method": {
                 "type": "string",
@@ -156,6 +296,27 @@
                   "success",
                   "failed"
                 ]
+              },
+              "service": {
+                "type": "string",
+                "minLength": 1
+              },
+              "workload_kind": {
+                "type": "string",
+                "enum": [
+                  "Deployment",
+                  "StatefulSet",
+                  "DaemonSet",
+                  "CronJob"
+                ]
+              },
+              "workload_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "container_name": {
+                "type": "string",
+                "minLength": 1
               },
               "note": {
                 "type": "string",
@@ -273,6 +434,27 @@
                   "success",
                   "failed"
                 ]
+              },
+              "service": {
+                "type": "string",
+                "minLength": 1
+              },
+              "workload_kind": {
+                "type": "string",
+                "enum": [
+                  "Deployment",
+                  "StatefulSet",
+                  "DaemonSet",
+                  "CronJob"
+                ]
+              },
+              "workload_name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "container_name": {
+                "type": "string",
+                "minLength": 1
               },
               "note": {
                 "type": "string",

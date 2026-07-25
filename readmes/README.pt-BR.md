@@ -160,9 +160,9 @@ Durante os fluxos de implantação, banco de dados e armazenamento de objetos, o
 - orienta o usuário durante o login no Sealos quando necessário
 - usa `sealos-cli` para criar bancos de dados Sealos Cloud, obter detalhes de conexão e executar operações de banco de dados
 - usa `sealos-cli s3` para gerenciar buckets de armazenamento de objetos Sealos, credenciais, verificações de cota, operações com objetos e URLs pré-assinadas
-- usa ou ajuda a preparar um caminho de registry de contêineres, como Docker Hub ou GHCR
+- envia imagens `linux/amd64` criadas localmente para o namespace da conta GitHub atual no GHCR e leva o digest do Buildx e o resultado de acesso de pull para a implantação
 
-Uma implantação real exige uma conta no Sealos Cloud e acesso a um registry de contêineres, mas esses itens podem ser configurados após o início da habilidade. O trabalho com banco de dados e armazenamento de objetos exige uma conta no Sealos Cloud e um workspace capaz de criar os recursos solicitados.
+Uma implantação real exige uma conta no Sealos Cloud. Uma sessão autenticada do GitHub CLI com acesso a packages do GHCR só é necessária quando o caminho selecionado cria e envia uma nova imagem. Imagens existentes declaradas, inclusive as hospedadas no Docker Hub, ainda podem ser reutilizadas por digest imutável. O trabalho com banco de dados e armazenamento de objetos exige uma conta no Sealos Cloud e um workspace capaz de criar os recursos solicitados.
 
 ## O que o Sealos Deploy gerencia
 

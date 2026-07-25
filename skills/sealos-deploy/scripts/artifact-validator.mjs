@@ -384,12 +384,8 @@ function validateBuildResultSemantics(data, errors) {
     pushError(errors, '$.finished_at', 'must not be earlier than build.started_at')
   }
 
-  if (data.registry === 'ghcr' && !data.push.remote_image.startsWith('ghcr.io/')) {
-    pushError(errors, '$.push.remote_image', 'must be a GHCR image when registry is ghcr')
-  }
-
-  if (data.registry === 'dockerhub' && data.push.remote_image.startsWith('ghcr.io/')) {
-    pushError(errors, '$.push.remote_image', 'must not be a GHCR image when registry is dockerhub')
+  if (!data.push.remote_image.startsWith('ghcr.io/')) {
+    pushError(errors, '$.push.remote_image', 'must be a GHCR image')
   }
 
   if (data.push.remote_image.lastIndexOf(':') <= data.push.remote_image.lastIndexOf('/')) {
@@ -411,6 +407,86 @@ function validateBuildResultSemantics(data, errors) {
 
 function validateStateSemantics(data, errors) {
   const { last_deploy: lastDeploy, history } = data
+  const hasServiceMap = Array.isArray(lastDeploy.services)
+  const services = hasServiceMap ? lastDeploy.services : []
+  const legacyHistoryCount = data.version === '1.1'
+    ? (data.legacy_history_count || 0)
+    : 0
+  const targetKey = (value) => [
+    value.workload_kind,
+    value.workload_name,
+    value.container_name,
+  ].join('/')
+
+  if (data.version === '1.1' && !hasServiceMap) {
+    pushError(errors, '$.last_deploy.services', 'state version 1.1 must include its updateable service target map, which may be empty')
+  }
+  if (
+    data.version === '1.1'
+    && legacyHistoryCount > history.length
+  ) {
+    pushError(errors, '$.legacy_history_count', 'must not exceed the number of preserved history entries')
+  }
+  if (
+    data.version === '1.0'
+    && Object.prototype.hasOwnProperty.call(data, 'legacy_history_count')
+  ) {
+    pushError(errors, '$.legacy_history_count', 'is valid only on a version 1.1 state migrated from version 1.0')
+  }
+  if (
+    data.version === '1.1'
+    && Object.prototype.hasOwnProperty.call(lastDeploy, 'docker_hub_user')
+  ) {
+    pushError(errors, '$.last_deploy.docker_hub_user', 'is accepted only when reading legacy version 1.0 state')
+  }
+
+  if (data.version === '1.0') {
+    for (const field of ['app_host', 'image', 'url']) {
+      if (lastDeploy[field] === null) {
+        pushError(errors, `$.last_deploy.${field}`, 'must not be null in version 1.0 state')
+      }
+    }
+  }
+
+  if (hasServiceMap) {
+    const primaryServices = services.filter(service => service.primary === true)
+    if (primaryServices.length > 1) {
+      pushError(errors, '$.last_deploy.services', `must contain at most one primary service, got ${primaryServices.length}`)
+    } else if (primaryServices.length === 0) {
+      if (data.version === '1.1' && lastDeploy.image !== null) {
+        pushError(errors, '$.last_deploy.image', 'must be null when the version 1.1 service map has no primary target')
+      }
+    } else if (lastDeploy.image !== primaryServices[0].image) {
+      pushError(errors, '$.last_deploy.image', 'must match the image of the primary service')
+    }
+
+    const seenTargets = new Set()
+    const authenticatedGhcrNamespaces = new Set()
+    for (let index = 0; index < services.length; index++) {
+      const service = services[index]
+      const key = targetKey(service)
+      if (seenTargets.has(key)) {
+        pushError(errors, `$.last_deploy.services[${index}]`, 'workload kind/name/container target must be unique')
+      }
+      seenTargets.add(key)
+
+      if (!isImmutableImageRef(service.image)) {
+        pushError(errors, `$.last_deploy.services[${index}].image`, 'must use an immutable sha256 digest')
+      }
+      if (service.pull_access !== 'anonymous') {
+        const repository = service.image.split('@', 1)[0]
+        const parts = repository.split('/')
+        if (parts[0]?.toLowerCase() !== 'ghcr.io' || !parts[1] || !parts[2]) {
+          pushError(errors, `$.last_deploy.services[${index}].pull_access`, 'authenticated or indeterminate Phase 4 pull access requires a namespaced GHCR image')
+        } else {
+          authenticatedGhcrNamespaces.add(parts[1].toLowerCase())
+        }
+      }
+    }
+    if (authenticatedGhcrNamespaces.size > 1) {
+      pushError(errors, '$.last_deploy.services', 'all authenticated or indeterminate GHCR images must use one normalized namespace for the app-scoped pull Secret')
+    }
+  }
 
   if (history[0]?.action !== 'deploy') {
     pushError(errors, '$.history[0].action', 'the first history entry must be deploy')
@@ -426,17 +502,20 @@ function validateStateSemantics(data, errors) {
     pushError(errors, '$.last_deploy.last_updated_at', 'must not be earlier than deployed_at')
   }
 
-  try {
-    const host = new URL(lastDeploy.url).hostname
-    if (!host.endsWith(`.${lastDeploy.region}`)) {
-      pushError(errors, '$.last_deploy.url', 'hostname must end with .<region>')
+  if (lastDeploy.url !== null) {
+    try {
+      const host = new URL(lastDeploy.url).hostname
+      if (!host.endsWith(`.${lastDeploy.region}`)) {
+        pushError(errors, '$.last_deploy.url', 'hostname must end with .<region>')
+      }
+    } catch {
+      pushError(errors, '$.last_deploy.url', 'must be a valid https URL')
     }
-  } catch {
-    pushError(errors, '$.last_deploy.url', 'must be a valid https URL')
   }
 
   let previousAt = null
   let latestSuccessfulImage = null
+  const latestSuccessfulTargetImages = new Map()
   for (let index = 0; index < history.length; index++) {
     const entry = history[index]
     const at = Date.parse(entry.at)
@@ -451,15 +530,79 @@ function validateStateSemantics(data, errors) {
     if (entry.action === 'set-image' && entry.image === entry.previous_image) {
       pushError(errors, `$.history[${index}].image`, 'must differ from previous_image for set-image actions')
     }
+    const usesVersion11HistoryContract = (
+      data.version === '1.1'
+      && index >= legacyHistoryCount
+    )
+    if (
+      usesVersion11HistoryContract
+      && (entry.action === 'deploy' || entry.action === 'set-image')
+      && entry.image !== null
+      && !isImmutableImageRef(entry.image)
+    ) {
+      pushError(errors, `$.history[${index}].image`, 'must use an immutable sha256 digest in version 1.1 history')
+    }
+    if (
+      usesVersion11HistoryContract
+      && entry.action === 'set-image'
+      && !isImmutableImageRef(entry.previous_image)
+    ) {
+      pushError(errors, `$.history[${index}].previous_image`, 'must use an immutable sha256 digest in version 1.1 history')
+    }
 
-    if ((entry.action === 'deploy' || entry.action === 'set-image') && entry.status === 'success') {
-      latestSuccessfulImage = entry.image
+    if (
+      usesVersion11HistoryContract
+      && (entry.action === 'set-image' || entry.action === 'restart')
+    ) {
+      for (const field of ['service', 'workload_kind', 'workload_name', 'container_name']) {
+        if (!entry[field]) {
+          pushError(errors, `$.history[${index}].${field}`, `is required for a version 1.1 ${entry.action} entry`)
+        }
+      }
+      if (
+        entry.action === 'set-image'
+        && entry.status === 'success'
+        && entry.workload_kind
+        && entry.workload_name
+        && entry.container_name
+      ) {
+        latestSuccessfulTargetImages.set(targetKey(entry), entry.image)
+      }
+    }
+
+    if (
+      data.version === '1.0'
+      && (entry.action === 'deploy' || entry.action === 'set-image')
+      && entry.status === 'success'
+    ) {
+      if (entry.image === null) {
+        pushError(errors, `$.history[${index}].image`, 'must not be null in version 1.0 state')
+      } else {
+        latestSuccessfulImage = entry.image
+      }
     }
 
   }
 
-  if (latestSuccessfulImage && latestSuccessfulImage !== lastDeploy.image) {
+  if (
+    data.version === '1.0'
+    && latestSuccessfulImage
+    && latestSuccessfulImage !== lastDeploy.image
+  ) {
     pushError(errors, '$.last_deploy.image', 'must match the latest successful image-changing history entry')
+  }
+
+  if (data.version === '1.1') {
+    const currentTargets = new Map(services.map(service => [targetKey(service), service]))
+    for (const [key, image] of latestSuccessfulTargetImages) {
+      const current = currentTargets.get(key)
+      if (!current) {
+        pushError(errors, '$.last_deploy.services', `must retain updated target ${key}`)
+      } else if (current.image !== image) {
+        const index = services.indexOf(current)
+        pushError(errors, `$.last_deploy.services[${index}].image`, 'must match the latest successful set-image history entry for this target')
+      }
+    }
   }
 }
 

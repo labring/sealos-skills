@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'child_process'
-import { ensureGhScopesWithPrompt, run } from './gh-auth-utils.mjs'
+import { ensureGhScopesWithPrompt } from './gh-auth-utils.mjs'
 
 function runFile (command, args, opts = {}) {
   return execFileSync(command, args, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim()
@@ -29,6 +29,19 @@ function parseImageRegistry (imageRef) {
   return 'docker.io'
 }
 
+function parseGhcrImageNamespace (imageRef) {
+  const text = String(imageRef || '').trim()
+  const repository = text.split('@', 1)[0]
+  const withoutTag = repository.includes(':') && repository.lastIndexOf(':') > repository.lastIndexOf('/')
+    ? repository.slice(0, repository.lastIndexOf(':'))
+    : repository
+  const parts = withoutTag.split('/')
+  if (parts[0]?.toLowerCase() !== 'ghcr.io' || !parts[1] || !parts[2]) {
+    throw new Error('GHCR image reference must include an owner namespace and repository')
+  }
+  return parts[1].toLowerCase()
+}
+
 async function ensureGhAuth () {
   return ensureGhScopesWithPrompt(
     ['write:packages'],
@@ -38,29 +51,49 @@ async function ensureGhAuth () {
 
 function ensureKubectl () {
   try {
-    run('kubectl version --client=true --output=yaml', { env: getKubeEnv() })
+    runFile(
+      'kubectl',
+      ['version', '--client=true', '--output=yaml'],
+      { env: getKubeEnv() },
+    )
   } catch {
     throw new Error('kubectl is required to create image pull secrets')
   }
 }
 
 function createOrUpdateDockerRegistrySecret ({ namespace, secretName, registry, username, password, email }) {
-  const escapedPassword = password.replace(/"/g, '\\"')
-  const escapedUsername = username.replace(/"/g, '\\"')
-  const escapedEmail = email.replace(/"/g, '\\"')
-  const script = [
-    `KUBECONFIG=\${KUBECONFIG:-$HOME/.sealos/kubeconfig}`,
-    'kubectl --insecure-skip-tls-verify create secret docker-registry ' +
-      `${secretName} -n ${namespace} ` +
-      `--docker-server=${registry} ` +
-      `--docker-username="${escapedUsername}" ` +
-      `--docker-password="${escapedPassword}" ` +
-      `--docker-email="${escapedEmail}" ` +
-      '--dry-run=client -o yaml | ' +
-      'kubectl --insecure-skip-tls-verify apply -f -',
-  ].join(' && ')
+  const dockerConfig = {
+    auths: {
+      [registry]: {
+        username,
+        password,
+        email,
+        auth: Buffer.from(`${username}:${password}`).toString('base64'),
+      },
+    },
+  }
+  const secret = {
+    apiVersion: 'v1',
+    kind: 'Secret',
+    metadata: {
+      name: secretName,
+      namespace,
+    },
+    type: 'kubernetes.io/dockerconfigjson',
+    data: {
+      '.dockerconfigjson': Buffer.from(JSON.stringify(dockerConfig)).toString('base64'),
+    },
+  }
 
-  runFile('sh', ['-c', script], { env: getKubeEnv() })
+  runFile(
+    'kubectl',
+    ['--insecure-skip-tls-verify', 'apply', '-f', '-'],
+    {
+      env: getKubeEnv(),
+      input: JSON.stringify(secret),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+  )
 }
 
 function getDeploymentImagePullSecretNames ({ namespace, deploymentName }) {
@@ -143,15 +176,30 @@ try {
     }, null, 2))
     process.exit(1)
   }
-  ensureKubectl()
 
-  const username = run('gh api user -q .login')
-  const password = run('gh auth token')
+  const imageNamespace = parseGhcrImageNamespace(imageRef)
+  const username = runFile(
+    'gh',
+    ['api', '--hostname', 'github.com', 'user', '-q', '.login'],
+  )
+  if (username.toLowerCase() !== imageNamespace) {
+    throw new Error(
+      `Active github.com account ${username} does not match GHCR image namespace ${imageNamespace}. `
+      + `Switch to the matching account with: gh auth switch --hostname github.com --user ${imageNamespace}`,
+    )
+  }
+
+  ensureKubectl()
+  const password = runFile(
+    'gh',
+    ['auth', 'token', '--hostname', 'github.com'],
+  )
   createOrUpdateDockerRegistrySecret({
     namespace,
     secretName,
     registry,
     username,
+    image_namespace: imageNamespace,
     password,
     email: 'none@example.com',
   })

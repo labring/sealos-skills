@@ -160,9 +160,9 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - 在需要時引導使用者登入 Sealos
 - 使用 `sealos-cli` 建立 Sealos Cloud 資料庫、取得連線詳細資料並執行資料庫操作
 - 使用 `sealos-cli s3` 管理 Sealos 物件儲存貯體、憑證、配額檢查、物件操作和預先簽署 URL
-- 使用或協助準備 Docker Hub、GHCR 等容器登錄路徑
+- 將本機建置的 `linux/amd64` 映像推送到目前 GitHub 帳戶的 GHCR 命名空間，並把 Buildx digest 與拉取權限結果傳遞至部署階段
 
-實際部署仍需要 Sealos Cloud 帳戶和容器登錄存取權，這些項目可以在技能啟動後再完成設定。資料庫和物件儲存工作需要 Sealos Cloud 帳戶，以及具備建立所需資源權限的工作區。
+實際部署仍需要 Sealos Cloud 帳戶。只有所選路徑需要建置並推送新映像時，才需要具備 GHCR package 權限的 GitHub CLI 登入工作階段。現有的專案宣告映像（包括託管於 Docker Hub 的映像）仍可透過不可變 digest 重複使用。資料庫和物件儲存工作需要 Sealos Cloud 帳戶，以及具備建立所需資源權限的工作區。
 
 ## Sealos Deploy 的處理範圍
 

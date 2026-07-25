@@ -374,6 +374,61 @@
         {"name": "preserves-existing-root-dockerfile", "description": "Uses the existing Dockerfile unchanged absent a certain blocker or concrete Phase 4 failure"},
         {"name": "builds-single-app-for-amd64", "description": "Passes the normalized implicit-service plan to Phase 4 and builds linux/amd64"}
       ]
+    },
+    {
+      "id": 30,
+      "prompt": "Phase 4 must build the api service. Docker, Buildx, Node.js 18+, and gh are available, and gh is authenticated to github.com as MixedCaseUser with write:packages. The first GHCR push is denied. Continue safely without changing the selected source or build plan.",
+      "expected_output": "Phase 4 keeps GHCR as the only push destination, diagnoses or refreshes the current GitHub authentication and package scope, then retries the same linux/amd64 build plan. It never asks for a registry, username, or password and never falls back to Docker Hub. A successful retry records a lower-case ghcr.io/mixedcaseuser namespace, the digest returned by Buildx, and the pull_access handoff in the per-service build result",
+      "files": [],
+      "assertions": [
+        {"name": "uses-fixed-ghcr-destination", "description": "Pushes locally built images only to the current authenticated GitHub account namespace on ghcr.io"},
+        {"name": "does-not-offer-registry-choice", "description": "Does not ask the user to select a registry or provide registry host, username, or password"},
+        {"name": "never-falls-back-to-docker-hub", "description": "Treats a GHCR authentication or push failure as a Phase 4 problem and never pushes the build to Docker Hub"},
+        {"name": "normalizes-ghcr-namespace", "description": "Uses the lower-case current GitHub login in the GHCR repository path"},
+        {"name": "builds-linux-amd64", "description": "Builds the exact Phase 3 plan for linux/amd64"},
+        {"name": "records-buildx-digest-and-pull-access", "description": "Persists the digest from the same Buildx push plus anonymous, ghcr_secret_required, or indeterminate pull_access in build-result.json"}
+      ]
+    },
+    {
+      "id": 31,
+      "prompt": "Deploy a Compose project whose README and Compose file declare public Docker Hub images acme/frontend:v2 and postgres:16. Both exact selectors resolve to immutable digests, every final workload is covered, and gh is not installed.",
+      "expected_output": "Phase 2 reuses both project-declared Docker Hub images by immutable digest, preserves the application and database topology, and skips Phases 3 and 4. Missing gh is only a path-specific warning and does not block this deployment because no local image must be pushed",
+      "files": [],
+      "assertions": [
+        {"name": "reuses-declared-docker-hub-images", "description": "Keeps explicitly declared Docker Hub application and database images when their selectors resolve to digests"},
+        {"name": "does-not-confuse-reuse-with-push", "description": "The GHCR-only Phase 4 upload policy does not remove Phase 2 Docker Hub image discovery or reuse"},
+        {"name": "preserves-complete-topology", "description": "Carries both the frontend and PostgreSQL workload into template generation"},
+        {"name": "skips-local-build", "description": "Skips Phases 3 and 4 because every final container workload already has an immutable image"},
+        {"name": "does-not-require-gh-without-build", "description": "Does not block on missing gh when no local build/push path is needed"}
+      ]
+    },
+    {
+      "id": 32,
+      "prompt": "Update an existing version 1.1 deployment whose state maps frontend to Deployment/shop container web and worker to StatefulSet/shop-worker container worker. Both services changed and have independent build plans. Both GHCR builds succeed, frontend becomes ready, but worker rollout fails.",
+      "expected_output": "The update builds both selected services for linux/amd64 and records their GHCR digests before mutating the cluster. It updates the exact recorded workload/container targets rather than guessing from the app name. When the worker rollout fails, it restores both frontend and worker to their previous digests, keeps the current per-service state unchanged, and appends target-qualified failure history",
+      "files": [],
+      "assertions": [
+        {"name": "uses-per-service-build-plans", "description": "Builds frontend and worker with their own context, Dockerfile, target, and argument names"},
+        {"name": "pushes-every-new-image-to-ghcr", "description": "Uses GHCR for both new update images with no registry prompt or fallback"},
+        {"name": "targets-recorded-workloads", "description": "Uses Deployment/shop:web and StatefulSet/shop-worker:worker rather than deriving a target from app_name"},
+        {"name": "mutates-only-after-all-builds", "description": "Does not change a live workload until every selected service build succeeds"},
+        {"name": "rolls-back-the-whole-update-set", "description": "Restores every target changed in this operation when one selected rollout fails"},
+        {"name": "preserves-current-state-on-failure", "description": "Does not partially advance services[].image, pull_access, or the primary image summary"},
+        {"name": "records-target-qualified-history", "description": "Failure history identifies service, workload kind/name, container, previous image, and attempted image"}
+      ]
+    },
+    {
+      "id": 33,
+      "prompt": "Update a multi-service deployment. An unchanged private worker still uses ghcr.io/account-a/worker@sha256:<digest>, while the current active GitHub account builds a private api image under ghcr.io/account-b/api@sha256:<digest>.",
+      "expected_output": "Before changing any cloud resource, the update evaluates the complete prospective service inventory and refuses to overwrite the app-scoped GHCR credential because its non-anonymous images span two namespaces. It asks the user to rebuild every conflicting private or indeterminate service under one GitHub account; it does not partially update workloads or state",
+      "files": [],
+      "assertions": [
+        {"name": "checks-complete-service-inventory", "description": "Includes unchanged services when determining which GHCR credential the application still needs"},
+        {"name": "requires-one-private-namespace", "description": "Allows only one normalized GHCR namespace across ghcr_secret_required and indeterminate service images"},
+        {"name": "stops-before-cluster-mutation", "description": "Does not refresh the Secret, patch imagePullSecrets, or set a workload image when namespaces conflict"},
+        {"name": "does-not-overwrite-another-account", "description": "Never replaces account-a credentials with account-b credentials while an unchanged private account-a image remains in use"},
+        {"name": "preserves-state", "description": "Leaves the per-service state and history unchanged because no update operation began"}
+      ]
     }
   ]
 }

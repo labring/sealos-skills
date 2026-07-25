@@ -160,9 +160,9 @@ Selama alur deployment, database, dan object storage, Sealos Skills akan:
 - memandu pengguna melalui login Sealos saat diperlukan
 - menggunakan `sealos-cli` untuk membuat database Sealos Cloud, mengambil detail koneksi, dan menjalankan operasi database
 - menggunakan `sealos-cli s3` untuk bucket object storage Sealos, kredensial, pemeriksaan kuota, operasi objek, dan URL presigned
-- menggunakan atau membantu menyiapkan path registry container seperti Docker Hub atau GHCR
+- mendorong image `linux/amd64` yang dibangun secara lokal ke namespace akun GitHub saat ini di GHCR serta meneruskan digest Buildx dan hasil akses pull ke deployment
 
-Deployment aktual memerlukan akun Sealos Cloud dan akses ke registry container, tetapi keduanya tidak harus sepenuhnya disiapkan sebelum skill dimulai. Pekerjaan database dan object storage memerlukan akun Sealos Cloud serta workspace yang dapat membuat resource yang diminta.
+Deployment aktual memerlukan akun Sealos Cloud. Sesi GitHub CLI terautentikasi dengan akses package GHCR hanya diperlukan saat jalur yang dipilih membangun dan mendorong image baru. Image yang telah dideklarasikan, termasuk yang di-host di Docker Hub, tetap dapat digunakan kembali melalui digest yang immutable. Pekerjaan database dan object storage memerlukan akun Sealos Cloud serta workspace yang dapat membuat resource yang diminta.
 
 ## Yang Ditangani Sealos Deploy
 

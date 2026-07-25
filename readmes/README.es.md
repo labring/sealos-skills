@@ -160,9 +160,9 @@ Durante los flujos de despliegue, base de datos y almacenamiento de objetos, Sea
 - guía al usuario durante el inicio de sesión en Sealos cuando sea necesario
 - usa `sealos-cli` para crear bases de datos de Sealos Cloud, obtener los datos de conexión y realizar operaciones de base de datos
 - usa `sealos-cli s3` para gestionar buckets de almacenamiento de objetos de Sealos, credenciales, comprobaciones de cuota, operaciones con objetos y URL prefirmadas
-- usa o ayuda a preparar una ruta de registro de contenedores como Docker Hub o GHCR
+- publica las imágenes `linux/amd64` creadas localmente en el espacio de nombres de la cuenta de GitHub actual en GHCR y lleva al despliegue el digest de Buildx y el resultado del acceso de extracción
 
-Un despliegue real requiere una cuenta de Sealos Cloud y acceso a un registro de contenedores, aunque no es necesario configurarlos por completo antes de iniciar la habilidad. El trabajo con bases de datos y almacenamiento de objetos requiere una cuenta de Sealos Cloud y un espacio de trabajo que pueda crear los recursos solicitados.
+Un despliegue real requiere una cuenta de Sealos Cloud. Solo se necesita una sesión autenticada de GitHub CLI con acceso a paquetes de GHCR cuando la ruta seleccionada crea y publica una imagen nueva. Las imágenes declaradas existentes, incluidas las alojadas en Docker Hub, todavía pueden reutilizarse mediante un digest inmutable. El trabajo con bases de datos y almacenamiento de objetos requiere una cuenta de Sealos Cloud y un espacio de trabajo que pueda crear los recursos solicitados.
 
 ## Qué gestiona Sealos Deploy
 

@@ -8,7 +8,9 @@ path. DEPLOY mode runs Phase 1, then Phase 1.5 chooses one of two routes:
 
 `SKILL_DIR` refers to the directory containing this skill's SKILL.md. Sibling skills are at `<SKILL_DIR>/../`.
 
-Use `ENV` from preflight to choose between script mode (Node.js available) and fallback mode (AI-native).
+Use `ENV` from preflight to choose between script mode (Node.js available)
+and fallback mode (AI-native), except that Phase 4 has no AI-native or
+direct-Docker fallback and requires Node.js 18+ when a local build is needed.
 
 ## Artifact Directory
 
@@ -104,6 +106,21 @@ After preflight, determine whether this is a **first deploy** or an **update** o
 Read `.sealos/state.json` in `WORK_DIR`. If it exists and contains a
 `last_deploy` key with `app_name`, proceed to Step 2.
 
+Current state uses version `1.1` and records
+`last_deploy.services[]`. A version `1.0` state remains readable for backward
+compatibility, including its ignored legacy registry field, but must be
+upgraded before an image-changing update: inspect the live workloads and
+containers, bind each one to the matching analysis/template service, obtain
+user confirmation for any ambiguous mapping, then write the version `1.1`
+service map using the observed immutable image digests. If a live target cannot
+be bound to a digest, stop the migration instead of copying a floating
+workload selector. Preserve the existing `history` entries byte-for-byte and set
+top-level `legacy_history_count` to their count before appending any new v1.1
+entry. Entries before that explicit boundary retain the v1.0 contract; entries
+at or after it require immutable digests and exact service/workload/container
+targets. A state created natively as v1.1 omits the boundary. Never guess a
+workload or container from `app_name`.
+
 If no `last_deploy` key or file doesn't exist → proceed to **Step 1.5**
 (attempt discovery from cluster).
 
@@ -116,14 +133,16 @@ Projects deployed by an older version of the skill may have no `last_deploy` sec
 NAMESPACE=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   config view --minify -o jsonpath='{.contexts[0].context.namespace}' 2>/dev/null)
 
-# Search for a deployment whose name starts with the repo name
+# Search the rollout-capable workloads whose names start with the repo name.
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  get deploy -n "$NAMESPACE" \
-  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}' 2>/dev/null \
-  | grep -i "^$REPO_NAME"
+  get deployment,statefulset,daemonset,cronjob -n "$NAMESPACE" -o json 2>/dev/null
 ```
 
-**If a match is found** (e.g., `evershop-uvbp0n0n	zhujingyang/evershop:20260309`):
+Match candidate workload/container images to the repository evidence and
+rendered template. Do not inspect only `containers[0]`, and do not select a
+candidate solely because its name has the repository prefix.
+
+**If a complete unambiguous match is found:**
 
 1. Query the full details to reconstruct the `deployed` state:
 ```bash
@@ -138,15 +157,17 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 Found an existing deployment that appears to match this project:
 
   App:       evershop-uvbp0n0n
-  Image:     zhujingyang/evershop:20260309
+  Workloads: deployment/evershop-uvbp0n0n (web)
+  Image:     ghcr.io/zhujingyang/evershop@sha256:<digest>
   URL:       https://evershop-4ha6b4mh.gzg.sealos.run
   Namespace: ns-qiqovyrm
 
   Is this the deployment you want to update? (y/n)
 ```
 
-3. If user confirms → write the reconstructed `last_deploy` section to
-   `.sealos/state.json` (create file if needed), then proceed to Step 2.
+3. If user confirms → write a version `1.1` `last_deploy` section with the
+   complete per-service workload/container map to `.sealos/state.json` (create
+   the file if needed), then proceed to Step 2.
 
 4. If user says no, or no match is found → **DEPLOY mode** (skip to Resume
    Detection below).
@@ -157,16 +178,16 @@ If `ENV.kubectl` is false:
 - Inform user: `"Found previous deployment record for {app_name}, but kubectl is not available. Will create a new instance instead."`
 - → **DEPLOY mode**
 
-If `ENV.kubectl` is true, query the cluster:
-```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  get deployment/<app_name> -n <namespace> \
-  -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null
-```
+If `ENV.kubectl` is true, query every exact
+`last_deploy.services[]` workload kind/name. Verify that its named container
+still exists and runs the recorded immutable image. For a legacy version `1.0`
+state, reconstruct and confirm the version `1.1` service map first.
 
-- Command fails (deployment deleted or kubeconfig expired) → **DEPLOY mode**
-  (remove `.sealos/state.json` or clear `last_deploy`)
-- Command returns current image → proceed to Step 3
+- A target workload/container is missing, kubeconfig is expired, or the live
+  footprint contradicts the state → stop mode detection and reconcile the
+  state with the user; do not silently create a duplicate deployment.
+- Every target exists and the live images are accounted for → proceed to Step
+  3.
 
 ### Step 3: Ask user
 
@@ -174,11 +195,11 @@ Present the detected state and let the user choose:
 
 ```
 Detected existing deployment:
-  App:   <app_name>
-  Image: <image>
-  URL:   <url>
+  App:       <app_name>
+  Workloads: <service → kind/name:container, current digest>
+  URL:       <url, only when a public endpoint exists>
 
-  1. Update this deployment (rebuild & push new image)
+  1. Update this deployment (rebuild or restart one or more exact services)
   2. Deploy as a new instance
 
 Default: Update
@@ -187,6 +208,10 @@ Default: Update
 - User picks **Update** → **UPDATE mode** (jump to Update Path below)
 - User picks **New instance** → **DEPLOY mode** (rename state.json to
   state.json.bak)
+- If `last_deploy.services` is empty because the prior deployment contained
+  only completed one-shot Jobs, there is no in-place update target. Explain
+  that fact and offer only a new deployment; never infer a mutable target from
+  the completed Job.
 
 ---
 
@@ -199,8 +224,8 @@ Default: Update
 | `.sealos/state.json` has `last_deploy` | Already deployed | Enter UPDATE mode (handled above) |
 | `.sealos/analysis.json` exists | Phase 1 scoring completed | After the Phase 1 entry judgment, ask whether to reuse the assessment |
 | `.sealos/template-references.json` selects `deploy_official_template` and `.sealos/template/index.yaml` is byte-for-byte identical to its selected exact reference | A prior Phase 1.5 run selected and materialized an official template | Never trust the local pair as proof; rerun Phase 1.5 against a freshly verified official checkout, then continue to Phase 6 only if it selects and rematerializes the same route |
-| Every build-required service has a matching `.sealos/build/<service-key>/build-result.json` with `outcome: "success"` and the same effective build plan | Phase 4 completed for those services | Ask user: skip rebuilding those exact services? |
-| `.sealos/template/index.yaml` exists on the standard route, is newer than the current Phase 1.5 decision, and passes the Phase 5 quality gate | Phase 5 completed | Ask user: skip template generation? |
+| Every build-required service has a matching `.sealos/build/<service-key>/build-result.json` with `outcome: "success"` | A prior Phase 4 run produced diagnostic images | Rebuild. The current artifact does not contain a source/content fingerprint, so matching paths and build options never prove that an old digest represents the current checkout |
+| `.sealos/template/index.yaml` exists on the standard route, is newer than the current Phase 1.5 decision and every current build result, passes the Phase 5 quality gate, and every rendered workload image/pull-Secret reference exactly matches the current service inventory and Phase 4 results | Phase 5 completed for the current images | Ask user whether to reuse it; otherwise regenerate Phase 5. A valid but stale template is never reusable |
 
 When Phase 1.5 changes from `deploy_official_template` to
 `continue_standard_pipeline`, the matcher removes the previous
@@ -755,106 +780,63 @@ contract.
 
 ## Phase 4: Build & Push
 
-### 4.0 Choose Image Destination
+### 4.0 Prepare GHCR
 
-Registry selection is deferred to this phase because it is only needed when
-building. Skip this phase only when every final container workload already has
-a reusable immutable digest. In a mixed project, build only services still
-marked `build_required`, using each exact Phase 3 build plan, and preserve every
-previously resolved service image.
+Skip this phase when every final container workload already has a reusable
+immutable digest. In a mixed project, build only services still marked
+`build_required`, use each exact Phase 3 plan, and preserve every previously
+resolved service image regardless of which registry hosts it.
 
-Before any login step, tell the user:
+Every image built by this workflow is pushed to GHCR. There is no registry
+choice, Docker Hub login probe, or registry fallback. The Phase 4 orchestrator
+first validates every selected service's context, Dockerfile, and build plan,
+plus the Docker daemon, Buildx capability, and Node.js 18+ runtime. The helper
+rechecks the service handled by each invocation. A broken local build plan must
+fail before an OAuth flow begins.
 
-```text
-This app will be built locally with Docker.
-Choose where to push the image:
+For the first build, prepare the `github.com` account used by `gh`:
 
-  1. GHCR (recommended) — agent can run `gh auth login` and finish browser auth with you
-  2. Docker Hub — public images only; use your existing `docker login` session, or run `docker login` in another terminal
-```
-
-Default to **GHCR** when the user says "either is fine".
-
-Important:
-- This choice is about the image registry only. Local builds still require Docker either way.
-- If the user chooses GHCR, use `gh auth login` as the preferred interactive auth path.
-- If the user chooses Docker Hub, treat that path as public-image only.
-- If the user chooses Docker Hub and there is no active Docker Hub session, stop and ask the user to run `docker login` in another terminal before continuing.
-
-**If the user chooses GHCR:**
 ```bash
-gh auth status 2>/dev/null
+gh auth status --active --hostname github.com
+GH_USER=$(gh api --hostname github.com user -q .login)
 ```
-If authenticated:
+
+Tell the user which GitHub account and lower-case GHCR namespace will be used,
+but do not ask them to select a registry or enter a registry username,
+password, or host. Before the first push, ensure the `gh` session has
+`write:packages`; that scope is sufficient for both the push and this
+workflow's later private-image pull Secret.
+
+If the current session is missing the scope, run:
+
 ```bash
-GH_USER=$(gh api user -q .login)
-gh auth token | docker login ghcr.io -u "$GH_USER" --password-stdin
-REGISTRY=ghcr
-```
-Important:
-- Before the first GHCR push, ensure the local `gh` session has `write:packages`.
-- For GHCR, `write:packages` is sufficient for both pushing and later creating the app-scoped image pull Secret. GitHub CLI may not show a separate `read:packages` entry even though pull access works.
-- If the current session is missing GHCR package access, refresh with:
-  `node "<SKILL_DIR>/scripts/gh-refresh-scopes.mjs" write:packages`
-- When `build-push.mjs` or `ensure-image-pull-secret.mjs` runs inside a TTY, it will now ask once whether it should refresh missing GHCR scopes and, on `y`, run `gh auth refresh` in the same PTY before continuing.
-- If `gh auth refresh` exits successfully but the scopes are still missing, the script will immediately fall back to a full `gh auth login --web --scopes ...` in the same PTY and only continue after re-checking the scopes.
-- A successful GHCR push does **not** guarantee Sealos can pull the image.
-- For private GHCR packages, keep the deployment path GHCR-first and create an image pull Secret from the local `gh` CLI session before applying or updating workloads.
-- Do **not** surface raw registry host/username/password/email as user-facing template inputs when local `gh auth status` is already available.
-
-If `build-push.mjs` or `ensure-image-pull-secret.mjs` returns:
-```json
-{
-  "action": "gh_scope_refresh_required",
-  "tty_required": true,
-  "suggested_command": "node <SKILL_DIR>/scripts/gh-refresh-scopes.mjs write:packages"
-}
-```
-then the agent should:
-1. Ask the user once: `Missing GitHub Packages permission for GHCR. Refresh now? (y/n)`
-2. If the current script is already running in a PTY, answer `y` there and let it continue in-place
-3. Otherwise run the `suggested_command` in the **current PTY/TTY session**
-4. If `gh` prompts `Press Enter to open github.com in your browser...`, send `Enter` in the same PTY
-5. After the refresh command exits successfully, retry the exact failed command automatically
-
-Do not tell the user to open a separate terminal when the current agent session can run a PTY command.
-
-If `gh` is installed but not authenticated, explicitly tell the user that GHCR push requires GitHub CLI login, then trigger:
-```bash
-gh auth login
-```
-After successful login, retry GHCR authentication and continue.
-
-**If the user chooses Docker Hub:**
-```bash
-docker info 2>/dev/null | grep "Username:"
-```
-If a Docker Hub session exists, use it:
-```bash
-DOCKER_HUB_USER=<extracted username>
-REGISTRY=dockerhub
+node "<SKILL_DIR>/scripts/gh-refresh-scopes.mjs" write:packages
 ```
 
-Treat this path as **public image only**.
-Do not add Docker Hub private-image credential prompts or Docker Hub pull-secret automation in `sealos-deploy`.
+When `build-push.mjs` or `ensure-image-pull-secret.mjs` runs in a TTY, it asks
+once before refreshing missing scopes. If a refresh succeeds but the required
+scope is still absent, it performs a full
+`gh auth login --hostname github.com --web --scopes write:packages` and
+re-checks the session. If `gh` is not authenticated, let the helper start that
+same `github.com` login flow and retry automatically after it completes.
 
-If no Docker Hub session exists, tell the user:
-```
-Docker Hub push requires a local Docker Hub login session.
-Please run `docker login` in another terminal, then continue this deploy.
-```
+Do not ask the user to open another terminal when the current session can run a
+PTY command. Never place the GitHub token in a shell command, log, generated
+template, or project artifact; the helper passes it directly to
+`docker login ghcr.io --password-stdin`.
 
 ### 4.1 Build & Push
 
 When the service name differs from the repository name, the helper uses its
 filesystem-safe unique service key in
-`<owner-or-user>/<repo-name>-<service-key>:YYYYMMDD-HHMMSS` (for example,
-`ghcr.io/zhujingyang/kite-api:20260304-143022`). The service suffix prevents
+`ghcr.io/<github-user>/<repo-name>-<service-key>:YYYYMMDD-HHMMSS-<random>`
+(for example,
+`ghcr.io/zhujingyang/kite-api:20260304-143022-a1b2c3`). The service suffix prevents
 multi-service builds from overwriting one another. When `--service` is omitted,
 or the implicit single-app service has the repository name, the helper retains
 the legacy single-application
-`<owner-or-user>/<repo-name>:YYYYMMDD-HHMMSS` form. The timestamp prevents
-same-day rebuild collisions.
+`ghcr.io/<github-user>/<repo-name>:YYYYMMDD-HHMMSS-<random>` form. The random
+suffix prevents concurrent builds in the same second from reusing a tag.
 
 Before invoking the build helper, create the build artifact directory:
 
@@ -862,116 +844,77 @@ Before invoking the build helper, create the build artifact directory:
 mkdir -p "$WORK_DIR/.sealos/build"
 ```
 
-**If Node.js available:**
+Run the validated helper for each service:
 ```bash
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" \
   --service "<service>" \
   --context "<context>" \
   --dockerfile "<dockerfile-relative-to-context>" \
   --target "<optional-target>" \
-  --build-arg "<ARG_NAME>" \
-  --registry ghcr
+  --build-arg "<ARG_NAME>"
 ```
 
 Run one invocation for every build-required service. Omit `--target` when the
 plan has no target and repeat `--build-arg` for each required argument. Resolve
 argument values from the original project declaration, the current environment,
 or authorized user configuration at execution time; never persist or print
-secret values. For Docker Hub use
-`--registry dockerhub --user "<user>"`; the service/context/Dockerfile/target
-arguments remain identical.
+secret values.
 
 Success output returns the immutable image plus the pushed tag:
-`{ "success": true, "service": "<service>", "image": "<repository>@sha256:<digest>", "pushed_image": "<repository>:<tag>", "digest": "sha256:<digest>", "platforms": ["linux/amd64"], "registry": "ghcr" }`.
+`{ "success": true, "service": "<service>", "image": "<repository>@sha256:<digest>", "pushed_image": "<repository>:<tag>", "digest": "sha256:<digest>", "platforms": ["linux/amd64"], "registry": "ghcr", "pull_access": "<anonymous|ghcr_secret_required|indeterminate>", "requires_image_pull_secret": <boolean> }`.
 Failure output remains `{ "success": false, "error": "..." }`.
 
-For GHCR success, record whether the image is anonymously pullable. If Phase 4 built a GHCR image and it is still private, continue with the GHCR image and let Phase 6 create/update the pull Secret automatically from `gh auth token`.
-If a service reuses an existing public image, do **not** trigger the GHCR
-pull-secret flow for that service.
+After the push, the helper checks anonymous pull access using the final digest,
+not the temporary tag, and writes the result to the per-service artifact:
 
-**If Node.js not available (fallback — run docker directly):**
-```bash
-TAG=$(date +%Y%m%d-%H%M%S)
-SERVICE="<service>"
-SERVICE_KEY="<filesystem-safe-unique-service-key>"
-REPO_NAME="<repo-name>"
-IMAGE_NAME="$REPO_NAME"
-if [ "$SERVICE" != "$REPO_NAME" ]; then
-  IMAGE_NAME="$REPO_NAME-$SERVICE_KEY"
-fi
-CONTEXT="$WORK_DIR/<context>"
-DOCKERFILE="<dockerfile-relative-to-context>"
-```
+- `anonymous`: Sealos can pull the digest without credentials.
+- `ghcr_secret_required`: GHCR explicitly requires authentication.
+- `indeterminate`: a transient or registry error prevented a trustworthy
+  decision.
 
-If the user chose GHCR:
-```bash
-GH_USER=$(gh api user -q .login)
-gh auth token | docker login ghcr.io -u "$GH_USER" --password-stdin
-IMAGE="ghcr.io/$GH_USER/$IMAGE_NAME:$TAG"
-BUILD_METADATA=$(mktemp)
-docker buildx build --platform linux/amd64 -t "$IMAGE" --push \
-  --metadata-file "$BUILD_METADATA" \
-  -f "$CONTEXT/$DOCKERFILE" \
-  "$CONTEXT"
-```
+Continue with the pushed digest in all three cases. Phase 5 adds the app-scoped
+pull Secret reference and Phase 6 creates the Secret only for
+`ghcr_secret_required` or `indeterminate`. Existing public images and
+`anonymous` GHCR results do not enter that path.
 
-If the user chose Docker Hub:
-```bash
-DOCKER_HUB_USER=$(docker info 2>/dev/null | sed -n 's/^ Username: //p')
-IMAGE="$DOCKER_HUB_USER/$IMAGE_NAME:$TAG"
-BUILD_METADATA=$(mktemp)
-docker buildx build --platform linux/amd64 -t "$IMAGE" --push \
-  --metadata-file "$BUILD_METADATA" \
-  -f "$CONTEXT/$DOCKERFILE" \
-  "$CONTEXT"
-```
-
-Add the plan's optional `--target` and repeated `--build-arg` flags to the
-fallback command as applicable. Do not echo a command line containing secret
-argument values.
-
-Read `containerimage.digest` from `$BUILD_METADATA` with `jq`, require a
-`sha256:<64-hex>` value, set
-`IMAGE_REF="${IMAGE%:*}@${DIGEST}"`, then delete the metadata file. Buildx
-metadata is the digest authority for an image built by this workflow; do not
-install or invoke a second image-inspection binary.
-
-If `$IMAGE` is a GHCR image, immediately verify it is anonymously pullable before proceeding:
-
-```bash
-TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:$GH_USER/$IMAGE_NAME:pull" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
-curl -fsSLI \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
-  "https://ghcr.io/v2/$GH_USER/$IMAGE_NAME/manifests/$TAG"
-```
-
-If that check returns 401/403 or the package visibility is still private, continue with the build but mark that Phase 6 must create/update the namespace image pull Secret before rollout.
-If the run is using an existing public image instead of a new local build, skip this secret-creation path.
+There is no direct-Docker fallback for Phase 4. Node.js 18+ is a conditional
+dependency of the local build path because every attempted service must produce
+the same validated per-service artifact.
 
 ### 4.2 Error Handling
 
-If one service build fails:
-1. Read the error output
+Classify the failure before changing project files:
+
+- A Dockerfile, build context, dependency, `.dockerignore`, target, or declared
+  build-input failure is a **build-plan failure**. Route only that service back
+  to Phase 3.
+- GitHub authentication or scopes, GHCR availability, networking, Docker
+  daemon, Buildx availability, or push transport is a **Phase 4 execution
+  failure**. Repair or retry it in Phase 4; never modify source or a Dockerfile
+  in response.
+
+For a build-plan failure:
+1. Read the error output.
 2. Load error patterns from internal skill:
    ```
    <SKILL_DIR>/../dockerfile-skill/knowledge/error-patterns.md
    ```
-3. Route only that service back to Phase 3
+3. Route only that service back to Phase 3.
 4. Match the concrete error → minimally repair that service's Dockerfile,
-   `.dockerignore`, or build plan → retry the exact service
+   `.dockerignore`, or build plan → retry the exact service.
 5. Also consult if needed:
    ```
    <SKILL_DIR>/../dockerfile-skill/knowledge/system-deps.md
    <SKILL_DIR>/../dockerfile-skill/knowledge/best-practices.md
    ```
-6. Max 3 retry attempts for the failing service
+6. Allow at most 3 build-plan repair attempts for the failing service.
 7. If still failing → inform user with the specific service and error and
-   suggest manual review
+   suggest manual review.
 
 Do not rerun or rewrite successful services, and do not invoke the standalone
 dockerfile-skill build/runtime workflow. Phase 4's actual `linux/amd64` Buildx
-result is the feedback loop.
+result is the feedback loop. Authentication and infrastructure retries do not
+consume the build-plan repair limit.
 
 ### 4.3 Record Result
 
@@ -988,7 +931,7 @@ resume/debug behavior inspectable without conflating multiple services.
 Each result records the service identity, effective context, Dockerfile,
 optional target, build-argument names, pushed tag, and requested platform,
 without build-argument values. On success it also records the Buildx metadata
-digest and immutable `image_ref`. The helper builds with
+digest, immutable `image_ref`, and `pull_access`. The helper builds with
 `--platform linux/amd64` and refuses a success artifact unless Buildx returns a
 valid digest.
 
@@ -1154,7 +1097,10 @@ After generating the base template, check if the app needs its public URL config
 - `imagePullPolicy: IfNotPresent`
 - `revisionHistoryLimit: 1`
 - `automountServiceAccountToken: false`
-- Add `template.spec.imagePullSecrets: [{ name: ${{ defaults.app_name }} }]` only for an authenticated private-image path; omit it for anonymously pullable images, including public GHCR images
+- Add `template.spec.imagePullSecrets: [{ name: ${{ defaults.app_name }} }]` to
+  every workload whose Phase 4 result has `push.pull_access` equal to
+  `ghcr_secret_required` or `indeterminate`; omit it for `anonymous` results
+  and reused public images
 - Every `spec.defaults.<name>.value` and every present `spec.inputs.<name>.default` must deserialize as a YAML string; quote numeric-, boolean-, and null-like values, while infrastructure fields such as replicas and ports remain numeric
 - **App CRD** (last resource): only `spec.data.url`, `spec.displayType`, `spec.icon`, `spec.name`, `spec.type` — no other fields (no `menuData`, `nameColor`, `template`, etc.)
 - **App CRD fixed enums**: `spec.displayType` must be `normal`; `spec.type` must be `link`
@@ -1352,6 +1298,36 @@ REGION_DOMAIN=$(printf '%s' "$REGION" | sed -E 's#^https?://##; s#/$##')
 DEPLOY_URL="https://template.${REGION_DOMAIN}/api/v2alpha/templates/raw"
 ```
 
+### 6.1.5 Determine Pull-Secret Requirement
+
+Before the Template API dry-run or any `kubectl apply`, inspect every Phase 4
+success artifact used by the rendered template. For every artifact whose
+`push.pull_access` is `ghcr_secret_required` or `indeterminate`, parse and
+lowercase the first path component after `ghcr.io/`. This is its credential
+namespace.
+
+All such images in one application must have the same credential namespace,
+because the app-scoped Docker config Secret intentionally contains one
+credential for `ghcr.io`. If more than one namespace remains, stop before the
+real create request and ask the user to rebuild the affected services under
+one GitHub account. Never let a later service silently overwrite credentials
+needed by an earlier service.
+
+When exactly one credential namespace remains, set
+`PULL_SECRET_REQUIRED=true` and retain one immutable image from that namespace
+as `PULL_SECRET_IMAGE_REF`. Otherwise set it to `false`.
+
+Do not create the Secret yet on the Template API route. The template normally
+derives `${{ defaults.app_name }}` from server-side `random(...)`, so the real
+Secret name is not known until the create response or a matching live Instance
+reveals it. Creating a guessed Secret before that point can never satisfy the
+workload's `imagePullSecrets` reference.
+
+Skip the Secret path when Phase 4 did not run or every used Phase 4 artifact
+records `push.pull_access: anonymous`. Do not infer private access merely from
+a `ghcr.io/...` hostname, and do not run this helper for a public image reused
+by Phase 2.
+
 ### 6.2 Deploy Template
 
 Read kubeconfig, **encode it with `encodeURIComponent`**, and send as `Authorization` header.
@@ -1368,7 +1344,7 @@ if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH" --dry-run; 
   echo "Template dry-run failed; deployment was not submitted." >&2
   exit 1
 fi
-if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH"; then
+if ! DEPLOY_RESULT=$(node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH"); then
   echo "Template deployment did not return success; follow the Phase 6.3 response or uncertainty path and do not retry automatically." >&2
   exit 1
 fi
@@ -1386,7 +1362,7 @@ if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH" --dry-run -
   echo "Template dry-run failed; deployment was not submitted." >&2
   exit 1
 fi
-if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH" --args-file "$PRIVATE_ARGS_FILE"; then
+if ! DEPLOY_RESULT=$(node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH" --args-file "$PRIVATE_ARGS_FILE"); then
   echo "Template deployment did not return success; follow the Phase 6.3 response or uncertainty path and do not retry automatically." >&2
   exit 1
 fi
@@ -1491,6 +1467,12 @@ case "$DEPLOY_STATUS" in
     ;;
 esac
 
+# Extract only the allowlisted application name needed for an app-scoped pull
+# Secret. Never print or retain the raw response body.
+if [ "$PULL_SECRET_REQUIRED" = "true" ]; then
+  APP_NAME=$(jq -r '.name // empty' "$DEPLOY_RESPONSE")
+fi
+
 # Raw API bodies may contain resolved defaults or credentials. Report only
 # transport status here; discover the instance and resources in Phase 6.5.
 printf 'Dry-run HTTP %s; deploy HTTP %s\n' "$DRY_RUN_STATUS" "$DEPLOY_STATUS"
@@ -1504,6 +1486,38 @@ summary from the live workspace after the trap removes all temporary files.
 
 The curl fallback requires `jq`. If it is unavailable, use the preferred Node
 helper; do not hand-construct credential-bearing JSON or headers.
+
+### 6.2.1 Materialize a Required Pull Secret
+
+After a successful real Template API create and before readiness checks, obtain
+the exact application name:
+
+- On the Node path, read only `.response.name` from the allowlisted
+  `DEPLOY_RESULT`.
+- On the curl path, use only the `APP_NAME` extracted from the private response
+  before that response was deleted.
+- If a successful or ambiguous response does not contain a name, perform the
+  read-only Instance/App/workload discovery in Phase 6.3. Continue only when
+  one matching created instance is identified; never guess a random name or
+  submit a second create request.
+
+When `PULL_SECRET_REQUIRED=true`, validate that the matching live workloads
+reference that exact app-scoped Secret name, then create or refresh it
+immediately:
+
+```bash
+node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" \
+  "$NAMESPACE" "$APP_NAME" "$PULL_SECRET_IMAGE_REF"
+```
+
+The helper requires the active `github.com` account to match the image
+namespace, keeps credentials out of template inputs and project artifacts, and
+creates a `docker-registry` Secret named exactly like the application. Pods may
+briefly report `ImagePullBackOff` between resource creation and Secret
+materialization; readiness must converge after the Secret is present.
+
+When `PULL_SECRET_REQUIRED=false`, do not create or refresh a Secret merely
+because an image is hosted on GHCR.
 
 ### 6.3 Handle Response
 
@@ -1691,6 +1705,12 @@ trap cleanup_rendered_file EXIT HUP INT TERM
 if KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   apply --dry-run=server -o name -f "$RENDERED_FILE" -n "$NAMESPACE" \
   > "$DRY_RUN_LOG" 2>&1; then
+  # Unlike the Template API path, local rendering has already frozen APP_NAME.
+  # Materialize a required app-scoped Secret after dry-run and before apply.
+  if [ "$PULL_SECRET_REQUIRED" = "true" ]; then
+    node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" \
+      "$NAMESPACE" "$APP_NAME" "$PULL_SECRET_IMAGE_REF" || exit 1
+  fi
   if ! KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
     apply -o name -f "$RENDERED_FILE" -n "$NAMESPACE" \
     > "$APPLY_LOG" 2>&1; then
@@ -1764,16 +1784,32 @@ After Phase 6.5 verifies the deployment, write `.sealos/state.json`:
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "last_deploy": {
     "app_name": "<instance name, e.g. evershop-uvbp0n0n>",
     "app_host": "<ingress host prefix, e.g. evershop-4ha6b4mh>",
     "namespace": "<K8s namespace from kubeconfig>",
     "region": "<Sealos region domain, e.g. gzg.sealos.run>",
-    "image": "<IMAGE_REF used in this deploy>",
-    "docker_hub_user": "<DOCKER_HUB_USER, or null if existing image was used>",
+    "image": "<primary service immutable IMAGE_REF, or null>",
+    "services": [
+      {
+        "name": "<service name>",
+        "primary": true,
+        "workload_kind": "Deployment",
+        "workload_name": "<rendered/live workload name>",
+        "container_name": "<container name>",
+        "image": "<repository>@sha256:<digest>",
+        "pull_access": "<anonymous|ghcr_secret_required|indeterminate>",
+        "build": {
+          "context": "<context>",
+          "dockerfile": "<Dockerfile relative to context>",
+          "target": null,
+          "build_arg_names": []
+        }
+      }
+    ],
     "repo_name": "<REPO_NAME>",
-    "url": "<public app URL>",
+    "url": "<public app URL, or null>",
     "deployed_at": "<current ISO timestamp>",
     "last_updated_at": "<current ISO timestamp>"
   },
@@ -1798,22 +1834,35 @@ The `history` array is append-only — every subsequent update adds an entry. Se
 the **Update History** section at the end of this file for the full schema and
 rules.
 
+When this state was migrated from version `1.0`, it also has a top-level
+`legacy_history_count` equal to the number of history entries preserved during
+migration. Do not add that field to a state created natively as version `1.1`.
+
 Sources for each field:
 - `app_name`: from Template API response `name` or the rendered `defaults.app_name` (kubectl apply)
-- `app_host`: from the rendered `defaults.app_host` value, or parsed from the Ingress host
+- `app_host`: from the rendered `defaults.app_host` value, or parsed from the
+  Ingress host; `null` when no public endpoint exists
 - `namespace`: from kubeconfig context
 - `region`: from `~/.sealos/auth.json` `region` field (strip `https://`)
-- `image` on the standard route: from `analysis.json` `image_ref`
-- `image` on the official-template route: after Phase 6.5, read the image from
-  the live primary application Deployment selected by the public
-  Service/Ingress; if no public workload exists, use the verified primary
-  application workload. Fall back to the selected official reference's
-  application image only when it matches the live resource. Never write an
-  empty image.
-- `docker_hub_user`: from Phase 4 `DOCKER_HUB_USER`; use `null` when Phase 2
-  found an existing image or Phase 1.5 reused an official template
+- `services`: enumerate every rendered and verified **in-place update target**:
+  application containers in Deployments, StatefulSets, DaemonSets, and
+  CronJobs. Record each exact workload kind/name, container name, immutable
+  image, pull access, and effective Phase 3 build plan; use `build: null` for a
+  reused image with no local build plan. One-shot Jobs remain part of the
+  verified live footprint but are not added to this update map because their
+  pod templates cannot be changed in place. A Job-only deployment therefore
+  records `services: []` and does not enter UPDATE mode.
+- Zero or one service has `primary: true`, selected from the verified public
+  Service/Ingress path or explicit primary application intent. Workers,
+  CronJobs, and applications without a public endpoint may have no primary.
+  This flag is only the summary/update default and never removes other
+  services.
+- `image`: the immutable image of the primary service, or `null` when there is
+  no primary. On the official-template route, read it from the verified live
+  primary workload. Never substitute the last image built for this summary.
 - `repo_name`: from `analysis.json` `project.repo_name`
-- `url`: constructed from `app_host` and `region`
+- `url`: constructed from `app_host` and `region`, or `null` when no public
+  endpoint was verified
 
 For an official-template deployment, set the history note to
 `Initial deployment from official template <name>@<catalog-commit>`.
@@ -1875,14 +1924,17 @@ only the fixed `<configured>` placeholder. Never reveal prefixes, suffixes, or
 length-derived masks; short secrets must not be reconstructable.
 
 ---
----
 
 # Update Path
 
 **This section is only executed in UPDATE mode** (entered via Deployment Mode
 Detection above).
 
-The update path skips Assess, Detect Image, Dockerfile, and Template generation — it reuses the existing deployment and only pushes a new image.
+The update path reuses the confirmed per-service workload map. It does not
+rerun Assess, global image discovery, or Template generation. It can rebuild
+and push one or more selected services, prepare a missing per-service build
+plan through the restricted Phase 3 boundary, or restart one or more exact
+existing workloads.
 
 All kubectl commands use the Sealos kubeconfig:
 ```
@@ -1899,158 +1951,206 @@ These values are already known from `.sealos/state.json` `last_deploy` section:
 APP_NAME      = last_deploy.app_name       (e.g., "evershop-uvbp0n0n")
 NAMESPACE     = last_deploy.namespace      (e.g., "ns-qiqovyrm")
 REGION        = last_deploy.region         (e.g., "gzg.sealos.run")
-CURRENT_IMAGE = last_deploy.image          (e.g., "zhujingyang/evershop@sha256:<digest>")
-DOCKER_HUB_USER = last_deploy.docker_hub_user
 REPO_NAME     = last_deploy.repo_name
 APP_URL       = last_deploy.url
+SERVICES      = last_deploy.services
 ```
+
+Each `SERVICES` entry identifies one exact update target:
+
+```text
+service name → workload kind/name → container name → current digest
+             → pull access → optional build plan
+```
+
+Do not derive a Deployment or container from `APP_NAME`. A version `1.0` state
+must first be migrated to the confirmed version `1.1` service map described in
+Mode Detection.
 
 ---
 
 ## Phase U1: Build & Push
 
-Ask the user what changed:
+Show the recorded services and ask what changed:
 
 ```
 What would you like to update?
 
-  1. Code changed — rebuild and push new image (default)
-  2. Just restart the current deployment (no rebuild)
+  1. Code changed — select one or more services to rebuild (default)
+  2. Restart one or more current workloads without rebuilding
 ```
 
 ### Option 1: Rebuild
 
-Reuse the **exact same build logic as Phase 4** — same recorded service,
-context, Dockerfile, target, build-argument names, explicit registry choice,
-build-push.mjs, or fallback.
-Default to the registry used by `CURRENT_IMAGE`, but let the user switch if they want.
+For every selected service, read its exact build plan from
+`last_deploy.services[].build`. If it is `null` but the current checkout
+contains buildable source, prepare that service through the restricted Phase 3
+boundary before continuing. Never apply one service's Dockerfile or context to
+another service.
+
+Reuse the **exact same GHCR-only build logic as Phase 4**. Every new update
+image is pushed to GHCR even when the old image was originally reused from
+another registry. There is no registry prompt, inheritance, or fallback.
 
 ```bash
-# With Node.js:
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" \
   --service "$SERVICE" \
   --context "$BUILD_CONTEXT" \
-  --dockerfile "$DOCKERFILE" \
-  --registry ghcr
-
-# Without Node.js:
-TAG=$(date +%Y%m%d-%H%M%S)
-IMAGE_NAME="$REPO_NAME"
-if [ -n "$SERVICE" ] && [ "$SERVICE" != "$REPO_NAME" ]; then
-  IMAGE_NAME="$REPO_NAME-$SERVICE_KEY"
-fi
-PUSHED_IMAGE="<selected-user>/$IMAGE_NAME:$TAG"
-BUILD_METADATA=$(mktemp)
-docker buildx build --platform linux/amd64 -t "$PUSHED_IMAGE" --push \
-  --metadata-file "$BUILD_METADATA" \
-  -f "$WORK_DIR/$BUILD_CONTEXT/$DOCKERFILE" \
-  "$WORK_DIR/$BUILD_CONTEXT"
+  --dockerfile "$DOCKERFILE"
 ```
 
-Add the recorded optional `--target` and repeated `--build-arg` flags in both
-paths. Resolve build-argument values at execution time and do not persist or
-print secret values; literal non-secret values may be recovered from the
-original project declaration. For a legacy single-app state without a recorded service
-plan, omit `--service` and use context `.`, Dockerfile `Dockerfile`, no target,
-and no build arguments. The helper then keeps the legacy unsuffixed
-`<repo-name>` image repository. A new analysis with an implicit single-app
-service uses that recorded service name normally.
+Add the recorded optional `--target` and repeated `--build-arg` flags. Resolve
+argument values at execution time and do not persist or print them. Build all
+selected services before mutating the cluster. For each service, retain
+`PREVIOUS_IMAGE`, the Buildx `NEW_IMAGE` digest, and `push.pull_access`. Never
+pass a temporary tag to Phase U2.
 
-Record the pushed tag and requested `linux/amd64` target for build diagnostics,
-and read its immutable digest from Buildx metadata. Set
-`NEW_IMAGE=<repository>@sha256:<digest>`. Never pass the temporary pushed tag
-to Phase U2.
+If build fails, apply Phase 4.2's classification. Only a build-plan failure may
+return that service to the restricted Phase 3 preparation boundary. Keep
+authentication, GHCR, network, Docker daemon, Buildx, and push failures inside
+Phase U1. Do not mutate any workload until every selected build succeeds.
 
-If build fails → same error handling as Phase 4.2 (return only that service to
-the restricted Phase 3 preparation boundary, make a minimal evidence-backed
-repair, and retry up to 3 times).
+After all builds succeed, form the **prospective service inventory** by
+replacing each selected service's old image and pull-access value with its new
+Phase U1 result. Across that complete inventory — including unselected
+services — all `pull_access != anonymous` images must use one lowercased GHCR
+namespace. If they do not, stop before Phase U2 and require the user to select
+and rebuild every conflicting private/indeterminate service under one GitHub
+account. This check permits an account change only when no unchanged service
+still needs the previous account's credential.
 
 ### Option 2: Restart only
 
-No build needed. Use the current image:
-```
-NEW_IMAGE = CURRENT_IMAGE
-```
-
-Will trigger a rollout restart in Phase U2.
+No build is needed. Retain the selected services' current digest images and
+restart only their exact recorded workloads in Phase U2.
 
 ---
 
 ## Phase U2: Apply Update
 
-### Image update (Option 1 — new image built):
+### Image update
 
-If `NEW_IMAGE` starts with `ghcr.io/`, create or refresh the app-scoped pull Secret and make sure the existing Deployment references it before swapping images:
+Before the first cluster mutation, snapshot in private temporary storage:
+
+- whether the app-scoped pull Secret exists and, if so, its exact current
+  object
+- the existing `imagePullSecrets` arrays of every workload that this operation
+  may patch
+
+Keep these snapshots outside the project with mode `0600`, never print them,
+and remove them after success or rollback. They are rollback material, not
+deployment artifacts.
+
+If any selected Phase U1 result has `push.pull_access` equal to
+`ghcr_secret_required` or `indeterminate`, the prospective-inventory check
+above has already proved that exactly one credential namespace is needed.
+Create or refresh the app-scoped Secret once with one image from that
+namespace:
 
 ```bash
-node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" "$NAMESPACE" "$APP_NAME" "$NEW_IMAGE" "$APP_NAME"
+node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" \
+  "$NAMESPACE" "$APP_NAME" "<one-selected-private-or-indeterminate-image>"
 ```
+
+Before changing an authenticated target, merge the Secret name into that exact
+workload's existing `imagePullSecrets` without deleting other entries. Use
+`spec.template.spec.imagePullSecrets` for Deployment, StatefulSet, and
+DaemonSet, and `spec.jobTemplate.spec.template.spec.imagePullSecrets` for
+CronJob. Do not patch a workload merely because an unrelated selected image
+needs authentication.
+
+Then update every selected target by its recorded kind, workload name, and
+container name:
 
 ```bash
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  set image deployment/$APP_NAME \
-  $APP_NAME=$NEW_IMAGE \
-  -n $NAMESPACE
+  set image "$WORKLOAD_KIND/$WORKLOAD_NAME" \
+  "$CONTAINER_NAME=$NEW_IMAGE" \
+  -n "$NAMESPACE"
 ```
 
-### Restart only (Option 2 — no new image):
+An `anonymous` result does not trigger Secret creation merely because it is
+hosted on GHCR.
+
+### Restart only
 
 ```bash
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  rollout restart deployment/$APP_NAME \
-  -n $NAMESPACE
+  rollout restart "$WORKLOAD_KIND/$WORKLOAD_NAME" \
+  -n "$NAMESPACE"
 ```
+
+Run this only for selected Deployment, StatefulSet, or DaemonSet targets.
+CronJobs have no active rollout to restart; verify their recorded image and
+schedule instead.
 
 ---
 
 ## Phase U3: Verify Rollout
 
-### Wait for new pods to be ready:
+For every changed Deployment, StatefulSet, or DaemonSet:
 
 ```bash
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  rollout status deployment/$APP_NAME \
-  -n $NAMESPACE --timeout=120s
+  rollout status "$WORKLOAD_KIND/$WORKLOAD_NAME" \
+  -n "$NAMESPACE" --timeout=120s
 ```
 
-### On success:
+For a changed CronJob, verify the exact container digest and schedule; do not
+create an ad-hoc Job unless the user asks.
+
+### On complete success
 
 Update `.sealos/state.json`:
-- Set `last_deploy.image` to `NEW_IMAGE`
+- Update each successful target's `services[].image` and `pull_access`
+- Update its stored build plan when Phase 3 prepared or repaired it
+- If the primary service changed, set `last_deploy.image` to that service's new
+  digest; otherwise leave the primary summary unchanged
 - Set `last_deploy.last_updated_at` to current ISO timestamp
-- Append an entry to `history` (see Update History below)
+- Append one target-qualified `set-image` entry per rebuilt service or
+  `restart` entry per restarted workload (see Update History below)
 
 Present to user:
 ```
-✓ Updated: <APP_NAME>
-✓ Image: <CURRENT_IMAGE> → <NEW_IMAGE>
-✓ Rollout: complete
+✓ Updated: <service> → <workload kind>/<workload name>:<container>
+✓ Image: <previous digest> → <new digest>
+✓ All selected rollouts: complete
 
 App URL: <APP_URL>
 
 To update again later, run: /sealos-deploy
 ```
 
-### On failure:
+### On any failure
 
-Auto-rollback:
+Roll back every target changed by this update operation, including targets that
+became ready before another selected target failed, so the multi-service
+deployment returns to its prior known image set:
+
 ```bash
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  rollout undo deployment/$APP_NAME \
-  -n $NAMESPACE
+  set image "$WORKLOAD_KIND/$WORKLOAD_NAME" \
+  "$CONTAINER_NAME=$PREVIOUS_IMAGE" \
+  -n "$NAMESPACE"
 ```
 
-Append a **failed** entry to `history` in `.sealos/state.json` (see Update History below).
+Verify each rollback with the kind-appropriate rollout check. Append a
+target-qualified **failed** entry for every attempted service. Restore each
+patched workload's exact prior `imagePullSecrets` array. If the pull Secret
+existed before the operation, restore its snapshotted object through stdin. If
+it did not exist, the newly created but now-unreferenced Secret may be deleted
+only after obtaining the deletion confirmation required by the kubectl safety
+rules; otherwise leave it unused and report it explicitly. Do not change
+`last_deploy.services[].image`, `pull_access`, or the primary
+`last_deploy.image` unless all selected targets succeeded.
 
 Report to user:
 ```
-✗ Rollout failed — automatically rolled back to previous version.
+✗ Multi-service update failed — images and pull references were restored.
 
 Debug:
-  kubectl logs deployment/<APP_NAME> -n <NAMESPACE> --tail=50
+  <exact failed workload/container and safe log command>
 ```
-
-Do NOT update `last_deploy.image` on failure — it stays at the old value.
 
 ---
 
@@ -2060,10 +2160,34 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.1",
   "last_deploy": {
     "app_name": "morphic-dc21ad72",
-    "image": "zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    "app_host": "morphic-4ha6b4mh",
+    "namespace": "ns-qiqovyrm",
+    "region": "gzg.sealos.run",
+    "image": "ghcr.io/zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "services": [
+      {
+        "name": "web",
+        "primary": true,
+        "workload_kind": "Deployment",
+        "workload_name": "morphic-dc21ad72",
+        "container_name": "web",
+        "image": "ghcr.io/zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "pull_access": "anonymous",
+        "build": {
+          "context": ".",
+          "dockerfile": "Dockerfile",
+          "target": null,
+          "build_arg_names": []
+        }
+      }
+    ],
+    "repo_name": "morphic",
+    "url": "https://morphic-4ha6b4mh.gzg.sealos.run",
+    "deployed_at": "2026-03-09T18:37:30Z",
+    "last_updated_at": "2026-03-10T14:30:22Z"
   },
   "history": [
     {
@@ -2077,7 +2201,7 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
     {
       "at": "2026-03-09T20:15:00Z",
       "action": "set-env",
-      "changes": ["OPENAI_API_KEY=sk-***", "OPENAI_BASE_URL=https://..."],
+      "changes": ["OPENAI_API_KEY=<configured>", "OPENAI_BASE_URL=https://..."],
       "method": "kubectl-set-env",
       "status": "success",
       "note": "Fix: default openai provider not enabled"
@@ -2085,16 +2209,24 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
     {
       "at": "2026-03-10T14:30:22Z",
       "action": "set-image",
+      "service": "web",
+      "workload_kind": "Deployment",
+      "workload_name": "morphic-dc21ad72",
+      "container_name": "web",
       "previous_image": "ghcr.io/miurla/morphic@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "image": "zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image": "ghcr.io/zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "method": "kubectl-set-image",
       "status": "success"
     },
     {
       "at": "2026-03-11T09:00:00Z",
       "action": "set-image",
-      "previous_image": "zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "image": "zhujingyang/morphic@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "service": "web",
+      "workload_kind": "Deployment",
+      "workload_name": "morphic-dc21ad72",
+      "container_name": "web",
+      "previous_image": "ghcr.io/zhujingyang/morphic@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "image": "ghcr.io/zhujingyang/morphic@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "method": "kubectl-set-image",
       "status": "failed",
       "note": "CrashLoopBackOff — rolled back"
@@ -2113,45 +2245,20 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
 | `method` | yes | kubectl command used: `kubectl-apply`, `kubectl-set-image`, `kubectl-set-env`, `kubectl-patch`, `kubectl-rollout-restart` |
 | `image` | if image changed | New image reference |
 | `previous_image` | if image changed | Image before the update |
+| `service` | for version 1.1 image changes and restarts | Original service identity |
+| `workload_kind` / `workload_name` / `container_name` | for version 1.1 image changes and restarts | Exact live container target; never inferred from app name |
 | `changes` | if env/config changed | Array of changes (mask sensitive values: `sk-***`) |
 | `note` | no | Free-text reason or context for the change |
 
 ### Rules
 
 - **Always append, never rewrite** — history is append-only. Never delete or modify previous entries.
-- **Mask secrets** — API keys, passwords, tokens: show only first 3 chars + `***` (e.g., `sk-***`).
+- **Preserve migrated history** — when upgrading a v1.0 state, copy its
+  history unchanged, set `legacy_history_count` to that preserved length, and
+  apply v1.1 digest/target requirements only to later entries.
+- **Mask secrets** — API keys, passwords, and tokens use only the fixed
+  `<configured>` placeholder. Never retain prefixes, suffixes, or lengths.
 - **Initial deploy counts** — the first entry should be `action: "deploy"` written by Phase 6 checkpoint.
 - **Failed updates count** — record failures so the user can see what was attempted and why it didn't work.
-- **Keep it bounded** — if history exceeds 50 entries, trim the oldest entries (keep the first `deploy` entry and the most recent 49).
-### 6.1.5 Ensure Image Pull Secret (locally built private GHCR path only)
-
-Before calling the Template API or `kubectl apply`, check whether this run actually passed through Phase 4 local build and push.
-This step is only for cases where:
-- Phase 4 built a new GHCR image locally with Docker
-- That GHCR image is not anonymously pullable
-
-Do **not** run this step when:
-- Phase 2 reused an existing public image
-- The selected registry was Docker Hub public image flow
-
-The template itself should reference the app-scoped pull Secret name via:
-
-```yaml
-imagePullSecrets:
-  - name: ${{ defaults.app_name }}
-```
-
-If the run meets the locally built private-GHCR conditions above, create or update the app-scoped pull Secret in the target namespace using the local `gh` CLI session:
-
-```bash
-node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" "$NAMESPACE" "$APP_NAME" "$IMAGE_REF"
-```
-
-Behavior:
-- Uses `gh api user -q .login` and `gh auth token`
-- Creates/updates a `docker-registry` Secret named exactly like the app (`$APP_NAME`)
-- When a deployment name is provided, also patches `spec.template.spec.imagePullSecrets` to include that app-scoped Secret
-- Keeps registry credentials out of the generated template inputs
-- Do not call it for existing public images
-
-This step should run for both fresh deploys and in-place updates before rollout, but only on the locally built private-GHCR path.
+- **Do not trim automatically** — retention must not rewrite the append-only
+  log or invalidate a migration boundary.

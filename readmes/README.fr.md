@@ -160,9 +160,9 @@ Pendant les workflows de déploiement, de base de données et de stockage objet,
 - guide l'utilisateur dans la connexion à Sealos lorsque cela est nécessaire
 - utilise `sealos-cli` pour créer des bases de données Sealos Cloud, récupérer les informations de connexion et effectuer des opérations de base de données
 - utilise `sealos-cli s3` pour gérer les buckets de stockage objet Sealos, les identifiants, les contrôles de quota, les opérations sur les objets et les URL présignées
-- utilise ou aide à préparer un chemin de registre de conteneurs tel que Docker Hub ou GHCR
+- publie les images `linux/amd64` construites localement dans l’espace de noms du compte GitHub actuel sur GHCR et transmet au déploiement le digest Buildx et le résultat d’accès en lecture
 
-Un déploiement réel nécessite un compte Sealos Cloud et l'accès à un registre de conteneurs, mais leur configuration complète peut être effectuée après le démarrage de la compétence. Les opérations de base de données et de stockage objet nécessitent un compte Sealos Cloud et un espace de travail capable de créer les ressources demandées.
+Un déploiement réel nécessite un compte Sealos Cloud. Une session GitHub CLI authentifiée avec l’accès aux packages GHCR n’est requise que lorsque le chemin choisi construit et publie une nouvelle image. Les images existantes déclarées, y compris celles hébergées sur Docker Hub, peuvent toujours être réutilisées par digest immuable. Les opérations de base de données et de stockage objet nécessitent un compte Sealos Cloud et un espace de travail capable de créer les ressources demandées.
 
 ## Ce que gère Sealos Deploy
 

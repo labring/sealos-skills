@@ -89,21 +89,21 @@ detection:
     - "Cluster has no imagePullSecret for ghcr.io"
 
 decision:
-  if_local_gh_cli_is_available:
-    require: "create or refresh the namespace image pull Secret automatically before deploy/update"
-  else:
-    fallback: "package must be public, or the operator must provide registry pull credentials another way"
+  anonymous:
+    require: "record pull_access=anonymous and omit imagePullSecrets"
+  authenticated_or_indeterminate:
+    require: "record pull_access=ghcr_secret_required or indeterminate and create or refresh the app-scoped image pull Secret before deploy/update"
+    namespace_invariant: "all non-anonymous images in one application must share one normalized GHCR namespace; stop before mutation if the complete service inventory spans accounts"
   skip_when:
     - "Phase 2 reused an existing public image"
 
 verification:
   visibility_check: "gh api /user/packages/container/<repo> -q .visibility"
-  anonymous_pull_check: "GET ghcr token, then HEAD/GET manifest from ghcr.io/v2/.../manifests/<tag>"
+  anonymous_pull_check: "GET ghcr token, then HEAD/GET manifest from ghcr.io/v2/.../manifests/<digest>"
 
 fixes:
   preferred: "create/update the app-scoped imagePullSecret from gh auth token during deploy"
-  fallback_1: "make the GHCR package public"
-  fallback_2: "push to Docker Hub instead"
+  optional_with_explicit_user_confirmation: "make the GHCR package public"
 ```
 
 ### Public URL Misconfiguration (Prevents Runtime API Failures)

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import { ensureGhScopes, getMissingScopes, parseGhScopes, getGhAuthStatusOutput, hasGhCli } from './gh-auth-utils.mjs'
 
 function fail(message, extra = {}, code = 1) {
@@ -24,12 +24,12 @@ function parseArgs(argv) {
 const requiredScopes = parseArgs(process.argv)
 
 if (!hasGhCli()) {
-  fail('gh CLI is not installed. Install it with: brew install gh && gh auth login')
+  fail('gh CLI is not installed. Install it with: brew install gh && gh auth login --hostname github.com')
 }
 
 const status = getGhAuthStatusOutput()
 if (!status.authenticated) {
-  fail('gh CLI not authenticated. Run: gh auth login')
+  fail('gh CLI not authenticated to github.com. Run: gh auth login --hostname github.com')
 }
 
 const initialCheck = ensureGhScopes(requiredScopes, 'GHCR flow')
@@ -59,7 +59,11 @@ const scopeList = requiredScopes.join(',')
 console.error(`Refreshing GitHub scopes: ${scopeList}`)
 
 try {
-  execSync(`gh auth refresh -h github.com -s ${scopeList}`, { stdio: 'inherit' })
+  execFileSync(
+    'gh',
+    ['auth', 'refresh', '--hostname', 'github.com', '--scopes', scopeList],
+    { stdio: 'inherit' },
+  )
 } catch {
   fail('gh auth refresh was not completed', {
     action: 'gh_scope_refresh_required',
@@ -83,7 +87,11 @@ if (scopeCheck.ok) {
 console.error('gh auth refresh completed but scopes are still missing. Trying a full GitHub CLI re-auth in this same session...')
 
 try {
-  execSync(`gh auth login --hostname github.com --git-protocol https --web --scopes ${scopeList}`, { stdio: 'inherit' })
+  execFileSync(
+    'gh',
+    ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--scopes', scopeList],
+    { stdio: 'inherit' },
+  )
 } catch {
   fail('gh auth refresh completed, but follow-up gh auth login was not completed', scopeCheck)
 }

@@ -160,11 +160,13 @@ During the deploy, database, and object-storage flows, Sealos Skills will:
 - guide the user through Sealos login when needed
 - use `sealos-cli` for Sealos Cloud database creation, connection details, and database operations
 - use `sealos-cli s3` for Sealos object storage buckets, credentials, quota checks, object operations, and presigned URLs
-- use or help prepare a container registry path such as Docker Hub or GHCR when
-  the selected route needs to build and push an image
+- push locally built `linux/amd64` images to the current GitHub account
+  namespace on GHCR and carry the Buildx digest and pull-access result into deployment
 
-For an actual deployment, you need a Sealos Cloud account. Container-registry
-access is required only when the selected route builds and pushes a new image.
+For an actual deployment, you need a Sealos Cloud account. An authenticated
+GitHub CLI session with GHCR package access is required only when the selected
+route builds and pushes a new image. Existing declared images, including images
+hosted on Docker Hub, can still be reused by immutable digest.
 For database and object-storage work, you need a Sealos Cloud account and a
 workspace that can create the requested resources.
 

@@ -9,18 +9,20 @@ That means:
 - Record which later phases are currently blocked
 
 Preflight is responsible for early detection, but only some failures are immediate stop conditions.
-Do not treat Docker, `gh`, or `buildx` as universal entry requirements — they become mandatory only if the run actually needs local image build/push.
+Do not treat Docker, Node.js 18+, `gh`, or `buildx` as universal entry requirements — they become mandatory only if the run actually needs Phase 4 local image build/push to GHCR.
 
 ## Tool Install Policy
 
-When `docker`, `gh`, or `kubectl` is missing, do not just print commands and stop.
-Ask directly:
+When a missing system tool becomes mandatory for the selected path, do not just
+print commands and stop. Ask directly before installing it:
 
 ```text
 Missing <tool>. Install it now? (y/n)
 ```
 
-If the user answers `y`, install the tool for the current platform, then re-run the corresponding check.
+Do not install a path-dependent tool during the initial capability scan. If the
+user answers `y` after the path requires it, install the tool for the current
+platform, then re-run the corresponding check.
 If the install command needs elevated privileges, package-manager setup, or manual UI interaction, explain that before running it.
 
 ## Step 1: Environment Detection
@@ -36,7 +38,7 @@ Run all checks:
 docker --version 2>/dev/null
 git --version 2>/dev/null
 
-# Optional before deployment; Node.js 18+ is one Phase 6 request path
+# Conditional: Node.js 18+ is required for Phase 4 and is one Phase 6 request path
 node --version 2>/dev/null
 
 # Conditional (required for Phase 5 template generation and validation)
@@ -47,7 +49,7 @@ if [ -n "$PYTHON_BIN" ]; then
 fi
 kompose version 2>/dev/null || true
 
-# Optional (enables GHCR push — preferred over Docker Hub)
+# Conditional (required when Phase 4 must build and push to GHCR)
 gh --version 2>/dev/null
 
 # Conditional at entry; required before Phase 6 creates resources because
@@ -66,17 +68,18 @@ Record as `ENV`:
 ```
 ENV.docker    = true/false
 ENV.git       = true/false
-ENV.node      = true/false
+ENV.node      = true/false   (Node.js 18+ is required for Phase 4)
 ENV.python    = true/false
 ENV.pyyaml    = true/false
 ENV.kompose   = true/false
 ENV.kubectl   = true/false   (required before Phase 6 and for all updates)
-ENV.gh        = true/false   (enables zero-interaction GHCR push)
+ENV.gh        = true/false   (required for fixed GHCR push when Phase 4 runs)
 ENV.curl      = true/false
 ENV.jq        = true/false
 ```
 
-Record Node as usable for Phase 6 only when its major version is 18 or newer.
+Record Node as usable for Phase 4 or Phase 6 only when its major version is 18
+or newer.
 
 ### 1.2 Docker Daemon Check
 
@@ -87,7 +90,8 @@ docker info 2>/dev/null
 ```
 
 - Not installed → guide by platform:
-  - Ask: `Missing Docker. Install it now? (y/n)`
+  - Record the Phase 4 warning. If Phase 4 later becomes necessary, ask:
+    `Missing Docker. Install it now? (y/n)`
   - If user answers `y`:
     - macOS: run `brew install --cask docker`, then tell the user to open Docker Desktop
     - Linux: run `curl -fsSL https://get.docker.com | sh`
@@ -99,37 +103,39 @@ docker info 2>/dev/null
 ### Optional and Path-Dependent Tools
 
 **gh CLI (GitHub CLI):**
-- If present and authenticated → enables **zero-interaction GHCR push**
-- `build-push.mjs` auto-detects `gh auth status` and uses `gh auth token` to login to `ghcr.io`
+- If present with an active authenticated account for `github.com` → enables
+  the fixed GHCR push path
+- `build-push.mjs` lower-cases the current `github.com` account login for the GHCR repository namespace and uses `gh auth token` to log in to `ghcr.io`
 - GHCR push alone is not enough for Sealos. For private GHCR packages, the deploy step must create an image pull Secret using the local `gh` CLI session.
-- `sealos-deploy` should never ask the user to type registry host/username/password when `gh auth status` is already available locally.
+- `sealos-deploy` should never ask the user to type registry
+  host/username/password when `gh auth status --active --hostname github.com`
+  is already available locally.
 - Missing `gh` is **not** a universal preflight failure
-- `gh` becomes mandatory only when the selected image destination is GHCR
-- If `gh` is missing, ask:
+- `gh` becomes mandatory only when Phase 2/3 determines that Phase 4 must build and push an image
+- If Phase 4 is required and `gh` is missing, ask:
   - `Missing gh. Install it now? (y/n)`
   - If user answers `y`:
     - macOS: run `brew install gh`
     - Debian/Ubuntu: run `sudo apt install gh`
 - Do not trigger `gh auth login` during environment detection
-- Only trigger `gh auth login` later if the run actually reaches a GHCR push path chosen by the user
-
-**Docker Hub login session:**
-- Needed only when the selected image destination is Docker Hub
-- Docker Hub path assumes the pushed image will be public at deploy time
-- Private Docker Hub images are out of scope for `sealos-deploy` pull-secret automation
-- `docker login` may need to be run manually by the user in another terminal
-- Do not treat a missing Docker Hub login as a universal preflight blocker
-- Ask for the registry destination later in Phase 4, then enforce the matching login path
+- Only trigger `gh auth login` later if the run actually reaches Phase 4
+- There is no registry selection prompt or alternate push destination
 
 **Node.js:**
-- If missing, earlier phases use fallback mode:
+- Node.js 18+ is mandatory when the run reaches Phase 4. It executes the
+  deterministic GHCR build/push helper and produces the same per-service
+  `build-result.json` contract for every local build.
+- If missing, earlier phases may still use fallback mode:
   - `score-model.mjs` → AI reads files and applies scoring rules directly
   - `find-template-references.mjs` → AI reads a usable cached catalog and writes
     an exact-match result for diagnostics, but continues to Phase 2 because
     direct reuse requires a verified official refresh in the current run
   - `detect-image.mjs` → AI runs curl commands for Docker Hub / GHCR API
-  - `build-push.mjs` → AI runs `docker buildx` commands directly
   - `sealos-auth.mjs` → AI runs curl to exchange token for kubeconfig (workspace list/switch not available in fallback mode)
+- There is no direct-Docker fallback for Phase 4; stop before building when
+  Node.js 18+ is unavailable.
+- When Phase 4 is required and Node.js is missing or older than 18, ask before
+  installing or upgrading this system tool, then re-run the version check.
 - Before Phase 6 submits a deployment, at least one request path must exist:
   Node.js 18+ for `deploy-template.mjs`, or `jq` for the curl fallback. If both
   are unavailable, stop before creating cloud resources.
@@ -195,10 +201,11 @@ These are true entry blockers for a deploy run.
 Detect these now and report them early, but do **not** stop the run yet:
 - Docker CLI missing
 - Docker daemon not running
+- Node.js 18+ missing
 - `gh` missing
 - `gh auth status` failing
 - Docker builder unavailable (`docker buildx version` or equivalent)
-- Container registry connectivity looks unhealthy
+- GHCR connectivity looks unhealthy
 
 These findings become hard blockers only if the run later determines that local image build/push is required.
 
@@ -581,8 +588,8 @@ Project:
 Environment:
   ○ Docker <version>         (or: ✗ Docker — local build path currently blocked)
   ✓ git <version>
-  ○ Node.js <version>        (or: ✗ Node.js — using AI fallback mode)
-  ○ Python <version>          (or: ✗ Python — template validation via AI)
+  ○ Node.js <version>        (or: ✗ Node.js 18+ — Phase 4 local build path blocked)
+  ○ Python <version>          (or: ✗ Python/PyYAML — Phase 5 template path blocked)
   ○ kubectl <version>        (or: ✗ kubectl — update/rollout path blocked)
   ○ gh <version>             (or: ✗ gh CLI — local GHCR push path blocked)
 
@@ -591,7 +598,7 @@ Auth:
   ✓ Workspace: <ns-id> (<teamName>)
 ```
 
-If Docker, `gh`, buildx, or registry connectivity are not ready, report them now as path-specific warnings. Only upgrade them to hard blockers if Phase 2/3 confirms that local build/push is required.
+If Docker, Node.js 18+, `gh`, buildx, or GHCR connectivity are not ready, report them now as path-specific warnings. Only upgrade them to hard blockers if Phase 2/3 confirms that Phase 4 local build/push is required.
 
 Output rules:
 - Show only the high-signal items a user needs to decide whether to continue

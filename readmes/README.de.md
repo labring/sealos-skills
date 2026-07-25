@@ -160,9 +160,9 @@ Während der Abläufe für Bereitstellung, Datenbank und Objektspeicher führt S
 - führt den Benutzer bei Bedarf durch die Sealos-Anmeldung
 - verwendet `sealos-cli`, um Sealos Cloud-Datenbanken zu erstellen, Verbindungsdetails abzurufen und Datenbankoperationen auszuführen
 - verwendet `sealos-cli s3` für Sealos-Objektspeicher-Buckets, Zugangsdaten, Kontingentprüfungen, Objektoperationen und vorsignierte URLs
-- verwendet oder bereitet einen Container-Registry-Pfad wie Docker Hub oder GHCR vor
+- überträgt lokal erstellte `linux/amd64`-Images in den GHCR-Namensraum des aktuellen GitHub-Kontos und übernimmt Buildx-Digest und Pull-Zugriff in die Bereitstellung
 
-Für eine tatsächliche Bereitstellung sind ein Sealos Cloud-Konto und Zugriff auf eine Container-Registry erforderlich, diese müssen jedoch vor dem Start des Skills noch nicht vollständig eingerichtet sein. Für Datenbank- und Objektspeicherarbeiten werden ein Sealos Cloud-Konto und ein Workspace benötigt, der die angeforderten Ressourcen erstellen kann.
+Für eine tatsächliche Bereitstellung ist ein Sealos Cloud-Konto erforderlich. Eine authentifizierte GitHub-CLI-Sitzung mit GHCR-Paketberechtigung wird nur benötigt, wenn der gewählte Pfad ein neues Image erstellt und überträgt. Bereits deklarierte Images, auch von Docker Hub, können weiterhin per unveränderlichem Digest wiederverwendet werden. Für Datenbank- und Objektspeicherarbeiten werden ein Sealos Cloud-Konto und ein Workspace benötigt, der die angeforderten Ressourcen erstellen kann.
 
 ## Was Sealos Deploy übernimmt
 

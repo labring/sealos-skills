@@ -19,11 +19,7 @@
           "const": "success"
         },
         "registry": {
-          "type": "string",
-          "enum": [
-            "ghcr",
-            "dockerhub"
-          ]
+          "const": "ghcr"
         },
         "service": {
           "type": "object",
@@ -100,6 +96,7 @@
             "digest",
             "image_ref",
             "platforms",
+            "pull_access",
             "pushed_at"
           ],
           "properties": {
@@ -124,6 +121,15 @@
                 "type": "string",
                 "minLength": 1
               }
+            },
+            "pull_access": {
+              "description": "Anonymous pull status for the pushed GHCR image.",
+              "type": "string",
+              "enum": [
+                "anonymous",
+                "ghcr_secret_required",
+                "indeterminate"
+              ]
             },
             "pushed_at": {
               "type": "string",
@@ -154,11 +160,7 @@
           "const": "failed"
         },
         "registry": {
-          "type": "string",
-          "enum": [
-            "ghcr",
-            "dockerhub"
-          ]
+          "const": "ghcr"
         },
         "service": {
           "type": "object",

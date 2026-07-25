@@ -160,9 +160,9 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - 必要に応じて Sealos へのログインを案内
 - `sealos-cli` を使用した Sealos Cloud データベースの作成、接続情報の取得、データベース操作
 - `sealos-cli s3` を使用した Sealos オブジェクトストレージのバケット、認証情報、クォータ確認、オブジェクト操作、署名付き URL の管理
-- Docker Hub や GHCR などのコンテナレジストリパスを使用または準備
+- ローカルでビルドした `linux/amd64` イメージを現在の GitHub アカウントの GHCR 名前空間へプッシュし、Buildx の digest と pull-access 結果をデプロイへ引き継ぐ
 
-実際のデプロイには Sealos Cloud アカウントとコンテナレジストリへのアクセスが必要ですが、スキル開始前にすべてを設定しておく必要はありません。データベースとオブジェクトストレージの作業には、Sealos Cloud アカウントと、必要なリソースを作成できるワークスペースが必要です。
+実際のデプロイには Sealos Cloud アカウントが必要です。GHCR package 権限を持つ GitHub CLI の認証済みセッションは、選択された経路で新しいイメージをビルドしてプッシュする場合にのみ必要です。Docker Hub 上のイメージを含む既存の宣言済みイメージは、引き続き不変の digest で再利用できます。データベースとオブジェクトストレージの作業には、Sealos Cloud アカウントと、必要なリソースを作成できるワークスペースが必要です。
 
 ## Sealos Deploy が処理する内容
 

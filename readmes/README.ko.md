@@ -160,9 +160,9 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - 필요할 때 사용자에게 Sealos 로그인 안내
 - `sealos-cli`를 사용하여 Sealos Cloud 데이터베이스를 생성하고 연결 세부 정보를 가져오며 데이터베이스 작업 수행
 - `sealos-cli s3`를 사용하여 Sealos 객체 스토리지 버킷, 자격 증명, 할당량 확인, 객체 작업 및 미리 서명된 URL 관리
-- Docker Hub 또는 GHCR과 같은 컨테이너 레지스트리 경로를 사용하거나 준비 지원
+- 로컬에서 빌드한 `linux/amd64` 이미지를 현재 GitHub 계정의 GHCR 네임스페이스로 푸시하고 Buildx digest와 pull-access 결과를 배포 단계로 전달
 
-실제 배포에는 Sealos Cloud 계정과 컨테이너 레지스트리 접근 권한이 필요하며, 스킬 시작 전에 모두 설정할 필요는 없습니다. 데이터베이스 및 객체 스토리지 작업에는 Sealos Cloud 계정과 요청한 리소스를 생성할 수 있는 워크스페이스가 필요합니다.
+실제 배포에는 Sealos Cloud 계정이 필요합니다. GHCR package 권한이 있는 인증된 GitHub CLI 세션은 선택한 경로에서 새 이미지를 빌드하고 푸시할 때만 필요합니다. Docker Hub에 호스팅된 이미지를 포함한 기존 선언 이미지는 불변 digest로 계속 재사용할 수 있습니다. 데이터베이스 및 객체 스토리지 작업에는 Sealos Cloud 계정과 요청한 리소스를 생성할 수 있는 워크스페이스가 필요합니다.
 
 ## Sealos Deploy 처리 범위
 

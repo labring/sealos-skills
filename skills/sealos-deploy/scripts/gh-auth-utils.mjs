@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync } from 'child_process'
+import { execFileSync, execSync } from 'child_process'
 import { dirname, join } from 'path'
 import { createInterface } from 'readline/promises'
 import { fileURLToPath } from 'url'
@@ -28,7 +28,7 @@ export function getGhAuthStatusOutput () {
   try {
     return {
       authenticated: true,
-      output: run('gh auth status 2>&1'),
+      output: run('gh auth status --active --hostname github.com 2>&1'),
     }
   } catch (error) {
     const output = `${error.stdout || ''}${error.stderr || ''}`.trim()
@@ -64,11 +64,6 @@ export function buildScopeRefreshCommand (requiredScopes) {
   return `node ${JSON.stringify(GH_REFRESH_SCRIPT)} ${scopeList}`
 }
 
-function buildScopeLoginCommand (requiredScopes) {
-  const scopeList = Array.from(new Set(requiredScopes)).join(',')
-  return `gh auth login --hostname github.com --git-protocol https --web --scopes ${scopeList}`
-}
-
 function buildScopeRefreshAction (requiredScopes, purpose, presentScopes) {
   const normalizedScopes = Array.from(new Set(requiredScopes))
   const missingScopes = getMissingScopes(presentScopes, normalizedScopes)
@@ -89,7 +84,7 @@ export function ensureGhScopes (requiredScopes, purpose) {
   if (!hasGhCli()) {
     return {
       ok: false,
-      error: 'gh CLI is not installed. Install it with: brew install gh && gh auth login',
+      error: 'gh CLI is not installed. Install it with: brew install gh && gh auth login --hostname github.com',
     }
   }
 
@@ -97,7 +92,7 @@ export function ensureGhScopes (requiredScopes, purpose) {
   if (!status.authenticated) {
     return {
       ok: false,
-      error: 'gh CLI not authenticated. Run: gh auth login',
+      error: 'gh CLI not authenticated to github.com. Run: gh auth login --hostname github.com',
     }
   }
 
@@ -143,7 +138,11 @@ export async function ensureGhScopesWithPrompt (requiredScopes, purpose, promptT
 
   const scopeList = Array.from(new Set(requiredScopes)).join(',')
   try {
-    execSync(`gh auth refresh -h github.com -s ${scopeList}`, { stdio: 'inherit' })
+    execFileSync(
+      'gh',
+      ['auth', 'refresh', '--hostname', 'github.com', '--scopes', scopeList],
+      { stdio: 'inherit' },
+    )
   } catch {
     return {
       ...scopeCheck,
@@ -161,7 +160,11 @@ export async function ensureGhScopesWithPrompt (requiredScopes, purpose, promptT
   console.error(`gh auth refresh completed but scopes are still missing. Trying a full GitHub CLI re-auth for ${purpose} in this same session...`)
 
   try {
-    execSync(buildScopeLoginCommand(requiredScopes), { stdio: 'inherit' })
+    execFileSync(
+      'gh',
+      ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web', '--scopes', scopeList],
+      { stdio: 'inherit' },
+    )
   } catch {
     return {
       ...refreshed,
