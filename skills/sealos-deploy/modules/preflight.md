@@ -38,7 +38,7 @@ Run all checks:
 docker --version 2>/dev/null
 git --version 2>/dev/null
 
-# Conditional: Node.js 18+ is required for Phase 4 and is one Phase 6 request path
+# Conditional: Node.js 18+ is required for Phase 4 and the complete Phase 6/6.5 path
 node --version 2>/dev/null
 
 # Conditional (required for Phase 5 template generation and validation)
@@ -136,9 +136,15 @@ docker info 2>/dev/null
   Node.js 18+ is unavailable.
 - When Phase 4 is required and Node.js is missing or older than 18, ask before
   installing or upgrading this system tool, then re-run the version check.
-- Before Phase 6 submits a deployment, at least one request path must exist:
-  Node.js 18+ for `deploy-template.mjs`, or `jq` for the curl fallback. If both
-  are unavailable, stop before creating cloud resources.
+- A complete deployment must have Node.js 18+ before Phase 6 creates resources,
+  because Phase 6.5 uses the Node runtime for live footprint, networking,
+  logging, and smoke verification. `jq` can support the documented curl
+  transport fallback only when Node.js is temporarily unavailable for the
+  request itself; jq-only runs must stop before creating resources rather than
+  leave an unverified deployment.
+- If Node.js 18+ is unavailable when Phase 6 is reached, ask before installing
+  or upgrading it, then re-run the version check. Do not submit a deployment
+  with only the jq transport path available.
 
 **Template catalog cache:**
 - Phase 1.5 uses `labring-actions/templates` branch `kb-0.9` by default
@@ -219,9 +225,10 @@ they must be resolved before Phase 6 creates resources:
 They are hard blockers for every deployment's Phase 6.5 runtime acceptance and
 for all UPDATE operations.
 
-Also record `Node.js 18+ and jq both missing` as a later deployment blocker.
-Analysis may continue, but Phase 6 cannot submit a Template request until one
-of those two request paths is available.
+Also record missing Node.js 18+ as a later deployment blocker. Analysis may
+continue, but Phase 6 cannot create resources until Node.js 18+ is available
+for the mandatory Phase 6.5 helpers. Missing `jq` only removes the curl
+transport fallback; it does not block the preferred Node request path.
 
 ### 2.4 Template-Path Warnings
 
@@ -260,6 +267,7 @@ Determine what we're deploying and gather project information.
 **A) User provided a GitHub URL:**
 ```bash
 WORK_DIR=$(mktemp -d)
+WORK_DIR_IS_TEMP=true
 git clone --depth 1 "<github-url>" "$WORK_DIR"
 GITHUB_URL="<github-url>"
 ```
@@ -267,11 +275,13 @@ GITHUB_URL="<github-url>"
 **B) User provided a local path:**
 ```bash
 WORK_DIR="<local-path>"
+WORK_DIR_IS_TEMP=false
 ```
 
 **C) No input — deploy current project (most common):**
 ```bash
 WORK_DIR="$(pwd)"
+WORK_DIR_IS_TEMP=false
 ```
 
 ### 2.2 Git Repo Detection

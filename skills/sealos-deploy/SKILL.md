@@ -3,7 +3,7 @@ name: sealos-deploy
 description: Deploy workloads from GitHub or local source to Sealos Cloud. In DEPLOY mode, Phase 1 stops only when AI is certain the project cannot run on Sealos; every uncertain case continues silently into readiness scoring. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
 metadata:
   author: labring
-  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are required only when Phase 4 must build and push a local image to GHCR. git is required when cloning from a GitHub URL or when git metadata is needed. Phase 6 requires either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose.
+  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are required only when Phase 4 must build and push a local image to GHCR. git is required when cloning from a GitHub URL or when git metadata is needed. A complete Phase 6/6.5 run requires Node.js 18+; jq is needed only for the documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose.
 ---
 
 # Sealos Deploy
@@ -13,8 +13,9 @@ metadata:
 Sealos auth/workspace and kubectl access to the selected workspace are required
 before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are
 required only when Phase 4 must build and push a local image to GHCR. git is
-required when cloning from a GitHub URL or when git metadata is needed. Phase 6
-requires either Node.js 18+ or jq. Phase 5 requires Python 3.8+ with PyYAML;
+required when cloning from a GitHub URL or when git metadata is needed. A
+complete Phase 6/6.5 run requires Node.js 18+; jq is needed only for the
+documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML;
 root Compose conversion also requires kompose.
 
 
@@ -171,6 +172,8 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Inventory declared images and the service topology, normalize per-service build plans, and resolve each exact selector to an immutable digest |
 | `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--service <name>] [--context <path>] [--dockerfile <path>] [--target <stage>] [--build-arg <NAME[=value]>]...` | Build one planned service for linux/amd64, push it to the lower-case current authenticated GitHub account namespace on GHCR, and write the Buildx digest plus pull-access handoff in its per-service result |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update the app-scoped GHCR pull Secret after the lifecycle has proved that all non-anonymous service images share one GHCR namespace; the active GitHub account must match that namespace |
+| `extract-deploy-app-name.mjs` | `printf '%s\n' "$DEPLOY_RESULT" \| node extract-deploy-app-name.mjs` | Extract and validate the server-generated Kubernetes application name from the sanitized Template API response before using it for Secret creation or runtime discovery |
+| `sealos-state-bridge.mjs` | `node sealos-state-bridge.mjs restore\|persist --work-dir <dir> --github-url <url>` | Restore or persist a validated `state.json` for a temporary GitHub checkout without copying build artifacts or templates |
 | `gh-refresh-scopes.mjs` | `node gh-refresh-scopes.mjs write:packages` | Refresh GHCR package access in the current TTY; `write:packages` is sufficient for both push and private pull in this workflow |
 | `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--args-file <mode-0600-file>]` (`--args-json` only for confirmed non-sensitive values) | Resolve the current region from `~/.sealos/auth.json`, build the correct Template API URL, and post a local template YAML |
 | `sealos-launchpad-network.mjs` | `node sealos-launchpad-network.mjs --app <app> --app-url <url> [--expected-port <port>] [--region <url>] [--kubeconfig <path>]` | Read-only Launchpad public-network discovery check with App URL and Service port matching |

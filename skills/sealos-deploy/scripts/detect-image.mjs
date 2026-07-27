@@ -780,13 +780,14 @@ function finalizeBuildPlan (build, composePath) {
   return build
 }
 
-function implicitProjectService (workDir) {
+function implicitProjectService (workDir, githubUrl = null) {
   const build = finalizeBuildPlan(
     createBuildPlan(),
     path.join(workDir, 'compose.yaml'),
   )
+  const repository = parseGithubRepository(githubUrl || getGithubUrlFromGitRemote(workDir))
   return {
-    name: path.basename(workDir) || 'project',
+    name: repository?.repo || path.basename(workDir) || 'project',
     role: 'application',
     source: 'project',
     source_file: '.',
@@ -1261,7 +1262,7 @@ async function detectExistingImages (workDir, options = {}) {
   const imageInventory = inventory.map(entry => entry.public)
   const serviceInventory = attachServiceResults(evidence.services, imageInventory)
   const fallbackServiceInventory = serviceInventory.length === 0
-    ? [implicitProjectService(workDir)]
+    ? [implicitProjectService(workDir, options.githubUrl)]
     : serviceInventory
   // `role` is descriptive topology evidence only. It must not disqualify a
   // product whose real application image happens to be named nginx, cache,

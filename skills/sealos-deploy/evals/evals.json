@@ -444,6 +444,19 @@
         {"name": "scopes-private-pull-secret", "description": "Adds imagePullSecrets with the app-scoped name only to frontend and omits it from the anonymous worker and reused services"},
         {"name": "validates-canonical-artifact", "description": "Runs the complete quality gate against .sealos/template/index.yaml and does not fail R013 on the canonical deploy path"}
       ]
+    },
+    {
+      "id": 35,
+      "prompt": "Deploy a GitHub repository from a temporary checkout through the Template API. The kubeconfig selects namespace ns-demo, the built image is private GHCR, the API returns a random instance name, and the workload becomes ready after creation.",
+      "expected_output": "Phase 6 resolves and validates ns-demo before any Secret operation, performs the dry-run and real request with the same template and args, creates the app-scoped GHCR pull Secret for the returned instance, waits for every workload and public Service endpoint before Phase 6.5, validates state.json, persists the validated state outside the temporary checkout, and only then removes the checkout",
+      "files": [],
+      "assertions": [
+        {"name": "initializes-namespace-before-secret", "description": "Reads and validates the kubeconfig namespace before Template API submission and passes that exact namespace to the pull-Secret helper"},
+        {"name": "uses-identical-dry-run-and-create-inputs", "description": "Sends the same template bytes and argument object to dry-run and the real create request"},
+        {"name": "materializes-secret-after-random-name", "description": "Explicitly assigns APP_NAME from the allowlisted DEPLOY_RESULT.response.name, validates it as a Kubernetes name, and uses that exact value for the app-scoped Secret without guessing"},
+        {"name": "runs-common-readiness-gate", "description": "Waits for every returned or rendered workload and for public Service endpoints before runtime truth"},
+        {"name": "persists-state-before-cleanup", "description": "Validates state.json, copies it to the stable GitHub repository state bridge, and cleans the temporary checkout only after persistence succeeds"}
+      ]
     }
   ]
 }

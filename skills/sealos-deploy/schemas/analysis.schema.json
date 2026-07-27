@@ -73,6 +73,18 @@
           "minimum": 0,
           "maximum": 12
         },
+        "raw_score": {
+          "description": "Sum of the six dimension scores before Dockerfile/Compose bonuses.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "bonus": {
+          "description": "Existing Docker artifact bonus reported by score-model.mjs.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
         "verdict": {
           "type": "string",
           "minLength": 1

@@ -201,6 +201,67 @@ test('accepts the Phase 1 artifact before image discovery', () => {
   assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
+test('accepts the Phase 1 score bonus contract', () => {
+  const result = validateArtifactData('analysis', analysis({
+    score: {
+      total: 7,
+      raw_score: 6,
+      bonus: 1,
+      verdict: 'good',
+      dimensions: {
+        statelessness: 1,
+        config: 1,
+        scalability: 1,
+        startup: 1,
+        observability: 1,
+        boundaries: 1,
+      },
+    },
+  }))
+
+  assert.equal(result.valid, true, JSON.stringify(result.errors))
+})
+
+test('rejects inconsistent Phase 1 score bonus fields', () => {
+  const rawScoreMismatch = validateArtifactData('analysis', analysis({
+    score: {
+      total: 7,
+      raw_score: 5,
+      bonus: 1,
+      verdict: 'good',
+      dimensions: {
+        statelessness: 1,
+        config: 1,
+        scalability: 1,
+        startup: 1,
+        observability: 1,
+        boundaries: 1,
+      },
+    },
+  }))
+  const totalMismatch = validateArtifactData('analysis', analysis({
+    score: {
+      total: 6,
+      raw_score: 6,
+      bonus: 1,
+      verdict: 'good',
+      dimensions: {
+        statelessness: 1,
+        config: 1,
+        scalability: 1,
+        startup: 1,
+        observability: 1,
+        boundaries: 1,
+      },
+    },
+  }))
+
+  assert.equal(rawScoreMismatch.valid, false)
+  assert.ok(rawScoreMismatch.errors.some(error => error.path === '$.score.raw_score'))
+  assert.equal(totalMismatch.valid, false)
+  assert.ok(totalMismatch.errors.some(error => error.path === '$.score.total'))
+})
+
 test('accepts a public service project override and rejects non-string values', () => {
   const valid = validateArtifactData('config', {
     port: 3000,

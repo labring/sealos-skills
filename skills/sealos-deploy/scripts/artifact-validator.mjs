@@ -292,8 +292,18 @@ function validateAnalysisSemantics(data, errors) {
   }
 
   const dimensionTotal = Object.values(data.score.dimensions).reduce((sum, value) => sum + value, 0)
-  if (data.score.total !== dimensionTotal) {
-    pushError(errors, '$.score.total', `must equal the sum of score.dimensions (${dimensionTotal})`)
+  const rawScore = data.score.raw_score ?? dimensionTotal
+  const bonus = data.score.bonus ?? 0
+  if (rawScore !== dimensionTotal) {
+    pushError(errors, '$.score.raw_score', `must equal the sum of score.dimensions (${dimensionTotal})`)
+  }
+  const expectedTotal = Math.min(12, rawScore + bonus)
+  if (data.score.total !== expectedTotal) {
+    pushError(
+      errors,
+      '$.score.total',
+      `must equal min(12, score.raw_score + score.bonus) (${expectedTotal})`,
+    )
   }
 
   if (!Object.prototype.hasOwnProperty.call(data.runtime_version, data.language)) {

@@ -42,6 +42,16 @@ function parseGhcrImageNamespace (imageRef) {
   return parts[1].toLowerCase()
 }
 
+function isKubernetesSecretName (value) {
+  const text = String(value || '').trim()
+  if (!text || text.length > 253) return false
+  return text.split('.').every(label => (
+    label.length > 0
+    && label.length <= 63
+    && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)
+  ))
+}
+
 async function ensureGhAuth () {
   return ensureGhScopesWithPrompt(
     ['write:packages'],
@@ -147,9 +157,19 @@ function parseArgs (argv) {
     throw new Error('Usage: node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]')
   }
 
+  const namespace = String(args[0] || '').trim()
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(namespace) || namespace.length > 63) {
+    throw new Error('A valid Kubernetes namespace is required')
+  }
+
+  const secretName = String(args[1] || '').trim()
+  if (!isKubernetesSecretName(secretName)) {
+    throw new Error('A valid Kubernetes Secret name is required')
+  }
+
   return {
-    namespace: args[0],
-    secretName: args[1],
+    namespace,
+    secretName,
     imageRef: args[2],
     deploymentName: args[3] || null,
   }

@@ -429,6 +429,7 @@ test('does not query name-guessed images when the project declares none', async 
     assert.deepEqual(result.image_inventory, [])
     assert.equal(result.service_inventory.length, 1)
     assert.equal(result.service_inventory[0].source, 'project')
+    assert.equal(result.service_inventory[0].name, 'guess-me')
     assert.deepEqual(result.service_inventory[0].build, {
       context: '.',
       dockerfile: 'Dockerfile',

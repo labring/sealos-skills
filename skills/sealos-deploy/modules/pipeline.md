@@ -30,6 +30,13 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
     └── index.yaml                ← official template reused by Phase 1.5, or Phase 5 output
 ```
 
+When `WORK_DIR_IS_TEMP=true` for a GitHub URL, the validated deployment state
+also has a durable bridge copy at
+`~/.sealos/deployments/github.com/<owner>/<repo>/state.json`. The bridge is
+restored into the fresh checkout before mode detection and updated only after
+Phase 6.5 succeeds. It contains only `state.json`; build artifacts and
+templates remain run-local.
+
 **File responsibilities:**
 - `config.json` — optional user overrides (port, `public_service`, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
 - `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, score, etc.). Regenerated each deploy.
@@ -101,6 +108,21 @@ but it never skips the Phase 1 entry judgment in DEPLOY mode.
 ## Deployment Mode Detection
 
 After preflight, determine whether this is a **first deploy** or an **update** of an existing deployment.
+
+For a temporary GitHub checkout, restore the previously validated state before
+reading `.sealos/state.json`:
+
+```bash
+WORK_DIR_IS_TEMP="${WORK_DIR_IS_TEMP:-false}"
+if [ "$WORK_DIR_IS_TEMP" = true ] && command -v node >/dev/null 2>&1; then
+  node "<SKILL_DIR>/scripts/sealos-state-bridge.mjs" restore \
+    --work-dir "$WORK_DIR" --github-url "$GITHUB_URL" || exit 1
+fi
+```
+
+If Node.js is unavailable at this early point, continue read-only mode
+detection and cluster discovery; the complete Phase 6/6.5 path will still
+require Node.js 18+ before creating resources.
 
 ### Step 1: Check for previous deployment state
 
@@ -285,7 +307,7 @@ above.
 ```bash
 node "<SKILL_DIR>/scripts/score-model.mjs" "$WORK_DIR"
 ```
-Output: `{ "score": N, "verdict": "...", "dimensions": {...}, "signals": {...} }`
+Output: `{ "score": N, "raw_score": N, "bonus": N, "verdict": "...", "dimensions": {...}, "signals": {...} }`
 
 **If Node.js not available (fallback):**
 Perform the scoring yourself by reading project files and applying these rules:
@@ -350,7 +372,11 @@ Sources for env var detection:
 
 ### Write analysis.json
 
-After Phase 1 completes, write `.sealos/analysis.json` with the full analysis snapshot:
+After Phase 1 completes, write `.sealos/analysis.json` with the full analysis
+snapshot. Copy `score-model.mjs`'s `score` to `score.total`, `raw_score` to
+`score.raw_score`, and `bonus` to `score.bonus`; `score.total` is the effective
+value `min(12, raw_score + bonus)`. Keep the six dimension values unchanged
+under `score.dimensions`:
 
 ```json
 {
@@ -361,7 +387,13 @@ After Phase 1 completes, write `.sealos/analysis.json` with the full analysis sn
     "repo_name": "<REPO_NAME>",
     "branch": "<BRANCH or null>"
   },
-  "score": { "total": "<N>", "verdict": "<verdict>", "dimensions": {} },
+  "score": {
+    "total": "<effective score>",
+    "raw_score": "<sum of the six dimensions>",
+    "bonus": "<Dockerfile/Compose bonus>",
+    "verdict": "<verdict>",
+    "dimensions": {}
+  },
   "language": "<signals.primary_language>",
   "all_languages": ["<all detected languages from signals.language>"],
   "framework": "<detected framework>",
@@ -1515,6 +1547,32 @@ Both DEPLOY routes use the same path:
 TEMPLATE_PATH="$WORK_DIR/.sealos/template/index.yaml"
 ```
 
+Before any Template API request or `kubectl apply`, establish the namespace
+from the kubeconfig that preflight selected. Keep this exact value in
+`NAMESPACE` for pull-Secret creation, readiness checks, runtime truth, and
+state recording. An empty or malformed namespace is a hard stop; never let
+`kubectl` silently fall back to `default`.
+
+```bash
+NAMESPACE=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  config view --minify -o jsonpath='{.contexts[0].context.namespace}')
+case "$NAMESPACE" in
+  ''|*[!a-z0-9-]*)
+    echo "The selected kubeconfig has no valid namespace; Phase 6 stopped." >&2
+    exit 1
+    ;;
+esac
+if [ "${#NAMESPACE}" -gt 63 ] || [ "${NAMESPACE#-}" != "$NAMESPACE" ] || [ "${NAMESPACE%-}" != "$NAMESPACE" ]; then
+  echo "The selected kubeconfig namespace is not a valid Kubernetes namespace; Phase 6 stopped." >&2
+  exit 1
+fi
+export NAMESPACE
+```
+
+The complete Phase 6 → 6.5 path requires Node.js 18+. If only the curl/jq
+transport fallback is available, stop before creating resources; it cannot run
+the mandatory live-footprint, log, networking, and smoke helpers in Phase 6.5.
+
 For `continue_standard_pipeline`, this is the Phase 5 template and
 `CONFIG.args` comes from Phase 5.5.
 
@@ -1551,12 +1609,21 @@ Deploy URL example: https://template.usw-1.sealos.io/api/v2alpha/templates/raw
 Do not send requests to the literal placeholder form `https://template.<region-domain>/...`.
 Always derive `REGION_DOMAIN` first, then build `DEPLOY_URL` from the real value.
 
-Extract the region from `~/.sealos/auth.json` (saved during preflight auth):
+The Node.js helper reads and normalizes `auth.json` itself. When using the
+preferred Node path, do not run a separate `jq` extraction or create a second
+URL value. Only the curl transport fallback needs the following shell
+derivation:
+
 ```bash
 REGION=$(jq -r '.region' ~/.sealos/auth.json)
 REGION_DOMAIN=$(printf '%s' "$REGION" | sed -E 's#^https?://##; s#/$##')
 DEPLOY_URL="https://template.${REGION_DOMAIN}/api/v2alpha/templates/raw"
 ```
+
+If the curl fallback is selected, `jq` must be present and the derived
+`DEPLOY_URL` must be passed to both requests. The fallback remains transport
+only; the Node.js requirement above still applies before the deployment can be
+accepted.
 
 ### 6.1.5 Determine Pull-Secret Requirement
 
@@ -1598,6 +1665,10 @@ Request body fields:
 - `dryRun` (optional, boolean) — if true, validates resources against K8s API without creating anything. Returns 200 with preview.
 
 **With Node.js (preferred):**
+
+Choose exactly one of the following alternatives from whether `CONFIG.args` is
+empty. Never execute both alternatives or send a second real create request.
+
 ```bash
 # When CONFIG.args is empty:
 if ! node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH" --dry-run; then
@@ -1607,6 +1678,10 @@ fi
 if ! DEPLOY_RESULT=$(node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_PATH"); then
   echo "Template deployment did not return success; follow the Phase 6.3 response or uncertainty path and do not retry automatically." >&2
   exit 1
+fi
+if ! APP_NAME=$(printf '%s\n' "$DEPLOY_RESULT" | node "<SKILL_DIR>/scripts/extract-deploy-app-name.mjs"); then
+  echo "Template deployment succeeded but did not return a valid application name; perform read-only Instance/App/workload discovery before continuing." >&2
+  APP_NAME=""
 fi
 
 # When CONFIG.args is non-empty, create a new private file outside the project.
@@ -1626,6 +1701,10 @@ if ! DEPLOY_RESULT=$(node "<SKILL_DIR>/scripts/deploy-template.mjs" "$TEMPLATE_P
   echo "Template deployment did not return success; follow the Phase 6.3 response or uncertainty path and do not retry automatically." >&2
   exit 1
 fi
+if ! APP_NAME=$(printf '%s\n' "$DEPLOY_RESULT" | node "<SKILL_DIR>/scripts/extract-deploy-app-name.mjs"); then
+  echo "Template deployment succeeded but did not return a valid application name; perform read-only Instance/App/workload discovery before continuing." >&2
+  APP_NAME=""
+fi
 cleanup_node_args_file
 trap - EXIT HUP INT TERM
 ```
@@ -1641,7 +1720,12 @@ This script is the preferred execution path because it:
 - always posts to the concrete `DEPLOY_URL`
 - emits structured JSON on success or failure
 
-**Without Node.js (curl fallback):**
+**Curl transport fallback (jq required):**
+
+Use this only when the Node helper cannot make the API request while Node.js
+18+ remains available for Phase 6.5. A jq-only run must stop before creating
+resources; do not create an unverified deployment.
+
 ```bash
 # Copy CONFIG.args into a private temporary file; never modify or remove a
 # caller-owned args file.
@@ -1727,10 +1811,11 @@ case "$DEPLOY_STATUS" in
     ;;
 esac
 
-# Extract only the allowlisted application name needed for an app-scoped pull
-# Secret. Never print or retain the raw response body.
-if [ "$PULL_SECRET_REQUIRED" = "true" ]; then
-  APP_NAME=$(jq -r '.name // empty' "$DEPLOY_RESPONSE")
+# Extract only the validated application name needed for an app-scoped pull
+# Secret and runtime discovery. Never print or retain the raw response body.
+if ! APP_NAME=$(node "<SKILL_DIR>/scripts/extract-deploy-app-name.mjs" < "$DEPLOY_RESPONSE"); then
+  echo "Template deployment succeeded but did not return a valid application name; perform read-only Instance/App/workload discovery before continuing." >&2
+  APP_NAME=""
 fi
 
 # Raw API bodies may contain resolved defaults or credentials. Report only
@@ -1753,9 +1838,11 @@ After a successful real Template API create and before readiness checks, obtain
 the exact application name:
 
 - On the Node path, read only `.response.name` from the allowlisted
-  `DEPLOY_RESULT`.
-- On the curl path, use only the `APP_NAME` extracted from the private response
-  before that response was deleted.
+  `DEPLOY_RESULT` with `extract-deploy-app-name.mjs`; accept only a valid
+  Kubernetes name and keep the raw response out of diagnostics.
+- On the curl path, pass the private response through
+  `extract-deploy-app-name.mjs` before that response is deleted; the helper
+  accepts only a valid Kubernetes name and emits no response fields.
 - If a successful or ambiguous response does not contain a name, perform the
   read-only Instance/App/workload discovery in Phase 6.3. Continue only when
   one matching created instance is identified; never guess a random name or
@@ -1766,8 +1853,12 @@ reference that exact app-scoped Secret name, then create or refresh it
 immediately:
 
 ```bash
+if [ -z "${APP_NAME:-}" ]; then
+  echo "Cannot create the GHCR pull Secret until the exact application name is discovered." >&2
+  exit 1
+fi
 node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" \
-  "$NAMESPACE" "$APP_NAME" "$PULL_SECRET_IMAGE_REF"
+  "$NAMESPACE" "$APP_NAME" "$PULL_SECRET_IMAGE_REF" || exit 1
 ```
 
 The helper requires the active `github.com` account to match the image
@@ -1831,23 +1922,114 @@ always omitted. Extract the instance name without exposing those fields.
 
 ### 6.3.1 Post-Deploy Readiness Verification
 
-After a 201 response, do not assume the app is usable. Inventory the actual
-resource names returned by the allowlisted response and declared by the
-template, then verify Kubernetes readiness:
+After a 201 response, do not assume the app is usable. The Template API path
+and the kubectl fallback must both run the same bounded readiness gate before
+Phase 6.5:
+
+1. Build an exact target list from the API response's allowlisted
+   `response.resources` and live owner references, or from the exact rendered
+   fallback file. Never derive a workload from `APP_NAME` or declaration order.
+2. For every `Deployment`, `StatefulSet`, and `DaemonSet`, run `rollout status`
+   with a finite timeout.
+3. For every one-shot `Job`, wait for `condition=complete` with a finite
+   timeout. For every `CronJob`, confirm that the named resource exists and
+   has its intended schedule.
+4. For every operator-managed resource such as a KubeBlocks `Cluster`, poll
+   its Ready/Running condition and its owned `Component`/`InstanceSet`
+   resources with the same finite deadline.
+5. For every public Service, poll until its Endpoints object is non-empty.
+   An Ingress or App URL is not ready while its backend has no endpoints.
+
+For the Template API route, the response target list can be normalized without
+exposing any template arguments:
 
 ```bash
-NAMESPACE=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  config view --minify -o jsonpath='{.contexts[0].context.namespace}')
+API_READINESS_TARGETS=$(mktemp)
+cleanup_readiness_targets() {
+  rm -f "$API_READINESS_TARGETS"
+}
+trap cleanup_readiness_targets EXIT HUP INT TERM
+printf '%s\n' "$DEPLOY_RESULT" | node -e '
+let input = "";
+process.stdin.on("data", chunk => { input += chunk; });
+process.stdin.on("end", () => {
+  const data = JSON.parse(input);
+  const resources = data.response?.resources || [];
+  const kinds = {
+    deployment: "Deployment",
+    statefulset: "StatefulSet",
+    daemonset: "DaemonSet",
+    job: "Job",
+    cronjob: "CronJob",
+  };
+  for (const resource of resources) {
+    const kind = kinds[String(resource.resourceType || resource.kind || "").toLowerCase()];
+    if (kind && resource.name) process.stdout.write(`${kind}\t${resource.name}\n`);
+  }
+});
+' > "$API_READINESS_TARGETS"
 
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   get deployment,statefulset,daemonset,job,cronjob,pod,svc,endpoints,ingress \
   -n "$NAMESPACE"
 ```
 
-Scope subsequent checks to those actual names and owner references; do not
-assume an `app=<name>` label. For each public app Service, endpoints must be
-non-empty before the Ingress can serve traffic. If the URL returns
+If the API response has no usable target list, perform the documented
+read-only Instance/App/workload discovery and continue only after one
+unambiguous created footprint is identified. Scope subsequent checks to those
+actual names and owner references; do not assume an `app=<name>` label.
+
+Run the target-specific waits for every line in `API_READINESS_TARGETS` (or the
+equivalent list extracted from `RENDERED_FILE` on the fallback route):
+
+```bash
+while IFS=$'\t' read -r KIND NAME; do
+  [ -z "$NAME" ] && continue
+  case "$KIND" in
+    Deployment|StatefulSet|DaemonSet)
+      KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+        rollout status "$KIND/$NAME" -n "$NAMESPACE" --timeout=120s || exit 1
+      ;;
+    Job)
+      KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+        wait --for=condition=complete "job/$NAME" -n "$NAMESPACE" --timeout=120s || exit 1
+      ;;
+    CronJob)
+      KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+        get "cronjob/$NAME" -n "$NAMESPACE" >/dev/null || exit 1
+      ;;
+  esac
+done < "$API_READINESS_TARGETS"
+cleanup_readiness_targets
+trap - EXIT HUP INT TERM
+```
+
+For every public app Service, poll its Endpoints object for up to the same
+120-second deadline before testing the URL. If the URL returns
 `no healthy upstream` or HTTP 503:
+
+```bash
+wait_for_service_endpoints() {
+  local service_name="$1"
+  local deadline=$((SECONDS + 120))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ -n "$(
+      KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+        get "endpoints/$service_name" -n "$NAMESPACE" \
+        -o jsonpath='{range .subsets[*].addresses[*]}{.ip}{"\n"}{end}' \
+        2>/dev/null
+    )" ]; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo "Service endpoints did not become ready: $service_name" >&2
+  return 1
+}
+
+# Run once for every public Service selected by Phase 5.
+wait_for_service_endpoints "<public-service-name>" || exit 1
+```
 
 1. Check the endpoint object named by that Service; empty endpoints means the backend Pod is not Ready.
 2. Check Pod init container status and previous logs:
@@ -2004,20 +2186,21 @@ values before explaining a fix.
 | `Forbidden` | Kubeconfig may be expired — re-run auth |
 | `already exists` | Resource exists from a previous deploy — use `kubectl apply` (idempotent) |
 
-**Step 5 — Verify every rendered workload:**
+**Step 5 — Run the common readiness gate:**
 
 Read the kinds and names from the exact rendered file used above. Do not assume
 one Deployment, derive an application name, or rely on an `app=<name>` label.
-Wait for every application workload with the kind-appropriate operation:
+Run the common readiness gate from Phase 6.3.1 with the exact targets from
+`RENDERED_FILE` (the API route uses `API_READINESS_TARGETS` instead).
 
 ```bash
 # Run once for every Deployment, StatefulSet, or DaemonSet in RENDERED_FILE.
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  rollout status <kind>/<name> -n "$NAMESPACE" --timeout=120s
+  rollout status <kind>/<name> -n "$NAMESPACE" --timeout=120s || exit 1
 
 # Run once for every one-shot Job in RENDERED_FILE.
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  wait --for=condition=complete job/<name> -n "$NAMESPACE" --timeout=120s
+  wait --for=condition=complete job/<name> -n "$NAMESPACE" --timeout=120s || exit 1
 ```
 
 For CronJobs, confirm that each named resource exists and has the intended
@@ -2127,11 +2310,31 @@ Sources for each field:
 For an official-template deployment, set the history note to
 `Initial deployment from official template <name>@<catalog-commit>`.
 
+Before cleanup, validate the complete JSON artifact set and persist the state
+bridge for a temporary GitHub checkout. Do not report success or remove the
+temporary checkout if either operation fails:
+
+```bash
+if ! node "<SKILL_DIR>/scripts/validate-artifacts.mjs" --dir "$WORK_DIR"; then
+  echo "Deployment state validation failed; Phase 6 stopped before cleanup." >&2
+  exit 1
+fi
+
+if [ "$WORK_DIR_IS_TEMP" = true ]; then
+  node "<SKILL_DIR>/scripts/sealos-state-bridge.mjs" persist \
+    --work-dir "$WORK_DIR" --github-url "$GITHUB_URL" || {
+      echo "Could not persist deployment state for the GitHub checkout; Phase 6 stopped before cleanup." >&2
+      exit 1
+    }
+fi
+```
+
 ---
 
 ## Cleanup
 
-If `WORK_DIR` was created via `mktemp` (remote GitHub URL clone), remove it:
+If `WORK_DIR` was created via `mktemp` (remote GitHub URL clone), remove it
+only after the state bridge step above has succeeded:
 ```bash
 rm -rf "$WORK_DIR"
 ```

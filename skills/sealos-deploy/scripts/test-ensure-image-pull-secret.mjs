@@ -162,6 +162,54 @@ if (args[0] === 'version') {
       call.command === 'kubectl' && call.args.includes('apply')
     )), false)
     assert.equal(fs.existsSync(secretPath), false)
+
+    const missingNamespace = spawnSync(
+      process.execPath,
+      [
+        scriptPath,
+        '',
+        'test-app',
+        `ghcr.io/mixedcaseuser/web@${digest}`,
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: fixtureDir,
+          PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          TEST_CALLS_PATH: callsPath,
+          TEST_SECRET_PATH: secretPath,
+        },
+      },
+    )
+
+    assert.equal(missingNamespace.status, 1)
+    assert.match(missingNamespace.stdout, /valid Kubernetes namespace/)
+    assert.equal(fs.existsSync(secretPath), false)
+
+    const invalidSecretName = spawnSync(
+      process.execPath,
+      [
+        scriptPath,
+        'ns-test',
+        'Invalid Secret Name',
+        `ghcr.io/mixedcaseuser/web@${digest}`,
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          HOME: fixtureDir,
+          PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+          TEST_CALLS_PATH: callsPath,
+          TEST_SECRET_PATH: secretPath,
+        },
+      },
+    )
+
+    assert.equal(invalidSecretName.status, 1)
+    assert.match(invalidSecretName.stdout, /valid Kubernetes Secret name/)
+    assert.equal(fs.existsSync(secretPath), false)
   } finally {
     fs.rmSync(fixtureDir, { recursive: true, force: true })
   }
