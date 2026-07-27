@@ -963,18 +963,36 @@ def is_port_websocket(item: Any) -> bool:
 
 
 def parse_ports(service: Mapping[str, Any]) -> List[int]:
-    ports = service.get("ports")
-    if not isinstance(ports, list):
+    return parse_declared_ports(service.get("ports"))
+
+
+def parse_expose_ports(service: Mapping[str, Any]) -> List[int]:
+    return parse_declared_ports(service.get("expose"))
+
+
+def parse_declared_ports(raw_ports: Any) -> List[int]:
+    if not isinstance(raw_ports, list):
         return []
     values: List[int] = []
     seen = set()
-    for item in ports:
+    for item in raw_ports:
         port = parse_container_port(item)
         if port is None or port in seen:
             continue
         seen.add(port)
         values.append(port)
     return values
+
+
+def merge_ports(*port_groups: Sequence[int]) -> List[int]:
+    merged: List[int] = []
+    seen = set()
+    for ports in port_groups:
+        for port in ports:
+            if port not in seen:
+                seen.add(port)
+                merged.append(port)
+    return merged
 
 
 def infer_websocket_ports(service: Mapping[str, Any]) -> Set[int]:
@@ -2160,18 +2178,40 @@ def build_object_storage_bucket() -> Dict[str, Any]:
     }
 
 
-def map_compose_env_value(value: str, db_hosts: Mapping[str, str]) -> str:
+def map_compose_env_value(
+    value: str,
+    db_hosts: Mapping[str, str],
+    service_hosts: Mapping[str, str],
+) -> str:
     if not isinstance(value, str):
         return str(value)
     if COMPOSE_REFERENCE_RE.search(value):
         return value
     if value in db_hosts:
         return db_hosts[value]
+    if value in service_hosts:
+        return service_hosts[value]
     mapped = value
     for service_name, fqdn in db_hosts.items():
         mapped = mapped.replace(f"@{service_name}:", f"@{fqdn}:")
         mapped = mapped.replace(f"//{service_name}:", f"//{fqdn}:")
-    return mapped
+    return map_compose_service_reference(mapped, service_hosts)
+
+
+def map_compose_service_reference(value: str, service_hosts: Mapping[str, str]) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    for service_name, fqdn in service_hosts.items():
+        escaped_name = re.escape(service_name)
+        direct_reference = re.fullmatch(rf"{escaped_name}(?P<port>:\d+)", value)
+        if direct_reference:
+            return f"{fqdn}{direct_reference.group('port')}"
+        value = re.sub(
+            rf"(?P<prefix>://|@){escaped_name}(?P<suffix>(?::\d+)?(?:[/?#]|$))",
+            lambda match: f"{match.group('prefix')}{fqdn}{match.group('suffix')}",
+            value,
+        )
+    return value
 
 
 def detect_db_connection_key(env_name: str) -> Optional[str]:
@@ -2376,6 +2416,7 @@ def build_env_entries(
     db_hosts: Mapping[str, str],
     db_services: Mapping[str, str],
     db_secret_names: Mapping[str, str],
+    service_hosts: Mapping[str, str],
 ) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     for key, value in parse_env(service):
@@ -2404,7 +2445,7 @@ def build_env_entries(
         entries.append(
             {
                 "name": key,
-                "value": map_compose_env_value(value, db_hosts),
+                "value": map_compose_env_value(value, db_hosts, service_hosts),
             }
         )
     return entries
@@ -2435,6 +2476,7 @@ def build_workload(
     mount_paths: Sequence[str],
     config_mounts: Sequence[ConfigMount],
     probes: Mapping[str, Any],
+    image_pull_secret: bool = False,
 ) -> Dict[str, Any]:
     db_type = detect_db_type(image)
     if db_type in SPECIAL_DB_RESOURCE_TYPES:
@@ -2459,6 +2501,8 @@ def build_workload(
             }
         ],
     }
+    if image_pull_secret:
+        template_spec["imagePullSecrets"] = [{"name": "${{ defaults.app_name }}"}]
     container = template_spec["containers"][0]
     if ports:
         container["ports"] = [
@@ -2670,6 +2714,33 @@ def iter_services(compose_data: Mapping[str, Any]) -> Iterable[Tuple[str, Mappin
             yield str(name), service
 
 
+def select_public_service(
+    app_services: Sequence[Tuple[str, Mapping[str, Any]]],
+    requested_service: str,
+) -> Optional[str]:
+    app_service_names = {name for name, _ in app_services}
+    if requested_service:
+        if requested_service not in app_service_names:
+            raise ValueError(
+                f"public service {requested_service!r} is not an application Compose service"
+            )
+        service = next(item for name, item in app_services if name == requested_service)
+        if not parse_ports(service):
+            raise ValueError(
+                f"public service {requested_service!r} must declare at least one Compose ports entry"
+            )
+        return requested_service
+
+    candidates = [name for name, service in app_services if parse_ports(service)]
+    if len(candidates) <= 1:
+        return candidates[0] if candidates else None
+    raise ValueError(
+        "multiple application services publish Compose ports: "
+        + ", ".join(candidates)
+        + "; select the public entry with --public-service SERVICE"
+    )
+
+
 def parse_image_overrides(raw_overrides: Sequence[str]) -> Dict[str, str]:
     image_overrides: Dict[str, str] = {}
     for raw_override in raw_overrides:
@@ -2821,11 +2892,25 @@ def build_documents(
     kompose_shapes: Optional[Mapping[str, ServiceShape]] = None,
     compose_path: Optional[Path] = None,
     image_overrides: Optional[Mapping[str, str]] = None,
+    public_service: str = "",
+    image_pull_secret_services: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
     normalized_images = validate_images(compose_data, image_overrides=image_overrides)
     service_items = list(iter_services(compose_data))
     if not service_items:
         raise ValueError("compose file has no services")
+    requested_pull_secret_services = {
+        str(name).strip()
+        for name in (image_pull_secret_services or ())
+        if str(name).strip()
+    }
+    service_names = {name for name, _ in service_items}
+    unknown_pull_secret_services = sorted(requested_pull_secret_services - service_names)
+    if unknown_pull_secret_services:
+        raise ValueError(
+            "image pull secret references unknown Compose service(s): "
+            + ", ".join(unknown_pull_secret_services)
+        )
 
     db_services: Dict[str, str] = {}
     app_services: List[Tuple[str, Mapping[str, Any]]] = []
@@ -2849,6 +2934,28 @@ def build_documents(
                 "refusing to convert a database into an application workload"
             )
         raise ValueError("compose contains no application services")
+    database_pull_secret_services = sorted(requested_pull_secret_services.intersection(db_services))
+    if database_pull_secret_services:
+        raise ValueError(
+            "image pull secret cannot target database service(s) converted to KubeBlocks: "
+            + ", ".join(database_pull_secret_services)
+        )
+
+    selected_public_service = select_public_service(app_services, public_service)
+    primary_service = selected_public_service or app_services[0][0]
+    primary_workload_name = "${{ defaults.app_name }}"
+    workload_names = {
+        service_name: (
+            primary_workload_name
+            if service_name == primary_service
+            else f"${{{{ defaults.app_name }}}}-{normalize_k8s_name(service_name)}"
+        )
+        for service_name, _ in app_services
+    }
+    service_hosts = {
+        service_name: f"{workload_name}.${{{{ SEALOS_NAMESPACE }}}}.svc.cluster.local"
+        for service_name, workload_name in workload_names.items()
+    }
 
     db_type_counts: Dict[str, int] = {}
     for db_type in db_services.values():
@@ -2908,25 +3015,23 @@ def build_documents(
 
     workload_docs: List[Dict[str, Any]] = []
     service_docs: List[Dict[str, Any]] = []
-    primary_port: Optional[int] = None
-    primary_ingress_protocol = "HTTP"
-    primary_workload_name = "${{ defaults.app_name }}"
     compose_dir = compose_path.parent if compose_path is not None else Path.cwd()
-    for index, (service_name, service) in enumerate(app_services):
-        workload_name = (
-            primary_workload_name
-            if index == 0
-            else f"${{{{ defaults.app_name }}}}-{normalize_k8s_name(service_name)}"
-        )
+    public_port: Optional[int] = None
+    public_ingress_protocol = "HTTP"
+    for service_name, service in app_services:
+        workload_name = workload_names[service_name]
         image = resolved_images[service_name]
-        ports = parse_ports(service)
+        published_ports = parse_ports(service)
+        ports = merge_ports(published_ports, parse_expose_ports(service))
         env_entries = build_env_entries(
             service,
             db_hosts,
             db_services,
             db_secret_names,
+            service_hosts,
         )
         command_args = parse_command_args(service)
+        command_args = [map_compose_service_reference(arg, service_hosts) for arg in command_args]
         mount_paths = parse_mount_paths(service)
         config_mounts = parse_config_mounts(service, compose_data, compose_dir)
         if kompose_shapes:
@@ -2949,6 +3054,7 @@ def build_documents(
             mount_paths=mount_paths,
             config_mounts=config_mounts,
             probes=probes,
+            image_pull_secret=service_name in requested_pull_secret_services,
         )
         if config_mounts:
             workload_docs.append(build_configmap(workload_name, config_mounts))
@@ -2956,15 +3062,15 @@ def build_documents(
         service_doc = build_service(workload_name, ports, websocket_ports)
         if service_doc is not None:
             service_docs.append(service_doc)
-            if index == 0 and ports:
-                primary_port = ports[0]
-                if service_requires_websocket_ingress(service_name, service, primary_port):
-                    primary_ingress_protocol = "WS"
+            if service_name == selected_public_service and published_ports:
+                public_port = published_ports[0]
+                if service_requires_websocket_ingress(service_name, service, public_port):
+                    public_ingress_protocol = "WS"
 
     docs.extend(workload_docs)
     docs.extend(service_docs)
-    if primary_port is not None:
-        docs.append(build_ingress(primary_workload_name, primary_port, primary_ingress_protocol))
+    if public_port is not None:
+        docs.append(build_ingress(primary_workload_name, public_port, public_ingress_protocol))
     docs.append(build_app_resource(meta))
     validate_generated_database_contract(
         docs,
@@ -2981,6 +3087,8 @@ def convert_compose_to_template(
     meta: MetadataOptions,
     kompose_shapes: Optional[Mapping[str, ServiceShape]] = None,
     image_overrides: Optional[Mapping[str, str]] = None,
+    public_service: str = "",
+    image_pull_secret_services: Optional[Sequence[str]] = None,
     write_files: bool = True,
     fetch_logo: bool = True,
 ) -> Tuple[Path, str]:
@@ -2994,6 +3102,8 @@ def convert_compose_to_template(
         kompose_shapes=kompose_shapes,
         compose_path=compose_path,
         image_overrides=image_overrides,
+        public_service=public_service,
+        image_pull_secret_services=image_pull_secret_services,
     )
     index_path = app_dir / "index.yaml"
     rendered = render_index_yaml(documents)
@@ -3040,6 +3150,25 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "repeat for multiple services"
         ),
     )
+    parser.add_argument(
+        "--public-service",
+        default="",
+        metavar="SERVICE",
+        help=(
+            "Compose service to expose through the generated public Ingress; "
+            "required when multiple application services publish ports"
+        ),
+    )
+    parser.add_argument(
+        "--image-pull-secret-service",
+        action="append",
+        default=[],
+        metavar="SERVICE",
+        help=(
+            "Reference the app-scoped image pull Secret for one Compose service; "
+            "repeat for multiple services"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print index.yaml content without writing files")
     return parser.parse_args(argv)
 
@@ -3056,6 +3185,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     try:
         image_overrides = parse_image_overrides(args.image_override)
+        image_pull_secret_services = [item.strip() for item in args.image_pull_secret_service if item.strip()]
+        if len(image_pull_secret_services) != len(set(image_pull_secret_services)):
+            raise ValueError("duplicate image pull secret service")
         kompose_shapes = resolve_kompose_shapes(compose_path, args.kompose_mode)
         index_path, rendered = convert_compose_to_template(
             compose_path=compose_path,
@@ -3063,6 +3195,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             meta=meta,
             kompose_shapes=kompose_shapes,
             image_overrides=image_overrides,
+            public_service=args.public_service,
+            image_pull_secret_services=image_pull_secret_services,
             write_files=not args.dry_run,
             fetch_logo=not args.no_fetch_logo,
         )

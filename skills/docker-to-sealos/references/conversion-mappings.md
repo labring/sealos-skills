@@ -186,6 +186,25 @@ metadata:
 
 For a single-component StatefulSet with no documented headless or stable per-Pod DNS requirement, set `spec.serviceName` to the public application Service and keep the workload, Service, root Ingress, and manager identity aligned. Preserve documented HA/headless governing Services and expose them through a separate public application Service.
 
+For deterministic Compose conversion, treat `ports` and `expose` as different
+contracts:
+
+- `ports` makes an application service a public-entry candidate.
+- `expose` contributes ports to its cluster-internal Kubernetes Service but
+  does not create an Ingress by itself.
+- A single `ports` candidate is selected automatically. When several
+  application services publish ports, pass `--public-service SERVICE`; do not
+  use Compose declaration order as the public-routing decision.
+- The selected public service uses `${{ defaults.app_name }}` for its workload
+  and Service. Other application services use
+  `${{ defaults.app_name }}-<service>`.
+
+Build that service-name map before environment and command conversion. Rewrite
+explicit internal host references such as `api`, `api:8080`, and
+`http://api:8080/path` to the generated Kubernetes Service FQDN
+(`...${{ SEALOS_NAMESPACE }}.svc.cluster.local`). Keep ordinary command tokens
+that merely happen to equal a Compose service name unchanged.
+
 ## Image Mapping
 
 Compose input may use any registry tag (`latest`, `stable`, `v2`, `2.1`, an
@@ -206,6 +225,15 @@ the converter validates and preserves that digest. If an override is still a
 selector, resolve it through the same registry HTTP API. The converter must not
 rewrite the source Compose file. The local build path owns its `linux/amd64`
 contract outside this converter.
+
+When a Phase 4 build-result artifact records
+`push.pull_access: ghcr_secret_required` or `indeterminate`, pass the same
+Compose service name with the repeatable
+`--image-pull-secret-service SERVICE` option. The converter adds only
+`{name: "${{ defaults.app_name }}"}` to that service's emitted workload
+`template.spec.imagePullSecrets`; it does not infer private access from a
+`ghcr.io` hostname. Do not pass the option for anonymous or reused images,
+failed builds, or services transformed into KubeBlocks resources.
 
 Database service images remain dependency and engine-classification evidence.
 When a database service is transformed to a KubeBlocks `Cluster`, preserve its

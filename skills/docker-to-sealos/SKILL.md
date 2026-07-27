@@ -181,6 +181,7 @@ For managed or private object storage, live validation must upload known bytes t
 - Input image references may use any tag (`latest`, `stable`, `v2`, `2.1`, an explicit version, or another registry tag) or be tagless.
 - Before generated template use, resolve every emitted workload image selector through the registry HTTP API, or accept a caller-supplied immutable digest override, and emit only `repository@sha256:<digest>` references. Do not pre-screen third-party image architecture in this converter.
 - For a Compose service that has `build:` but no `image:`, pass its Phase 4 result with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image.
+- When Phase 4 reports `push.pull_access: ghcr_secret_required` or `indeterminate` for a service, pass the repeatable converter option `--image-pull-secret-service SERVICE`; the converter injects only the app-scoped `${{ defaults.app_name }}` Secret into that service's emitted workload. Do not pass it for `anonymous`, reused images, failed builds, or services converted to KubeBlocks.
 - Compose database service images are dependency and engine-classification evidence; after conversion to KubeBlocks, the generated template need not emit the original database image.
 - Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve variables first, then resolve the resulting selector through the registry HTTP API or use a caller-supplied immutable digest.
 - Generated workload `image` fields and application `originImageName` annotations must use immutable `repository@sha256:<digest>` references.
@@ -356,6 +357,8 @@ Load only needed references for current task:
 - `scripts/compose_to_template.py`
   - deterministic compose/docs-to-template generator entrypoint
   - supports `--kompose-mode auto|always|never` (`always` is default) to reuse `kompose convert` workload shapes
+  - supports repeatable per-service image overrides and pull-Secret selection
+  - supports `--public-service SERVICE` when several application services publish ports
   - emits `template/<app-name>/index.yaml`
 - `scripts/test_compose_to_template.py`
   - regression tests for compose conversion behavior

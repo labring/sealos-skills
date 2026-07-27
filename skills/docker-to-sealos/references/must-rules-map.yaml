@@ -188,6 +188,10 @@ must_rules:
     enforcement:
       type: manual
       note: "The converter rejects build-only services without a matching override, preserves supplied immutable digests, and resolves selector overrides through the registry HTTP API."
+  - must: "When Phase 4 reports `push.pull_access: ghcr_secret_required` or `indeterminate` for a service, pass the repeatable converter option `--image-pull-secret-service SERVICE`; the converter injects only the app-scoped `${{ defaults.app_name }}` Secret into that service's emitted workload. Do not pass it for `anonymous`, reused images, failed builds, or services converted to KubeBlocks."
+    enforcement:
+      type: manual
+      note: "Phase 4 artifact routing is covered by the sealos-deploy contract and converter tests; R035 validates the emitted pull-Secret reference shape."
   - must: "Compose database service images are dependency and engine-classification evidence; after conversion to KubeBlocks, the generated template need not emit the original database image."
     enforcement:
       type: manual

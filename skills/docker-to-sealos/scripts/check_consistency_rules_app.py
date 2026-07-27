@@ -867,12 +867,21 @@ def _is_non_empty_value(value: Any, expected_type: type) -> bool:
 
 def _extract_template_directory_name(path: Path) -> str:
     parts = path.parts
-    if "template" not in parts:
+    # `.sealos/template/index.yaml` is the deploy lifecycle's canonical
+    # single-file artifact, not the published `template/<app>/index.yaml`
+    # layout. Check the path suffix first so an ancestor directory named
+    # `template` cannot change the result.
+    if len(parts) >= 3 and parts[-3:] == (".sealos", "template", "index.yaml"):
         return ""
-    index = parts.index("template")
-    if index + 1 >= len(parts):
-        return ""
-    return parts[index + 1]
+
+    # Published artifacts use the last `template/<app>` pair in the path.
+    # Using the last occurrence avoids confusing a workspace parent such as
+    # `/tmp/template/project/template/demo/index.yaml` for the artifact root.
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index] != "template":
+            continue
+        return parts[index + 1]
+    return ""
 
 
 def _is_immutable_repository_digest(image: str) -> bool:

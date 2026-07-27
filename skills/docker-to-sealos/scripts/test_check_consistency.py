@@ -344,6 +344,138 @@ class CheckConsistencyTests(unittest.TestCase):
             )
             self.assertTrue(any(item.rule_id == "R013" for item in violations))
 
+    def test_allows_canonical_deploy_template_artifact_name(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / ".sealos" / "template" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: demo-app
+                spec:
+                  title: Demo
+                  url: https://demo.example.com
+                  gitRepo: https://github.com/example/demo
+                  author: example
+                  description: demo
+                  icon: https://raw.githubusercontent.com/example/demo/kb-0.9/template/demo-app/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    en:
+                      title: Demo
+                  categories:
+                    - ai
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=[".sealos/template/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R013" for item in violations))
+
+    def test_allows_canonical_artifact_when_workspace_parent_is_named_template(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "template" / "project"
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / ".sealos" / "template" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: demo-app
+                spec:
+                  title: Demo
+                  url: https://demo.example.com
+                  gitRepo: https://github.com/example/demo
+                  author: example
+                  description: demo
+                  icon: https://raw.githubusercontent.com/example/demo/kb-0.9/template/demo-app/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    en:
+                      title: Demo
+                  categories:
+                    - ai
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=[str(artifact_file)],
+            )
+            self.assertFalse(any(item.rule_id == "R013" for item in violations))
+
+    def test_rejects_published_template_without_app_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: demo-app
+                spec:
+                  title: Demo
+                  url: https://demo.example.com
+                  gitRepo: https://github.com/example/demo
+                  author: example
+                  description: demo
+                  icon: https://raw.githubusercontent.com/example/demo/kb-0.9/template/demo-app/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    en:
+                      title: Demo
+                  categories:
+                    - ai
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/index.yaml"],
+            )
+            self.assertTrue(any(item.rule_id == "R013" for item in violations))
+
     def test_detects_template_icon_path_mismatch_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -201,6 +201,20 @@ test('accepts the Phase 1 artifact before image discovery', () => {
   assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
+test('accepts a public service project override and rejects non-string values', () => {
+  const valid = validateArtifactData('config', {
+    port: 3000,
+    public_service: 'frontend',
+  })
+  const invalid = validateArtifactData('config', {
+    public_service: 3000,
+  })
+
+  assert.equal(valid.valid, true, JSON.stringify(valid.errors))
+  assert.equal(invalid.valid, false)
+  assert.ok(invalid.errors.some(error => error.path === '$.public_service'))
+})
+
 test('accepts a structured per-service build plan with arg names only', () => {
   const result = validateArtifactData('analysis', analysis({
     service_inventory: [{

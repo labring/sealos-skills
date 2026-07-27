@@ -732,6 +732,94 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertIn("${{ defaults.app_name }}", names)
             self.assertIn("${{ defaults.app_name }}-worker", names)
 
+    def test_selects_public_service_and_maps_internal_compose_references(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  api:
+                    image: ghcr.io/example/api:1.0.0
+                    expose:
+                      - "8080"
+                  frontend:
+                    image: ghcr.io/example/frontend:1.0.0
+                    ports:
+                      - "3000:3000"
+                    environment:
+                      API_URL: http://api:8080/v1
+                      API_HOST: api
+                      API_ADDRESS: api:8080
+                    command: --upstream=http://api:8080
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+
+            docs = parse_yaml_documents(index_path)
+            deployments = {
+                doc["metadata"]["name"]: doc
+                for doc in docs
+                if doc.get("kind") == "Deployment"
+            }
+            frontend = deployments["${{ defaults.app_name }}"]
+            self.assertIn("${{ defaults.app_name }}-api", deployments)
+
+            api_service = next(
+                doc
+                for doc in docs
+                if doc.get("kind") == "Service"
+                and doc["metadata"]["name"] == "${{ defaults.app_name }}-api"
+            )
+            self.assertEqual(8080, api_service["spec"]["ports"][0]["port"])
+
+            api_fqdn = "${{ defaults.app_name }}-api.${{ SEALOS_NAMESPACE }}.svc.cluster.local"
+            env = frontend["spec"]["template"]["spec"]["containers"][0]["env"]
+            env_by_name = {entry["name"]: entry["value"] for entry in env}
+            self.assertEqual(f"http://{api_fqdn}:8080/v1", env_by_name["API_URL"])
+            self.assertEqual(api_fqdn, env_by_name["API_HOST"])
+            self.assertEqual(f"{api_fqdn}:8080", env_by_name["API_ADDRESS"])
+            self.assertEqual(
+                [f"--upstream=http://{api_fqdn}:8080"],
+                frontend["spec"]["template"]["spec"]["containers"][0]["args"],
+            )
+
+            ingress = next(doc for doc in docs if doc.get("kind") == "Ingress")
+            backend = ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]
+            self.assertEqual("${{ defaults.app_name }}", backend["name"])
+            self.assertEqual({"number": 3000}, backend["port"])
+
+    def test_requires_public_service_when_multiple_services_publish_ports(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  api:
+                    image: ghcr.io/example/api:1.0.0
+                    ports:
+                      - "8080:8080"
+                  frontend:
+                    image: ghcr.io/example/frontend:1.0.0
+                    ports:
+                      - "3000:3000"
+                """,
+            )
+
+            with self.assertRaisesRegex(ValueError, "multiple application services publish"):
+                convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("demo"),
+                )
+
     def test_preserves_traefik_gateway_when_business_service_exists(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -758,6 +846,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
+                public_service="traefik",
             )
             docs = parse_yaml_documents(index_path)
             workloads = [doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"}]
@@ -1748,6 +1837,19 @@ class ComposeToTemplateTests(unittest.TestCase):
         args = parse_args(["--compose", "docker-compose.yml", "--no-fetch-logo"])
         self.assertTrue(args.no_fetch_logo)
 
+    def test_parse_args_supports_repeatable_image_pull_secret_services(self):
+        args = parse_args(
+            [
+                "--compose",
+                "docker-compose.yml",
+                "--image-pull-secret-service",
+                "web",
+                "--image-pull-secret-service",
+                "worker",
+            ]
+        )
+        self.assertEqual(["web", "worker"], args.image_pull_secret_service)
+
     def test_parse_args_supports_repeatable_image_overrides(self):
         args = parse_args(
             [
@@ -1757,6 +1859,8 @@ class ComposeToTemplateTests(unittest.TestCase):
                 "web=ghcr.io/example/web:latest",
                 "--image-override",
                 "api=ghcr.io/example/api:v2",
+                "--public-service",
+                "web",
             ]
         )
         self.assertEqual(
@@ -1766,6 +1870,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             },
             parse_image_overrides(args.image_override),
         )
+        self.assertEqual("web", args.public_service)
 
     def test_parse_image_overrides_rejects_duplicate_service(self):
         with self.assertRaisesRegex(ValueError, "duplicate image override"):
@@ -2000,6 +2105,65 @@ class ComposeToTemplateTests(unittest.TestCase):
                     compose_path=compose,
                     output_root=root / "template",
                     meta=self._meta("demo"),
+                )
+
+    def test_image_pull_secret_is_scoped_to_selected_services(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  web:
+                    image: ghcr.io/example/web:latest
+                  worker:
+                    image: ghcr.io/example/worker:latest
+                """,
+            )
+
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+                image_pull_secret_services=["worker"],
+            )
+            docs = parse_yaml_documents(index_path)
+            workloads = {
+                doc["metadata"]["name"]: doc
+                for doc in docs
+                if doc.get("kind") in {"Deployment", "StatefulSet"}
+            }
+            self.assertNotIn(
+                "imagePullSecrets",
+                workloads["${{ defaults.app_name }}"]["spec"]["template"]["spec"],
+            )
+            self.assertEqual(
+                [{"name": "${{ defaults.app_name }}"}],
+                workloads["${{ defaults.app_name }}-worker"]["spec"]["template"]["spec"][
+                    "imagePullSecrets"
+                ],
+            )
+
+    def test_unknown_image_pull_secret_service_stops(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/app:latest
+                """,
+            )
+
+            with self.assertRaisesRegex(ValueError, "unknown Compose service"):
+                convert_compose_to_template(
+                    compose_path=compose,
+                    output_root=root / "template",
+                    meta=self._meta("demo"),
+                    image_pull_secret_services=["worker"],
                 )
 
     def test_unknown_image_override_service_stops(self):

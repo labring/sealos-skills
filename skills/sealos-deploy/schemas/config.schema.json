@@ -10,6 +10,10 @@
       "minimum": 1,
       "maximum": 65535
     },
+    "public_service": {
+      "type": "string",
+      "minLength": 1
+    },
     "node_version": {
       "type": "string",
       "pattern": "^\\d+(?:\\.\\d+){0,2}$"

@@ -31,7 +31,7 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ```
 
 **File responsibilities:**
-- `config.json` — optional user overrides (port, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
+- `config.json` — optional user overrides (port, `public_service`, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
 - `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, score, etc.). Regenerated each deploy.
 - `template-references.json` — Phase 1.5 exact catalog matches, official source commit, and the route decision. Regenerated each deploy.
 - `template-references/` — bounded copies retained for exact-match provenance. The selected official YAML is also copied verbatim to `.sealos/template/index.yaml` only when the decision route is `deploy_official_template`.
@@ -84,6 +84,7 @@ If `.sealos/config.json` exists, read it. User-provided values take priority ove
 ```json
 {
   "port": 8080,
+  "public_service": "frontend",
   "node_version": "20",
   "start_command": "node dist/main.js",
   "build_command": "pnpm build:prod",
@@ -377,7 +378,10 @@ After Phase 1 completes, write `.sealos/analysis.json` with the full analysis sn
 }
 ```
 
-If `.sealos/config.json` exists, apply user overrides: e.g., if `config.json` has `"port": 8080`, use that instead of the auto-detected value. Priority: user config > script detection > AI inference.
+If `.sealos/config.json` exists, apply user overrides: e.g., if `config.json` has
+`"port": 8080`, use that instead of the auto-detected value; a
+`"public_service"` value selects the public Compose service. Priority: user
+config > script detection > AI inference.
 
 The `image_ref` field is set to `null` initially. Phase 2 fills it only when
 there is one unambiguous primary application image; Phase 4 fills it for a
@@ -993,7 +997,20 @@ if [ -z "$PYTHON_BIN" ] || ! "$PYTHON_BIN" -c 'import yaml' >/dev/null 2>&1; the
 fi
 ```
 
-When a supported root Compose file exists, use the deterministic converter as the generation baseline. Use `--dry-run` so the only written template artifact remains `.sealos/template/index.yaml`. Missing required converter capabilities or converter failure is a hard stop, not permission to hand-write around the failure.
+When a supported root Compose file exists, use the deterministic converter as the
+generation baseline. For a project without Compose, synthesize a temporary
+single-service Compose input from the implicit Phase 2/3 service, its immutable
+`image_ref`, detected `port`, and classified environment variables, then use
+the same converter. In both cases use `--dry-run` so the only written template
+artifact remains `.sealos/template/index.yaml`. Missing required converter
+capabilities or converter failure is a hard stop, not permission to hand-write
+around the failure.
+
+For a multi-service Compose project, `config.json.public_service` may name the
+one service that should receive the public Ingress. If exactly one application
+service declares `ports`, the converter selects it automatically. If multiple
+application services declare `ports` and no `public_service` is supplied,
+conversion stops instead of using declaration order.
 
 ```bash
 COMPOSE_FILE=""
@@ -1004,7 +1021,90 @@ for candidate in compose.yaml compose.yml docker-compose.yaml docker-compose.yml
   fi
 done
 
-if [ -n "$COMPOSE_FILE" ]; then
+TEMP_COMPOSE_DIR=""
+SYNTHETIC_COMPOSE=false
+if [ -z "$COMPOSE_FILE" ]; then
+  TEMP_COMPOSE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sealos-deploy-compose.XXXXXX")" || {
+    echo "Unable to create a temporary Compose directory; Phase 5 stopped." >&2
+    exit 1
+  }
+  COMPOSE_FILE="$TEMP_COMPOSE_DIR/compose.yaml"
+  SYNTHETIC_COMPOSE=true
+  "$PYTHON_BIN" - "$WORK_DIR/.sealos/analysis.json" "$COMPOSE_FILE" <<'PY' || {
+import json
+import re
+import sys
+from pathlib import Path
+
+import yaml
+
+analysis = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+services = analysis.get("service_inventory") or []
+if len(services) > 1:
+    raise SystemExit(
+        "no-Compose Phase 5 supports one implicit application service only; "
+        "preserve multi-service topology in an explicit Compose input"
+    )
+if analysis.get("databases"):
+    raise SystemExit(
+        "no-Compose Phase 5 requires explicit dependency topology before converting "
+        "a project with database dependencies"
+    )
+service = next(
+    (item for item in services if item.get("role") == "application"),
+    services[0] if services else {},
+)
+repo_name = analysis.get("project", {}).get("repo_name") or "app"
+raw_name = service.get("name") or repo_name.rsplit("/", 1)[-1]
+service_name = str(raw_name).strip()
+if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", service_name):
+    service_name = re.sub(r"[^a-z0-9-]+", "-", service_name.lower()).strip("-") or "app"
+image_ref = service.get("image_ref") or analysis.get("image_ref")
+if not isinstance(image_ref, str) or not re.fullmatch(r"[^@\s]+@sha256:[0-9a-fA-F]{64}", image_ref):
+    raise SystemExit(
+        "no-Compose Phase 5 requires one immutable service image_ref after Phase 4"
+    )
+port = analysis.get("port")
+if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+    raise SystemExit(
+        "no-Compose Phase 5 requires a detected application port in analysis.json"
+    )
+
+environment = {}
+for key, spec in (analysis.get("env_vars") or {}).items():
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]*", str(key)) or not isinstance(spec, dict):
+        continue
+    default = spec.get("default")
+    category = spec.get("category")
+    if isinstance(default, str):
+        environment[key] = default
+    elif category in {"required", "optional"}:
+        environment[key] = f"${{{{ inputs.{key} }}}}"
+    elif category == "auto":
+        raise SystemExit(
+            f"no-Compose Phase 5 must resolve auto-managed environment variable {key} "
+            "before template conversion"
+        )
+
+service_data = {
+    "image": image_ref,
+    "ports": [f"{port}:{port}"],
+}
+if environment:
+    service_data["environment"] = environment
+
+Path(sys.argv[2]).write_text(
+    yaml.safe_dump({"services": {service_name: service_data}}, sort_keys=False),
+    encoding="utf-8",
+)
+PY
+    echo "Unable to synthesize a Compose input for the no-Compose project; Phase 5 stopped." >&2
+    rm -f "$COMPOSE_FILE"
+    rmdir "$TEMP_COMPOSE_DIR" 2>/dev/null || true
+    exit 1
+  }
+fi
+
   APP_NAME="$(
     "$PYTHON_BIN" -c \
       'import json, sys; value = json.load(open(sys.argv[1], encoding="utf-8"))["project"]["repo_name"]; print(value.rsplit("/", 1)[-1])' \
@@ -1022,12 +1122,13 @@ if [ -n "$COMPOSE_FILE" ]; then
     exit 1
   }
   IMAGE_OVERRIDE_ARGS=()
-  while IFS=$'\t' read -r SERVICE_NAME SERVICE_IMAGE; do
-    if [ -n "$SERVICE_NAME" ] && [ -n "$SERVICE_IMAGE" ]; then
-      IMAGE_OVERRIDE_ARGS+=(--image-override "$SERVICE_NAME=$SERVICE_IMAGE")
-    fi
-  done < <(
-    "$PYTHON_BIN" -c '
+  if [ "$SYNTHETIC_COMPOSE" = false ]; then
+    while IFS=$'\t' read -r SERVICE_NAME SERVICE_IMAGE; do
+      if [ -n "$SERVICE_NAME" ] && [ -n "$SERVICE_IMAGE" ]; then
+        IMAGE_OVERRIDE_ARGS+=(--image-override "$SERVICE_NAME=$SERVICE_IMAGE")
+      fi
+    done < <(
+      "$PYTHON_BIN" -c '
 import json
 import sys
 
@@ -1038,31 +1139,190 @@ for service in analysis.get("service_inventory", []):
     if isinstance(name, str) and name and isinstance(image_ref, str) and image_ref:
         print(f"{name}\t{image_ref}")
 ' "$WORK_DIR/.sealos/analysis.json"
+    )
+  fi
+  PUBLIC_SERVICE_ARGS=()
+  if [ "$SYNTHETIC_COMPOSE" = false ] && [ -f "$WORK_DIR/.sealos/config.json" ]; then
+    PUBLIC_SERVICE="$(
+      "$PYTHON_BIN" - "$WORK_DIR/.sealos/config.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = config.get("public_service", "")
+if value is None:
+    value = ""
+if not isinstance(value, str):
+    raise SystemExit("config.json public_service must be a string")
+print(value.strip())
+PY
+    )" || {
+      echo "Unable to read public_service from .sealos/config.json; Phase 5 stopped." >&2
+      exit 1
+    }
+    if [ -n "$PUBLIC_SERVICE" ]; then
+      PUBLIC_SERVICE_ARGS=(--public-service "$PUBLIC_SERVICE")
+    fi
+  fi
+  IMAGE_PULL_SECRET_ARGS=()
+  while IFS= read -r SERVICE_NAME; do
+    if [ -n "$SERVICE_NAME" ]; then
+      IMAGE_PULL_SECRET_ARGS+=(--image-pull-secret-service "$SERVICE_NAME")
+    fi
+  done < <(
+    "$PYTHON_BIN" -c '
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+seen = set()
+build_root = root / ".sealos" / "build"
+if build_root.is_dir():
+    for path in sorted(build_root.rglob("build-result.json")):
+        try:
+            result = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if result.get("outcome") != "success":
+            continue
+        pull_access = result.get("push", {}).get("pull_access")
+        if pull_access not in {"ghcr_secret_required", "indeterminate"}:
+            continue
+        service_name = result.get("service", {}).get("name")
+        if isinstance(service_name, str) and service_name and service_name not in seen:
+            seen.add(service_name)
+            print(service_name)
+' "$WORK_DIR"
   )
+  KOMPOSE_MODE=always
+  if [ "$SYNTHETIC_COMPOSE" = true ]; then
+    KOMPOSE_MODE=auto
+  fi
   GENERATED_TEMPLATE="$(
     "$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/compose_to_template.py" \
       --compose "$COMPOSE_FILE" \
       --app-name "$APP_NAME" \
       --git-repo "$GITHUB_URL" \
-      --kompose-mode always \
+      --kompose-mode "$KOMPOSE_MODE" \
       --no-fetch-logo \
       "${IMAGE_OVERRIDE_ARGS[@]}" \
+      "${PUBLIC_SERVICE_ARGS[@]}" \
+      "${IMAGE_PULL_SECRET_ARGS[@]}" \
       --dry-run
   )" || {
+    if [ -n "$TEMP_COMPOSE_DIR" ]; then
+      rm -f "$COMPOSE_FILE"
+      rmdir "$TEMP_COMPOSE_DIR" 2>/dev/null || true
+    fi
     echo "Deterministic Compose conversion failed; Phase 5 stopped." >&2
     exit 1
   }
+
+  if [ "$SYNTHETIC_COMPOSE" = true ]; then
+    GENERATED_TEMPLATE_FILE="$(mktemp "${TMPDIR:-/tmp}/sealos-deploy-template.XXXXXX.yaml")" || {
+      rm -f "$COMPOSE_FILE"
+      rmdir "$TEMP_COMPOSE_DIR" 2>/dev/null || true
+      echo "Unable to create a temporary generated template; Phase 5 stopped." >&2
+      exit 1
+    }
+    printf '%s\n' "$GENERATED_TEMPLATE" > "$GENERATED_TEMPLATE_FILE"
+    "$PYTHON_BIN" - "$GENERATED_TEMPLATE_FILE" "$WORK_DIR/.sealos/analysis.json" <<'PY' || {
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import yaml
+
+template_path = Path(sys.argv[1])
+analysis_path = Path(sys.argv[2])
+documents = list(yaml.safe_load_all(template_path.read_text(encoding="utf-8")))
+analysis = json.loads(analysis_path.read_text(encoding="utf-8"))
+input_specs = {}
+for name, raw_spec in (analysis.get("env_vars") or {}).items():
+    if not isinstance(name, str) or not isinstance(raw_spec, dict):
+        continue
+    category = raw_spec.get("category")
+    if category not in {"required", "optional"}:
+        continue
+    spec = {
+        "description": raw_spec.get("description") or f"Value for {name}",
+        "type": "string",
+        "required": category == "required",
+    }
+    default = raw_spec.get("default")
+    if isinstance(default, str):
+        spec["default"] = default
+    elif category == "optional":
+        spec["default"] = ""
+    input_specs[name] = spec
+
+for document in documents:
+    if not isinstance(document, dict) or document.get("kind") != "Template":
+        continue
+    template_spec = document.setdefault("spec", {})
+    existing = template_spec.get("inputs")
+    if not isinstance(existing, dict):
+        existing = {}
+    existing.update(input_specs)
+    if existing:
+        template_spec["inputs"] = existing
+
+template_path.write_text(
+    "\n---\n".join(
+        yaml.safe_dump(document, sort_keys=False, allow_unicode=True).rstrip()
+        for document in documents
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
+      rm -f "$GENERATED_TEMPLATE_FILE" "$COMPOSE_FILE"
+      rmdir "$TEMP_COMPOSE_DIR" 2>/dev/null || true
+      echo "Unable to add no-Compose environment inputs to the generated template; Phase 5 stopped." >&2
+      exit 1
+    }
+    GENERATED_TEMPLATE="$(<"$GENERATED_TEMPLATE_FILE")"
+    rm -f "$GENERATED_TEMPLATE_FILE"
+  fi
+  if [ -n "$TEMP_COMPOSE_DIR" ]; then
+    rm -f "$COMPOSE_FILE"
+    rmdir "$TEMP_COMPOSE_DIR" 2>/dev/null || true
+  fi
   printf '%s\n' "$GENERATED_TEMPLATE" > "$WORK_DIR/.sealos/template/index.yaml"
-fi
 ```
+
+The synthetic no-Compose input is temporary and is never written under
+`WORK_DIR`. This adapter is intentionally limited to one implicit application
+service without an unrepresented database or additional service topology.
+Required and optional classified environment variables are carried as Template
+inputs. Auto-managed variables with known defaults are included directly; an
+auto-managed variable without a resolved value stops conversion until Phase 5
+applies the existing database, public-URL, object-storage, or secret-generation
+rule that owns it. The final artifact is always the same
+`.sealos/template/index.yaml` consumed by Phase 5.5 and Phase 6.
 
 For converted templates, map each inventory digest to the service it
 represents. Never apply one top-level `analysis.json.image_ref` to every
 workload. Pass each available per-service digest with
 `--image-override SERVICE=IMAGE`; this is required for build-only Compose
-services and leaves the project's Compose file unchanged. The converter
-requires each effective image to resolve to an immutable digest but does not
-pre-screen third-party image architecture. Treat the converter's database
+services and leaves the project's Compose file unchanged.
+
+Build-result pull access is handed off by the same service key. Scan every
+`.sealos/build/**/build-result.json`, keep only `outcome: "success"` results
+whose `push.pull_access` is `ghcr_secret_required` or `indeterminate`, and
+pass one repeatable `--image-pull-secret-service SERVICE` argument for each
+distinct `service.name`. Do not pass this argument for `anonymous` results,
+reused images, failed results, or KubeBlocks database services. The converter
+validates every service key and injects the app-scoped
+`${{ defaults.app_name }}` Secret only into that service's emitted workload;
+it never adds a pull Secret based solely on a `ghcr.io` hostname.
+
+The converter requires each effective image to resolve to an immutable digest
+but does not pre-screen third-party image architecture. Treat the converter's database
 classification as immutable:
 application-specific edits must not replace a KubeBlocks database `Cluster`
 with a Deployment, StatefulSet, Service, or other generic workload. Likewise,

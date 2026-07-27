@@ -365,14 +365,16 @@
     {
       "id": 29,
       "prompt": "Resume deployment of a conventional single-app repository with no Compose file, no reusable published image, and an existing root Dockerfile. A previous run stopped after Phase 1 and the Dockerfile predates sealos-deploy.",
-      "expected_output": "Phase 2 creates or retains one implicit application service with context '.', Dockerfile 'Dockerfile', no target or build args, and existing origin. Phase 3 re-resolves and preserves that plan instead of treating root Dockerfile existence as a completed checkpoint, then Phase 4 builds it for linux/amd64",
+      "expected_output": "Phase 2 creates or retains one implicit application service with context '.', Dockerfile 'Dockerfile', no target or build args, and existing origin. Phase 3 preserves that plan, Phase 4 builds it for linux/amd64, and Phase 5 uses a temporary single-service Compose input to produce the canonical validated Sealos template without modifying the project",
       "files": [],
       "assertions": [
         {"name": "creates-implicit-application-service", "description": "Keeps the ordinary no-Compose project in service_inventory as one build-required application service"},
         {"name": "uses-root-build-defaults", "description": "Uses context '.', dockerfile 'Dockerfile', target null, args [], and origin existing"},
         {"name": "does-not-use-root-file-as-checkpoint", "description": "Does not skip all Phase 3 preparation merely because a root Dockerfile exists"},
         {"name": "preserves-existing-root-dockerfile", "description": "Uses the existing Dockerfile unchanged absent a certain blocker or concrete Phase 4 failure"},
-        {"name": "builds-single-app-for-amd64", "description": "Passes the normalized implicit-service plan to Phase 4 and builds linux/amd64"}
+        {"name": "builds-single-app-for-amd64", "description": "Passes the normalized implicit-service plan to Phase 4 and builds linux/amd64"},
+        {"name": "uses-temporary-compose-adapter", "description": "Synthesizes the no-Compose conversion input outside the project from the implicit service image, detected port, and classified environment variables"},
+        {"name": "writes-canonical-template", "description": "Writes only .sealos/template/index.yaml and passes that exact artifact through the complete docker-to-sealos quality gate"}
       ]
     },
     {
@@ -428,6 +430,19 @@
         {"name": "stops-before-cluster-mutation", "description": "Does not refresh the Secret, patch imagePullSecrets, or set a workload image when namespaces conflict"},
         {"name": "does-not-overwrite-another-account", "description": "Never replaces account-a credentials with account-b credentials while an unchanged private account-a image remains in use"},
         {"name": "preserves-state", "description": "Leaves the per-service state and history unchanged because no update operation began"}
+      ]
+    },
+    {
+      "id": 34,
+      "prompt": "Generate Phase 5 for a Compose project where worker is declared first, api exposes only port 8080, and frontend publishes port 3000 with API_URL=http://api:8080. Phase 4 reports frontend as ghcr_secret_required and worker as anonymous.",
+      "expected_output": "Phase 5 selects frontend as the sole public service regardless of declaration order, preserves api as an internal Service, rewrites frontend's API URL to the generated api Service FQDN, injects the app-scoped pull Secret only into frontend, writes .sealos/template/index.yaml, and passes the complete quality gate",
+      "files": [],
+      "assertions": [
+        {"name": "selects-public-service-by-contract", "description": "Uses frontend as the public workload and Ingress backend because it is the sole application service publishing Compose ports"},
+        {"name": "preserves-internal-expose-port", "description": "Creates an internal api Service on port 8080 from Compose expose without creating an api Ingress"},
+        {"name": "rewrites-internal-service-url", "description": "Maps http://api:8080 to the generated api Service FQDN using the Sealos namespace variable"},
+        {"name": "scopes-private-pull-secret", "description": "Adds imagePullSecrets with the app-scoped name only to frontend and omits it from the anonymous worker and reused services"},
+        {"name": "validates-canonical-artifact", "description": "Runs the complete quality gate against .sealos/template/index.yaml and does not fail R013 on the canonical deploy path"}
       ]
     }
   ]
