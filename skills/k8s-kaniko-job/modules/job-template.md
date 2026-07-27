@@ -18,6 +18,21 @@ seakills-kaniko-labring-kite-a1b2c3d-202604151230
 
 ## Generate YAML
 
+Read the code-owned build deadline from Brain's runtime contract. Keep the
+1800-second fallback for callers that do not provide that additive field:
+
+```bash
+BUILD_DEADLINE_SECONDS="$(node -e '
+const fs = require("fs")
+const file = process.argv[1]
+const value = fs.existsSync(file)
+  ? JSON.parse(fs.readFileSync(file, "utf8")).buildDeadlineSeconds ?? 1800
+  : 1800
+if (!Number.isSafeInteger(value) || value <= 0) process.exit(1)
+process.stdout.write(String(value))
+' "$WORK_DIR/.sealos/build-runtime.json")"
+```
+
 Use:
 
 ```bash
@@ -29,6 +44,7 @@ node "$SKILL_DIR/scripts/generate-job.mjs" \
   --registry-secret "$REGISTRY_AUTH_SECRET" \
   --s3-secret "$S3_AUTH_SECRET" \
   --s3-endpoint "$KANIKO_JOB_S3_ENDPOINT" \
+  --active-deadline-seconds "$BUILD_DEADLINE_SECONDS" \
   --aws-region "$AWS_REGION" \
   ${SERVICE_ACCOUNT_NAME:+--service-account "$SERVICE_ACCOUNT_NAME"} \
   > "$WORK_DIR/.sealos/kaniko-job.yaml"
@@ -64,6 +80,7 @@ For build args, the Job adds:
 The Job also sets:
 
 ```text
+spec.activeDeadlineSeconds # build-runtime.json buildDeadlineSeconds (1800)
 S3_ENDPOINT             # must be reachable from the kaniko Job Pod
 S3_FORCE_PATH_STYLE=true
 AWS_EC2_METADATA_DISABLED=true

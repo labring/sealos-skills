@@ -78,6 +78,8 @@ test('generates a kaniko Job that reads S3 credentials from Kubernetes Secrets',
     'seakills-kaniko-s3-abc123',
     '--s3-endpoint',
     'http://10.42.0.20:1319',
+    '--active-deadline-seconds',
+    '1234',
     '--aws-region',
     'sealos-internal',
     '--service-account',
@@ -86,6 +88,7 @@ test('generates a kaniko Job that reads S3 credentials from Kubernetes Secrets',
 
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stdout, /kind: Job/)
+  assert.match(result.stdout, /activeDeadlineSeconds: 1234/)
   assert.match(result.stdout, /image: gcr\.io\/kaniko-project\/executor:v1\.24\.0/)
   assert.match(result.stdout, /--context=s3:\/\/kaniko-contexts\/contexts\/devbox-a\/build-1\/context\.tar\.gz/)
   assert.match(result.stdout, /--dockerfile=Dockerfile/)

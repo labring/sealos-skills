@@ -33,6 +33,7 @@ This skill does:
 - package `source.work_dir + build.context_path` into `context.tar.gz`
 - write the context under the local VersityGW bucket directory
 - create a unique temporary kaniko Job
+- enforce the build-runtime contract as the Job active deadline
 - wait for the Job and collect logs
 - write `.sealos/build-result.json`
 

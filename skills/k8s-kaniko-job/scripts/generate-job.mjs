@@ -4,11 +4,12 @@ import fs from 'fs'
 
 const DEFAULT_KANIKO_IMAGE = 'gcr.io/kaniko-project/executor:v1.24.0'
 const DEFAULT_PLATFORM = 'linux/amd64'
+const DEFAULT_ACTIVE_DEADLINE_SECONDS = 1800
 
 function usage() {
   console.error([
     'Usage:',
-    '  node generate-job.mjs --request <file> --context <file> --namespace <namespace> --job-name <name> --registry-secret <name> --s3-secret <name> --s3-endpoint <url> [--aws-region <region>] [--service-account <name>]',
+    '  node generate-job.mjs --request <file> --context <file> --namespace <namespace> --job-name <name> --registry-secret <name> --s3-secret <name> --s3-endpoint <url> [--active-deadline-seconds <seconds>] [--aws-region <region>] [--service-account <name>]',
   ].join('\n'))
 }
 
@@ -67,6 +68,14 @@ function validateBuildArgKey(value) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
     throw new Error(`build arg key must be an environment-style identifier: ${value}`)
   }
+}
+
+function positiveInteger(value, field) {
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${field} must be a positive integer`)
+  }
+  return parsed
 }
 
 function validateBuildRequest(request) {
@@ -131,6 +140,10 @@ function renderManifest({ request, context, args }) {
   const serviceAccount = args['service-account'] || null
   const kanikoImage = args['kaniko-image'] || DEFAULT_KANIKO_IMAGE
   const platform = args.platform || DEFAULT_PLATFORM
+  const activeDeadlineSeconds = positiveInteger(
+    args['active-deadline-seconds'] || DEFAULT_ACTIVE_DEADLINE_SECONDS,
+    'active-deadline-seconds',
+  )
 
   validateDnsName(namespace, 'namespace')
   validateDnsName(jobName, 'job-name', 63)
@@ -158,6 +171,7 @@ metadata:
     seakills.dev/dockerfile: ${yamlSingleQuote(contextMetadata.dockerfile)}
     seakills.dev/target-image: ${yamlSingleQuote(build.targetImage)}
 spec:
+  activeDeadlineSeconds: ${activeDeadlineSeconds}
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
   template:

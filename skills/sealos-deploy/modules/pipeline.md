@@ -551,6 +551,11 @@ If `mode=build-required`, require these capabilities at this point:
 - `GITHUB_TOKEN`
 - permission to create Jobs and Secrets, and to read Pods and Pod logs in the active namespace through the sandbox-provided kubeconfig and current service account
 
+Also read `.sealos/build-runtime.json`. Pass its positive integer
+`buildDeadlineSeconds` to the kaniko Job as `spec.activeDeadlineSeconds`;
+Brain currently supplies 1800 seconds. Do not replace it with an environment
+variable or create a Job without a hard execution deadline.
+
 Then execute the `k8s-kaniko-job` workflow using the just-written `.sealos/build-request.json`:
 
 1. run `../k8s-kaniko-job/modules/preflight.md`

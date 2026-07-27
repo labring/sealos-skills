@@ -7,10 +7,15 @@ Wait for the kaniko Job and collect logs.
 Run:
 
 ```bash
+BUILD_WAIT_SECONDS="$((${BUILD_DEADLINE_SECONDS:-1800} + 60))"
 kubectl wait --for=condition=Complete job/"$JOB_NAME" \
   -n "$NAMESPACE" \
-  --timeout=30m
+  --timeout="${BUILD_WAIT_SECONDS}s"
 ```
+
+The extra 60 seconds are only for Kubernetes condition propagation and
+failure/log collection. The Job itself cannot execute past
+`spec.activeDeadlineSeconds`.
 
 If this exits non-zero, check whether the Job failed:
 
