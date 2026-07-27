@@ -552,7 +552,8 @@ If `mode=build-required`, require these capabilities at this point:
 - permission to create Jobs and Secrets, and to read Pods and Pod logs in the active namespace through the sandbox-provided kubeconfig and current service account
 
 Also read `.sealos/build-runtime.json`. Pass its positive integer
-`buildDeadlineSeconds` to the kaniko Job as `spec.activeDeadlineSeconds`;
+`buildDeadlineSeconds` and `buildDeadlineAt` to the kaniko Job as the smaller
+remaining `spec.activeDeadlineSeconds`;
 Brain currently supplies 1800 seconds. Do not replace it with an environment
 variable or create a Job without a hard execution deadline.
 
