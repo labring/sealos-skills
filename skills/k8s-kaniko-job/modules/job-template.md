@@ -28,7 +28,7 @@ const file = process.argv[1]
 const value = fs.existsSync(file)
   ? JSON.parse(fs.readFileSync(file, "utf8")).buildDeadlineSeconds ?? 1800
   : 1800
-if (!Number.isSafeInteger(value) || value <= 0) process.exit(1)
+if (!Number.isSafeInteger(value) || value <= 0 || value > 1800) process.exit(1)
 process.stdout.write(String(value))
 ' "$WORK_DIR/.sealos/build-runtime.json")"
 ```

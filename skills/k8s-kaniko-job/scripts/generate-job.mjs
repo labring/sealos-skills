@@ -70,10 +70,10 @@ function validateBuildArgKey(value) {
   }
 }
 
-function positiveInteger(value, field) {
+function positiveInteger(value, field, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new Error(`${field} must be a positive integer`)
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > max) {
+    throw new Error(`${field} must be an integer from 1 to ${max}`)
   }
   return parsed
 }
@@ -143,6 +143,7 @@ function renderManifest({ request, context, args }) {
   const activeDeadlineSeconds = positiveInteger(
     args['active-deadline-seconds'] || DEFAULT_ACTIVE_DEADLINE_SECONDS,
     'active-deadline-seconds',
+    DEFAULT_ACTIVE_DEADLINE_SECONDS,
   )
 
   validateDnsName(namespace, 'namespace')

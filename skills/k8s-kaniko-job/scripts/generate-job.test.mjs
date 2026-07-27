@@ -169,3 +169,42 @@ test('rejects loopback S3 endpoints because kaniko runs in a separate Pod', () =
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /must be reachable from the kaniko Job Pod/)
 })
+
+test('rejects an active deadline above the code-owned 30 minute limit', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kaniko-job-'))
+  const requestFile = path.join(root, 'build-request.json')
+  const contextFile = path.join(root, 'kaniko-context.json')
+
+  writeJson(requestFile, {
+    mode: 'build-required',
+    image: { target_image: 'ghcr.io/example/web:prepare-test' },
+    build: { build_args: {} },
+  })
+  writeJson(contextFile, {
+    context: { uri: 's3://kaniko-contexts/context.tar.gz' },
+    kaniko: { dockerfile: 'Dockerfile' },
+  })
+
+  const result = spawnSync(process.execPath, [
+    script,
+    '--request',
+    requestFile,
+    '--context',
+    contextFile,
+    '--namespace',
+    'team-a',
+    '--job-name',
+    'seakills-kaniko-web-abc123',
+    '--registry-secret',
+    'seakills-ghcr-auth-abc123',
+    '--s3-secret',
+    'seakills-kaniko-s3-abc123',
+    '--s3-endpoint',
+    'http://10.42.0.20:1319',
+    '--active-deadline-seconds',
+    '1801',
+  ], { encoding: 'utf8' })
+
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /must be an integer from 1 to 1800/)
+})
