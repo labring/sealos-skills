@@ -682,7 +682,9 @@ component. The final Sealos template must preserve every required capability
 and dependency:
 
 - supported PostgreSQL, MySQL, MongoDB, Redis, and similar database services
-  may be transformed into their Sealos/KubeBlocks equivalents in Phase 5;
+  use their Sealos/KubeBlocks equivalents by default in Phase 5 unless the
+  project explicitly uses an external database or preserving source-defined
+  runtime semantics requires the original database workload;
 - an edge proxy may be replaced by equivalent Service/Ingress routing;
 - other cache, queue, search, storage, gateway, or worker components remain
   explicit services unless Phase 5 performs an evidence-backed equivalent
@@ -743,7 +745,8 @@ workload:
 - declared image unavailable, but buildable source exists → build a
   `linux/amd64` replacement in Phase 3/4;
 - database service with a supported KubeBlocks transformation → retain it for
-  Phase 5 conversion; its original database image does not need to be built;
+  the preferred Phase 5 conversion; its original database image does not need
+  to be built;
 - any database or infrastructure service that remains a container workload →
   apply the same image reuse/build rules as an application service and retain
   it for Phase 5; its role must never be used as a reason to omit the workload.
@@ -1123,18 +1126,26 @@ Route generation from `analysis.json.deployment_source.kind`:
 - `compose` uses the deterministic Compose converter as the generation baseline.
 - `helm` uses the rendered Kubernetes YAML produced by the Phase 2 source
   inspector and the Kubernetes source adapter. Helm is rendered from a temporary
-  Chart copy with `helm template --no-hooks`; never run `helm install`.
+  Chart copy with `helm template --no-hooks`; never run `helm install`. Supported
+  raw database workloads are converted to KubeBlocks when the adapter can
+  preserve their runtime contract.
 - `kubernetes` uses the rendered/raw Kubernetes YAML and the same Kubernetes
-  source adapter.
+  source adapter, including the same KubeBlocks-first database strategy.
 - `implicit-single-service` is the only route allowed to synthesize a temporary
-  one-service Compose input.
+  Compose input. If source evidence identifies a supported server database and
+  does not explicitly select an external provider, add that database to the
+  same temporary input so the Compose adapter generates its KubeBlocks Cluster
+  and application wiring. SQLite remains application-local.
 
 Every route uses a dry-run converter invocation and writes only the canonical
 `.sealos/template/index.yaml`. The explicit Helm/Kubernetes routes additionally
 write the declared source mapping and topology evidence artifacts. Missing
 adapter capabilities, an unrenderable source, unresolved explicit topology, or
-converter failure is a hard stop, not permission to hand-write around the
-failure.
+converter failure is not permission to hand-write around the adapter. A
+supported database that cannot be converted losslessly is preserved as a raw
+source workload with the adapter's existing resource mapping and a non-empty
+`docker-to-sealos.kubeblocks-fallback-reason`; that preferred-route fallback is
+not a project-level failure.
 
 For a multi-service Compose project, `config.json.public_service` may name the
 one service that should receive the public Ingress. If exactly one application
@@ -1354,6 +1365,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 
@@ -1363,11 +1375,6 @@ if len(services) > 1:
     raise SystemExit(
         "no-Compose Phase 5 supports one implicit application service only; "
         "preserve multi-service topology in an explicit Compose input"
-    )
-if analysis.get("databases"):
-    raise SystemExit(
-        "no-Compose Phase 5 requires explicit dependency topology before converting "
-        "a project with database dependencies"
     )
 service = next(
     (item for item in services if item.get("role") == "application"),
@@ -1389,12 +1396,141 @@ if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535
         "no-Compose Phase 5 requires a detected application port in analysis.json"
     )
 
+database_profiles = {
+    "postgres": {
+        "service": "postgres",
+        "image": "postgres:16",
+        "port": 5432,
+        "scheme": "postgresql",
+        "hints": ("PG", "POSTGRES", "POSTGRESQL"),
+    },
+    "mysql": {
+        "service": "mysql",
+        "image": "mysql:8",
+        "port": 3306,
+        "scheme": "mysql",
+        "hints": ("MYSQL", "MARIADB"),
+    },
+    "mongodb": {
+        "service": "mongodb",
+        "image": "mongo:8",
+        "port": 27017,
+        "scheme": "mongodb",
+        "hints": ("MONGO", "MONGODB"),
+    },
+    "redis": {
+        "service": "redis",
+        "image": "redis:7",
+        "port": 6379,
+        "scheme": "redis",
+        "hints": ("REDIS", "VALKEY"),
+    },
+}
+env_specs = analysis.get("env_vars") or {}
+detected_databases = [
+    value
+    for value in analysis.get("databases") or []
+    if value in database_profiles
+]
+
+def env_database_type(key):
+    upper = re.sub(r"[^A-Z0-9]+", "_", str(key).upper())
+    matches = [
+        db_type
+        for db_type in detected_databases
+        if any(hint in upper for hint in database_profiles[db_type]["hints"])
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(detected_databases) == 1 and ("DB" in upper or "DATABASE" in upper):
+        return detected_databases[0]
+    return None
+
+def explicit_external_database(db_type):
+    profile = database_profiles[db_type]
+    internal_hosts = {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "db",
+        "database",
+        profile["service"],
+        db_type,
+    }
+    for key, spec in env_specs.items():
+        if not isinstance(spec, dict) or env_database_type(key) != db_type:
+            continue
+        value = spec.get("default")
+        if not isinstance(value, str) or "${" in value:
+            continue
+        upper = str(key).upper()
+        host = ""
+        if any(token in upper for token in ("URL", "URI", "DSN")):
+            host = urlsplit(value).hostname or ""
+        elif upper.endswith(("HOST", "SERVER", "ENDPOINT")):
+            host = value.rsplit("@", 1)[-1].split(":", 1)[0]
+        host = host.strip().lower()
+        if host and host not in internal_hosts and not host.endswith(".svc"):
+            return True
+    return False
+
+managed_databases = [
+    db_type
+    for db_type in detected_databases
+    if not explicit_external_database(db_type)
+]
+database_service_names = {}
+for db_type in managed_databases:
+    candidate = database_profiles[db_type]["service"]
+    if candidate == service_name:
+        candidate = f"{candidate}-db"
+    database_service_names[db_type] = candidate
+
+def managed_database_value(key, db_type, current=None):
+    profile = database_profiles[db_type]
+    database_service = database_service_names[db_type]
+    upper = re.sub(r"[^A-Z0-9]+", "_", str(key).upper())
+    if isinstance(current, str) and any(token in upper for token in ("URL", "URI", "DSN")):
+        parsed = urlsplit(current)
+        if parsed.scheme:
+            userinfo = parsed.netloc.rsplit("@", 1)[0] + "@" if "@" in parsed.netloc else ""
+            port = f":{parsed.port}" if parsed.port else f":{profile['port']}"
+            return urlunsplit((
+                parsed.scheme,
+                f"{userinfo}{database_service}{port}",
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            ))
+    if any(token in upper for token in ("URL", "URI", "DSN")):
+        return (
+            f"{profile['scheme']}://user:password@{database_service}:"
+            f"{profile['port']}/app"
+        )
+    if upper.endswith(("HOST", "SERVER")):
+        return database_service
+    if upper.endswith("PORT"):
+        return str(profile["port"])
+    if upper.endswith("ENDPOINT"):
+        return f"{database_service}:{profile['port']}"
+    if any(token in upper for token in ("USER", "USERNAME", "PASSWORD", "PASS", "PWD")):
+        return database_service
+    if upper.endswith(("DATABASE", "DATABASE_NAME", "DB", "DB_NAME")):
+        return "app"
+    return current
+
 environment = {}
-for key, spec in (analysis.get("env_vars") or {}).items():
+for key, spec in env_specs.items():
     if not re.fullmatch(r"[A-Z][A-Z0-9_]*", str(key)) or not isinstance(spec, dict):
         continue
     default = spec.get("default")
     category = spec.get("category")
+    db_type = env_database_type(key)
+    if db_type in managed_databases:
+        managed_value = managed_database_value(key, db_type, default)
+        if isinstance(managed_value, str):
+            environment[key] = managed_value
+            continue
     if isinstance(default, str):
         environment[key] = default
     elif category in {"required", "optional"}:
@@ -1412,8 +1548,15 @@ service_data = {
 if environment:
     service_data["environment"] = environment
 
+output_services = {service_name: service_data}
+for db_type in managed_databases:
+    profile = database_profiles[db_type]
+    output_services[database_service_names[db_type]] = {
+        "image": profile["image"],
+    }
+
 Path(sys.argv[2]).write_text(
-    yaml.safe_dump({"services": {service_name: service_data}}, sort_keys=False),
+    yaml.safe_dump({"services": output_services}, sort_keys=False),
     encoding="utf-8",
 )
 PY
@@ -1557,14 +1700,14 @@ validates every service key and injects the app-scoped
 `${{ defaults.app_name }}` Secret only into that service's emitted workload;
 it never adds a pull Secret based solely on a `ghcr.io` hostname.
 
-The converter requires each effective image to resolve to an immutable digest
-but does not pre-screen third-party image architecture. Treat the converter's database
-classification as immutable:
-application-specific edits must not replace a KubeBlocks database `Cluster`
-with a Deployment, StatefulSet, Service, or other generic workload. Likewise,
-do not drop cache, queue, search, storage, proxy, gateway, or worker services;
-retain them or document and implement an equivalent Sealos-native
-transformation.
+The converter requires each effective container image to resolve to an
+immutable digest but does not pre-screen third-party image architecture.
+Supported databases use KubeBlocks by default. The Helm/Kubernetes adapter may
+preserve a raw source database only when it records why the current KubeBlocks
+templates cannot preserve the source runtime contract; do not turn that
+explicit fallback into a project-level stop. Likewise, do not drop cache,
+queue, search, storage, proxy, gateway, or worker services; retain them or
+document and implement an equivalent Sealos-native transformation.
 
 **Public URL detection:**
 After generating the base template, check if the app needs its public URL configured:

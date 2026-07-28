@@ -356,7 +356,7 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires psql command-form review."
-  - must: "Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services."
+  - must: "Supported database services must prefer KubeBlocks `Cluster` resources over application `Deployment` or `StatefulSet` workloads. A raw PostgreSQL/MySQL/MongoDB/Redis/Kafka source workload is allowed only when preserving source semantics requires it and both the workload and its Service carry a non-empty `docker-to-sealos.kubeblocks-fallback-reason` annotation. `StatefulSet` remains valid for stateful application components."
     enforcement:
       type: rule
       target: R039

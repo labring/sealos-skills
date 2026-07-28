@@ -97,7 +97,9 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 
 ### Step 5: Apply database strategy
 
-- Database services must be generated as KubeBlocks `Cluster` resources. Do not convert PostgreSQL/MySQL/MongoDB/Redis/Kafka Compose database services into raw Kubernetes `Deployment` or `StatefulSet` workloads.
+- Prefer KubeBlocks `Cluster` resources for supported PostgreSQL/MySQL/MongoDB/Redis/Kafka database services. Compose database services use this path by default; the Helm/Kubernetes adapter also converts a supported raw database workload when the current template can preserve its runtime contract.
+- Preserve an explicitly external database connection instead of creating another database.
+- When source-defined database startup, initialization, replica, mount, or network semantics cannot be represented losslessly by the current KubeBlocks templates, keep the raw source workload and record a non-empty `docker-to-sealos.kubeblocks-fallback-reason` annotation. Inability to perform the preferred conversion is not by itself a reason to reject the deployment.
 - PostgreSQL must follow the pinned version and structure requirements.
 - MySQL/MongoDB/Redis/Kafka must use templates and secret naming from `references/database-templates.md`.
 - Add DB init Job/initContainer when application database bootstrap requires it.
@@ -241,7 +243,7 @@ For managed or private object storage, live validation must upload known bytes t
 
 ### Database-specific constraints
 
-- Database services must use KubeBlocks `Cluster` resources, not application `Deployment` or `StatefulSet` workloads. `StatefulSet` is allowed for stateful application components only, never for PostgreSQL/MySQL/MongoDB/Redis/Kafka database services.
+- Supported database services must prefer KubeBlocks `Cluster` resources over application `Deployment` or `StatefulSet` workloads. A raw PostgreSQL/MySQL/MongoDB/Redis/Kafka source workload is allowed only when preserving source semantics requires it and both the workload and its Service carry a non-empty `docker-to-sealos.kubeblocks-fallback-reason` annotation. `StatefulSet` remains valid for stateful application components.
 - Every Compose database service must remain a distinct KubeBlocks `Cluster` with its own name, Secret, FQDN, and application wiring; never merge two services merely because they use the same database engine.
 - Database client images may be used in app `initContainers` and init/migration/bootstrap Jobs for readiness and bootstrap gates.
 - PostgreSQL version: `postgresql-16.4.0`.
@@ -369,7 +371,7 @@ Load only needed references for current task:
   - emits `template/<app-name>/index.yaml`
 - `scripts/kubernetes_to_template.py`
   - deterministic rendered-Kubernetes-to-template adapter for Helm and native manifests
-  - preserves supported workload, Service, Ingress, RBAC, ConfigMap, storage, and KubeBlocks topology
+  - preserves supported workload, Service, Ingress, RBAC, ConfigMap, and storage topology while preferring KubeBlocks for safely convertible supported databases
   - supports repeatable per-container image overrides and pull-Secret selection
   - writes source-resource mapping and validator-only topology evidence when requested
   - rejects unsupported resources instead of silently dropping them

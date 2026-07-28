@@ -25,8 +25,14 @@ from compose_to_template import (
     MetadataOptions,
     WEBSOCKET_INGRESS_ANNOTATIONS,
     build_app_resource,
+    build_database_resources,
+    build_db_url_composed_env_entries,
     build_template_resource,
+    database_cluster_name,
+    database_secret_name,
+    database_service_fqdn,
     detect_db_type,
+    infer_db_secret_ref,
     normalize_k8s_name,
     render_index_yaml,
 )
@@ -87,6 +93,21 @@ RESOURCE_METADATA_FIELDS = {
     "uid",
 }
 HOOK_ANNOTATION = "helm.sh/hook"
+KUBEBLOCKS_FALLBACK_ANNOTATION = "docker-to-sealos.kubeblocks-fallback-reason"
+DATABASE_DEFAULT_PORTS = {
+    "postgres": 5432,
+    "mysql": 3306,
+    "mongodb": 27017,
+    "redis": 6379,
+    "kafka": 9092,
+}
+DATABASE_CREDENTIAL_ENV_NAMES = {
+    "postgres": {"POSTGRES_PASSWORD", "POSTGRES_USER"},
+    "mysql": {"MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD", "MYSQL_USER"},
+    "mongodb": {"MONGO_INITDB_ROOT_PASSWORD", "MONGO_INITDB_ROOT_USERNAME"},
+    "redis": set(),
+    "kafka": set(),
+}
 
 
 def _metadata(document: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
@@ -178,6 +199,202 @@ def _container_service_keys(documents: Sequence[MutableMapping[str, Any]]) -> Se
                 raise ValueError(f"duplicate Kubernetes container service key {key!r}")
             keys.add(key)
     return keys
+
+
+def _database_workload_type(document: MutableMapping[str, Any]) -> Optional[str]:
+    if document.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
+        return None
+    detected = {
+        db_type
+        for container, role in _all_containers(document)
+        if role == "main"
+        for db_type in [detect_db_type(str(container.get("image") or ""))]
+        if db_type in DATABASE_DEFAULT_PORTS
+    }
+    return next(iter(detected)) if len(detected) == 1 else None
+
+
+def _workload_labels(document: MutableMapping[str, Any]) -> Mapping[str, Any]:
+    spec = document.get("spec")
+    if not isinstance(spec, Mapping):
+        return {}
+    if document.get("kind") == "CronJob":
+        job_template = spec.get("jobTemplate")
+        spec = job_template.get("spec") if isinstance(job_template, Mapping) else {}
+    template = spec.get("template") if isinstance(spec, Mapping) else {}
+    metadata = template.get("metadata") if isinstance(template, Mapping) else {}
+    labels = metadata.get("labels") if isinstance(metadata, Mapping) else {}
+    return labels if isinstance(labels, Mapping) else {}
+
+
+def _service_selects_workload(
+    service: Mapping[str, Any],
+    workload: MutableMapping[str, Any],
+) -> bool:
+    if service.get("kind") != "Service":
+        return False
+    spec = service.get("spec")
+    selector = spec.get("selector") if isinstance(spec, Mapping) else None
+    if not isinstance(selector, Mapping) or not selector:
+        return False
+    labels = _workload_labels(workload)
+    return bool(labels) and all(labels.get(key) == value for key, value in selector.items())
+
+
+def _database_conversion_fallback_reason(
+    workload: MutableMapping[str, Any],
+    services: Sequence[Mapping[str, Any]],
+    db_type: str,
+) -> Optional[str]:
+    if workload.get("kind") not in {"Deployment", "StatefulSet"}:
+        return "source database workload kind has no lossless KubeBlocks mapping"
+
+    containers = _all_containers(workload)
+    main_containers = [container for container, role in containers if role == "main"]
+    if len(main_containers) != 1 or any(role == "init" for _, role in containers):
+        return "source database uses multiple or initialization containers"
+
+    replicas = workload.get("spec", {}).get("replicas", 1)
+    if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas != 1:
+        return "source database replica topology must be preserved"
+
+    container = main_containers[0]
+    if container.get("command") or container.get("args") or container.get("envFrom"):
+        return "source database has custom startup or initialization settings"
+    env = container.get("env")
+    if isinstance(env, list):
+        env_names = {
+            item.get("name")
+            for item in env
+            if isinstance(item, Mapping) and isinstance(item.get("name"), str)
+        }
+        if env_names - DATABASE_CREDENTIAL_ENV_NAMES[db_type]:
+            return "source database has custom initialization environment"
+
+    pod_spec = _pod_spec(workload) or {}
+    for volume in pod_spec.get("volumes", []) if isinstance(pod_spec.get("volumes"), list) else []:
+        if not isinstance(volume, Mapping):
+            continue
+        if any(
+            key in volume
+            for key in (
+                "configMap",
+                "secret",
+                "projected",
+                "hostPath",
+                "persistentVolumeClaim",
+            )
+        ):
+            return "source database has custom mounted configuration"
+
+    expected_port = DATABASE_DEFAULT_PORTS[db_type]
+    for service in services:
+        service_ports = service.get("spec", {}).get("ports", [])
+        if not isinstance(service_ports, list):
+            continue
+        for port in service_ports:
+            if not isinstance(port, Mapping):
+                continue
+            exposed = port.get("port")
+            target = port.get("targetPort", exposed)
+            numeric_ports = [
+                value
+                for value in (exposed, target)
+                if isinstance(value, int) and not isinstance(value, bool)
+            ]
+            if numeric_ports and any(value != expected_port for value in numeric_ports):
+                return "source database uses a non-standard service port"
+    return None
+
+
+def _annotate_database_fallback(document: MutableMapping[str, Any], reason: str) -> None:
+    metadata = _metadata(document)
+    annotations = metadata.setdefault("annotations", {})
+    if not isinstance(annotations, dict):
+        annotations = {}
+        metadata["annotations"] = annotations
+    annotations[KUBEBLOCKS_FALLBACK_ANNOTATION] = reason
+
+
+def _prefer_kubeblocks_databases(
+    documents: Sequence[MutableMapping[str, Any]],
+    source_mapping: List[Dict[str, Any]],
+) -> Tuple[
+    List[MutableMapping[str, Any]],
+    List[MutableMapping[str, Any]],
+    List[Dict[str, Any]],
+    Set[str],
+]:
+    candidates: List[Tuple[MutableMapping[str, Any], str, List[MutableMapping[str, Any]], Optional[str]]] = []
+    services = [document for document in documents if document.get("kind") == "Service"]
+    for workload in documents:
+        db_type = _database_workload_type(workload)
+        if db_type is None:
+            continue
+        selected_services = [
+            service
+            for service in services
+            if _service_selects_workload(service, workload)
+        ]
+        reason = _database_conversion_fallback_reason(workload, selected_services, db_type)
+        candidates.append((workload, db_type, selected_services, reason))
+
+    existing_counts: Dict[str, int] = defaultdict(int)
+    for document in documents:
+        if _is_cluster(document):
+            existing_counts[_cluster_db_type(document)] += 1
+    convertible_counts: Dict[str, int] = defaultdict(int)
+    for _, db_type, _, reason in candidates:
+        if reason is None:
+            convertible_counts[db_type] += 1
+
+    removed_ids: Set[int] = set()
+    generated: List[MutableMapping[str, Any]] = []
+    bindings: List[Dict[str, Any]] = []
+    consumed_service_keys: Set[str] = set()
+    for workload, db_type, selected_services, reason in candidates:
+        if reason is not None:
+            _annotate_database_fallback(workload, reason)
+            for service in selected_services:
+                _annotate_database_fallback(service, reason)
+            continue
+
+        workload_name = _name(workload)
+        total_of_type = existing_counts[db_type] + convertible_counts[db_type]
+        cluster_name = database_cluster_name(db_type, workload_name, total_of_type)
+        resources = [
+            copy.deepcopy(resource)
+            for resource in build_database_resources(db_type, cluster_name)
+        ]
+        generated.extend(resources)
+        output_ids = [f"{resource['kind']}/{_name(resource)}" for resource in resources]
+        source_mapping.append({
+            "source": f"{workload.get('kind')}/{workload_name}",
+            "outputs": output_ids,
+            "action": "transformed-to-kubeblocks",
+        })
+        aliases = {workload_name}
+        removed_ids.add(id(workload))
+        consumed_service_keys.update(_container_service_keys([workload]))
+        for service in selected_services:
+            service_name = _name(service)
+            aliases.add(service_name)
+            removed_ids.add(id(service))
+            source_mapping.append({
+                "source": f"Service/{service_name}",
+                "outputs": [f"Cluster/{cluster_name}"],
+                "action": "transformed-to-kubeblocks",
+            })
+        bindings.append({
+            "db_type": db_type,
+            "cluster_name": cluster_name,
+            "host": database_service_fqdn(db_type, cluster_name),
+            "secret": database_secret_name(db_type, cluster_name),
+            "aliases": aliases,
+        })
+
+    remaining = [document for document in documents if id(document) not in removed_ids]
+    return remaining, generated, bindings, consumed_service_keys
 
 
 def _parse_cpu(value: Any) -> float:
@@ -556,56 +773,136 @@ def _database_name_mapping(documents: Sequence[Mapping[str, Any]]) -> Dict[str, 
     return mapping
 
 
+def _database_bindings_for_clusters(
+    documents: Sequence[Mapping[str, Any]],
+    database_name_mapping: Mapping[str, str],
+) -> List[Dict[str, Any]]:
+    bindings: List[Dict[str, Any]] = []
+    for document in documents:
+        if not _is_cluster(document):
+            continue
+        old_name = _name(document)
+        cluster_name = database_name_mapping.get(old_name, old_name)
+        db_type = _cluster_db_type(document)
+        bindings.append({
+            "db_type": db_type,
+            "cluster_name": cluster_name,
+            "host": database_service_fqdn(db_type, cluster_name),
+            "secret": database_secret_name(db_type, cluster_name),
+            "aliases": {old_name, cluster_name},
+        })
+    return bindings
+
+
+def _replace_database_workload_references(
+    document: MutableMapping[str, Any],
+    mapping: Mapping[str, str],
+) -> None:
+    pod_spec = _pod_spec(document)
+    if pod_spec is None or not mapping:
+        return
+    replaced = _replace_references(pod_spec, mapping)
+    pod_spec.clear()
+    pod_spec.update(replaced)
+
+
 def _normalise_database_envs(
     document: MutableMapping[str, Any],
-    database_name_mapping: Mapping[str, str],
+    database_bindings: Sequence[Mapping[str, Any]],
 ) -> None:
     if document.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
         return
+
+    db_services: Dict[str, str] = {}
+    db_secret_names: Dict[str, str] = {}
+    db_hosts: Dict[str, str] = {}
+    bindings_by_alias: Dict[str, Mapping[str, Any]] = {}
+    for binding in database_bindings:
+        db_type = binding.get("db_type")
+        secret = binding.get("secret")
+        host = binding.get("host")
+        aliases = binding.get("aliases")
+        if (
+            not isinstance(db_type, str)
+            or not isinstance(secret, str)
+            or not isinstance(host, str)
+            or not isinstance(aliases, set)
+        ):
+            continue
+        for alias in aliases:
+            if not isinstance(alias, str) or not alias:
+                continue
+            db_services[alias] = db_type
+            db_secret_names[alias] = secret
+            db_hosts[alias] = host
+            bindings_by_alias[alias] = binding
+
     for container, _ in _all_containers(document):
         env = container.get("env")
         if not isinstance(env, list):
             continue
+        normalized_env: List[Dict[str, Any]] = []
         for item in env:
             if not isinstance(item, dict):
+                normalized_env.append(item)
                 continue
             name = item.get("name")
-            if not isinstance(name, str):
-                continue
-            upper = re.sub(r"[^A-Z0-9]+", "_", name.upper())
-            if not re.search(r"(?:^|_)(?:PG|POSTGRES|POSTGRESQL|DB|DATABASE)", upper):
-                continue
-            if any(token in upper for token in ("PUBLIC", "API", "URL", "URI", "DSN")):
-                continue
-            field = None
-            if re.search(r"(?:^|_)(?:PASSWORD|PASS|PWD)$", upper) or upper.endswith(
-                ("PASSWORD", "PASS", "PWD")
+            value = item.get("value")
+            if (
+                not isinstance(name, str)
+                or isinstance(item.get("valueFrom"), Mapping)
+                or not isinstance(value, str)
             ):
-                field = "password"
-            elif re.search(r"(?:^|_)(?:USERNAME|USER)$", upper) or upper.endswith(
-                ("USERNAME", "USER")
-            ):
-                field = "username"
-            elif re.search(r"(?:^|_)(?:HOST|SERVER)$", upper) or upper.endswith(
-                ("HOST", "SERVER")
-            ):
-                field = "host"
-            elif re.search(r"(?:^|)PORT$", upper) or upper.endswith("PORT"):
-                field = "port"
-            if field not in {"host", "port"}:
+                normalized_env.append(item)
                 continue
-            if isinstance(item.get("valueFrom"), Mapping):
+
+            secret_ref = infer_db_secret_ref(
+                name,
+                value,
+                db_services,
+                db_secret_names,
+            )
+            if secret_ref is None:
+                normalized_env.append(item)
                 continue
-            secret_name = next(iter(database_name_mapping.values()), "")
-            if not secret_name:
+
+            binding = bindings_by_alias.get(secret_ref["db_service"])
+            if binding is None:
+                normalized_env.append(item)
                 continue
-            item.pop("value", None)
-            item["valueFrom"] = {
-                "secretKeyRef": {
-                    "name": f"{secret_name}-conn-credential",
-                    "key": field,
-                }
-            }
+
+            if secret_ref["key"] == "endpoint":
+                composed = build_db_url_composed_env_entries(
+                    env_name=name,
+                    raw_value=value,
+                    secret_name=secret_ref["name"],
+                    db_type=secret_ref["db_type"],
+                    db_services=db_services,
+                    db_hosts=db_hosts,
+                )
+                if composed is not None:
+                    normalized_env.extend(composed)
+                    continue
+
+            if secret_ref["db_type"] in {"redis", "mongodb"} and secret_ref["key"] in {"host", "port"}:
+                fixed_value = (
+                    binding["host"]
+                    if secret_ref["key"] == "host"
+                    else str(DATABASE_DEFAULT_PORTS[secret_ref["db_type"]])
+                )
+                normalized_env.append({"name": name, "value": fixed_value})
+                continue
+
+            normalized_env.append({
+                "name": name,
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "name": secret_ref["name"],
+                        "key": secret_ref["key"],
+                    }
+                },
+            })
+        container["env"] = normalized_env
 
 
 def _normalise_service_namespace_references(value: Any) -> Any:
@@ -625,28 +922,35 @@ def _normalise_service_namespace_references(value: Any) -> Any:
     return value
 
 
-def _is_kubeblocks_service(document: Mapping[str, Any]) -> bool:
+def _kubeblocks_service_cluster(
+    document: Mapping[str, Any],
+    cluster_names: Set[str],
+) -> Optional[str]:
     if document.get("kind") != "Service":
-        return False
+        return None
     metadata = document.get("metadata") if isinstance(document.get("metadata"), Mapping) else {}
     labels = metadata.get("labels") if isinstance(metadata, Mapping) else {}
     if not isinstance(labels, Mapping):
         labels = {}
     selector = document.get("spec", {}).get("selector", {})
-    values = [
-        metadata.get("name"),
-        *(labels.values() if isinstance(labels, Mapping) else []),
-        *(selector.values() if isinstance(selector, Mapping) else []),
-    ]
-    text = " ".join(str(value).lower() for value in values if value is not None)
-    return (
-        "sealos-db-provider-cr" in labels
-        or (
-            "apps.kubeblocks.io/component-name" in selector
-            and "app.kubernetes.io/instance" in selector
-        )
-        or bool(re.search(r"(?:^|[-_])(postgres|postgresql|mysql|mariadb|mongo|mongodb|redis|kafka|pg)(?:[-_]|$)", text))
+    instance = (
+        selector.get("app.kubernetes.io/instance")
+        if isinstance(selector, Mapping)
+        else None
     )
+    service_name = metadata.get("name")
+    provider = labels.get("sealos-db-provider-cr")
+    if isinstance(provider, str) and provider in cluster_names:
+        return provider
+    if isinstance(instance, str) and instance in cluster_names:
+        return instance
+    if isinstance(service_name, str):
+        for cluster_name in sorted(cluster_names, key=len, reverse=True):
+            if service_name == cluster_name or service_name.startswith(f"{cluster_name}-"):
+                return cluster_name
+    return None
+
+
 def _normalise_configmap(document: MutableMapping[str, Any]) -> None:
     metadata = _metadata(document)
     name = _name(document)
@@ -957,13 +1261,6 @@ def convert_documents(
                 "action": "filtered",
             })
             continue
-        if _is_kubeblocks_service(document):
-            source_mapping.append({
-                "source": source_id,
-                "outputs": [],
-                "action": "mapped-to-kubeblocks-cluster",
-            })
-            continue
         if kind not in SUPPORTED_KINDS and not _is_cluster(document):
             raise ValueError(
                 f"unsupported Kubernetes resource {source_id}; the adapter cannot prove its Sealos equivalent"
@@ -975,12 +1272,59 @@ def convert_documents(
             )
         working.append(document)
 
+    (
+        working,
+        generated_database_resources,
+        transformed_database_bindings,
+        consumed_database_service_keys,
+    ) = _prefer_kubeblocks_databases(working, source_mapping)
+
     database_name_mapping = _database_name_mapping(working)
+    database_bindings = [
+        *_database_bindings_for_clusters(working, database_name_mapping),
+        *transformed_database_bindings,
+    ]
+    bindings_by_cluster: Dict[str, Dict[str, Any]] = {}
+    for binding in database_bindings:
+        aliases = binding.get("aliases")
+        if not isinstance(aliases, set):
+            continue
+        for cluster_name in database_name_mapping:
+            if cluster_name in aliases:
+                bindings_by_cluster[cluster_name] = binding
+    cluster_names = set(database_name_mapping)
+    filtered_working: List[MutableMapping[str, Any]] = []
+    for document in working:
+        cluster_name = _kubeblocks_service_cluster(document, cluster_names)
+        if cluster_name is None:
+            filtered_working.append(document)
+            continue
+        service_name = _name(document)
+        binding = bindings_by_cluster.get(cluster_name)
+        if binding is not None:
+            binding["aliases"].add(service_name)
+        source_mapping.append({
+            "source": f"Service/{service_name}",
+            "outputs": [f"Cluster/{database_name_mapping.get(cluster_name, cluster_name)}"],
+            "action": "mapped-to-kubeblocks-cluster",
+        })
+    working = filtered_working
+
     service_mapping = _service_name_mapping(working)
     reference_mapping = {**database_name_mapping, **service_mapping}
     if reference_mapping:
         working = [_replace_references(document, reference_mapping) for document in working]
     working = [_normalise_service_namespace_references(document) for document in working]
+    for document in working:
+        if _database_workload_type(document) is None:
+            _normalise_database_envs(document, database_bindings)
+    database_host_mapping = {
+        alias: binding["host"]
+        for binding in transformed_database_bindings
+        for alias in binding["aliases"]
+    }
+    for document in working:
+        _replace_database_workload_references(document, database_host_mapping)
 
     template = build_template_resource(meta)
     ingresses, selected_service, host_replacements = _normalise_ingresses(
@@ -991,19 +1335,22 @@ def convert_documents(
     )
     working = [_replace_host_references(document, host_replacements) for document in working]
     known_service_keys = _container_service_keys(working)
-    unknown_overrides = sorted(set(image_overrides) - known_service_keys)
+    known_or_converted_service_keys = known_service_keys | consumed_database_service_keys
+    unknown_overrides = sorted(set(image_overrides) - known_or_converted_service_keys)
     if unknown_overrides:
         raise ValueError(
             "image override references unknown Kubernetes container service(s): "
             + ", ".join(unknown_overrides)
         )
-    unknown_pull_services = sorted(image_pull_secret_services - known_service_keys)
+    unknown_pull_services = sorted(
+        image_pull_secret_services - known_or_converted_service_keys
+    )
     if unknown_pull_services:
         raise ValueError(
             "image pull secret references unknown Kubernetes container service(s): "
             + ", ".join(unknown_pull_services)
         )
-    source_outputs: List[MutableMapping[str, Any]] = []
+    source_outputs: List[MutableMapping[str, Any]] = list(generated_database_resources)
     workloads: List[MutableMapping[str, Any]] = []
     for document in working:
         kind = document.get("kind")
@@ -1012,11 +1359,9 @@ def convert_documents(
             _normalise_cluster(document)
         elif kind in {"Deployment", "StatefulSet", "DaemonSet"}:
             _normalise_workload(document, image_overrides, image_pull_secret_services)
-            _normalise_database_envs(document, database_name_mapping)
             workloads.append(document)
         elif kind in {"Job", "CronJob"}:
             _normalise_job(document, image_overrides, image_pull_secret_services)
-            _normalise_database_envs(document, database_name_mapping)
         elif kind == "Service":
             _normalise_service(document)
         elif kind == "ConfigMap":
@@ -1044,11 +1389,20 @@ def convert_documents(
                     suffix = resource_name[len(new_name):] if resource_name.startswith(new_name) else ""
                     original_source_id = f"{kind}/{old_name}{suffix}"
                     break
-            source_mapping.append({
+            mapping_entry = {
                 "source": original_source_id,
                 "outputs": [f"{kind}/{_name(document)}"],
                 "action": "preserved-and-normalized",
-            })
+            }
+            annotations = document.get("metadata", {}).get("annotations", {})
+            fallback_reason = (
+                annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
+                if isinstance(annotations, Mapping)
+                else None
+            )
+            if isinstance(fallback_reason, str) and fallback_reason:
+                mapping_entry["reason"] = fallback_reason
+            source_mapping.append(mapping_entry)
 
     # ConfigMaps mounted by managed workloads must use the workload name and
     # the converter's component volume convention. Reject ambiguous mounts

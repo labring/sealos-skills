@@ -226,6 +226,114 @@ class KubernetesToTemplateTests(unittest.TestCase):
             [{"name": "${{ defaults.app_name }}"}],
         )
 
+    def test_converts_simple_raw_postgres_workload_to_kubeblocks(self):
+        documents = source_documents()[:-1]
+        documents[1]["spec"]["template"]["spec"]["containers"][0]["env"][0]["value"] = (
+            "postgres-service"
+        )
+        postgres = deployment("postgres", "postgres:16")
+        postgres["spec"]["template"]["spec"]["containers"][0]["ports"] = [
+            {"name": "postgres", "containerPort": 5432}
+        ]
+        postgres_service = service("postgres-service", "postgres")
+        postgres_service["spec"]["ports"] = [
+            {"name": "postgres", "port": 5432, "targetPort": 5432}
+        ]
+        documents.extend([postgres_service, postgres])
+
+        template_documents, normalized_documents, mapping = self.convert(documents)
+
+        self.assertFalse(
+            any(
+                document.get("kind") in {"Deployment", "StatefulSet"}
+                and document.get("metadata", {}).get("name") == "postgres"
+                for document in normalized_documents
+            )
+        )
+        self.assertFalse(
+            any(
+                document.get("kind") == "Service"
+                and document.get("metadata", {}).get("name") == "postgres-service"
+                for document in normalized_documents
+            )
+        )
+        cluster = next(
+            document
+            for document in template_documents
+            if document.get("kind") == "Cluster"
+        )
+        self.assertEqual(cluster["metadata"]["name"], "${{ defaults.app_name }}-pg")
+        app_deployment = next(
+            document
+            for document in normalized_documents
+            if document.get("kind") == "Deployment"
+        )
+        app_env = {
+            item["name"]: item
+            for item in app_deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+        }
+        self.assertEqual(
+            app_env["POSTGRES_HOST"]["valueFrom"]["secretKeyRef"],
+            {
+                "name": "${{ defaults.app_name }}-pg-conn-credential",
+                "key": "host",
+            },
+        )
+        mapped = {item["source"]: item for item in mapping["resources"]}
+        self.assertEqual(
+            mapped["Deployment/postgres"]["action"],
+            "transformed-to-kubeblocks",
+        )
+        self.assertEqual(
+            mapped["Service/postgres-service"]["action"],
+            "transformed-to-kubeblocks",
+        )
+
+    def test_preserves_custom_raw_database_with_fallback_reason(self):
+        documents = source_documents()[:-1]
+        postgres = deployment("postgres", "postgres:16")
+        postgres["spec"]["template"]["spec"]["containers"][0]["args"] = [
+            "postgres",
+            "-c",
+            "shared_buffers=256MB",
+        ]
+        postgres_service = service("postgres", "postgres")
+        postgres_service["spec"]["ports"] = [
+            {"name": "postgres", "port": 5432, "targetPort": 5432}
+        ]
+        documents.extend([postgres_service, postgres])
+
+        template_documents, _, mapping = self.convert(
+            documents,
+            image_overrides={
+                "postgres": f"ghcr.io/example/postgres@{DIGEST_B}",
+            },
+        )
+
+        raw_database = next(
+            document
+            for document in template_documents
+            if document.get("kind") == "Deployment"
+            and document.get("metadata", {}).get("name") == "postgres"
+        )
+        raw_service = next(
+            document
+            for document in template_documents
+            if document.get("kind") == "Service"
+            and document.get("metadata", {}).get("name") == "postgres"
+        )
+        annotation = "docker-to-sealos.kubeblocks-fallback-reason"
+        self.assertTrue(raw_database["metadata"]["annotations"][annotation])
+        self.assertTrue(raw_service["metadata"]["annotations"][annotation])
+        mapped = {item["source"]: item for item in mapping["resources"]}
+        self.assertEqual(
+            mapped["Deployment/postgres"]["reason"],
+            raw_database["metadata"]["annotations"][annotation],
+        )
+        self.assertFalse(
+            any(document.get("kind") == "Cluster" for document in template_documents)
+        )
+
     def test_rejects_unknown_image_override(self):
         with self.assertRaisesRegex(ValueError, "unknown Kubernetes container"):
             self.convert(

@@ -6704,6 +6704,46 @@ __MOUNTS__
         )
         self.assertTrue(any(item.rule_id == "R039" for item in violations))
 
+    def test_allows_annotated_raw_database_fallback(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: postgres
+              annotations:
+                docker-to-sealos.kubeblocks-fallback-reason: source database has custom startup settings
+                originImageName: postgres:16.4
+              labels:
+                cloud.sealos.io/app-deploy-manager: postgres
+                app: postgres
+            spec:
+              replicas: 1
+              revisionHistoryLimit: 1
+              selector:
+                matchLabels:
+                  app: postgres
+              template:
+                metadata:
+                  labels:
+                    app: postgres
+                spec:
+                  automountServiceAccountToken: false
+                  containers:
+                    - name: postgres
+                      image: postgres:16.4
+                      imagePullPolicy: IfNotPresent
+                      resources:
+                        limits:
+                          cpu: 500m
+                          memory: 512Mi
+                        requests:
+                          cpu: 50m
+                          memory: 51Mi
+            """
+        )
+        self.assertFalse(any(item.rule_id == "R039" for item in violations))
+
     def test_detects_raw_database_resources_across_supported_kinds(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

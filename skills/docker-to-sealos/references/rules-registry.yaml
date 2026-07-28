@@ -89,7 +89,7 @@ rules:
     description: Database cluster component resources must use limits cpu=500m/memory=512Mi and requests cpu=50m/memory=51Mi.
     severity: error
   - id: R039
-    description: Database services must use KubeBlocks Cluster resources instead of raw Kubernetes resources.
+    description: Supported database services must prefer KubeBlocks Cluster resources; a preserved raw source database requires a non-empty docker-to-sealos.kubeblocks-fallback-reason annotation.
     severity: error
   - id: R038
     description: Managed workload container resources must use allowed Sealos limits ladder values and derive requests from limits.

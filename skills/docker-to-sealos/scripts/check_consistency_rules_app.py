@@ -117,6 +117,7 @@ DATABASE_WORKLOAD_IMAGE_NAMES = {
 }
 DATABASE_RAW_WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
 DATABASE_RAW_RESOURCE_KINDS = DATABASE_RAW_WORKLOAD_KINDS | {"Service"}
+KUBEBLOCKS_FALLBACK_ANNOTATION = "docker-to-sealos.kubeblocks-fallback-reason"
 DATABASE_CLIENT_JOB_TOKENS = {"init", "migrate", "migration", "bootstrap", "setup", "seed", "backup", "restore"}
 DATABASE_RESOURCE_NAME_TOKENS = {"postgres", "postgresql", "mysql", "mariadb", "mongo", "mongodb", "redis", "kafka"}
 OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, Any]] = {
@@ -2726,6 +2727,15 @@ def check_database_services_use_clusters(context: ScanContext) -> List[Violation
         is_database_resource = _is_database_like_service(doc) if kind == "Service" else _is_database_like_workload(doc)
         if not is_database_resource:
             continue
+        metadata = doc.data.get("metadata")
+        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+        fallback_reason = (
+            annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
+            if isinstance(annotations, dict)
+            else None
+        )
+        if isinstance(fallback_reason, str) and fallback_reason.strip():
+            continue
 
         add_doc_violation(
             violations,
@@ -2733,7 +2743,10 @@ def check_database_services_use_clusters(context: ScanContext) -> List[Violation
             doc=doc,
             pattern=r"^\s*kind\s*:\s*(?:Deployment|StatefulSet|DaemonSet|Job|CronJob|Service)\s*$",
             default_pattern=r"^\s*kind\s*:",
-            message="database services require KubeBlocks Cluster resources; raw Kubernetes resources are invalid",
+            message=(
+                "supported database services should use KubeBlocks unless the source adapter "
+                f"records a non-empty {KUBEBLOCKS_FALLBACK_ANNOTATION} annotation"
+            ),
         )
 
     return violations

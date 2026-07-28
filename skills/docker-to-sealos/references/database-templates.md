@@ -4,7 +4,18 @@ This document contains complete Sealos template configurations for various datab
 
 ## Database Workload Rule
 
-Database services must be represented by KubeBlocks `Cluster` resources. Do not translate Compose database services such as PostgreSQL, MySQL, MongoDB, Redis, or Kafka into raw Kubernetes `Deployment` or `StatefulSet` workloads. `StatefulSet` remains valid for stateful application components, but not for managed database services. Preserve one Cluster and connection identity per Compose service; two services using the same engine are still two database instances unless the source explicitly proves they are aliases of one instance.
+Supported database services should be represented by KubeBlocks `Cluster`
+resources whenever the current templates can preserve their runtime contract.
+Compose database services such as PostgreSQL, MySQL, MongoDB, Redis, or Kafka
+use this path by default. For rendered Helm or native Kubernetes sources,
+preserve a raw database workload only when its source-defined startup,
+initialization, replica, mount, or network semantics cannot be represented
+losslessly; annotate that workload and its Service with a non-empty
+`docker-to-sealos.kubeblocks-fallback-reason`. `StatefulSet` remains valid for
+stateful application components. Preserve one Cluster and connection identity
+per source database service; two services using the same engine are still two
+database instances unless the source explicitly proves they are aliases of one
+instance.
 
 ## PostgreSQL Full Template
 
