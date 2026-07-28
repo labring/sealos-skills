@@ -100,7 +100,15 @@ def infer_db_connection_field(env_name: str) -> Optional[str]:
     upper = normalize_env_name(env_name)
     if upper in NON_DB_CONNECTION_ENV_EXACT:
         return None
-    if not any(hint in upper for hint in DB_CONNECTION_INDICATOR_HINTS):
+    field_pattern = r"(?:PASSWORD|PASS|PWD|USERNAME|USER|ENDPOINT|URI|URL|DSN|HOST|SERVER|PORT)"
+    has_db_indicator = any(
+        re.search(
+            rf"(?:^|_){re.escape(hint)}(?:_|(?={field_pattern}(?:_|$)))",
+            upper,
+        )
+        for hint in DB_CONNECTION_INDICATOR_HINTS
+    )
+    if not has_db_indicator:
         return None
 
     if re.search(r"(?:^|_)(?:PASSWORD|PASS|PWD)(?:$|_)", upper):
@@ -108,8 +116,12 @@ def infer_db_connection_field(env_name: str) -> Optional[str]:
     if re.search(r"(?:^|_)(?:USERNAME|USER)(?:$|_)", upper):
         return "username"
     if re.search(r"(?:^|_)(?:ENDPOINT|URI|URL|DSN)(?:$|_)", upper):
+        if "PUBLIC" in upper.split("_"):
+            return None
         return "endpoint"
     if re.search(r"(?:^|_)(?:HOST|SERVER)(?:$|_)", upper):
+        if "PUBLIC" in upper.split("_"):
+            return None
         return "host"
     if re.search(r"(?:^|_)(?:PORT)(?:$|_)", upper):
         return "port"

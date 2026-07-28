@@ -3,7 +3,7 @@ name: sealos-deploy
 description: Deploy workloads from GitHub or local source to Sealos Cloud. In DEPLOY mode, Phase 1 stops only when AI is certain the project cannot run on Sealos; every uncertain case continues silently into readiness scoring. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
 metadata:
   author: labring
-  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are required only when Phase 4 must build and push a local image to GHCR. git is required when cloning from a GitHub URL or when git metadata is needed. A complete Phase 6/6.5 run requires Node.js 18+; jq is needed only for the documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose.
+  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are required only when Phase 4 must build and push a local image to GHCR. git is required when cloning from a GitHub URL or when git metadata is needed. A complete Phase 6/6.5 run requires Node.js 18+; jq is needed only for the documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML. kompose is required only for a Compose source; Helm CLI (Helm 3+) is required only for a Helm source.
 ---
 
 # Sealos Deploy
@@ -15,8 +15,10 @@ before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are
 required only when Phase 4 must build and push a local image to GHCR. git is
 required when cloning from a GitHub URL or when git metadata is needed. A
 complete Phase 6/6.5 run requires Node.js 18+; jq is needed only for the
-documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML;
-root Compose conversion also requires kompose.
+documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML.
+A Compose source additionally requires kompose; a Helm source additionally
+requires Helm 3 or newer. Native Kubernetes sources use the existing
+Python/PyYAML parser and do not require another YAML CLI.
 
 
 Deploy cloud workloads to Sealos Cloud. Phase 1 begins with an internal AI
@@ -30,10 +32,12 @@ All kubectl commands MUST use the Sealos kubeconfig:
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify
 ```
 
-System tool installation requires user confirmation. If `docker`, Node.js 18+,
-`gh`, or `kubectl` is missing and the skill can install it for the current
-platform, ask first and only run the install command after the user explicitly
-replies `y`.
+Invoking this skill authorizes installation and configuration of dependencies
+required by the selected deployment path. If a required tool is missing and
+the skill can install it for the current platform, install it, re-run the
+capability check, and stop only if installation or verification fails. Do not
+install path-specific tools such as `kompose` or Helm until the deployment
+source that requires them has been selected.
 
 **`kubectl delete` requires user confirmation.** Before deleting any resource (deployment, service, ingress, PVC, database, etc.), always ask:
 ```
@@ -169,7 +173,8 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
 | `find-template-references.mjs` | `node find-template-references.mjs --work-dir <repo-dir> --skill-dir <SKILL_DIR> --analysis <analysis.json> --reuse-official-template <true\|false> [--github-url <url>] [--catalog-dir <dir>]` | Select a remotely verified unique exact official template for the Phase 6 fast path, or continue the standard pipeline; `--catalog-dir` is matching-only for tests/offline inspection |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
-| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Inventory declared images and the service topology, normalize per-service build plans, and resolve each exact selector to an immutable digest |
+| `inspect-deployment-source.mjs` | `node inspect-deployment-source.mjs <work-dir>` | Select one Compose, Helm, Kubernetes, or implicit source; safely render explicit Kubernetes topology and inventory its resources |
+| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Inventory declared images and the selected deployment-source topology, normalize per-service build plans, and resolve each exact selector to an immutable digest |
 | `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--service <name>] [--context <path>] [--dockerfile <path>] [--target <stage>] [--build-arg <NAME[=value]>]...` | Build one planned service for linux/amd64, push it to the lower-case current authenticated GitHub account namespace on GHCR, and write the Buildx digest plus pull-access handoff in its per-service result |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update the app-scoped GHCR pull Secret after the lifecycle has proved that all non-anonymous service images share one GHCR namespace; the active GitHub account must match that namespace |
 | `extract-deploy-app-name.mjs` | `printf '%s\n' "$DEPLOY_RESULT" \| node extract-deploy-app-name.mjs` | Extract and validate the server-generated Kubernetes application name from the sanitized Template API response before using it for Secret creation or runtime discovery |
@@ -218,10 +223,10 @@ Paths used in pipeline.md follow the pattern:
 | 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
 | 1 — Assess | Stop only when AI is certain deployment is impossible; otherwise continue silently into readiness scoring and record risks | Existing deployment → UPDATE path; low score does not reject |
 | 1.5 — Official Template | A unique, source-aligned official `spec.gitRepo` match is reused verbatim and jumps to Phase 6; otherwise continue | No safe unique exact match → Phase 2 |
-| 2 — Discover | Inventory project-declared images and the complete service topology; resolve every reusable selector to an immutable digest without pre-screening third-party image architecture | Every final container workload covered → Phase 5 |
-| 3 — Prepare Build | Preserve or minimally prepare the exact context, Dockerfile, target, and build-argument names for each final container workload still needing a build, including an implicit application service for a no-Compose project; do not build here | No final container workload needs a build |
+| 2 — Discover | Select the Compose, Helm, Kubernetes, or implicit deployment source; inventory all project-declared images and the complete service topology; resolve every reusable selector to an immutable digest without pre-screening third-party image architecture | Every final container workload covered → Phase 5 |
+| 3 — Prepare Build | Preserve or minimally prepare the exact context, Dockerfile, target, and build-argument names for each final container workload still needing a build; use the implicit application service only when no explicit topology exists; do not build here | No final container workload needs a build |
 | 4 — Build & Push | Build each missing final container workload for `linux/amd64` from its Phase 3 plan, push it to the lower-case current GitHub account namespace on GHCR, and record the Buildx digest plus pull-access handoff | No final container workload needs a build |
-| 5 — Template | Generate Sealos application template | — |
+| 5 — Template | Route the selected deployment source through its deterministic adapter, preserve complete topology, and generate the Sealos application template | — |
 | 5.5 — Configure | Validate the generated template, resolve its configuration, summarize the deploy, and obtain confirmation | Official-template fast path |
 | 6 — Deploy | Resolve any official-template inputs, dry-run, then deploy to Sealos Cloud | — |
 | 6.5 — Runtime Truth Pass | Verify Launchpad public networking, the actual Sealos runtime, logs, Event convergence, App URL, login path, object-storage flow, and resource footprint | — |

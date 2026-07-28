@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 from check_consistency_line_locator import LineLocator
 from check_consistency_rule_helpers import iter_containers as legacy_iter_containers
 from check_consistency_helpers_workload import iter_containers
+from check_consistency_rules_security import infer_db_connection_field
 import check_consistency_rules_app as APP_RULES_MODULE
 
 
@@ -58,6 +59,12 @@ def write_registry(path: Path) -> None:
 
 
 class CheckConsistencyTests(unittest.TestCase):
+    def test_database_connection_inference_uses_tokens_not_name_substrings(self):
+        self.assertIsNone(infer_db_connection_field("WHODB_URL"))
+        self.assertIsNone(infer_db_connection_field("DB_PUBLIC_HOST"))
+        self.assertEqual(infer_db_connection_field("DATABASE_URL"), "endpoint")
+        self.assertEqual(infer_db_connection_field("POSTGRES_HOST"), "host")
+
     def run_checker(
         self,
         skill_text: str,

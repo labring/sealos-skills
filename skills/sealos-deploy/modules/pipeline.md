@@ -23,6 +23,11 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ├── template-references/          ← bounded exact-match provenance copies
 ├── state.json                    ← deployment state (auto-maintained after Phase 6.5)
 ├── analysis.json                 ← project analysis snapshot (regenerated each deploy)
+├── deployment-source/            ← Phase 2 rendered explicit source and Phase 5 mapping
+│   ├── rendered.yaml
+│   └── resource-map.json
+├── topology-evidence/             ← validator-only Phase 5 topology contract
+│   └── <app-name>.yaml
 ├── build/                        ← created only if Phase 4 actually runs
 │   └── <service-key>/
 │       └── build-result.json     ← one Phase 4 result per built service
@@ -38,8 +43,19 @@ Phase 6.5 succeeds. It contains only `state.json`; build artifacts and
 templates remain run-local.
 
 **File responsibilities:**
-- `config.json` — optional user overrides (port, `public_service`, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
-- `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, score, etc.). Regenerated each deploy.
+- `config.json` — optional user overrides (port, `public_service`,
+  `deployment_source`, base_image, build_command, etc.). Created manually by
+  user, committed to git. All fields optional.
+- `analysis.json` — project analysis snapshot written after Phase 1 and
+  enriched in Phase 2 with the selected deployment source, image inventory,
+  and service inventory. Regenerated each deploy.
+- `deployment-source/rendered.yaml` — read-only rendered Helm/Kubernetes input
+  for the current source hash. Compose and implicit sources do not create it.
+- `deployment-source/resource-map.json` — Phase 5 accounting from every
+  explicit Kubernetes source resource to its preserved, transformed, or
+  filtered output.
+- `topology-evidence/<app-name>.yaml` — validator-only topology evidence used
+  with the generated template; it is not submitted as a runtime resource.
 - `template-references.json` — Phase 1.5 exact catalog matches, official source commit, and the route decision. Regenerated each deploy.
 - `template-references/` — bounded copies retained for exact-match provenance. The selected official YAML is also copied verbatim to `.sealos/template/index.yaml` only when the decision route is `deploy_official_template`.
 - `state.json` — deployment state written after Phase 6.5 succeeds. Contains
@@ -92,6 +108,10 @@ If `.sealos/config.json` exists, read it. User-provided values take priority ove
 {
   "port": 8080,
   "public_service": "frontend",
+  "deployment_source": {
+    "kind": "helm",
+    "path": "charts/platform"
+  },
   "node_version": "20",
   "start_command": "node dist/main.js",
   "build_command": "pnpm build:prod",
@@ -540,9 +560,15 @@ Use only project-declared image evidence, in this order:
 2. **CI workflows** — image destinations used by publish or push jobs.
 3. **Compose** — every service `image:` declaration, together with every
    service that has only `build:`.
+4. **Helm** — the selected Chart's rendered workload containers and the
+   source-to-render inputs used to produce them.
+5. **Kubernetes** — every supported workload container in the selected raw or
+   rendered manifest bundle.
 
 The higher source wins only when selecting an unambiguous primary image.
-Always retain all evidence and the full Compose service topology.
+Always retain all evidence and the complete selected deployment-source
+topology. A Helm or Kubernetes resource is not optional merely because it does
+not publish an image.
 
 Do not automatically query or select Docker Hub/GHCR names guessed from the
 GitHub owner or repository name. Registry search results and fuzzy name
@@ -567,12 +593,25 @@ node "<SKILL_DIR>/scripts/detect-image.mjs" "$GITHUB_URL" "$WORK_DIR"
 node "<SKILL_DIR>/scripts/detect-image.mjs" "$WORK_DIR"
 ```
 
+The detector invokes `inspect-deployment-source.mjs` before collecting
+topology-bound images. For Helm, the inspector copies the Chart into a system
+temporary directory, runs `helm dependency build` when dependencies or
+`Chart.lock` require it, then runs `helm template --no-hooks`. It never runs
+`helm install` and never mutates the source Chart. Helm and native Kubernetes
+results are written atomically to
+`.sealos/deployment-source/rendered.yaml`; Phase 5 consumes that exact file.
+
 The output always contains:
 
-- `image_inventory`: every parseable README, CI, and Compose image
+- `deployment_source`: the selected `compose`, `helm`, `kubernetes`, or
+  `implicit-single-service` source, its hash/evidence, and rendered resource
+  inventory when applicable.
+- `image_inventory`: every parseable README, CI, Compose, Helm, and Kubernetes image
   declaration, including application, database, and infrastructure images.
-- `service_inventory`: every Compose service, including database, cache,
-  proxy, queue, object-storage, and build-only services.
+- `service_inventory`: every selected deployment workload, including database,
+  cache, proxy, queue, object-storage, and build-only services. Helm and
+  Kubernetes entries retain `resource_kind`, `workload_name`, `container_name`,
+  and `container_role` where applicable.
 - backward-compatible primary fields (`found`, `image`, `tag`, `source`,
   `digest`, `image_ref`) only when one digest-resolved primary image is
   unambiguous at the highest-priority evidence level.
@@ -632,18 +671,19 @@ dependency or its application wiring disappear.
 
 ### 2.5 Update `analysis.json`
 
-Copy the detector's complete `image_inventory` and `service_inventory` into
-`.sealos/analysis.json`. Set `image_ref` to the immutable digest reference only
+Copy the detector's `deployment_source`, complete `image_inventory`, and
+`service_inventory` into `.sealos/analysis.json`. Set `image_ref` to the
+immutable digest reference only
 when the detector returns one unambiguous primary image. Otherwise
 leave `image_ref` as `null`; the inventories, not a guessed primary, drive the
 remaining phases. Reconcile the `databases` list with database services found
 in the inventory so a dependency discovered in Compose cannot be lost merely
 because Phase 1 did not recognize it.
 
-When there are no Compose services and no unique reusable primary image,
-create or retain one implicit application service named from the selected
-project directory (normally `REPO_NAME`) so the ordinary single-application
-path is not lost:
+Only when `deployment_source.kind` is `implicit-single-service` and there are
+no explicit services, create or retain one implicit application service named
+from the selected project directory (normally `REPO_NAME`) so the ordinary
+single-application path is not lost:
 
 ```json
 {
@@ -664,8 +704,10 @@ path is not lost:
 ```
 
 Use `origin: null` when the root Dockerfile is absent. A unique README or CI
-image that already resolves to a digest keeps its normal image-reuse fast path
-and does not require this implicit build service.
+image that already resolves to a digest still belongs to the implicit
+single-service route and may skip the build when it covers that service.
+Never create this fallback service for an explicitly detected Helm or
+Kubernetes topology.
 
 ### 2.6 Per-Service Routing
 
@@ -1019,24 +1061,35 @@ application; the inventories are authoritative for multi-service projects.
 Generate the template at `.sealos/template/index.yaml` (overrides the default `template/` path from docker-to-sealos skill).
 Do not create another template-generation artifact.
 
-Before conversion or validation, require Python with PyYAML. Do not install it from this workflow:
+Before conversion or validation, require Python with PyYAML. Phase 0 installs
+this dependency when it is missing; Phase 5 re-checks the capability before
+running any converter:
 
 ```bash
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 if [ -z "$PYTHON_BIN" ] || ! "$PYTHON_BIN" -c 'import yaml' >/dev/null 2>&1; then
-  echo "Phase 5 requires Python with PyYAML; install it outside this workflow and retry." >&2
+  echo "Phase 5 requires Python with PyYAML; return to Phase 0 for dependency installation and retry." >&2
   exit 1
 fi
 ```
 
-When a supported root Compose file exists, use the deterministic converter as the
-generation baseline. For a project without Compose, synthesize a temporary
-single-service Compose input from the implicit Phase 2/3 service, its immutable
-`image_ref`, detected `port`, and classified environment variables, then use
-the same converter. In both cases use `--dry-run` so the only written template
-artifact remains `.sealos/template/index.yaml`. Missing required converter
-capabilities or converter failure is a hard stop, not permission to hand-write
-around the failure.
+Route generation from `analysis.json.deployment_source.kind`:
+
+- `compose` uses the deterministic Compose converter as the generation baseline.
+- `helm` uses the rendered Kubernetes YAML produced by the Phase 2 source
+  inspector and the Kubernetes source adapter. Helm is rendered from a temporary
+  Chart copy with `helm template --no-hooks`; never run `helm install`.
+- `kubernetes` uses the rendered/raw Kubernetes YAML and the same Kubernetes
+  source adapter.
+- `implicit-single-service` is the only route allowed to synthesize a temporary
+  one-service Compose input.
+
+Every route uses a dry-run converter invocation and writes only the canonical
+`.sealos/template/index.yaml`. The explicit Helm/Kubernetes routes additionally
+write the declared source mapping and topology evidence artifacts. Missing
+adapter capabilities, an unrenderable source, unresolved explicit topology, or
+converter failure is a hard stop, not permission to hand-write around the
+failure.
 
 For a multi-service Compose project, `config.json.public_service` may name the
 one service that should receive the public Ingress. If exactly one application
@@ -1045,13 +1098,202 @@ application services declare `ports` and no `public_service` is supplied,
 conversion stops instead of using declaration order.
 
 ```bash
-COMPOSE_FILE=""
-for candidate in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
-  if [ -f "$WORK_DIR/$candidate" ]; then
-    COMPOSE_FILE="$WORK_DIR/$candidate"
-    break
+APP_NAME="$(
+  "$PYTHON_BIN" -c \
+    'import json, sys; value = json.load(open(sys.argv[1], encoding="utf-8"))["project"]["repo_name"]; print(value.rsplit("/", 1)[-1])' \
+    "$WORK_DIR/.sealos/analysis.json"
+)" || {
+  echo "Unable to read the app name from analysis.json; Phase 5 stopped." >&2
+  exit 1
+}
+GITHUB_URL="$(
+  "$PYTHON_BIN" -c \
+    'import json, sys; value = json.load(open(sys.argv[1], encoding="utf-8"))["project"]["github_url"]; print(value or "")' \
+    "$WORK_DIR/.sealos/analysis.json"
+)" || {
+  echo "Unable to read the GitHub URL from analysis.json; Phase 5 stopped." >&2
+  exit 1
+}
+DEPLOYMENT_SOURCE_KIND="$(
+  "$PYTHON_BIN" - "$WORK_DIR/.sealos/analysis.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+analysis = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+source = analysis.get("deployment_source") or {}
+kind = source.get("kind")
+if kind:
+    print(kind)
+elif any((Path(sys.argv[1]).parent.parent / name).is_file() for name in (
+    "compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"
+)):
+    print("compose")
+else:
+    print("implicit-single-service")
+PY
+)" || {
+  echo "Unable to read deployment_source from analysis.json; Phase 5 stopped." >&2
+  exit 1
+}
+case "$DEPLOYMENT_SOURCE_KIND" in
+  compose|helm|kubernetes|implicit-single-service) ;;
+  *)
+    echo "Unsupported deployment_source.kind: $DEPLOYMENT_SOURCE_KIND" >&2
+    exit 1
+    ;;
+esac
+
+IMAGE_OVERRIDE_ARGS=()
+if [ "$DEPLOYMENT_SOURCE_KIND" != "implicit-single-service" ]; then
+  while IFS=$'\t' read -r SERVICE_NAME SERVICE_IMAGE; do
+    if [ -n "$SERVICE_NAME" ] && [ -n "$SERVICE_IMAGE" ]; then
+      IMAGE_OVERRIDE_ARGS+=(--image-override "$SERVICE_NAME=$SERVICE_IMAGE")
+    fi
+  done < <(
+    "$PYTHON_BIN" - "$WORK_DIR/.sealos/analysis.json" <<'PY'
+import json
+import sys
+
+analysis = json.load(open(sys.argv[1], encoding="utf-8"))
+for service in analysis.get("service_inventory", []):
+    name = service.get("name")
+    image_ref = service.get("image_ref")
+    if isinstance(name, str) and name and isinstance(image_ref, str) and image_ref:
+        print(f"{name}\t{image_ref}")
+PY
+  )
+fi
+
+PUBLIC_SERVICE_ARGS=()
+if [ "$DEPLOYMENT_SOURCE_KIND" != "implicit-single-service" ] && [ -f "$WORK_DIR/.sealos/config.json" ]; then
+  PUBLIC_SERVICE="$(
+    "$PYTHON_BIN" - "$WORK_DIR/.sealos/config.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+value = config.get("public_service", "")
+if value is None:
+    value = ""
+if not isinstance(value, str):
+    raise SystemExit("config.json public_service must be a string")
+print(value.strip())
+PY
+  )" || {
+    echo "Unable to read public_service from .sealos/config.json; Phase 5 stopped." >&2
+    exit 1
+  }
+  if [ -n "$PUBLIC_SERVICE" ]; then
+    PUBLIC_SERVICE_ARGS=(--public-service "$PUBLIC_SERVICE")
   fi
-done
+fi
+
+IMAGE_PULL_SECRET_ARGS=()
+while IFS= read -r SERVICE_NAME; do
+  if [ -n "$SERVICE_NAME" ]; then
+    IMAGE_PULL_SECRET_ARGS+=(--image-pull-secret-service "$SERVICE_NAME")
+  fi
+done < <(
+  "$PYTHON_BIN" - "$WORK_DIR" <<'PY'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+seen = set()
+build_root = root / ".sealos" / "build"
+if build_root.is_dir():
+    for path in sorted(build_root.rglob("build-result.json")):
+        try:
+            result = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if result.get("outcome") != "success":
+            continue
+        if result.get("push", {}).get("pull_access") not in {"ghcr_secret_required", "indeterminate"}:
+            continue
+        service_name = result.get("service", {}).get("name")
+        if isinstance(service_name, str) and service_name and service_name not in seen:
+            seen.add(service_name)
+            print(service_name)
+PY
+)
+
+mkdir -p "$WORK_DIR/.sealos/template" "$WORK_DIR/.sealos/deployment-source"
+
+if [ "$DEPLOYMENT_SOURCE_KIND" = "helm" ] || [ "$DEPLOYMENT_SOURCE_KIND" = "kubernetes" ]; then
+  SOURCE_RENDERED_PATH="$(
+    "$PYTHON_BIN" - "$WORK_DIR/.sealos/analysis.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+analysis = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+source = analysis.get("deployment_source") or {}
+rendered = source.get("rendered_path")
+if not isinstance(rendered, str) or not rendered:
+    raise SystemExit("explicit deployment_source has no rendered_path")
+print(rendered)
+PY
+  )" || {
+    echo "Unable to resolve the rendered deployment source; Phase 5 stopped." >&2
+    exit 1
+  }
+  SOURCE_MANIFEST="$WORK_DIR/${SOURCE_RENDERED_PATH#./}"
+  if [ ! -f "$SOURCE_MANIFEST" ]; then
+    echo "Rendered deployment source does not exist: $SOURCE_RENDERED_PATH" >&2
+    exit 1
+  fi
+  mkdir -p "$WORK_DIR/.sealos/topology-evidence"
+  GENERATED_TEMPLATE="$(
+    "$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/kubernetes_to_template.py" \
+      --manifests "$SOURCE_MANIFEST" \
+      --app-name "$APP_NAME" \
+      --git-repo "$GITHUB_URL" \
+      "${IMAGE_OVERRIDE_ARGS[@]}" \
+      "${PUBLIC_SERVICE_ARGS[@]}" \
+      "${IMAGE_PULL_SECRET_ARGS[@]}" \
+      --mapping-output "$WORK_DIR/.sealos/deployment-source/resource-map.json" \
+      --topology-evidence-output "$WORK_DIR/.sealos/topology-evidence/$APP_NAME.yaml" \
+      --dry-run
+  )" || {
+    echo "Deterministic Kubernetes source conversion failed; Phase 5 stopped." >&2
+    exit 1
+  }
+  printf '%s\n' "$GENERATED_TEMPLATE" > "$WORK_DIR/.sealos/template/index.yaml"
+else
+COMPOSE_FILE=""
+if [ "$DEPLOYMENT_SOURCE_KIND" = "compose" ]; then
+  COMPOSE_SOURCE_PATH="$(
+    "$PYTHON_BIN" - "$WORK_DIR/.sealos/analysis.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+analysis = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+source = analysis.get("deployment_source") or {}
+path = source.get("path")
+if isinstance(path, str) and path:
+    print(path)
+PY
+  )"
+  if [ -n "$COMPOSE_SOURCE_PATH" ]; then
+    COMPOSE_FILE="$WORK_DIR/${COMPOSE_SOURCE_PATH#./}"
+  else
+    for candidate in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+      if [ -f "$WORK_DIR/$candidate" ]; then
+        COMPOSE_FILE="$WORK_DIR/$candidate"
+        break
+      fi
+    done
+  fi
+  if [ ! -f "$COMPOSE_FILE" ]; then
+    echo "Selected Compose source does not exist; Phase 5 stopped." >&2
+    exit 1
+  fi
+fi
 
 TEMP_COMPOSE_DIR=""
 SYNTHETIC_COMPOSE=false
@@ -1137,97 +1379,6 @@ PY
   }
 fi
 
-  APP_NAME="$(
-    "$PYTHON_BIN" -c \
-      'import json, sys; value = json.load(open(sys.argv[1], encoding="utf-8"))["project"]["repo_name"]; print(value.rsplit("/", 1)[-1])' \
-      "$WORK_DIR/.sealos/analysis.json"
-  )" || {
-    echo "Unable to read the app name from analysis.json; Phase 5 stopped." >&2
-    exit 1
-  }
-  GITHUB_URL="$(
-    "$PYTHON_BIN" -c \
-      'import json, sys; value = json.load(open(sys.argv[1], encoding="utf-8"))["project"]["github_url"]; print(value or "")' \
-      "$WORK_DIR/.sealos/analysis.json"
-  )" || {
-    echo "Unable to read the GitHub URL from analysis.json; Phase 5 stopped." >&2
-    exit 1
-  }
-  IMAGE_OVERRIDE_ARGS=()
-  if [ "$SYNTHETIC_COMPOSE" = false ]; then
-    while IFS=$'\t' read -r SERVICE_NAME SERVICE_IMAGE; do
-      if [ -n "$SERVICE_NAME" ] && [ -n "$SERVICE_IMAGE" ]; then
-        IMAGE_OVERRIDE_ARGS+=(--image-override "$SERVICE_NAME=$SERVICE_IMAGE")
-      fi
-    done < <(
-      "$PYTHON_BIN" -c '
-import json
-import sys
-
-analysis = json.load(open(sys.argv[1], encoding="utf-8"))
-for service in analysis.get("service_inventory", []):
-    name = service.get("name")
-    image_ref = service.get("image_ref")
-    if isinstance(name, str) and name and isinstance(image_ref, str) and image_ref:
-        print(f"{name}\t{image_ref}")
-' "$WORK_DIR/.sealos/analysis.json"
-    )
-  fi
-  PUBLIC_SERVICE_ARGS=()
-  if [ "$SYNTHETIC_COMPOSE" = false ] && [ -f "$WORK_DIR/.sealos/config.json" ]; then
-    PUBLIC_SERVICE="$(
-      "$PYTHON_BIN" - "$WORK_DIR/.sealos/config.json" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-value = config.get("public_service", "")
-if value is None:
-    value = ""
-if not isinstance(value, str):
-    raise SystemExit("config.json public_service must be a string")
-print(value.strip())
-PY
-    )" || {
-      echo "Unable to read public_service from .sealos/config.json; Phase 5 stopped." >&2
-      exit 1
-    }
-    if [ -n "$PUBLIC_SERVICE" ]; then
-      PUBLIC_SERVICE_ARGS=(--public-service "$PUBLIC_SERVICE")
-    fi
-  fi
-  IMAGE_PULL_SECRET_ARGS=()
-  while IFS= read -r SERVICE_NAME; do
-    if [ -n "$SERVICE_NAME" ]; then
-      IMAGE_PULL_SECRET_ARGS+=(--image-pull-secret-service "$SERVICE_NAME")
-    fi
-  done < <(
-    "$PYTHON_BIN" -c '
-import json
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-seen = set()
-build_root = root / ".sealos" / "build"
-if build_root.is_dir():
-    for path in sorted(build_root.rglob("build-result.json")):
-        try:
-            result = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if result.get("outcome") != "success":
-            continue
-        pull_access = result.get("push", {}).get("pull_access")
-        if pull_access not in {"ghcr_secret_required", "indeterminate"}:
-            continue
-        service_name = result.get("service", {}).get("name")
-        if isinstance(service_name, str) and service_name and service_name not in seen:
-            seen.add(service_name)
-            print(service_name)
-' "$WORK_DIR"
-  )
   KOMPOSE_MODE=always
   if [ "$SYNTHETIC_COMPOSE" = true ]; then
     KOMPOSE_MODE=auto
@@ -1325,6 +1476,7 @@ PY
     rmdir "$TEMP_COMPOSE_DIR" 2>/dev/null || true
   fi
   printf '%s\n' "$GENERATED_TEMPLATE" > "$WORK_DIR/.sealos/template/index.yaml"
+fi
 ```
 
 The synthetic no-Compose input is temporary and is never written under
@@ -1334,8 +1486,15 @@ Required and optional classified environment variables are carried as Template
 inputs. Auto-managed variables with known defaults are included directly; an
 auto-managed variable without a resolved value stops conversion until Phase 5
 applies the existing database, public-URL, object-storage, or secret-generation
-rule that owns it. The final artifact is always the same
-`.sealos/template/index.yaml` consumed by Phase 5.5 and Phase 6.
+rule that owns it.
+
+The Helm/Kubernetes adapter writes `.sealos/deployment-source/resource-map.json`
+and `.sealos/topology-evidence/<app-name>.yaml` beside the canonical template.
+Every source resource must appear in the mapping exactly once; filtered resources
+must have an explicit `filtered` action, and transformed resources must identify
+their equivalent output. The topology evidence file is passed to the same
+quality gate as the template. An explicit multi-service source is never allowed
+to fall back to the synthetic single-service route.
 
 For converted templates, map each inventory digest to the service it
 represents. Never apply one top-level `analysis.json.image_ref` to every
@@ -1401,8 +1560,13 @@ After generating the base template, check if the app needs its public URL config
 
 Run the complete sibling quality gate:
 ```bash
+QUALITY_ARTIFACTS="$WORK_DIR/.sealos/template/index.yaml"
+TOPOLOGY_EVIDENCE="$WORK_DIR/.sealos/topology-evidence/$APP_NAME.yaml"
+if [ -f "$TOPOLOGY_EVIDENCE" ]; then
+  QUALITY_ARTIFACTS="$QUALITY_ARTIFACTS,$TOPOLOGY_EVIDENCE"
+fi
 "$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/quality_gate.py" \
-  --artifacts "$WORK_DIR/.sealos/template/index.yaml"
+  --artifacts "$QUALITY_ARTIFACTS"
 ```
 
 Any non-zero exit stops Phase 5. Fix the existing `index.yaml` and rerun the complete gate before interactive configuration. In particular, `R052` means a Template default was parsed as a YAML number, boolean, or null instead of the string required by the Template CRD.
@@ -1512,8 +1676,13 @@ These `args` will be passed to the Template API's `args` field (Phase 6.2), whic
 Immediately before presenting the deployment confirmation, run the complete quality gate again against the exact final template:
 
 ```bash
+QUALITY_ARTIFACTS="$WORK_DIR/.sealos/template/index.yaml"
+TOPOLOGY_EVIDENCE="$WORK_DIR/.sealos/topology-evidence/$APP_NAME.yaml"
+if [ -f "$TOPOLOGY_EVIDENCE" ]; then
+  QUALITY_ARTIFACTS="$QUALITY_ARTIFACTS,$TOPOLOGY_EVIDENCE"
+fi
 "$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/quality_gate.py" \
-  --artifacts "$WORK_DIR/.sealos/template/index.yaml"
+  --artifacts "$QUALITY_ARTIFACTS"
 ```
 
 This final run is required even if Phase 5.3 already passed. Any non-zero exit stops the workflow before Phase 6; fix the existing template and rerun the gate. Do not deploy while the gate is failing.

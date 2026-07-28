@@ -457,6 +457,23 @@
         {"name": "runs-common-readiness-gate", "description": "Waits for every returned or rendered workload and for public Service endpoints before runtime truth"},
         {"name": "persists-state-before-cleanup", "description": "Validates state.json, copies it to the stable GitHub repository state bridge, and cleans the temporary checkout only after persistence succeeds"}
       ]
+    },
+    {
+      "id": 36,
+      "prompt": "Deploy a repository with no root Compose file. Its parent Helm Chart defines API, UI, registry, and worker Deployments, their Services and Ingresses, RBAC, and one PostgreSQL KubeBlocks Cluster. The repository CI contains independent build plans for the four application images.",
+      "expected_output": "Phase 2 selects the parent Helm Chart instead of the implicit single-service fallback, renders it from a temporary copy without installing it, inventories the complete topology, resolves or builds each application image independently, and Phase 5 converts the rendered Kubernetes resources into one validated Sealos template without dropping the database, worker, registry, RBAC, or internal/public URL wiring",
+      "files": [],
+      "assertions": [
+        {"name": "selects-explicit-helm-source", "description": "Selects the parent Helm Chart as deployment_source.kind=helm and does not treat vendored dependency Charts as independent sources"},
+        {"name": "renders-without-installing", "description": "Uses a temporary Chart copy, rebuilds declared dependencies when needed, runs helm template without hooks, and never runs helm install or mutates the source Chart"},
+        {"name": "does-not-fallback-to-single-service", "description": "Keeps all explicit Helm resources and never creates the implicit single-application service"},
+        {"name": "matches-build-plans-per-container", "description": "Binds each CI build context, Dockerfile, target, and build-argument-name list to the matching workload/container service key"},
+        {"name": "preserves-complete-topology", "description": "Retains API, UI, registry, worker, Services, Ingresses, RBAC, and the PostgreSQL KubeBlocks Cluster or an explicitly mapped equivalent"},
+        {"name": "pins-every-workload-image", "description": "Uses a distinct immutable digest override for every emitted container workload rather than one top-level image for all services"},
+        {"name": "normalizes-runtime-references", "description": "Binds RoleBinding ServiceAccounts to the selected Sealos namespace and rewrites application URLs to the generated Service or Ingress identities"},
+        {"name": "accounts-for-every-source-resource", "description": "Writes a source resource mapping and topology evidence in which every rendered resource is preserved, transformed, or explicitly filtered exactly once"},
+        {"name": "validates-template-and-topology", "description": "Runs the complete docker-to-sealos quality gate against both the canonical template and topology evidence before deployment"}
+      ]
     }
   ]
 }

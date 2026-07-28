@@ -1,13 +1,14 @@
 ---
 name: docker-to-sealos
-description: Convert Docker Compose files or installation docs into production-grade Sealos templates with role-specific personal low-load resource sizing. Use when user has a docker-compose.yml and wants a Sealos or Kubernetes template, wants to migrate from Docker Compose to Sealos, needs to convert container orchestration configs to Sealos format, or mentions compose-to-template conversion. Also triggers on "/docker-to-sealos".
+description: Convert Docker Compose, rendered Helm, or native Kubernetes deployment sources into production-grade Sealos templates with role-specific personal low-load resource sizing. Use when user has a docker-compose.yml or explicit Kubernetes topology and wants a Sealos template, wants to migrate container orchestration configs to Sealos format, or mentions compose-to-template conversion. Also triggers on "/docker-to-sealos".
 ---
 
 # Docker to Sealos Template Converter
 
 ## Overview
 
-Convert Docker Compose files or installation docs into production-grade Sealos templates.
+Convert Docker Compose files, installation docs, or rendered Kubernetes
+resources into production-grade Sealos templates.
 Execute end-to-end automatically (analysis, conversion, validation, output) without asking users for missing fields.
 
 ## Governance and Rule Priority
@@ -33,7 +34,7 @@ or reuse a catalog image without independent verification.
 
 ### Step 1: Analyze input
 
-Extract from Docker Compose/docs:
+Extract from Docker Compose/docs or the selected rendered Kubernetes source:
 
 - application services vs database services
 - volumes/config mounts/object storage requirements
@@ -45,6 +46,8 @@ Extract from Docker Compose/docs:
 - if official Kubernetes installation docs/manifests are available, also extract app-runtime behavior from them (bootstrap admin fields, external endpoint/protocol assumptions, health probes, startup/init flow, migration ordering)
 - if official compose/docs provide multiple cooperating services, record the official runtime bundle source, component list, image versions, public entry routes, and critical env vars
 - record the selected source topology: topology-bearing resource roles, feature conditions, and application or database component replica counts
+- for Helm/Kubernetes input, retain the source resource inventory and container
+  identity keys so image overrides and pull-Secret handoff stay per workload/container
 
 ### Step 2: Infer metadata
 
@@ -80,7 +83,10 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 - URL topology: browser-facing env vars must use public HTTPS URLs, while server-to-server env vars must use Kubernetes Service FQDNs unless the app explicitly requires public callbacks
 - WebSocket ingress normalization: when the public entry is `ws://`, `wss://`, CDP/Chrome DevTools, a game socket, or a WebSocket-named port/service, expose it with WebSocket nginx ingress annotations
 - StatefulSet service identity: for a single-component app with no documented headless or stable per-Pod DNS requirement, use the public application Service as `spec.serviceName` and keep the workload, Service, root Ingress, and manager identity aligned; preserve documented HA/headless governing Services and expose them through a separate public application Service
-- prefer `scripts/compose_to_template.py --kompose-mode always` as deterministic conversion entrypoint (require `kompose` for reproducible workload shaping)
+- use `scripts/compose_to_template.py --kompose-mode always` for a Compose source
+  (require `kompose` for reproducible workload shaping)
+- use `scripts/kubernetes_to_template.py` for rendered Helm or native Kubernetes
+  resources; do not first collapse explicit Kubernetes topology into synthetic Compose
 - for existing-template updates, keep the current template's topology-bearing resources, feature conditions, and replica counts as the baseline
 - for new conversions, keep the selected Compose services and `deploy.replicas` values as the topology baseline
 - use official Kubernetes installation docs/manifests to align app-runtime semantics such as bootstrap fields, endpoints, probes, and startup ordering
@@ -307,12 +313,13 @@ Run all checks before final response:
 1. `python scripts/path_converter.py --self-test`
 2. `python scripts/test_check_consistency.py`
 3. `python scripts/test_compose_to_template.py`
-4. `python scripts/test_check_must_coverage.py`
-5. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml`
-6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml,.sealos/topology-evidence/<app-name>.yaml` for existing-template updates and other topology-sensitive conversions
-7. `python scripts/check_must_coverage.py --skill SKILL.md --mapping references/must-rules-map.yaml --rules-file references/rules-registry.yaml`
-8. (CI / one-shot) `python scripts/quality_gate.py --artifacts /abs/path/template/<app-name>/index.yaml` or `DOCKER_TO_SEALOS_ARTIFACTS=/abs/path/template/<app-name>/index.yaml python scripts/quality_gate.py` (without explicit artifacts, it scans `template/*/index.yaml`; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
-9. Live deploy acceptance: after `sealos-deploy` creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, a random missing-path 404 without noisy traceback logs, expected database objects, and full resource footprint before reporting success.
+4. `python scripts/test_kubernetes_to_template.py`
+5. `python scripts/test_check_must_coverage.py`
+6. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml`
+7. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml,.sealos/topology-evidence/<app-name>.yaml` for existing-template updates and other topology-sensitive conversions
+8. `python scripts/check_must_coverage.py --skill SKILL.md --mapping references/must-rules-map.yaml --rules-file references/rules-registry.yaml`
+9. (CI / one-shot) `python scripts/quality_gate.py --artifacts /abs/path/template/<app-name>/index.yaml` or `DOCKER_TO_SEALOS_ARTIFACTS=/abs/path/template/<app-name>/index.yaml python scripts/quality_gate.py` (without explicit artifacts, it scans `template/*/index.yaml`; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
+10. Live deploy acceptance: after `sealos-deploy` creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, a random missing-path 404 without noisy traceback logs, expected database objects, and full resource footprint before reporting success.
 
 `check_consistency.py` is registry-driven. Keep `references/rules-registry.yaml` in sync with implemented rules.
 Registry rule entries support `severity` and optional `scope.include_paths` metadata.
@@ -360,8 +367,16 @@ Load only needed references for current task:
   - supports repeatable per-service image overrides and pull-Secret selection
   - supports `--public-service SERVICE` when several application services publish ports
   - emits `template/<app-name>/index.yaml`
+- `scripts/kubernetes_to_template.py`
+  - deterministic rendered-Kubernetes-to-template adapter for Helm and native manifests
+  - preserves supported workload, Service, Ingress, RBAC, ConfigMap, storage, and KubeBlocks topology
+  - supports repeatable per-container image overrides and pull-Secret selection
+  - writes source-resource mapping and validator-only topology evidence when requested
+  - rejects unsupported resources instead of silently dropping them
 - `scripts/test_compose_to_template.py`
   - regression tests for compose conversion behavior
+- `scripts/test_kubernetes_to_template.py`
+  - regression tests for rendered Helm/native Kubernetes conversion behavior
 - `scripts/check_consistency.py`
   - registry-driven consistency validator
 - `scripts/test_check_consistency.py`

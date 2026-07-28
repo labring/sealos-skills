@@ -14,6 +14,28 @@
       "type": "string",
       "minLength": 1
     },
+    "deployment_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "compose",
+            "helm",
+            "kubernetes"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "node_version": {
       "type": "string",
       "pattern": "^\\d+(?:\\.\\d+){0,2}$"

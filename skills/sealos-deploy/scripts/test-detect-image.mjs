@@ -9,6 +9,7 @@ import path from 'path'
 import {
   collectProjectEvidence,
   detectExistingImages,
+  extractWorkflowBuildPlans,
   parseImageRef,
 } from './detect-image.mjs'
 
@@ -182,6 +183,39 @@ test('parses registry hosts with ports', () => {
   assert.equal(parsed.registryHost, 'localhost:5000')
   assert.equal(parsed.repository, 'acme/web')
   assert.equal(parsed.declaredTag, 'v2')
+})
+
+test('normalizes workflow Dockerfile paths relative to a subdirectory build context', async () => {
+  await withFixture({
+    '.github/workflows/images.yml': [
+      'jobs:',
+      '  images:',
+      '    strategy:',
+      '      matrix:',
+      '        include:',
+      '          - component: worker',
+      '            image: example-worker',
+      '            context: services/worker',
+      '            dockerfile: services/worker/docker/Dockerfile',
+      '    steps:',
+      '      - uses: docker/build-push-action@v6',
+      '        with:',
+      '          context: ${{ matrix.context }}',
+      '          file: ${{ matrix.dockerfile }}',
+      '          push: true',
+    ].join('\n'),
+    'services/worker/docker/Dockerfile': 'FROM scratch\n',
+  }, async workDir => {
+    const plans = extractWorkflowBuildPlans(workDir)
+    assert.equal(plans.length, 1)
+    assert.deepEqual(plans[0].build, {
+      context: 'services/worker',
+      dockerfile: 'docker/Dockerfile',
+      target: null,
+      args: [],
+      origin: 'existing',
+    })
+  })
 })
 
 test('collects README labels, backticked refs, Compose snippets, and pull options', async () => {
@@ -440,6 +474,29 @@ test('does not query name-guessed images when the project declares none', async 
   })
 })
 
+test('attaches one verified README image to the implicit application service', async () => {
+  await withFixture({
+    'README.md': 'docker pull acme/single:stable\n',
+  }, async workDir => {
+    const registry = createRegistryMock({
+      'docker.io/acme/single:stable': {
+        configDigest: digestFor('a'),
+      },
+    })
+    const result = await detectExistingImages(workDir, {
+      githubUrl: 'https://github.com/acme/single',
+      fetchImpl: registry.fetchImpl,
+    })
+
+    assert.equal(result.found, true)
+    assert.equal(result.deployment_source.kind, 'implicit-single-service')
+    assert.equal(result.service_inventory.length, 1)
+    assert.equal(result.service_inventory[0].image_status, 'verified')
+    assert.equal(result.service_inventory[0].image_ref, result.image_ref)
+    assert.equal(result.service_inventory[0].declared_image, 'acme/single:stable')
+  })
+})
+
 test('does not treat Dockerfile FROM as a reusable project image', async () => {
   await withFixture({
     'Dockerfile': [
@@ -484,7 +541,13 @@ test('treats role keywords as advisory when README declares the product image', 
     assert.equal(result.image, 'acme/nginx')
     assert.equal(result.image_inventory[0].role, 'infrastructure')
     assert.equal(result.image_ref, `acme/nginx@${result.digest}`)
-    assert.deepEqual(result.service_inventory, [])
+    assert.equal(result.deployment_source.kind, 'implicit-single-service')
+    assert.equal(result.service_inventory.length, 1)
+    assert.equal(result.service_inventory[0].source, 'project')
+    assert.equal(result.service_inventory[0].role, 'application')
+    assert.equal(result.service_inventory[0].declared_image, result.declared_ref)
+    assert.equal(result.service_inventory[0].image_status, 'verified')
+    assert.equal(result.service_inventory[0].image_ref, result.image_ref)
   })
 })
 

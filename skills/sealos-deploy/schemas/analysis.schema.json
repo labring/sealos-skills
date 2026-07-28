@@ -246,6 +246,97 @@
         { "type": "null" }
       ]
     },
+    "deployment_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "source_hash",
+        "evidence",
+        "rendered_path",
+        "dependency_mode",
+        "resources"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "compose",
+            "helm",
+            "kubernetes",
+            "implicit-single-service"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-fA-F0-9]{64}$"
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rendered_path": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "dependency_mode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "locked",
+                "unlocked",
+                "none"
+              ]
+            },
+            { "type": "null" }
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "api_version",
+              "kind",
+              "name",
+              "source_file"
+            ],
+            "properties": {
+              "api_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_file": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
     "image_inventory": {
       "type": "array",
       "items": {
@@ -325,7 +416,9 @@
                   "enum": [
                     "readme",
                     "ci",
-                    "compose"
+                    "compose",
+                    "helm",
+                    "kubernetes"
                   ]
                 },
                 "file": {
@@ -418,12 +511,39 @@
             "type": "string",
             "enum": [
               "compose",
-              "project"
+              "project",
+              "helm",
+              "kubernetes",
+              "implicit-single-service"
             ]
           },
           "source_file": {
             "type": "string",
             "minLength": 1
+          },
+          "resource_kind": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "workload_name": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "container_name": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "container_role": {
+            "anyOf": [
+              { "type": "string", "enum": ["init", "main"] },
+              { "type": "null" }
+            ]
           },
           "declared_image": {
             "anyOf": [
@@ -485,12 +605,19 @@
             ]
           },
           "image_status": {
-            "type": "string",
-            "enum": [
-              "verified",
-              "unavailable",
-              "build_required",
-              "built"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "verified",
+                  "unavailable",
+                  "build_required",
+                  "built"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "image_ref": {

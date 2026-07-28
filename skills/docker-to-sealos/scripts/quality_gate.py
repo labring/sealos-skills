@@ -88,6 +88,10 @@ def build_commands(root: Path, artifacts: str) -> List[Tuple[str, Sequence[str]]
             (python, str(scripts_dir / "test_compose_to_template.py")),
         ),
         (
+            "kubernetes converter tests",
+            (python, str(scripts_dir / "test_kubernetes_to_template.py")),
+        ),
+        (
             "must coverage validator tests",
             (python, str(scripts_dir / "test_check_must_coverage.py")),
         ),

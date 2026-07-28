@@ -266,6 +266,10 @@ test('accepts a public service project override and rejects non-string values', 
   const valid = validateArtifactData('config', {
     port: 3000,
     public_service: 'frontend',
+    deployment_source: {
+      kind: 'helm',
+      path: 'charts/platform',
+    },
   })
   const invalid = validateArtifactData('config', {
     public_service: 3000,
@@ -274,6 +278,61 @@ test('accepts a public service project override and rejects non-string values', 
   assert.equal(valid.valid, true, JSON.stringify(valid.errors))
   assert.equal(invalid.valid, false)
   assert.ok(invalid.errors.some(error => error.path === '$.public_service'))
+})
+
+test('accepts Helm deployment source and container identity evidence', () => {
+  const result = validateArtifactData('analysis', analysis({
+    deployment_source: {
+      kind: 'helm',
+      path: 'charts/platform',
+      source_hash: `sha256:${'a'.repeat(64)}`,
+      evidence: ['charts/platform/Chart.yaml'],
+      rendered_path: '.sealos/deployment-source/rendered.yaml',
+      dependency_mode: 'locked',
+      resources: [{
+        api_version: 'apps/v1',
+        kind: 'Deployment',
+        name: 'api',
+        source_file: '.sealos/deployment-source/rendered.yaml',
+      }],
+    },
+    image_inventory: [{
+      image: 'ghcr.io/acme/api',
+      declared_ref: 'ghcr.io/acme/api:latest',
+      declared_tag: 'latest',
+      resolution_tag: 'latest',
+      declared_digest: null,
+      registry: 'ghcr',
+      role: 'application',
+      sources: [{
+        source: 'helm',
+        file: '.sealos/deployment-source/rendered.yaml',
+        service: 'api',
+        declared_ref: 'ghcr.io/acme/api:latest',
+      }],
+      status: 'unavailable',
+      digest: null,
+      image_ref: null,
+      error: 'private source image',
+    }],
+    service_inventory: [{
+      name: 'api',
+      role: 'application',
+      source: 'helm',
+      source_file: '.sealos/deployment-source/rendered.yaml',
+      resource_kind: 'Deployment',
+      workload_name: 'api',
+      container_name: 'api',
+      container_role: 'main',
+      declared_image: 'ghcr.io/acme/api:latest',
+      build: null,
+      image_status: 'unavailable',
+      image_ref: null,
+      digest: null,
+    }],
+  }))
+
+  assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
 test('accepts a structured per-service build plan with arg names only', () => {

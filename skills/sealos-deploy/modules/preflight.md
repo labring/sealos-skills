@@ -1,11 +1,15 @@
 # Phase 0: Preflight
 
-Detect the user's environment, record what's available, guide them to fix what's missing.
+Detect the user's environment, install missing lifecycle dependencies, and
+confirm the project source plus Sealos auth/workspace before analysis begins.
 
-**Hard rule:** Every run must start with a preflight capability scan before touching the project.
+**Hard rule:** Every run must complete the preflight capability scan before
+Phase 1 or any `.sealos/` project artifact is created.
 That means:
 - Detect tool availability first
 - Detect auth/workspace state first
+- Resolve the project read-only and identify whether it selects Compose, Helm,
+  Kubernetes, or the implicit single-service route
 - Record which later phases are currently blocked
 
 Preflight is responsible for early detection, but only some failures are immediate stop conditions.
@@ -13,17 +17,24 @@ Do not treat Docker, Node.js 18+, `gh`, or `buildx` as universal entry requireme
 
 ## Tool Install Policy
 
-When a missing system tool becomes mandatory for the selected path, do not just
-print commands and stop. Ask directly before installing it:
+Invoking Sealos Deploy authorizes installation and configuration of the
+dependencies required to execute this skill. When a required tool is missing,
+install or upgrade it using the current platform's normal package manager and
+then re-run the exact capability check. Do not add a separate confirmation
+prompt for each dependency.
 
-```text
-Missing <tool>. Install it now? (y/n)
-```
+Do not install a path-dependent tool during the initial capability scan. First
+resolve the project read-only and identify its selected source route:
 
-Do not install a path-dependent tool during the initial capability scan. If the
-user answers `y` after the path requires it, install the tool for the current
-platform, then re-run the corresponding check.
-If the install command needs elevated privileges, package-manager setup, or manual UI interaction, explain that before running it.
+- Compose requires `kompose`.
+- Helm requires Helm 3 or newer.
+- Kubernetes does not require `kompose` or Helm.
+- `implicit-single-service` does not require `kompose` or Helm.
+
+If installation requires a system password, browser authorization, package
+manager bootstrap, or manual UI interaction, explain and complete that platform
+step. If the platform cannot install the dependency or the post-install check
+still fails, stop with the exact unresolved capability.
 
 ## Step 1: Environment Detection
 
@@ -41,13 +52,14 @@ git --version 2>/dev/null
 # Conditional: Node.js 18+ is required for Phase 4 and the complete Phase 6/6.5 path
 node --version 2>/dev/null
 
-# Conditional (required for Phase 5 template generation and validation)
+# Required for Phase 5 template generation and validation
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 if [ -n "$PYTHON_BIN" ]; then
   "$PYTHON_BIN" --version 2>/dev/null
   "$PYTHON_BIN" -c 'import yaml' 2>/dev/null
 fi
 kompose version 2>/dev/null || true
+helm version --short 2>/dev/null || true
 
 # Conditional (required when Phase 4 must build and push to GHCR)
 gh --version 2>/dev/null
@@ -72,6 +84,7 @@ ENV.node      = true/false   (Node.js 18+ is required for Phase 4)
 ENV.python    = true/false
 ENV.pyyaml    = true/false
 ENV.kompose   = true/false
+ENV.helm      = true/false
 ENV.kubectl   = true/false   (required before Phase 6 and for all updates)
 ENV.gh        = true/false   (required for fixed GHCR push when Phase 4 runs)
 ENV.curl      = true/false
@@ -90,12 +103,11 @@ docker info 2>/dev/null
 ```
 
 - Not installed → guide by platform:
-  - Record the Phase 4 warning. If Phase 4 later becomes necessary, ask:
-    `Missing Docker. Install it now? (y/n)`
-  - If user answers `y`:
-    - macOS: run `brew install --cask docker`, then tell the user to open Docker Desktop
+  - Record the Phase 4 warning. If Phase 4 later becomes necessary:
+    - macOS: run `brew install --cask docker`, then open Docker Desktop
     - Linux: run `curl -fsSL https://get.docker.com | sh`
-- Installed but daemon not running → "Please start Docker Desktop (macOS) or `sudo systemctl start docker` (Linux)."
+- Installed but daemon not running → start Docker Desktop on macOS or run
+  `sudo systemctl start docker` on Linux, then re-run `docker info`.
 
 **git** — if missing:
 - `brew install git` (macOS) or `sudo apt install git` (Linux)
@@ -112,11 +124,9 @@ docker info 2>/dev/null
   is already available locally.
 - Missing `gh` is **not** a universal preflight failure
 - `gh` becomes mandatory only when Phase 2/3 determines that Phase 4 must build and push an image
-- If Phase 4 is required and `gh` is missing, ask:
-  - `Missing gh. Install it now? (y/n)`
-  - If user answers `y`:
-    - macOS: run `brew install gh`
-    - Debian/Ubuntu: run `sudo apt install gh`
+- If Phase 4 is required and `gh` is missing:
+  - macOS: run `brew install gh`
+  - Debian/Ubuntu: run `sudo apt install gh`
 - Do not trigger `gh auth login` during environment detection
 - Only trigger `gh auth login` later if the run actually reaches Phase 4
 - There is no registry selection prompt or alternate push destination
@@ -134,17 +144,17 @@ docker info 2>/dev/null
   - `sealos-auth.mjs` → AI runs curl to exchange token for kubeconfig (workspace list/switch not available in fallback mode)
 - There is no direct-Docker fallback for Phase 4; stop before building when
   Node.js 18+ is unavailable.
-- When Phase 4 is required and Node.js is missing or older than 18, ask before
-  installing or upgrading this system tool, then re-run the version check.
+- When Phase 4 is required and Node.js is missing or older than 18, install or
+  upgrade it for the current platform, then re-run the version check.
 - A complete deployment must have Node.js 18+ before Phase 6 creates resources,
   because Phase 6.5 uses the Node runtime for live footprint, networking,
   logging, and smoke verification. `jq` can support the documented curl
   transport fallback only when Node.js is temporarily unavailable for the
   request itself; jq-only runs must stop before creating resources rather than
   leave an unverified deployment.
-- If Node.js 18+ is unavailable when Phase 6 is reached, ask before installing
-  or upgrading it, then re-run the version check. Do not submit a deployment
-  with only the jq transport path available.
+- If Node.js 18+ is unavailable when Phase 6 is reached, install or upgrade it,
+  then re-run the version check. Do not submit a deployment with only the jq
+  transport path available.
 
 **Template catalog cache:**
 - Phase 1.5 uses `labring-actions/templates` branch `kb-0.9` by default
@@ -165,22 +175,25 @@ docker info 2>/dev/null
 **Python:**
 - Python with PyYAML is required when the run reaches Phase 5.
 - Missing Python or PyYAML is a conditional blocker, not permission to replace the deterministic quality gate with an AI-only self-check.
-- Do not install Python or PyYAML automatically from this workflow; report the missing capability and stop before template generation.
+- If Python is missing, install Python 3.8 or newer for the current platform.
+- If `import yaml` fails, install PyYAML into the selected Python environment.
+- Re-run both the Python version and `import yaml` checks before Phase 5.
 
-**Compose conversion tools:**
+**Deployment-source conversion tools:**
 - `kompose` is required when a supported root Compose file must be converted.
-- Record missing tools during preflight, but stop only if Phase 5 reaches the matching path.
-- Do not install these tools automatically from this workflow.
+- Helm 3 or newer is required when a selected Chart must be rendered.
+- Record both tools during the initial scan, but install only the tool selected
+  by the resolved project source. Do not require `kompose` for Helm/Kubernetes
+  projects and do not require Helm for Compose/Kubernetes projects.
+- Re-run `kompose version` or `helm version --short` after installation.
 
 **kubectl (required before deployment and for in-place updates):**
 - Needed for the mandatory Phase 6.5 live-workspace acceptance pass, the
   Template API fallback, and standard-path `kubectl set image` / rollout
   operations
-- If `kubectl` is missing, ask:
-  - `Missing kubectl. Install it now? (y/n)`
-  - If user answers `y`:
-    - macOS: run `brew install kubectl`
-    - Debian/Ubuntu: run `sudo apt install kubectl`
+- If `kubectl` is missing:
+  - macOS: run `brew install kubectl`
+  - Debian/Ubuntu: run `sudo apt install kubectl`
 - If `kubectl` is available outside PATH, use the absolute path for all kubectl commands
 - If it remains unavailable, read-only analysis may continue, but stop before
   Phase 6 creates any cloud resources
@@ -235,8 +248,11 @@ transport fallback; it does not block the preferred Node request path.
 Detect these now and report them early, but do **not** stop before the run reaches Phase 5:
 - Python or PyYAML missing
 - supported root Compose file present and `kompose` missing
+- selected Helm Chart present and Helm missing or older than version 3
 
-These findings become hard blockers when Phase 5 reaches the matching generation or validation path.
+After the project source is resolved, install the matching missing dependency
+and re-run its check. These findings become hard blockers only when automatic
+installation or the post-install check fails.
 
 ### 2.5 Early Reporting Rule
 
@@ -250,7 +266,8 @@ At the end of preflight, explicitly tell the user:
 Example:
 - "Docker is not ready. This will block Phase 4 local build, but we can still continue to detect whether an existing image can be reused."
 - "`kubectl` is missing. Project analysis can continue, but no cloud resources will be created until Phase 6.5 runtime verification is available."
-- "Python with PyYAML is missing. Earlier analysis can continue, but Phase 5 template generation and validation will stop."
+- "Python with PyYAML is missing. Phase 0 will install it and re-run the capability check before Phase 5."
+- "This project selects a Helm Chart. Helm is missing, so Phase 0 will install it and verify `helm version` before Phase 2 renders the Chart."
 - "The template catalog cannot be verified from the official remote, so Phase 1.5 may report cached matches but will continue to Phase 2."
 
 ## Step 3: Project Context
@@ -307,7 +324,37 @@ PROJECT.branch      = current branch
 
 If `PROJECT.github_url` exists, parse `owner` and `repo` for Phase 2 image detection.
 
-### 2.3 Read README
+### 2.3 Select Path-Dependent Dependencies
+
+Perform a read-only source shape check without writing `.sealos/` or rendering
+the source:
+
+1. If `.sealos/config.json` declares `deployment_source.kind/path`, validate
+   that the path stays inside the project and select that source.
+2. Otherwise select the first supported root Compose filename in canonical
+   order: `compose.yaml`, `compose.yml`, `docker-compose.yaml`,
+   `docker-compose.yml`.
+3. Otherwise look for one parent Helm Chart containing `Chart.yaml` and
+   `templates/`. A dependency Chart under `<parent>/charts/` is part of its
+   parent and is not a second candidate.
+4. Otherwise look for one Kubernetes manifest root/file in the supported
+   project locations.
+5. Otherwise select `implicit-single-service`.
+
+Independent multiple Helm Charts or multiple Kubernetes roots require a
+`deployment_source` config selection. Do not guess between them.
+
+Install and verify only the selected path's dependency:
+
+- Compose: `kompose version`
+- Helm: `helm version --short` and major version 3 or newer
+- Kubernetes/implicit: no extra source adapter CLI
+
+Python 3.8+ with PyYAML remains required for every standard Phase 5 route.
+This preflight check selects dependencies only; Phase 2 performs the
+authoritative source hash, Helm render, resource inventory, and image discovery.
+
+### 2.4 Read README
 
 README is the single most important file for understanding a project. Read it now.
 

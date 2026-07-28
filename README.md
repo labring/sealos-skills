@@ -231,7 +231,7 @@ The plugin and `skills.sh` pack expose the same skill source:
 - `sealos-app-builder` — build Sealos Desktop apps with SDK integration
 - `cloud-native-readiness` — assess deployment readiness
 - `dockerfile-skill` — generate production-ready Dockerfiles
-- `docker-to-sealos` — convert Docker Compose services into Sealos templates
+- `docker-to-sealos` — convert Docker Compose, Helm-rendered, or native Kubernetes services into Sealos templates
 
 ## Repository
 

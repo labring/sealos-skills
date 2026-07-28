@@ -6,10 +6,11 @@
  * Only images explicitly declared by the project are eligible. Declarations
  * are collected in this order:
  *
- *   README > CI workflows > Compose
+ *   README > CI workflows > Compose > rendered Helm > Kubernetes manifests
  *
  * Every parseable declaration is retained in the image inventory, including
- * database and infrastructure images. Registry names inferred from the GitHub
+ * database and infrastructure images. The selected deployment source also
+ * determines the authoritative service/workload topology. Registry names inferred from the GitHub
  * owner/repository are intentionally never queried. A selected primary image
  * is returned as an immutable digest reference while preserving the exact
  * declared tag used for resolution. CPU architecture is not pre-screened;
@@ -25,11 +26,14 @@ import fs from 'fs'
 import path from 'path'
 import { execFileSync } from 'child_process'
 import { pathToFileURL } from 'url'
+import { inspectDeploymentSource } from './inspect-deployment-source.mjs'
 
 const SOURCE_PRIORITY = Object.freeze({
   readme: 0,
   ci: 1,
   compose: 2,
+  helm: 3,
+  kubernetes: 4,
 })
 
 const DATABASE_NAMES = new Set([
@@ -595,6 +599,194 @@ function extractWorkflowDeclarations (workDir, context) {
   return declarations
 }
 
+function unquoteYamlScalar (raw) {
+  const value = stripYamlComment(String(raw || '')).trim()
+  if (!value) return ''
+  return stripQuotes(value)
+}
+
+function workflowBuildArgNames (content) {
+  const names = new Set()
+  const lines = content.split(/\r?\n/)
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const field = lines[index].match(/^(\s*)build-args:\s*(.*)$/)
+    if (!field) continue
+    const fieldIndent = field[1].length
+    if (field[2] && !['|', '>'].includes(field[2].trim())) {
+      for (const item of splitInlineYamlItems(field[2])) {
+        const name = buildArgName(item)
+        if (name) names.add(name)
+      }
+      continue
+    }
+
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const indentation = lines[next].match(/^\s*/)[0].length
+      if (lines[next].trim() && indentation <= fieldIndent) break
+      const name = buildArgName(lines[next])
+      if (name) names.add(name)
+    }
+  }
+
+  return [...names].sort()
+}
+
+function nearestYamlParent (lines, index, childIndent, key) {
+  for (let previous = index - 1; previous >= 0; previous -= 1) {
+    const content = stripYamlComment(lines[previous])
+    if (!content) continue
+    const indentation = lines[previous].match(/^\s*/)[0].length
+    if (indentation >= childIndent) continue
+    const mapping = parseYamlMapping(content)
+    if (mapping?.key === key) return { index: previous, indent: indentation }
+    childIndent = indentation
+  }
+  return null
+}
+
+function extractMatrixBuildPlans (content, sourceFile, workDir) {
+  const plans = []
+  const lines = content.split(/\r?\n/)
+  const sharedArgs = workflowBuildArgNames(content)
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const includeMatch = lines[index].match(/^(\s*)include:\s*$/)
+    if (!includeMatch) continue
+    const includeIndent = includeMatch[1].length
+    if (!nearestYamlParent(lines, index, includeIndent, 'matrix')) continue
+
+    let current = null
+    let itemIndent = null
+    const flush = () => {
+      if (!current) return
+      const component = current.component || current.service || current.name || ''
+      const image = current.image || ''
+      const context = current.context || '.'
+      const dockerfile = current.dockerfile || current.file || 'Dockerfile'
+      if (!component && !image) {
+        current = null
+        return
+      }
+      const build = normalizeWorkflowBuildPlan(finalizeBuildPlan({
+        context,
+        dockerfile,
+        target: current.target || null,
+        args: sharedArgs.slice(),
+        origin: null,
+      }, path.join(workDir, 'compose.yaml')), workDir)
+      plans.push({
+        component,
+        image,
+        build,
+        source_file: sourceFile,
+      })
+      current = null
+    }
+
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const contentLine = stripYamlComment(lines[next])
+      const indentation = lines[next].match(/^\s*/)[0].length
+      if (contentLine && indentation <= includeIndent) break
+      if (!contentLine) continue
+
+      const item = contentLine.match(/^\s*-\s*([A-Za-z0-9_.-]+):\s*(.*)$/)
+      if (item) {
+        if (itemIndent === null) itemIndent = indentation
+        if (indentation === itemIndent) {
+          flush()
+          current = {}
+          current[item[1]] = unquoteYamlScalar(item[2])
+          continue
+        }
+      }
+
+      if (!current || itemIndent === null || indentation <= itemIndent) continue
+      const mapping = parseYamlMapping(contentLine)
+      if (mapping) current[mapping.key] = unquoteYamlScalar(mapping.value)
+    }
+    flush()
+  }
+
+  return plans
+}
+
+function extractWorkflowBuildPlans (workDir) {
+  const workflowDir = path.join(workDir, '.github', 'workflows')
+  if (!fs.existsSync(workflowDir)) return []
+
+  let files
+  try {
+    files = fs.readdirSync(workflowDir)
+      .filter(file => /\.ya?ml$/i.test(file))
+      .sort()
+  } catch {
+    return []
+  }
+
+  return files.flatMap(file => {
+    const filePath = path.join(workflowDir, file)
+    return extractMatrixBuildPlans(
+      fs.readFileSync(filePath, 'utf8'),
+      path.relative(workDir, filePath),
+      workDir,
+    )
+  })
+}
+
+function identityToken (value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function imageNameToken (value) {
+  const parsed = parseImageRef(value)
+  if (parsed) return identityToken(imageBasename(parsed))
+  const withoutSelector = String(value || '').split('@', 1)[0].replace(/:[^/]+$/, '')
+  return identityToken(withoutSelector.split('/').pop())
+}
+
+function buildPlanMatchRank (service, plan) {
+  const serviceImage = imageNameToken(service.declared_image)
+  const planImage = imageNameToken(plan.image)
+  if (serviceImage && planImage && serviceImage === planImage) return 0
+
+  const serviceName = identityToken(service.name)
+  const workloadName = identityToken(service.workload_name)
+  const component = identityToken(plan.component)
+  if (component && (component === serviceName || component === workloadName)) return 1
+  if (
+    component &&
+    (
+      serviceName.endsWith(component) ||
+      serviceName.startsWith(component) ||
+      workloadName.endsWith(component) ||
+      workloadName.startsWith(component)
+    )
+  ) return 2
+  return null
+}
+
+function attachWorkflowBuildPlans (services, plans) {
+  return services.map(service => {
+    if (service.build || service.role === 'database') return service
+    const candidates = plans
+      .map(plan => ({ plan, rank: buildPlanMatchRank(service, plan) }))
+      .filter(candidate => candidate.rank !== null)
+      .sort((left, right) => left.rank - right.rank)
+    if (candidates.length === 0) return service
+    const bestRank = candidates[0].rank
+    const best = candidates.filter(candidate => candidate.rank === bestRank)
+    if (best.length !== 1) return service
+    return {
+      ...service,
+      build: best[0].plan.build,
+      image_status: service.image_status === 'verified'
+        ? 'verified'
+        : 'build_required',
+    }
+  })
+}
+
 function findComposePath (workDir) {
   return ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml']
     .map(name => path.join(workDir, name))
@@ -778,6 +970,58 @@ function finalizeBuildPlan (build, composePath) {
     // Phase 3 will generate or minimally repair a missing local Dockerfile.
   }
   return build
+}
+
+function normalizeWorkflowBuildPlan (build, workDir) {
+  if (!build) return build
+  const contextValue = String(build.context || '.')
+  const dockerfileValue = String(build.dockerfile || 'Dockerfile')
+  if (
+    contextValue.includes('$') ||
+    dockerfileValue.includes('$') ||
+    /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|git@)/.test(contextValue)
+  ) {
+    return build
+  }
+
+  const contextPath = path.resolve(workDir, contextValue)
+  const rootDockerfilePath = path.isAbsolute(dockerfileValue)
+    ? path.normalize(dockerfileValue)
+    : path.resolve(workDir, dockerfileValue)
+  const contextDockerfilePath = path.isAbsolute(dockerfileValue)
+    ? path.normalize(dockerfileValue)
+    : path.resolve(contextPath, dockerfileValue)
+
+  let dockerfilePath = null
+  // docker/build-push-action accepts a repository-root Dockerfile path even
+  // when `context` points at a subdirectory. build-push.mjs consumes the
+  // normalized path relative to that context, so resolve the file that
+  // actually exists in the checkout before handing the plan to Phase 3/4.
+  for (const candidate of [rootDockerfilePath, contextDockerfilePath]) {
+    try {
+      if (fs.statSync(candidate).isFile()) {
+        dockerfilePath = candidate
+        break
+      }
+    } catch {
+      // Try the next interpretation.
+    }
+  }
+  if (!dockerfilePath) return build
+
+  try {
+    if (!fs.statSync(contextPath).isDirectory()) return build
+  } catch {
+    return build
+  }
+
+  const relativeDockerfile = path.relative(contextPath, dockerfilePath)
+  return {
+    ...build,
+    context: (path.relative(workDir, contextPath) || '.').split(path.sep).join('/'),
+    dockerfile: (relativeDockerfile || path.basename(dockerfilePath)).split(path.sep).join('/'),
+    origin: build.origin || 'existing',
+  }
 }
 
 function implicitProjectService (workDir, githubUrl = null) {
@@ -1036,10 +1280,48 @@ function collectProjectEvidence (workDir, options = {}) {
   const readme = extractReadmeDeclarations(workDir)
   const ci = extractWorkflowDeclarations(workDir, context)
   const compose = extractComposeEvidence(workDir)
+  const deployment = inspectDeploymentSource(workDir, {
+    helmPath: options.helmPath,
+    pythonPath: options.pythonPath,
+    writeRendered: options.writeRenderedSource !== false,
+  })
+  const topologyDeclarations = []
+  const topologyServices = deployment.deployment_source.kind === 'compose'
+    ? compose.services
+    : deployment.services.map(service => {
+        if (!service.declared_image) return service
+        const parsed = parseImageRef(service.declared_image)
+        return {
+          ...service,
+          role: parsed
+            ? classifyImageRole(parsed, service.workload_name || service.name)
+            : service.role,
+        }
+      })
+
+  for (const image of deployment.images) {
+    const parsed = parseImageRef(image.image)
+    const service = topologyServices.find(item => item.name === image.service)
+    addDeclaration(topologyDeclarations, image.image, {
+      source: deployment.deployment_source.kind,
+      sourceFile: deployment.deployment_source.rendered_path || deployment.deployment_source.path,
+      service: image.service,
+      role: parsed
+        ? classifyImageRole(parsed, service?.workload_name || image.workload_name)
+        : 'application',
+      selectionRank: 3,
+      retainUnresolved: true,
+    })
+  }
+  const services = attachWorkflowBuildPlans(
+    topologyServices,
+    extractWorkflowBuildPlans(workDir),
+  )
 
   return {
-    declarations: [...readme, ...ci, ...compose.declarations],
-    services: compose.services,
+    declarations: [...readme, ...ci, ...compose.declarations, ...topologyDeclarations],
+    services,
+    deploymentSource: deployment.deployment_source,
   }
 }
 
@@ -1203,7 +1485,7 @@ function attachServiceResults (services, inventory) {
   const byService = new Map()
   for (const image of inventory) {
     for (const source of image.sources) {
-      if (source.source === 'compose' && source.service) {
+      if (source.service) {
         byService.set(source.service, image)
       }
     }
@@ -1261,7 +1543,10 @@ async function detectExistingImages (workDir, options = {}) {
 
   const imageInventory = inventory.map(entry => entry.public)
   const serviceInventory = attachServiceResults(evidence.services, imageInventory)
-  const fallbackServiceInventory = serviceInventory.length === 0
+  const fallbackServiceInventory = (
+    serviceInventory.length === 0 &&
+    evidence.deploymentSource.kind === 'implicit-single-service'
+  )
     ? [implicitProjectService(workDir, options.githubUrl)]
     : serviceInventory
   // `role` is descriptive topology evidence only. It must not disqualify a
@@ -1277,6 +1562,7 @@ async function detectExistingImages (workDir, options = {}) {
       reason: groups.length === 0
         ? 'no_explicit_image_declarations'
         : 'no_resolved_image',
+      deployment_source: evidence.deploymentSource,
       image_inventory: imageInventory,
       service_inventory: fallbackServiceInventory,
     }
@@ -1293,6 +1579,7 @@ async function detectExistingImages (workDir, options = {}) {
     return {
       found: false,
       reason: 'ambiguous_primary_images',
+      deployment_source: evidence.deploymentSource,
       image_inventory: imageInventory,
       service_inventory: fallbackServiceInventory,
     }
@@ -1302,6 +1589,19 @@ async function detectExistingImages (workDir, options = {}) {
   const selectedSource = selected.sources
     .slice()
     .sort((left, right) => SOURCE_PRIORITY[left.source] - SOURCE_PRIORITY[right.source])[0]
+  const selectedServiceInventory = (
+    evidence.deploymentSource.kind === 'implicit-single-service' &&
+    fallbackServiceInventory.length === 1 &&
+    serviceInventory.length === 0
+  )
+    ? [{
+        ...fallbackServiceInventory[0],
+        declared_image: selected.declared_ref,
+        image_status: 'verified',
+        image_ref: selected.image_ref,
+        digest: selected.digest,
+      }]
+    : serviceInventory
 
   return {
     found: true,
@@ -1311,8 +1611,9 @@ async function detectExistingImages (workDir, options = {}) {
     digest: selected.digest,
     image_ref: selected.image_ref,
     declared_ref: selectedSource.declared_ref,
+    deployment_source: evidence.deploymentSource,
     image_inventory: imageInventory,
-    service_inventory: serviceInventory,
+    service_inventory: selectedServiceInventory,
   }
 }
 
@@ -1366,6 +1667,8 @@ export {
   classifyImageRole,
   collectProjectEvidence,
   detectExistingImages,
+  extractWorkflowBuildPlans,
+  normalizeWorkflowBuildPlan,
   parseImageRef,
   resolveRegistryImage,
 }
