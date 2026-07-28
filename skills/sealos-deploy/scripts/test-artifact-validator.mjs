@@ -201,6 +201,48 @@ test('accepts the Phase 1 artifact before image discovery', () => {
   assert.equal(result.valid, true, JSON.stringify(result.errors))
 })
 
+test('accepts static project facts outside the deterministic detector vocabulary', () => {
+  const result = validateArtifactData('analysis', analysis({
+    language: 'html',
+    all_languages: ['html', 'css', 'javascript'],
+    framework: 'nginx',
+    package_manager: null,
+    port: 3000,
+    runtime_version: {},
+  }))
+
+  assert.equal(result.valid, true, JSON.stringify(result.errors))
+})
+
+test('accepts unknown Phase 1 descriptive facts without fabricated defaults', () => {
+  const result = validateArtifactData('analysis', analysis({
+    language: null,
+    all_languages: [],
+    framework: null,
+    package_manager: null,
+    port: null,
+    runtime_version: null,
+  }))
+
+  assert.equal(result.valid, true, JSON.stringify(result.errors))
+})
+
+test('rejects structurally invalid Phase 1 descriptive facts', () => {
+  const invalidOverrides = [
+    { language: '' },
+    { all_languages: ['html', 42] },
+    { framework: false },
+    { package_manager: '' },
+    { port: 0 },
+    { runtime_version: '22' },
+  ]
+
+  for (const overrides of invalidOverrides) {
+    const result = validateArtifactData('analysis', analysis(overrides))
+    assert.equal(result.valid, false, JSON.stringify({ overrides, errors: result.errors }))
+  }
+})
+
 test('accepts the Phase 1 score bonus contract', () => {
   const result = validateArtifactData('analysis', analysis({
     score: {

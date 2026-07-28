@@ -332,7 +332,11 @@ Output: `{ "score": N, "raw_score": N, "bonus": N, "verdict": "...", "dimensions
 **If Node.js not available (fallback):**
 Perform the scoring yourself by reading project files and applying these rules:
 
-1. Detect language: `package.json` → Node.js, `go.mod` → Go, `requirements.txt` → Python, `pom.xml` → Java, `Cargo.toml` → Rust
+1. Detect stack facts from project evidence. Examples include `package.json` →
+   Node.js, `go.mod` → Go, `requirements.txt` → Python, `pom.xml` → Java,
+   `Cargo.toml` → Rust, and static HTML/CSS/JavaScript files → their actual
+   languages. These examples are detector coverage, not a supported-language
+   allowlist.
 2. Detect framework: read dependency files for known frameworks (Next.js, Express, FastAPI, Gin, Spring Boot, etc.)
 3. Check HTTP server: does the project listen on a port?
 4. Check state: external DB (PostgreSQL/MySQL/MongoDB) vs local state (SQLite)?
@@ -360,6 +364,11 @@ Use structured signals from Phase 1.1 score-model output directly:
 - `signals.runtime_version` — runtime version with source (e.g., `{ node: "22", source: "engines" }`)
 - `signals.is_monorepo`, `signals.has_docker`, `signals.has_env_example`
 
+The deterministic detector intentionally covers only common stacks. Its known
+values are not a Sealos support list. Supplement its output with direct project
+evidence, preserve unfamiliar non-empty names as written, and leave facts
+unknown when the repository does not establish them.
+
 Focus AI effort on what the script cannot detect: env_vars classification,
 complexity_tier assessment, and port override from source code (if `port_source` is "unknown").
 
@@ -376,7 +385,9 @@ If the score is borderline (4-6), also read:
 Record uncertain workload types, missing entry points, and other risks as analysis
 facts. Do not turn those signals into another stop decision later in Phase 1.
 
-Record for later phases: `language`, `framework`, `ports`, `env_vars`, `databases`, `has_dockerfile`
+Record only known facts for later phases: `language`, `framework`, `port`,
+`env_vars`, `databases`, and `has_dockerfile`. Do not map static or unfamiliar
+projects to a known stack merely to satisfy the analysis schema.
 
 **Env var classification** (for Phase 5.5 interactive configuration):
 When recording `env_vars`, also classify each one:
@@ -414,13 +425,13 @@ under `score.dimensions`:
     "verdict": "<verdict>",
     "dimensions": {}
   },
-  "language": "<signals.primary_language>",
-  "all_languages": ["<all detected languages from signals.language>"],
-  "framework": "<detected framework>",
-  "package_manager": "<npm|yarn|pnpm|bun|pip|go|cargo|maven|gradle>",
-  "port": "<primary port>",
+  "language": "<detected language or null>",
+  "all_languages": ["<all detected language names>"],
+  "framework": "<detected framework or null>",
+  "package_manager": "<detected package manager or null>",
+  "port": "<detected primary port or null>",
   "databases": ["<detected database types>"],
-  "runtime_version": { "<language>": "<major version>", "source": "<detection source>" },
+  "runtime_version": { "<runtime>": "<version>", "source": "<evidence source>" },
   "env_vars": {},
   "has_dockerfile": false,
   "complexity_tier": "<L1|L2|L3>",
@@ -429,6 +440,15 @@ under `score.dimensions`:
   "service_inventory": []
 }
 ```
+
+These fields describe evidence; they do not authorize or reject deployment.
+`language`, `framework`, `package_manager`, and `port` may be `null`;
+`all_languages` may be empty; and `runtime_version` may be `{}` or `null`.
+Language and package-manager strings are open values, not enums. For example, a
+static Nginx project may validly record `language: "html"`,
+`all_languages: ["html", "css", "javascript"]`, `framework: "nginx"`,
+`package_manager: null`, and `runtime_version: {}`. Never invent
+`node`/`npm`/`22` or another familiar stack to make an artifact validate.
 
 If `.sealos/config.json` exists, apply user overrides: e.g., if `config.json` has
 `"port": 8080`, use that instead of the auto-detected value; a
@@ -818,6 +838,11 @@ entrypoint, and system dependencies inside that service's own context. Do not
 duplicate a fixed template allowlist here; select from dockerfile-skill's
 maintained templates. Set `origin: "generated"` after producing the minimal
 usable Dockerfile.
+
+Missing or unfamiliar Phase 1 stack metadata is not an earlier blocker. Only
+when this service actually needs a generated Dockerfile may Phase 3 stop after
+its service-local re-check still cannot establish a concrete build and runtime
+contract. Existing Dockerfiles remain usable without known language metadata.
 
 The dockerfile-skill integration is deliberately constrained. It may create or
 minimally repair the selected service's Dockerfile, a context-aware

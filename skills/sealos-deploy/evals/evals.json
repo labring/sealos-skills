@@ -474,6 +474,18 @@
         {"name": "accounts-for-every-source-resource", "description": "Writes a source resource mapping and topology evidence in which every rendered resource is preserved, transformed, or explicitly filtered exactly once"},
         {"name": "validates-template-and-topology", "description": "Runs the complete docker-to-sealos quality gate against both the canonical template and topology evidence before deployment"}
       ]
+    },
+    {
+      "id": 37,
+      "prompt": "Run Phase 1 for https://github.com/fanux/sealos-brain-homepage, a static HTML/CSS/JavaScript project served by Nginx. It has no package manager or language runtime version, and its existing Dockerfile exposes the application on port 3000. Continue the deployment lifecycle.",
+      "expected_output": "Phase 1 records the static project facts without coercing them into a known backend stack: language html, all_languages containing html/css/javascript, framework nginx, package_manager null, port 3000, and an empty or null runtime_version. The analysis artifact validates and the lifecycle continues to Phase 1.5",
+      "files": [],
+      "assertions": [
+        {"name": "accepts-open-language-values", "description": "Treats html, css, and javascript as valid descriptive language facts rather than rejecting them against the deterministic detector vocabulary"},
+        {"name": "permits-absent-package-runtime", "description": "Keeps package_manager null and runtime_version empty or null instead of inventing node, npm, or a runtime version"},
+        {"name": "preserves-existing-container-path", "description": "Does not require known language metadata before preserving the existing Dockerfile path"},
+        {"name": "continues-after-valid-analysis", "description": "Validates analysis.json and advances to Phase 1.5 rather than stopping the deployment in Phase 1"}
+      ]
     }
   ]
 }

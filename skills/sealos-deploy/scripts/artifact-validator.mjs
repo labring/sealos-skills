@@ -287,10 +287,6 @@ function supportsLinuxAmd64(platforms) {
 }
 
 function validateAnalysisSemantics(data, errors) {
-  if (!data.all_languages.includes(data.language)) {
-    pushError(errors, '$.all_languages', 'must include the primary language')
-  }
-
   const dimensionTotal = Object.values(data.score.dimensions).reduce((sum, value) => sum + value, 0)
   const rawScore = data.score.raw_score ?? dimensionTotal
   const bonus = data.score.bonus ?? 0
@@ -304,10 +300,6 @@ function validateAnalysisSemantics(data, errors) {
       '$.score.total',
       `must equal min(12, score.raw_score + score.bonus) (${expectedTotal})`,
     )
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(data.runtime_version, data.language)) {
-    pushError(errors, '$.runtime_version', `must include a version field for primary language ${data.language}`)
   }
 
   if (typeof data.image_ref === 'string' && !hasImageSelector(data.image_ref)) {
