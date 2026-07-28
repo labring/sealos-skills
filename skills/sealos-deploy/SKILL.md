@@ -25,6 +25,11 @@ Deploy cloud workloads to Sealos Cloud. Phase 1 begins with an internal AI
 judgment that has no separate artifact or report: obvious impossibility stops,
 everything else proceeds into readiness scoring.
 
+After Phase 1 continues, a failed image, Dockerfile, or build attempt rejects
+only that route, not the project. When buildable source remains, follow the
+bounded Phase 4 → Phase 3 → Phase 4 repair loop before stopping or moving to
+another project.
+
 ## kubectl Safety Rules (all phases)
 
 All kubectl commands MUST use the Sealos kubeconfig:
@@ -225,7 +230,7 @@ Paths used in pipeline.md follow the pattern:
 | 1.5 — Official Template | A unique, source-aligned official `spec.gitRepo` match is reused verbatim and jumps to Phase 6; otherwise continue | No safe unique exact match → Phase 2 |
 | 2 — Discover | Select the Compose, Helm, Kubernetes, or implicit deployment source; inventory all project-declared images and the complete service topology; resolve every reusable selector to an immutable digest without pre-screening third-party image architecture | Every final container workload covered → Phase 5 |
 | 3 — Prepare Build | Preserve or minimally prepare the exact context, Dockerfile, target, and build-argument names for each final container workload still needing a build; use the implicit application service only when no explicit topology exists; do not build here | No final container workload needs a build |
-| 4 — Build & Push | Build each missing final container workload for `linux/amd64` from its Phase 3 plan, push it to the lower-case current GitHub account namespace on GHCR, and record the Buildx digest plus pull-access handoff | No final container workload needs a build |
+| 4 — Build & Push | Build each missing final container workload for `linux/amd64` from its Phase 3 plan, route build-plan failures back to Phase 3, push successful results to the lower-case current GitHub account namespace on GHCR, and record the Buildx digest plus pull-access handoff | No final container workload needs a build |
 | 5 — Template | Route the selected deployment source through its deterministic adapter, preserve complete topology, and generate the Sealos application template | — |
 | 5.5 — Configure | Validate the generated template, resolve its configuration, summarize the deploy, and obtain confirmation | Official-template fast path |
 | 6 — Deploy | Resolve any official-template inputs, dry-run, then deploy to Sealos Cloud | — |
@@ -264,6 +269,7 @@ Input (GitHub URL / local path)
                   [Phase 3] Build plan per service  │      │
                     ▼                               │      │
                   [Phase 4] Build, push, digest     │      │
+                    │ build-plan failure → Phase 3  │      │
                     └───────────────────────────────┘      │
                               ▼                            │
                   [Phase 5] Generate Template              │
@@ -280,4 +286,4 @@ Input (GitHub URL / local path)
 Done — app deployed ✓
 ```
 
-**Execution rule:** Phase 1 must never start while Phase 0 still has unresolved entry blockers. Docker, Node.js 18+, `gh`, builder, and GHCR failures must be reported early, but only become hard blockers if the run later requires Phase 4 local build/push.
+**Execution rule:** Phase 1 must never start while Phase 0 still has unresolved entry blockers. Docker, Node.js 18+, `gh`, builder, and GHCR failures must be reported early, but only become hard blockers if the run later requires Phase 4 local build/push. An inaccessible declared image or Dockerfile base image is not by itself a project-level blocker while a trustworthy source build remains.

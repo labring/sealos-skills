@@ -9,6 +9,7 @@ import test from 'node:test'
 import {
   buildAndPush,
   buildxArgs,
+  classifyBuildFailure,
   ensureGhcrRegistry,
   getDateTag,
   loginGhcr,
@@ -25,6 +26,22 @@ const anonymousPull = async () => ({
   pullAccess: 'anonymous',
   visibility: 'public',
   status: 200,
+})
+
+test('routes inaccessible source images to Phase 3 and destination push failures to Phase 4', () => {
+  const remoteImage = 'ghcr.io/current-user/web:build'
+
+  assert.match(
+    classifyBuildFailure(
+      'failed to resolve source metadata for ghcr.io/other/private-base:latest: 403 Forbidden',
+      remoteImage,
+    ),
+    /^BUILD_PLAN_FAILURE:/,
+  )
+  assert.match(
+    classifyBuildFailure(`failed to push ${remoteImage}: 403 Forbidden`, remoteImage),
+    /^PHASE4_EXECUTION_FAILURE:/,
+  )
 })
 
 function makeWorkDir () {

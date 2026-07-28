@@ -575,8 +575,10 @@ It is an inventory pass, not a first-match search.
 
 Use only project-declared image evidence, in this order:
 
-1. **README** — explicit `docker pull`, `docker run`, registry references, or
-   documented image names.
+1. **README** — explicit `docker pull`, remote `docker run`, registry
+   references, or documented published image names. A tag created by
+   `docker build -t` and then used by `docker run` is local build evidence, not
+   a published image.
 2. **CI workflows** — image destinations used by publish or push jobs.
 3. **Compose** — every service `image:` declaration, together with every
    service that has only `build:`.
@@ -818,6 +820,15 @@ a concrete build failure attributable to it. Make the smallest targeted
 change, set `origin: "repaired"`, and leave unrelated stages, services, and
 application configuration untouched.
 
+A Phase 4 failure resolving or pulling a Dockerfile `FROM` or `COPY --from`
+image is such a proven blocker, even when the image is hosted on GHCR and the
+error is 401, 403, `pull access denied`, or `insufficient_scope`. Re-check the
+service's source, build command, runtime entrypoint, file layout, and port. If
+that contract can be established without the inaccessible image, repair or
+reconstruct the Dockerfile with an accessible compatible base and retry the
+same service. Do not blindly replace `FROM`: an opaque base may have supplied
+paths, users, entrypoints, or server configuration.
+
 A linter or quality recommendation is diagnostic evidence, not automatic
 permission to rewrite a working Dockerfile.
 
@@ -967,6 +978,13 @@ Success output returns the immutable image plus the pushed tag:
 `{ "success": true, "service": "<service>", "image": "<repository>@sha256:<digest>", "pushed_image": "<repository>:<tag>", "digest": "sha256:<digest>", "platforms": ["linux/amd64"], "registry": "ghcr", "pull_access": "<anonymous|ghcr_secret_required|indeterminate>", "requires_image_pull_secret": <boolean> }`.
 Failure output remains `{ "success": false, "error": "..." }`.
 
+Do not pre-screen Dockerfile base images with anonymous registry or GitHub
+Packages queries and stop on their 401, 403, or 404 responses. The authenticated
+Buildx invocation is the buildability test. On failure, the helper prefixes the
+existing error string with `BUILD_PLAN_FAILURE:` or
+`PHASE4_EXECUTION_FAILURE:`; this routing signal does not create another
+artifact or schema field.
+
 After the push, the helper checks anonymous pull access using the final digest,
 not the temporary tag, and writes the result to the per-service artifact:
 
@@ -986,15 +1004,17 @@ the same validated per-service artifact.
 
 ### 4.2 Error Handling
 
-Classify the failure before changing project files:
+Classify the failure by the operation that failed, not by the registry name or
+HTTP status:
 
-- A Dockerfile, build context, dependency, `.dockerignore`, target, or declared
-  build-input failure is a **build-plan failure**. Route only that service back
-  to Phase 3.
-- GitHub authentication or scopes, GHCR availability, networking, Docker
-  daemon, Buildx availability, or push transport is a **Phase 4 execution
-  failure**. Repair or retry it in Phase 4; never modify source or a Dockerfile
-  in response.
+- A Dockerfile, build context, dependency, `.dockerignore`, target, declared
+  build input, or inaccessible `FROM`/`COPY --from` image is a **build-plan
+  failure**. Route only that service back to Phase 3. A source-image GHCR
+  401/403 remains in this category.
+- GitHub authentication or scopes for the destination, GHCR availability,
+  networking, Docker daemon, Buildx availability, or pushing
+  `ghcr.io/<current-user>/...` is a **Phase 4 execution failure**. Repair or
+  retry it in Phase 4; never modify source or a Dockerfile in response.
 
 For a build-plan failure:
 1. Read the error output.

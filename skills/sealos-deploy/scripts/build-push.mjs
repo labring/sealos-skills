@@ -162,6 +162,29 @@ function imageRepository (image) {
   return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
 }
 
+function classifyBuildFailure (error, remoteImage = '') {
+  const message = String(error || '').trim() || 'Docker Buildx failed'
+  const normalized = message.toLowerCase()
+  const destination = imageRepository(remoteImage).toLowerCase()
+  const destinationDenied = destination &&
+    normalized.includes(destination) &&
+    /(401|403|denied|forbidden|unauthorized)/.test(normalized)
+  const executionFailure = destinationDenied || [
+    /failed to push/,
+    /push access denied/,
+    /failed commit on ref/,
+    /failed to upload/,
+    /cannot connect to (?:the )?docker daemon/,
+    /is the docker daemon running/,
+    /buildx (?:is )?not (?:installed|available|found)/,
+    /network is unreachable/,
+    /connection refused/,
+    /buildx (?:returned|metadata).*(?:invalid|missing)/,
+  ].some(pattern => pattern.test(normalized))
+
+  return `${executionFailure ? 'PHASE4_EXECUTION_FAILURE' : 'BUILD_PLAN_FAILURE'}: ${message}`
+}
+
 function resolveBuildxMetadata (remoteImage, metadataPath) {
   let metadata
   try {
@@ -708,10 +731,11 @@ async function buildAndPush (workDir, repoName, registryInfo, options = {}) {
     }
     return result
   } catch (e) {
-    const error = redactBuildArgValues(
+    const rawError = redactBuildArgValues(
       e.stderr?.toString() || e.message,
       buildSpec.buildArgs,
     )
+    const error = classifyBuildFailure(rawError, remoteImage)
     writeBuildResult(workDir, buildSpec.serviceKey, {
       outcome: 'failed',
       registry: 'ghcr',
@@ -859,6 +883,7 @@ if (isMain) await main()
 export {
   buildAndPush,
   buildxArgs,
+  classifyBuildFailure,
   ensureGhcrRegistry,
   getDateTag,
   loginGhcr,

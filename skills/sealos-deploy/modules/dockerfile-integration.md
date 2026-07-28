@@ -35,6 +35,12 @@ Repair only a defect that is certainly blocking the selected service, or a
 defect proven by that service's actual Phase 4 build. Make the smallest change
 and set `origin` to `repaired`.
 
+An actual failure resolving or pulling a Dockerfile `FROM` or `COPY --from`
+image is a proven blocker. If the source still establishes an equivalent build
+and runtime contract, repair or reconstruct that Dockerfile with an accessible
+compatible base, then retry the service. Re-derive paths, entrypoint, user,
+server configuration, and port instead of blindly swapping the base image.
+
 ## Missing Dockerfile
 
 When the effective Dockerfile is missing, use dockerfile-skill only as

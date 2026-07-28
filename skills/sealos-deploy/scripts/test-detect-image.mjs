@@ -252,6 +252,32 @@ test('collects README labels, backticked refs, Compose snippets, and pull option
   })
 })
 
+test('treats README local build tags and ports as build evidence, not remote images', async () => {
+  await withFixture({
+    'README.md': [
+      'docker build -t sealos-brain-homepage .',
+      'docker run --rm -p 3000:3000 sealos-brain-homepage',
+      '',
+      'The container serves the site on port `3000`.',
+    ].join('\n'),
+    Dockerfile: 'FROM ghcr.io/example/private-static-base:latest\n',
+  }, async workDir => {
+    let fetchCount = 0
+    const result = await detectExistingImages(workDir, {
+      fetchImpl: async () => {
+        fetchCount += 1
+        throw new Error('Registry must not be queried')
+      },
+    })
+
+    assert.equal(fetchCount, 0)
+    assert.deepEqual(result.image_inventory, [])
+    assert.equal(result.service_inventory.length, 1)
+    assert.equal(result.service_inventory[0].image_status, 'build_required')
+    assert.equal(result.service_inventory[0].build.origin, 'existing')
+  })
+})
+
 test('uses README before CI and Compose and resolves every declared tag to a digest', async () => {
   await withFixture({
     'README.md': [

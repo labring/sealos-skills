@@ -497,6 +497,17 @@
         {"name": "retains-real-error-detection", "description": "Continues to fail on user-visible SSR error text and unsuccessful HTTP status codes"},
         {"name": "uses-runtime-evidence", "description": "Bases final acceptance on rendered browser behavior, HTTP status, logs, and stability rather than an internal framework digest"}
       ]
+    },
+    {
+      "id": 39,
+      "prompt": "Deploy a buildable static web repository whose Dockerfile uses a private third-party base image that the current GitHub account cannot pull. The source files and runtime port can be established from the repository.",
+      "expected_output": "The private base-image failure rejects only the current build plan. Phase 4 routes the service back to Phase 3, Phase 3 reconstructs an equivalent static-server Dockerfile from source using an accessible base, and Phase 4 retries and pushes the resulting linux/amd64 image to the current user's GHCR before continuing to Phase 5",
+      "files": [],
+      "assertions": [
+        {"name": "does-not-reject-project-on-private-base", "description": "Does not stop or skip the project solely because the Dockerfile base image returns 401 or 403"},
+        {"name": "routes-source-image-failure-to-phase3", "description": "Treats an inaccessible FROM image as a build-plan failure and returns only that service to Phase 3"},
+        {"name": "builds-current-user-replacement", "description": "Rebuilds from source and uses the digest of the image pushed to the current GitHub user's GHCR"}
+      ]
     }
   ]
 }

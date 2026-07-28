@@ -10,6 +10,23 @@ Each pattern includes:
 
 ---
 
+## Category: Base Image
+
+### Inaccessible `FROM` or `COPY --from` Image
+
+```yaml
+pattern: "failed to resolve source metadata|pull access denied|insufficient_scope|base image.*(?:401|403)"
+category: base_image
+confidence: high
+fix: |
+  When the inaccessible reference belongs to FROM or COPY --from, treat it as
+  a build-plan failure. Re-derive the service runtime from source and use an
+  accessible compatible base. Do not assume the private base's paths,
+  entrypoint, user, configuration, or port.
+```
+
+---
+
 ## Category: File System
 
 ### ENOENT - File Not Found

@@ -24,6 +24,11 @@ Based on `analysis.framework` and `analysis.package_manager`:
 | django | any | [templates/python-django.dockerfile](../templates/python-django.dockerfile) |
 | go (any) | any | [templates/golang.dockerfile](../templates/golang.dockerfile) |
 | springboot | any | [templates/java-springboot.dockerfile](../templates/java-springboot.dockerfile) |
+| static HTML/CSS/JavaScript or nginx | none | [templates/static-nginx.dockerfile](../templates/static-nginx.dockerfile) |
+
+For a static project, adapt the asset source, optional server-block config, and
+port together. If an inaccessible custom base supplied the runtime previously,
+do not preserve its private paths or entrypoint assumptions.
 
 **Package Manager Detection**:
 - `bun.lockb` → Bun

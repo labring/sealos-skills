@@ -339,6 +339,27 @@ function dockerCommandImage (command, argsText) {
   return null
 }
 
+function dockerBuildTags (argsText) {
+  const tokens = argsText
+    .replace(/\\\r?\n/g, ' ')
+    .split(/\s+/)
+    .map(token => token.replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean)
+  const tags = []
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (token === '-t' || token === '--tag') {
+      if (tokens[index + 1]) tags.push(tokens[index + 1])
+      index += 1
+    } else if (token.startsWith('--tag=') || token.startsWith('-t=')) {
+      tags.push(token.slice(token.indexOf('=') + 1))
+    }
+  }
+
+  return tags
+}
+
 function extractReadmeDeclarations (workDir) {
   const declarations = []
   const readmePath = findReadmePath(workDir)
@@ -346,6 +367,14 @@ function extractReadmeDeclarations (workDir) {
 
   const content = fs.readFileSync(readmePath, 'utf8')
   const sourceFile = path.relative(workDir, readmePath)
+  const localBuildKeys = new Set()
+
+  for (const match of content.matchAll(/\bdocker\s+(?:buildx\s+build|build)\s+([^\n]+)/gi)) {
+    for (const tag of dockerBuildTags(match[1])) {
+      const parsed = parseImageRef(tag)
+      if (parsed) localBuildKeys.add(parsed.key)
+    }
+  }
 
   for (const match of content.matchAll(/\bghcr\.io\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+(?::[A-Za-z0-9_.-]+|@sha256:[a-fA-F0-9]{64})?/g)) {
     addDeclaration(declarations, match[0], { source: 'readme', sourceFile })
@@ -360,7 +389,10 @@ function extractReadmeDeclarations (workDir) {
   }
 
   for (const match of content.matchAll(/\bdocker\s+(pull|run)\s+([^\n]+)/gi)) {
-    const raw = dockerCommandImage(match[1].toLowerCase(), match[2])
+    const command = match[1].toLowerCase()
+    const raw = dockerCommandImage(command, match[2])
+    const parsed = parseImageRef(raw)
+    if (command === 'run' && parsed && localBuildKeys.has(parsed.key)) continue
     if (raw) addDeclaration(declarations, raw, { source: 'readme', sourceFile })
   }
 
@@ -376,7 +408,7 @@ function extractReadmeDeclarations (workDir) {
   // snippets are ignored here and handled by the docker command parser above.
   for (const match of content.matchAll(/`([^`\r\n]+)`/g)) {
     const raw = stripQuotes(match[1])
-    if (parseImageRef(raw)) {
+    if (!/^\d+$/.test(raw) && parseImageRef(raw)) {
       addDeclaration(declarations, raw, { source: 'readme', sourceFile })
     }
   }
