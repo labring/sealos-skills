@@ -1,15 +1,17 @@
 # Phase 0: Preflight
 
-Detect the user's environment, install missing lifecycle dependencies, and
-confirm the project source plus Sealos auth/workspace before analysis begins.
+Detect the user's environment, install missing lifecycle dependencies, fully
+materialize the current project source, and confirm Sealos auth/workspace
+before analysis begins.
 
 **Hard rule:** Every run must complete the preflight capability scan before
 Phase 1 or any `.sealos/` project artifact is created.
 That means:
 - Detect tool availability first
 - Detect auth/workspace state first
-- Resolve the project read-only and identify whether it selects Compose, Helm,
-  Kubernetes, or the implicit single-service route
+- Resolve the project, fully materialize the current commit, and identify
+  whether it selects Compose, Helm, Kubernetes, or the implicit single-service
+  route
 - Record which later phases are currently blocked
 
 Preflight is responsible for early detection, but only some failures are immediate stop conditions.
@@ -23,13 +25,17 @@ install or upgrade it using the current platform's normal package manager and
 then re-run the exact capability check. Do not add a separate confirmation
 prompt for each dependency.
 
-Do not install a path-dependent tool during the initial capability scan. First
-resolve the project read-only and identify its selected source route:
+Do not install a conditional tool during the initial capability scan. First
+resolve the project. Repository-content tools are selected from repository
+metadata and actual checkout state; deployment-source tools are selected from
+the resolved source route:
 
 - Compose requires `kompose`.
 - Helm requires Helm 3 or newer.
 - Kubernetes does not require `kompose` or Helm.
 - `implicit-single-service` does not require `kompose` or Helm.
+- A repository-content tool is required only when the current checkout
+  declares its mechanism and still contains content that must be materialized.
 
 If installation requires a system password, browser authorization, package
 manager bootstrap, or manual UI interaction, explain and complete that platform
@@ -113,6 +119,21 @@ docker info 2>/dev/null
 - `brew install git` (macOS) or `sudo apt install git` (Linux)
 
 ### Optional and Path-Dependent Tools
+
+**Repository source materialization tools:**
+- These tools are optional globally and conditionally required only when the
+  current repository needs them to produce a complete checkout.
+- Detect the mechanism from repository-owned metadata and actual placeholder,
+  gitlink, or missing-object state. A command mentioned only in README is not
+  enough evidence.
+- Install a trustworthy missing tool with the current platform's normal package
+  manager, configure it repository-locally when possible, materialize the
+  current commit, and run the mechanism's integrity check.
+- Git LFS and Git submodules are representative examples, not a closed support
+  list. Do not turn the examples into a global prerequisite list.
+- For a local project, preserve all existing tracked and untracked changes.
+  Source materialization may fill missing managed content, but it must not
+  reset, replace, or clean the user's worktree.
 
 **gh CLI (GitHub CLI):**
 - If present with an active authenticated account for `github.com` → enables
@@ -260,6 +281,8 @@ At the end of preflight, explicitly tell the user:
 - which items are ready
 - which items are warnings only
 - which later path each warning would block
+- whether the current commit is fully materialized and which conditional source
+  tools, if any, were installed
 - whether Phase 1.5 can verify a unique official template and the current
   source after analysis
 
@@ -285,7 +308,7 @@ Determine what we're deploying and gather project information.
 ```bash
 WORK_DIR=$(mktemp -d)
 WORK_DIR_IS_TEMP=true
-git clone --depth 1 "<github-url>" "$WORK_DIR"
+git clone --depth 1 --no-checkout "<github-url>" "$WORK_DIR"
 GITHUB_URL="<github-url>"
 ```
 
@@ -324,7 +347,52 @@ PROJECT.branch      = current branch
 
 If `PROJECT.github_url` exists, parse `owner` and `repo` for Phase 2 image detection.
 
-### 2.3 Select Path-Dependent Dependencies
+### 2.3 Materialize the Current Commit
+
+A successful `git clone` exit code proves only that Git fetched repository
+metadata. It does not prove that every tracked source input required by the
+current commit is present. GitHub URL clones intentionally use `--no-checkout`
+so a missing optional content handler cannot fail before it is discovered.
+Complete this step before reading README, assessing the project, or selecting
+build inputs.
+
+1. Inspect repository-owned metadata in the current commit and, for an existing
+   local worktree, its actual checkout state for declared content mechanisms,
+   tracked placeholders, gitlinks, uninitialized nested repositories, or
+   missing objects.
+2. Determine the tool or built-in Git operation required to materialize that
+   content. This is evidence-driven and open-ended; do not maintain a language
+   or tool allowlist.
+3. If a required external tool is missing, install it under the Tool Install
+   Policy, configure it locally where supported, and re-run its capability
+   check.
+4. Check out and materialize the exact current commit plus its required
+   recursive content. Reuse the active Git/GitHub credentials when
+   authentication is needed, and keep secrets out of logs and project files.
+5. Run the mechanism's integrity check and verify that required tracked paths
+   no longer contain placeholders, missing objects, or uninitialized content.
+
+Representative applications of the general rule:
+
+- When repository attributes or canonical pointer content show that tracked
+  files use Git LFS, ensure the Git LFS client is available, initialize it for
+  this repository, pull and check out the current commit's objects, then run
+  its integrity check.
+- When the current tree contains declared Git submodules, synchronize and
+  initialize them recursively at their recorded commits, then verify that none
+  remain uninitialized.
+
+For an existing local worktree, capture its tracked and untracked status before
+materialization and confirm afterward that no user change was discarded or
+replaced. Do not reset or clean the worktree.
+
+An unavailable tool or one failed download rejects only the current source
+acquisition attempt. Retry supported installation and authenticated acquisition
+paths. Stop before Phase 1 only when the current commit still cannot be
+materialized into a trustworthy, analyzable, buildable worktree. This step
+creates no `.sealos/` artifact.
+
+### 2.4 Select Path-Dependent Dependencies
 
 Perform a read-only source shape check without writing `.sealos/` or rendering
 the source:
@@ -354,7 +422,7 @@ Python 3.8+ with PyYAML remains required for every standard Phase 5 route.
 This preflight check selects dependencies only; Phase 2 performs the
 authoritative source hash, Helm render, resource inventory, and image discovery.
 
-### 2.4 Read README
+### 2.5 Read README
 
 README is the single most important file for understanding a project. Read it now.
 

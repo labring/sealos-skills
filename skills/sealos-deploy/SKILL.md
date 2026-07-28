@@ -3,7 +3,7 @@ name: sealos-deploy
 description: Deploy workloads from GitHub or local source to Sealos Cloud. In DEPLOY mode, Phase 1 stops only when AI is certain the project cannot run on Sealos; every uncertain case continues silently into readiness scoring. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
 metadata:
   author: labring
-  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are required only when Phase 4 must build and push a local image to GHCR. git is required when cloning from a GitHub URL or when git metadata is needed. A complete Phase 6/6.5 run requires Node.js 18+; jq is needed only for the documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML. kompose is required only for a Compose source; Helm CLI (Helm 3+) is required only for a Helm source.
+  compatibility: Sealos auth/workspace and kubectl access to the selected workspace are required before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are required only when Phase 4 must build and push a local image to GHCR. git is required when cloning from a GitHub URL or when git metadata is needed. Repository-declared source materialization tools are conditional and installed only when the current checkout requires them. A complete Phase 6/6.5 run requires Node.js 18+; jq is needed only for the documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML. kompose is required only for a Compose source; Helm CLI (Helm 3+) is required only for a Helm source.
 ---
 
 # Sealos Deploy
@@ -13,12 +13,14 @@ metadata:
 Sealos auth/workspace and kubectl access to the selected workspace are required
 before cloud resources are created. Docker, buildx, Node.js 18+, and gh CLI are
 required only when Phase 4 must build and push a local image to GHCR. git is
-required when cloning from a GitHub URL or when git metadata is needed. A
-complete Phase 6/6.5 run requires Node.js 18+; jq is needed only for the
-documented curl transport fallback. Phase 5 requires Python 3.8+ with PyYAML.
-A Compose source additionally requires kompose; a Helm source additionally
-requires Helm 3 or newer. Native Kubernetes sources use the existing
-Python/PyYAML parser and do not require another YAML CLI.
+required when cloning from a GitHub URL or when git metadata is needed.
+Repository-declared source materialization tools are conditional and installed
+only when the current checkout requires them. A complete Phase 6/6.5 run
+requires Node.js 18+; jq is needed only for the documented curl transport
+fallback. Phase 5 requires Python 3.8+ with PyYAML. A Compose source
+additionally requires kompose; a Helm source additionally requires Helm 3 or
+newer. Native Kubernetes sources use the existing Python/PyYAML parser and do
+not require another YAML CLI.
 
 
 Deploy cloud workloads to Sealos Cloud. Phase 1 begins with an internal AI
@@ -43,6 +45,13 @@ the skill can install it for the current platform, install it, re-run the
 capability check, and stop only if installation or verification fails. Do not
 install path-specific tools such as `kompose` or Helm until the deployment
 source that requires them has been selected.
+
+This also applies to tools required to materialize repository content. Do not
+preinstall them for every run. After resolving the project, use repository
+metadata and actual checkout state to discover the required mechanism, install
+a trustworthy missing tool, obtain the current commit's content, and verify the
+checkout before Phase 1. Git LFS and Git submodules are examples of this
+general rule, not a closed support list.
 
 **`kubectl delete` requires user confirmation.** Before deleting any resource (deployment, service, ingress, PVC, database, etc.), always ask:
 ```
@@ -85,7 +94,7 @@ Anti-example: do not report cleanup complete after only checking `app,statefulse
 
 Execute the modules in order:
 
-1. `modules/preflight.md` — Environment checks & Sealos auth
+1. `modules/preflight.md` — Environment checks, source materialization & Sealos auth
 2. `modules/pipeline.md` — Full deployment pipeline (Phase 1–6)
 3. `modules/runtime-truth.md` — Post-deploy Runtime Truth Pass (Phase 6.5)
 
@@ -109,6 +118,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploy started" > "$LOG_FILE"
 [2026-03-05 14:30:01] Node.js: ✓ 22.12.0
 [2026-03-05 14:30:02] Sealos auth: ✓ (region: <REGION from config.json>)
 [2026-03-05 14:30:02] Project: /Users/dev/myapp (github: https://github.com/owner/repo)
+[2026-03-05 14:30:02] Source: ✓ current commit fully materialized (conditional tools: <none or tool names>)
 
 [2026-03-05 14:30:03] === Phase 1: Assess ===
 [2026-03-05 14:30:03] Score: 9/12 (good)
@@ -225,7 +235,7 @@ Paths used in pipeline.md follow the pattern:
 
 | Phase | Action | Skip When |
 |-------|--------|-----------|
-| 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
+| 0 — Preflight | Capability scan, complete source materialization, path-specific warnings, Sealos auth | Initial blockers resolved |
 | 1 — Assess | Stop only when AI is certain deployment is impossible; otherwise continue silently into readiness scoring and record risks | Existing deployment → UPDATE path; low score does not reject |
 | 1.5 — Official Template | A unique, source-aligned official `spec.gitRepo` match is reused verbatim and jumps to Phase 6; otherwise continue | No safe unique exact match → Phase 2 |
 | 2 — Discover | Select the Compose, Helm, Kubernetes, or implicit deployment source; inventory all project-declared images and the complete service topology; resolve every reusable selector to an immutable digest without pre-screening third-party image architecture | Every final container workload covered → Phase 5 |
@@ -242,7 +252,7 @@ Paths used in pipeline.md follow the pattern:
 Input (GitHub URL / local path)
   │
   ▼
-[Phase 0] Preflight ── fail → guide user to fix and STOP
+[Phase 0] Preflight + complete source materialization ── fail → guide user to fix and STOP
   │ pass
   ▼
 [Mode Detection]
@@ -286,4 +296,4 @@ Input (GitHub URL / local path)
 Done — app deployed ✓
 ```
 
-**Execution rule:** Phase 1 must never start while Phase 0 still has unresolved entry blockers. Docker, Node.js 18+, `gh`, builder, and GHCR failures must be reported early, but only become hard blockers if the run later requires Phase 4 local build/push. An inaccessible declared image or Dockerfile base image is not by itself a project-level blocker while a trustworthy source build remains.
+**Execution rule:** Phase 1 must never start while Phase 0 still has unresolved entry blockers or the current source is not fully materialized. Docker, Node.js 18+, `gh`, builder, and GHCR failures must be reported early, but only become hard blockers if the run later requires Phase 4 local build/push. An inaccessible declared image or Dockerfile base image is not by itself a project-level blocker while a trustworthy source build remains.

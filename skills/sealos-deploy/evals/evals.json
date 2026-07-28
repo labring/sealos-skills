@@ -508,6 +508,18 @@
         {"name": "routes-source-image-failure-to-phase3", "description": "Treats an inaccessible FROM image as a build-plan failure and returns only that service to Phase 3"},
         {"name": "builds-current-user-replacement", "description": "Rebuilds from source and uses the digest of the image pushed to the current GitHub user's GHCR"}
       ]
+    },
+    {
+      "id": 40,
+      "prompt": "Deploy a GitHub repository whose current commit declares tracked Git LFS content, but the Git LFS client is not installed. A metadata-only clone succeeds, while the application cannot be analyzed or built correctly from pointer files.",
+      "expected_output": "Phase 0 applies the general source-materialization rule: it detects the repository-declared content mechanism, installs the missing trustworthy tool without a separate dependency confirmation, materializes and verifies the exact current commit, and only then enters Phase 1 without creating a new lifecycle artifact",
+      "files": [],
+      "assertions": [
+        {"name": "keeps-source-tool-conditional", "description": "Does not treat Git LFS as a global prerequisite for repositories that do not declare or need it"},
+        {"name": "uses-repository-evidence", "description": "Discovers the required source mechanism from repository metadata and checkout state rather than a casual README command"},
+        {"name": "materializes-before-analysis", "description": "Installs the missing tool, obtains and verifies the real tracked content, and never analyzes or builds from pointer files"},
+        {"name": "uses-existing-phase-zero-contract", "description": "Keeps source hydration inside Phase 0 and creates no new .sealos artifact or lifecycle phase"}
+      ]
     }
   ]
 }
