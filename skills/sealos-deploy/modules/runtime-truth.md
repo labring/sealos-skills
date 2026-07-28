@@ -201,6 +201,7 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 - Login-gated apps complete setup/login with deploy-time administrator credentials and one authenticated action. Passwords remain masked in all output.
 - A random missing path returns HTTP 404 and the follow-up log scan has no traceback-style `HTTPException` / `NotFound` noise.
 - SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` is absent from smoke responses.
+- Framework-internal control-flow markers such as Next.js `NEXT_REDIRECT` or `NEXT_NOT_FOUND` are diagnostic content, not failures by themselves; judge them with the HTTP status, rendered browser result, and runtime logs.
 - Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
 - The runtime report contains no `image_architecture_mismatch`; any confirmed
   mismatch was rebuilt from source for `linux/amd64` or reported as blocking.

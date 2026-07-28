@@ -486,6 +486,17 @@
         {"name": "preserves-existing-container-path", "description": "Does not require known language metadata before preserving the existing Dockerfile path"},
         {"name": "continues-after-valid-analysis", "description": "Validates analysis.json and advances to Phase 1.5 rather than stopping the deployment in Phase 1"}
       ]
+    },
+    {
+      "id": 38,
+      "prompt": "Run Phase 6.5 against a healthy Next.js application whose initial HTTP response contains the internal NEXT_REDIRECT marker and redirects the browser to /project. Browser rendering, API checks, logs, and stability checks all pass.",
+      "expected_output": "The runtime truth pass treats NEXT_REDIRECT as a framework control-flow marker rather than a runtime failure, keeps the HTTP smoke result successful, and accepts the deployment based on the actual browser, HTTP status, logs, and stability evidence",
+      "files": [],
+      "assertions": [
+        {"name": "ignores-normal-next-control-flow", "description": "Does not classify NEXT_REDIRECT alone as a smoke failure"},
+        {"name": "retains-real-error-detection", "description": "Continues to fail on user-visible SSR error text and unsuccessful HTTP status codes"},
+        {"name": "uses-runtime-evidence", "description": "Bases final acceptance on rendered browser behavior, HTTP status, logs, and stability rather than an internal framework digest"}
+      ]
     }
   ]
 }

@@ -142,10 +142,6 @@ const FAILURE_SIGNAL_PATTERNS = [
     id: "unhandled-runtime-error",
     pattern: /Unhandled Runtime Error/i,
   },
-  {
-    id: "next-runtime-digest",
-    pattern: /\bNEXT_[A-Z0-9_]+\b/i,
-  },
 ];
 
 function detectFailureSignals(text) {
