@@ -21,8 +21,12 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 import yaml
 
 from compose_to_template import (
+    DB_COMPONENT_RESOURCE_LIMITS,
+    DEFAULT_RESOURCE_LIMITS,
     HTTP_INGRESS_ANNOTATIONS,
     MetadataOptions,
+    SEALOS_CPU_REQUEST_BY_LIMIT,
+    SEALOS_MEMORY_REQUEST_BY_LIMIT,
     WEBSOCKET_INGRESS_ANNOTATIONS,
     build_app_resource,
     build_database_resources,
@@ -33,6 +37,7 @@ from compose_to_template import (
     database_service_fqdn,
     detect_db_type,
     infer_db_secret_ref,
+    normalize_resource_limits,
     normalize_k8s_name,
     render_index_yaml,
 )
@@ -57,30 +62,6 @@ SUPPORTED_KINDS = {
 }
 KUBEBLOCKS_CLUSTER_PREFIX = "apps.kubeblocks.io/"
 TOPOLOGY_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "CronJob", "Cluster", "ObjectStorageBucket"}
-CPU_LADDER = ("100m", "200m", "500m", "1", "2", "3", "4", "8")
-MEMORY_LADDER = ("128Mi", "256Mi", "512Mi", "1024Mi", "2048Mi", "4096Mi", "8192Mi", "16384Mi")
-CPU_REQUESTS = {
-    "100m": "10m",
-    "200m": "20m",
-    "500m": "50m",
-    "1": "100m",
-    "2": "200m",
-    "3": "300m",
-    "4": "400m",
-    "8": "800m",
-}
-MEMORY_REQUESTS = {
-    "128Mi": "12Mi",
-    "256Mi": "25Mi",
-    "512Mi": "51Mi",
-    "1024Mi": "102Mi",
-    "2048Mi": "204Mi",
-    "4096Mi": "409Mi",
-    "8192Mi": "819Mi",
-    "16384Mi": "1638Mi",
-}
-DB_RESOURCE_LIMITS = {"cpu": "500m", "memory": "512Mi"}
-DB_RESOURCE_REQUESTS = {"cpu": "50m", "memory": "51Mi"}
 RESOURCE_METADATA_FIELDS = {
     "creationTimestamp",
     "deletionTimestamp",
@@ -362,9 +343,14 @@ def _prefer_kubeblocks_databases(
         workload_name = _name(workload)
         total_of_type = existing_counts[db_type] + convertible_counts[db_type]
         cluster_name = database_cluster_name(db_type, workload_name, total_of_type)
+        resource_limits = _database_workload_resource_limits(workload)
         resources = [
             copy.deepcopy(resource)
-            for resource in build_database_resources(db_type, cluster_name)
+            for resource in build_database_resources(
+                db_type,
+                cluster_name,
+                resource_limits,
+            )
         ]
         generated.extend(resources)
         output_ids = [f"{resource['kind']}/{_name(resource)}" for resource in resources]
@@ -397,17 +383,6 @@ def _prefer_kubeblocks_databases(
     return remaining, generated, bindings, consumed_service_keys
 
 
-def _parse_cpu(value: Any) -> float:
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return float(value) * 1000
-    text = str(value or "").strip()
-    if not text:
-        return 200
-    if text.endswith("m"):
-        return float(text[:-1])
-    return float(text) * 1000
-
-
 def _parse_memory(value: Any) -> float:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return float(value)
@@ -433,15 +408,49 @@ def _parse_memory(value: Any) -> float:
     return number * factors[suffix]
 
 
-def _ladder_value(value: Any, ladder: Sequence[str], parser) -> str:
-    requested = parser(value)
-    for candidate in ladder:
-        if parser(candidate) >= requested:
-            return candidate
-    return ladder[-1]
+def _selected_resource_limits(
+    resources: Any,
+    *,
+    minimum_limits: Mapping[str, str],
+) -> Dict[str, str]:
+    limits = resources.get("limits") if isinstance(resources, Mapping) else None
+    requests = resources.get("requests") if isinstance(resources, Mapping) else None
+    limits = limits if isinstance(limits, Mapping) else {}
+    requests = requests if isinstance(requests, Mapping) else {}
+    return normalize_resource_limits(
+        minimum_limits=minimum_limits,
+        cpu_values=(limits.get("cpu"), requests.get("cpu")),
+        memory_values=(limits.get("memory"), requests.get("memory")),
+    )
 
 
-def _normalise_resources(container: MutableMapping[str, Any]) -> None:
+def _database_workload_resource_limits(
+    document: MutableMapping[str, Any],
+) -> Dict[str, str]:
+    cpu_values: List[Any] = []
+    memory_values: List[Any] = []
+    for container, role in _all_containers(document):
+        if role != "main":
+            continue
+        resources = container.get("resources")
+        limits = resources.get("limits") if isinstance(resources, Mapping) else None
+        requests = resources.get("requests") if isinstance(resources, Mapping) else None
+        limits = limits if isinstance(limits, Mapping) else {}
+        requests = requests if isinstance(requests, Mapping) else {}
+        cpu_values.extend((limits.get("cpu"), requests.get("cpu")))
+        memory_values.extend((limits.get("memory"), requests.get("memory")))
+    return normalize_resource_limits(
+        minimum_limits=DB_COMPONENT_RESOURCE_LIMITS,
+        cpu_values=cpu_values,
+        memory_values=memory_values,
+    )
+
+
+def _normalise_resources(
+    container: MutableMapping[str, Any],
+    *,
+    minimum_limits: Mapping[str, str] = DEFAULT_RESOURCE_LIMITS,
+) -> None:
     resources = container.setdefault("resources", {})
     if not isinstance(resources, dict):
         resources = {}
@@ -455,16 +464,16 @@ def _normalise_resources(container: MutableMapping[str, Any]) -> None:
         requests = {}
         resources["requests"] = requests
 
-    cpu = _ladder_value(limits.get("cpu") or requests.get("cpu") or "200m", CPU_LADDER, _parse_cpu)
-    memory = _ladder_value(
-        limits.get("memory") or requests.get("memory") or "256Mi",
-        MEMORY_LADDER,
-        _parse_memory,
+    selected = _selected_resource_limits(
+        resources,
+        minimum_limits=minimum_limits,
     )
+    cpu = selected["cpu"]
+    memory = selected["memory"]
     limits["cpu"] = cpu
     limits["memory"] = memory
-    requests["cpu"] = CPU_REQUESTS[cpu]
-    requests["memory"] = MEMORY_REQUESTS[memory]
+    requests["cpu"] = SEALOS_CPU_REQUEST_BY_LIMIT[cpu]
+    requests["memory"] = SEALOS_MEMORY_REQUEST_BY_LIMIT[memory]
 
 
 def _replace_service_reference(value: str, mapping: Mapping[str, str]) -> str:
@@ -575,6 +584,12 @@ def _normalise_workload(
     if not isinstance(annotations, dict):
         annotations = {}
         metadata["annotations"] = annotations
+    fallback_reason = annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
+    resource_floor = (
+        DB_COMPONENT_RESOURCE_LIMITS
+        if isinstance(fallback_reason, str) and fallback_reason.strip()
+        else DEFAULT_RESOURCE_LIMITS
+    )
 
     template = document.setdefault("spec", {}).setdefault("template", {})
     template_metadata = template.setdefault("metadata", {})
@@ -616,7 +631,7 @@ def _normalise_workload(
         if role == "main" and not main_images:
             main_images.append(image)
         container["imagePullPolicy"] = "IfNotPresent"
-        _normalise_resources(container)
+        _normalise_resources(container, minimum_limits=resource_floor)
         if key in pull_secret_services:
             needs_pull_secret = True
 
@@ -695,10 +710,26 @@ def _normalise_cluster(document: MutableMapping[str, Any]) -> None:
     for component in components:
         if not isinstance(component, dict):
             continue
-        component["resources"] = {
-            "limits": dict(DB_RESOURCE_LIMITS),
-            "requests": dict(DB_RESOURCE_REQUESTS),
-        }
+        resources = component.setdefault("resources", {})
+        if not isinstance(resources, dict):
+            resources = {}
+            component["resources"] = resources
+        limits = resources.setdefault("limits", {})
+        if not isinstance(limits, dict):
+            limits = {}
+            resources["limits"] = limits
+        requests = resources.setdefault("requests", {})
+        if not isinstance(requests, dict):
+            requests = {}
+            resources["requests"] = requests
+        selected = _selected_resource_limits(
+            resources,
+            minimum_limits=DB_COMPONENT_RESOURCE_LIMITS,
+        )
+        limits["cpu"] = selected["cpu"]
+        limits["memory"] = selected["memory"]
+        requests["cpu"] = SEALOS_CPU_REQUEST_BY_LIMIT[selected["cpu"]]
+        requests["memory"] = SEALOS_MEMORY_REQUEST_BY_LIMIT[selected["memory"]]
         claims = component.get("volumeClaimTemplates")
         if isinstance(claims, list):
             for claim in claims:

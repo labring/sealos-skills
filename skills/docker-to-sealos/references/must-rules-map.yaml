@@ -412,43 +412,19 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires schema-level validation for Redis cluster fields."
-  - must: "Database cluster component resources must use `limits(cpu=500m,memory=512Mi)` and `requests(cpu=50m,memory=51Mi)` unless source docs explicitly require otherwise."
+  - must: "Every KubeBlocks database component must use limits of at least `cpu=500m` and `memory=512Mi`. Higher source requirements or AI-selected runtime estimates are valid; requests must be derived from the selected limits."
     enforcement:
       type: rule
       target: R019
+  - must: "Every managed application main container, worker, sidecar, initContainer, and Job container must use limits of at least `cpu=200m` and `memory=256Mi`."
+    enforcement:
+      type: rule
+      target: R038
   - must: "All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0."
     enforcement:
       type: rule
       target: R038
-  - must: "The final CPU and memory limits must be the lowest Sealos ladder tiers that pass role-specific personal low-load validation, while an explicit source hard minimum remains the lower bound."
-    enforcement:
-      type: manual
-      note: "Requires role-specific runtime evidence for the selected minimum tiers."
-  - must: "Tune CPU and memory separately, one ladder step at a time, and use a fresh rollout or cold execution for every candidate."
-    enforcement:
-      type: manual
-      note: "Requires review of the tuning sequence and fresh candidate executions."
-  - must: "A passing long-running workload must complete cold start, become Ready, complete registration or login when applicable, complete at least two representative low-load actions, and remain stable for 60 seconds with zero `OOMKilled` terminations, restarts, readiness flaps, or resource-related timeouts."
-    enforcement:
-      type: manual
-      note: "Requires end-to-end runtime and stability evidence."
-  - must: "A passing one-shot initContainer or Job must complete successfully from a cold run and allow every dependent workload to become Ready."
-    enforcement:
-      type: manual
-      note: "Requires cold execution and dependent workload readiness evidence."
-  - must: "If a lower tier fails any acceptance signal, use the next passing tier and repeat final validation from a fresh rollout."
-    enforcement:
-      type: manual
-      note: "Requires failure evidence and a final fresh validation at the selected tier."
-  - must: "Treat observed CPU and memory peaks and utilization percentages as diagnostic evidence; acceptance failures trigger tier promotion."
-    enforcement:
-      type: manual
-      note: "Requires runtime metrics and acceptance evidence."
-  - must: "Keep requests derived from limits according to the Sealos resource ladder."
-    enforcement:
-      type: rule
-      target: R038
-  - must: "Apply browser-specific validation only to containers that run Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar remote-desktop stack; browser-accessed web applications such as Langflow use the general personal low-load policy."
+  - must: "Apply browser-specific validation only to containers that run Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar remote-desktop stack; browser-accessed web applications such as Langflow use the general resource sizing policy."
     enforcement:
       type: manual
       note: "Requires workload classification from the image and runtime process stack."
@@ -456,10 +432,10 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires browser or remote-desktop interaction evidence."
-  - must: "For Chrome + Xvfb + Selkies with a 4K maximum display, start validation at `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, then test adjacent ladder tiers under the same acceptance contract."
+  - must: "For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, and select a higher tier when project or runtime evidence requires it."
     enforcement:
       type: manual
-      note: "Requires browser-specific ladder testing from the initial candidate."
+      note: "Requires browser-specific runtime assessment and validation."
   - must: "MongoDB: `<cluster-name>-mongodb-account-root`; the single-service default is `${{ defaults.app_name }}-mongo-mongodb-account-root`"
     enforcement:
       type: rule

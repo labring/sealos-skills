@@ -6,6 +6,7 @@
 - [Verify Launchpad public networking](#verify-launchpad-public-networking)
 - [Capture the runtime baseline](#capture-the-runtime-baseline)
 - [Diagnose image runtime failures](#diagnose-image-runtime-failures)
+- [Diagnose resource insufficiency](#diagnose-resource-insufficiency)
 - [Exercise the application](#exercise-the-application)
 - [Verify Event convergence](#verify-event-convergence)
 - [Acceptance checklist](#acceptance-checklist)
@@ -107,6 +108,29 @@ image with the digest returned by Buildx, and redeploy. If source is not
 available, report the incompatible image and stop. Do not substitute a guessed
 tag and do not accept the deployment.
 
+## Diagnose Resource Insufficiency
+
+Treat `OOMKilled`, memory allocation failures, resource-related startup or
+migration timeouts, repeated restarts, and continuing readiness flaps as
+blocking resource-insufficiency signals. Identify the affected container from
+Pod status, Events, and logs; do not increase every component indiscriminately.
+
+Raise the affected CPU or memory limit in `.sealos/template/index.yaml` to a
+higher Sealos ladder tier. Use the runtime signal together with the project's
+documented requirements, heap, worker/process count, and initialization work to
+choose the new tier; promotion may skip more than one step when the evidence
+shows that the adjacent tier is still unsafe. Recompute requests from the
+selected limits, rerun the complete Phase 5 quality gate, redeploy the same
+application, and capture a fresh runtime baseline after it becomes Ready.
+On the verified official-template route, do not edit the official YAML. Rerun
+Phase 1.5 with `REUSE_OFFICIAL_TEMPLATE=false` and continue through the
+standard Phase 2–5 route so the canonical generated template can carry the
+required resource increase.
+Repeat Phase 6.5 until the resource failure has converged or the project cannot
+fit a supported tier or available quota. Never accept a deployment that keeps
+restarting or OOMing, and do not lower a stable component merely to find a
+theoretical minimum.
+
 ## Exercise The Application
 
 For every web application:
@@ -203,6 +227,8 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 - SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` is absent from smoke responses.
 - Framework-internal control-flow markers such as Next.js `NEXT_REDIRECT` or `NEXT_NOT_FOUND` are diagnostic content, not failures by themselves; judge them with the HTTP status, rendered browser result, and runtime logs.
 - Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
+- No container is `OOMKilled` or shows resource-related restart, readiness,
+  allocation, startup, or migration failures during the final stability window.
 - The runtime report contains no `image_architecture_mismatch`; any confirmed
   mismatch was rebuilt from source for `linux/amd64` or reported as blocking.
 - The final runtime report has `ok: true`, zero `active-failure` Events, zero restart deltas, and a complete stability window.

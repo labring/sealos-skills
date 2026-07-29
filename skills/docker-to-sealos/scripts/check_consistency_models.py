@@ -41,6 +41,7 @@ SEALOS_MEMORY_REQUEST_BY_LIMIT = {
     "8192Mi": "819Mi",
     "16384Mi": "1638Mi",
 }
+APP_COMPONENT_RESOURCE_LIMITS = {"cpu": "200m", "memory": "256Mi"}
 DB_COMPONENT_RESOURCE_LIMITS = {"cpu": "500m", "memory": "512Mi"}
 DB_COMPONENT_RESOURCE_REQUESTS = {"cpu": "50m", "memory": "51Mi"}
 STORAGE_UNIT_TO_BYTES = {

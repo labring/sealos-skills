@@ -195,6 +195,8 @@ SEALOS_MEMORY_REQUEST_BY_LIMIT = {
     "8192Mi": "819Mi",
     "16384Mi": "1638Mi",
 }
+SEALOS_CPU_LIMITS = tuple(SEALOS_CPU_REQUEST_BY_LIMIT)
+SEALOS_MEMORY_LIMITS = tuple(SEALOS_MEMORY_REQUEST_BY_LIMIT)
 DEFAULT_RESOURCE_LIMITS = {"cpu": "200m", "memory": "256Mi"}
 DEFAULT_RESOURCE_REQUESTS = {
     "cpu": SEALOS_CPU_REQUEST_BY_LIMIT[DEFAULT_RESOURCE_LIMITS["cpu"]],
@@ -401,7 +403,156 @@ class DatabasePlan:
         return self.needs_bootstrap and bool(self.app_username)
 
 
-def db_component_resources() -> Dict[str, Dict[str, str]]:
+def _parse_cpu_quantity(value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"unsupported CPU quantity: {value!r}")
+    if isinstance(value, (int, float)):
+        return float(value) * 1000
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("CPU quantity must not be empty")
+    if "$" in text:
+        text = resolve_compose_value(text).strip()
+    if text.endswith("m"):
+        return float(text[:-1])
+    return float(text) * 1000
+
+
+def _parse_memory_quantity(value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"unsupported memory quantity: {value!r}")
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("memory quantity must not be empty")
+    if "$" in text:
+        text = resolve_compose_value(text).strip()
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([A-Za-z]*)", text)
+    if not match:
+        raise ValueError(f"unsupported memory quantity: {value!r}")
+    number = float(match.group(1))
+    suffix = match.group(2).lower()
+    factors = {
+        "": 1,
+        "b": 1,
+        "k": 1000,
+        "kb": 1000,
+        "m": 1000**2,
+        "mb": 1000**2,
+        "g": 1000**3,
+        "gb": 1000**3,
+        "ki": 1024,
+        "kib": 1024,
+        "mi": 1024**2,
+        "mib": 1024**2,
+        "gi": 1024**3,
+        "gib": 1024**3,
+    }
+    if suffix not in factors:
+        raise ValueError(f"unsupported memory quantity: {value!r}")
+    return number * factors[suffix]
+
+
+def _round_up_resource_quantity(
+    values: Sequence[Any],
+    *,
+    minimum: str,
+    ladder: Sequence[str],
+    parser: Callable[[Any], float],
+    resource_name: str,
+) -> str:
+    requested = parser(minimum)
+    for value in values:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        requested = max(requested, parser(value))
+    for candidate in ladder:
+        if parser(candidate) >= requested:
+            return candidate
+    raise ValueError(
+        f"{resource_name} requirement exceeds the largest supported Sealos tier "
+        f"{ladder[-1]}"
+    )
+
+
+def normalize_resource_limits(
+    *,
+    minimum_limits: Mapping[str, str],
+    cpu_values: Sequence[Any] = (),
+    memory_values: Sequence[Any] = (),
+) -> Dict[str, str]:
+    return {
+        "cpu": _round_up_resource_quantity(
+            cpu_values,
+            minimum=minimum_limits["cpu"],
+            ladder=SEALOS_CPU_LIMITS,
+            parser=_parse_cpu_quantity,
+            resource_name="CPU",
+        ),
+        "memory": _round_up_resource_quantity(
+            memory_values,
+            minimum=minimum_limits["memory"],
+            ladder=SEALOS_MEMORY_LIMITS,
+            parser=_parse_memory_quantity,
+            resource_name="memory",
+        ),
+    }
+
+
+def resource_requirements(limits: Mapping[str, str]) -> Dict[str, Dict[str, str]]:
+    cpu = limits["cpu"]
+    memory = limits["memory"]
+    return {
+        "limits": {"cpu": cpu, "memory": memory},
+        "requests": {
+            "cpu": SEALOS_CPU_REQUEST_BY_LIMIT[cpu],
+            "memory": SEALOS_MEMORY_REQUEST_BY_LIMIT[memory],
+        },
+    }
+
+
+def parse_service_resource_limits(
+    service: Mapping[str, Any],
+    *,
+    minimum_limits: Mapping[str, str],
+) -> Dict[str, str]:
+    cpu_values: List[Any] = [service.get("cpus")]
+    memory_values: List[Any] = [
+        service.get("mem_limit"),
+        service.get("mem_reservation"),
+    ]
+
+    deploy = service.get("deploy")
+    if deploy is not None and not isinstance(deploy, Mapping):
+        raise ValueError("service deploy must be an object when provided")
+    resources = deploy.get("resources") if isinstance(deploy, Mapping) else None
+    if resources is not None and not isinstance(resources, Mapping):
+        raise ValueError("service deploy.resources must be an object when provided")
+    if isinstance(resources, Mapping):
+        for section_name in ("limits", "reservations"):
+            section = resources.get(section_name)
+            if section is None:
+                continue
+            if not isinstance(section, Mapping):
+                raise ValueError(
+                    f"service deploy.resources.{section_name} must be an object when provided"
+                )
+            cpu_values.append(section.get("cpus", section.get("cpu")))
+            memory_values.append(section.get("memory"))
+
+    return normalize_resource_limits(
+        minimum_limits=minimum_limits,
+        cpu_values=cpu_values,
+        memory_values=memory_values,
+    )
+
+
+def db_component_resources(
+    limits: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Dict[str, str]]:
+    if limits is not None:
+        return resource_requirements(limits)
     return {
         "limits": dict(DB_COMPONENT_RESOURCE_LIMITS),
         "requests": dict(DB_COMPONENT_RESOURCE_REQUESTS),
@@ -2522,19 +2673,32 @@ def build_kafka_resources(
 def build_database_resources(
     db_type: str,
     name: Optional[str] = None,
+    resource_limits: Optional[Mapping[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     cluster_name = name or default_database_cluster_name(db_type)
     if db_type == "postgres":
-        return build_postgres_resources(cluster_name)
-    if db_type == "mysql":
-        return build_mysql_resources(cluster_name)
-    if db_type == "mongodb":
-        return build_mongodb_resources(cluster_name)
-    if db_type == "redis":
-        return build_redis_resources(cluster_name)
-    if db_type == "kafka":
-        return build_kafka_resources(cluster_name)
-    return []
+        documents = build_postgres_resources(cluster_name)
+    elif db_type == "mysql":
+        documents = build_mysql_resources(cluster_name)
+    elif db_type == "mongodb":
+        documents = build_mongodb_resources(cluster_name)
+    elif db_type == "redis":
+        documents = build_redis_resources(cluster_name)
+    elif db_type == "kafka":
+        documents = build_kafka_resources(cluster_name)
+    else:
+        return []
+
+    if resource_limits is None:
+        return documents
+    for document in documents:
+        if document.get("kind") != "Cluster":
+            continue
+        component_specs = document.get("spec", {}).get("componentSpecs", [])
+        for component in component_specs:
+            if isinstance(component, dict):
+                component["resources"] = db_component_resources(resource_limits)
+    return documents
 
 
 def build_database_app_secret(plan: DatabasePlan) -> Dict[str, Any]:
@@ -3194,6 +3358,7 @@ def build_workload(
     image_pull_secret: bool = False,
     allow_database_image: bool = False,
     kubeblocks_fallback_reason: str = "",
+    resource_limits: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Any]:
     db_type = detect_db_type(image)
     if db_type in SPECIAL_DB_RESOURCE_TYPES and not allow_database_image:
@@ -3211,10 +3376,9 @@ def build_workload(
                 "name": workload_name,
                 "image": image,
                 "imagePullPolicy": "IfNotPresent",
-                "resources": {
-                    "limits": dict(DEFAULT_RESOURCE_LIMITS),
-                    "requests": dict(DEFAULT_RESOURCE_REQUESTS),
-                },
+                "resources": resource_requirements(
+                    resource_limits or DEFAULT_RESOURCE_LIMITS
+                ),
             }
         ],
     }
@@ -3819,6 +3983,22 @@ def build_documents(
     database_plans_by_name = {
         plan.service_name: plan for plan in database_plans
     }
+    resource_limits_by_service = {
+        service_name: parse_service_resource_limits(
+            service,
+            minimum_limits=DEFAULT_RESOURCE_LIMITS,
+        )
+        for service_name, service in app_services
+    }
+    resource_limits_by_service.update(
+        {
+            plan.service_name: parse_service_resource_limits(
+                plan.service,
+                minimum_limits=DB_COMPONENT_RESOURCE_LIMITS,
+            )
+            for plan in database_plans
+        }
+    )
     managed_db_services = {
         plan.service_name: plan.db_type
         for plan in database_plans
@@ -3912,6 +4092,7 @@ def build_documents(
             build_database_resources(
                 plan.db_type,
                 plan.cluster_name,
+                resource_limits_by_service[plan.service_name],
             )
         )
         if plan.has_app_credentials:
@@ -3994,6 +4175,7 @@ def build_documents(
                 ),
                 allow_database_image=True,
                 kubeblocks_fallback_reason=plan.fallback_reason,
+                resource_limits=resource_limits_by_service[plan.service_name],
             )
         )
         raw_service = build_service(
@@ -4068,6 +4250,7 @@ def build_documents(
             probes=probes,
             init_containers=init_containers,
             image_pull_secret=service_name in requested_pull_secret_services,
+            resource_limits=resource_limits_by_service[service_name],
         )
         if config_mounts:
             workload_docs.append(build_configmap(workload_name, config_mounts))

@@ -435,13 +435,14 @@
     },
     {
       "id": 34,
-      "prompt": "Generate Phase 5 for a Compose project where worker is declared first, api exposes only port 8080, and frontend publishes port 3000 with API_URL=http://api:8080. Phase 4 reports frontend as ghcr_secret_required and worker as anonymous.",
-      "expected_output": "Phase 5 selects frontend as the sole public service regardless of declaration order, preserves api as an internal Service, rewrites frontend's API URL to the generated api Service FQDN, injects the app-scoped pull Secret only into frontend, writes .sealos/template/index.yaml, and passes the complete quality gate",
+      "prompt": "Generate Phase 5 for a Compose project where worker is declared first, api exposes only port 8080, and frontend publishes port 3000 with API_URL=http://api:8080. Frontend declares limits of 0.75 CPU and 600M memory, while the worker's official runtime documentation requires 1 CPU and 1Gi memory. Phase 4 reports frontend as ghcr_secret_required and worker as anonymous.",
+      "expected_output": "Phase 5 selects frontend as the sole public service regardless of declaration order, preserves api as an internal Service, rewrites frontend's API URL to the generated api Service FQDN, keeps every component above its hard floor, rounds frontend and worker requirements up to valid Sealos tiers without lowering them, injects the app-scoped pull Secret only into frontend, writes .sealos/template/index.yaml, and passes the complete quality gate",
       "files": [],
       "assertions": [
         {"name": "selects-public-service-by-contract", "description": "Uses frontend as the public workload and Ingress backend because it is the sole application service publishing Compose ports"},
         {"name": "preserves-internal-expose-port", "description": "Creates an internal api Service on port 8080 from Compose expose without creating an api Ingress"},
         {"name": "rewrites-internal-service-url", "description": "Maps http://api:8080 to the generated api Service FQDN using the Sealos namespace variable"},
+        {"name": "selects-safe-resource-tiers", "description": "Uses at least 200m/256Mi for every application component, rounds frontend to 1 CPU/1024Mi, and lets AI keep worker at 1 CPU/1024Mi from official runtime evidence"},
         {"name": "scopes-private-pull-secret", "description": "Adds imagePullSecrets with the app-scoped name only to frontend and omits it from the anonymous worker and reused services"},
         {"name": "validates-canonical-artifact", "description": "Runs the complete quality gate against .sealos/template/index.yaml and does not fail R013 on the canonical deploy path"}
       ]

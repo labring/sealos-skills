@@ -165,7 +165,11 @@ class KubernetesToTemplateTests(unittest.TestCase):
         )
 
     def test_preserves_resources_and_accounts_for_every_source(self):
-        template_documents, normalized_documents, mapping = self.convert()
+        documents = source_documents()
+        documents[-1]["spec"]["componentSpecs"][0]["resources"] = {
+            "limits": {"cpu": "1", "memory": "1Gi"},
+        }
+        template_documents, normalized_documents, mapping = self.convert(documents)
 
         output_kinds = [document["kind"] for document in template_documents]
         self.assertEqual(output_kinds[0], "Template")
@@ -195,6 +199,19 @@ class KubernetesToTemplateTests(unittest.TestCase):
         container = deployment_doc["spec"]["template"]["spec"]["containers"][0]
         self.assertEqual(container["image"], f"ghcr.io/example/api@{DIGEST_A}")
         self.assertEqual(container["imagePullPolicy"], "IfNotPresent")
+        self.assertEqual(
+            {"cpu": "200m", "memory": "256Mi"},
+            container["resources"]["limits"],
+        )
+        cluster = next(
+            document
+            for document in template_documents
+            if document.get("kind") == "Cluster"
+        )
+        self.assertEqual(
+            {"cpu": "1", "memory": "1024Mi"},
+            cluster["spec"]["componentSpecs"][0]["resources"]["limits"],
+        )
         env = {item["name"]: item for item in container["env"]}
         self.assertEqual(
             env["POSTGRES_HOST"]["valueFrom"]["secretKeyRef"],
@@ -235,6 +252,9 @@ class KubernetesToTemplateTests(unittest.TestCase):
         postgres["spec"]["template"]["spec"]["containers"][0]["ports"] = [
             {"name": "postgres", "containerPort": 5432}
         ]
+        postgres["spec"]["template"]["spec"]["containers"][0]["resources"] = {
+            "limits": {"cpu": "1", "memory": "1Gi"},
+        }
         postgres_service = service("postgres-service", "postgres")
         postgres_service["spec"]["ports"] = [
             {"name": "postgres", "port": 5432, "targetPort": 5432}
@@ -263,6 +283,9 @@ class KubernetesToTemplateTests(unittest.TestCase):
             if document.get("kind") == "Cluster"
         )
         self.assertEqual(cluster["metadata"]["name"], "${{ defaults.app_name }}-pg")
+        db_resources = cluster["spec"]["componentSpecs"][0]["resources"]
+        self.assertEqual({"cpu": "1", "memory": "1024Mi"}, db_resources["limits"])
+        self.assertEqual({"cpu": "100m", "memory": "102Mi"}, db_resources["requests"])
         app_deployment = next(
             document
             for document in normalized_documents

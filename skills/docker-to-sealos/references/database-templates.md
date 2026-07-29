@@ -23,6 +23,12 @@ password sources, grants, scripts, mounts, command/entrypoint, data path,
 engine variant, replicas, and consumers. A KubeBlocks Cluster is equivalent
 only when every item is translated or explicitly superseded.
 
+The `500m/512Mi` limits shown below are the per-component KubeBlocks floor, not
+the only valid database size. Preserve higher source or documented
+requirements and let the AI select a larger Sealos ladder tier when the
+database engine, heap, workload, or runtime evidence requires it. Derive
+requests from the selected limits.
+
 ## PostgreSQL Full Template
 
 ```yaml

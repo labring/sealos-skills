@@ -1752,6 +1752,18 @@ quality gate as the template. An explicit multi-service source must never be
 collapsed into a partial implicit topology merely because an adapter needs
 repair or replacement.
 
+Treat adapter resource values as a baseline, not an AI decision boundary.
+Before the final quality gate, assess every application main container, worker,
+sidecar, initContainer, Job container, and KubeBlocks component from the
+project's declared resources, official minimum requirements, runtime type,
+heap/process/worker configuration, browser or desktop workload, cache/data
+usage, and initialization or migration work. Application containers must use
+at least `limits(cpu=200m,memory=256Mi)`; each KubeBlocks component must use at
+least `limits(cpu=500m,memory=512Mi)`. Select a higher CPU or memory ladder tier
+whenever the evidence indicates that a floor value is unsafe. Never reduce a
+source limit or documented minimum. Write one short resource-selection line
+per component to the existing deploy log; do not create another artifact.
+
 For converted templates, map each inventory digest to the service it
 represents. Never apply one top-level `analysis.json.image_ref` to every
 workload. Pass each available per-service digest with
@@ -1799,7 +1811,11 @@ After generating the base template, check if the app needs its public URL config
   `<repository>@sha256:<digest>`. Source tags such as `latest`, `stable`, `v2`,
   exact versions, and omitted tags are all valid resolution inputs.
 - PVC requests: `<= 1Gi`
-- Container defaults: `cpu: 200m/20m`, `memory: 256Mi/25Mi`
+- Application container floor: `limits(cpu=200m,memory=256Mi)` with derived
+  `requests(cpu=20m,memory=25Mi)`; higher Sealos ladder tiers are valid and
+  required when project evidence indicates greater runtime needs.
+- KubeBlocks component floor: `limits(cpu=500m,memory=512Mi)` with derived
+  `requests(cpu=50m,memory=51Mi)`; higher Sealos ladder tiers are valid.
 - Init containers must define explicit resources; do not rely on namespace defaults. For expensive init work such as framework install, database migration, asset compilation, or `bench new-site`, allocate enough memory for the task.
 - `imagePullPolicy: IfNotPresent`
 - `revisionHistoryLimit: 1`

@@ -1,6 +1,6 @@
 ---
 name: docker-to-sealos
-description: Convert Docker Compose, rendered Helm, or native Kubernetes deployment sources into production-grade Sealos templates with role-specific personal low-load resource sizing. Use when user has a docker-compose.yml or explicit Kubernetes topology and wants a Sealos template, wants to migrate container orchestration configs to Sealos format, or mentions compose-to-template conversion. Also triggers on "/docker-to-sealos".
+description: Convert Docker Compose, rendered Helm, or native Kubernetes deployment sources into production-grade Sealos templates with hard resource floors and evidence-based per-component sizing. Use when user has a docker-compose.yml or explicit Kubernetes topology and wants a Sealos template, wants to migrate container orchestration configs to Sealos format, or mentions compose-to-template conversion. Also triggers on "/docker-to-sealos".
 ---
 
 # Docker to Sealos Template Converter
@@ -268,7 +268,8 @@ For managed or private object storage, live validation must upload known bytes t
 - MongoDB cluster must follow upgraded structure (`componentDef: mongodb`, `serviceVersion: 8.0.4`, labels `kb.io/database` and `app.kubernetes.io/instance`).
 - MySQL cluster must follow upgraded structure (`kb.io/database: ac-mysql-8.0.30-1`, `clusterDefinitionRef: apecloud-mysql`, `clusterVersionRef: ac-mysql-8.0.30-1`, `tolerations: []`).
 - Redis cluster must follow upgraded structure (`componentDef: redis-7`, `componentDef: redis-sentinel-7`, `serviceVersion: 7.2.7`, main data PVC `1Gi`, topology `replication`).
-- Database cluster component resources must use `limits(cpu=500m,memory=512Mi)` and `requests(cpu=50m,memory=51Mi)` unless source docs explicitly require otherwise.
+- Every KubeBlocks database component must use limits of at least `cpu=500m` and `memory=512Mi`. Higher source requirements or AI-selected runtime estimates are valid; requests must be derived from the selected limits.
+- Every managed application main container, worker, sidecar, initContainer, and Job container must use limits of at least `cpu=200m` and `memory=256Mi`.
 - All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0.
 - Do not add, delete, or change existing `ephemeral-storage` resource fields during existing-template updates unless runtime evidence identifies ephemeral storage pressure; preserve the original requests/limits values while tuning CPU and memory.
 - Secret naming:
@@ -277,9 +278,9 @@ For managed or private object storage, live validation must upload known bytes t
   - Kafka: `<cluster-name>-account-admin`; the single-service default is `${{ defaults.app_name }}-broker-account-admin`
   - Do not use legacy naming outside supported exceptions.
 
-### Baseline runtime defaults
+### Resource sizing
 
-Unless source docs explicitly require otherwise, use this lightweight app ladder entry as the initial personal low-load candidate:
+Use these application limits as hard floors, not as fixed defaults:
 
 - container limits: `cpu=200m`, `memory=256Mi`
 - container requests: `cpu=20m`, `memory=25Mi`
@@ -287,25 +288,37 @@ Unless source docs explicitly require otherwise, use this lightweight app ladder
 - `automountServiceAccountToken: false` by default; set it to `true` only when the application has explicit Kubernetes API/service account token requirements, evidenced by Kubernetes integration settings, `serviceAccountName`, or a `sealos.io/service-account-token-reason` workload annotation.
 - If a workload emits PodSecurity admission warnings and the image runs as a non-root user, add the restricted-compatible security context before reporting the template ready.
 
-Static generation cannot prove the final resource tier. Complete live resource validation before treating the candidate as the final template value.
+Select CPU and memory independently for every application main container,
+worker, sidecar, initContainer, Job container, and KubeBlocks component. The
+selected limit for each dimension is the greatest of the role floor, explicit
+source requirements, and the AI's runtime estimate, rounded up to the next
+Sealos ladder tier.
 
-### Personal low-load resource validation
+Before finalizing the template, inspect Compose/Helm/Kubernetes resources,
+official minimum requirements, runtime type, JVM heap, worker/process count,
+browser or desktop stacks, caches, expected data held in memory, and
+initialization or migration work. Source limits and documented minimums must
+never be reduced. When those signals show that the floor is insufficient, the
+AI must select a higher tier directly; the deterministic adapter output is a
+baseline and may be raised in the canonical template before the quality gate.
+Record the selected tier and a short reason in the existing deploy log without
+creating another lifecycle artifact.
 
-Apply the resource ladder independently to every application main container, sidecar, initContainer, and Job:
-
-- The final CPU and memory limits must be the lowest Sealos ladder tiers that pass role-specific personal low-load validation, while an explicit source hard minimum remains the lower bound.
-- Tune CPU and memory separately, one ladder step at a time, and use a fresh rollout or cold execution for every candidate.
-- A passing long-running workload must complete cold start, become Ready, complete registration or login when applicable, complete at least two representative low-load actions, and remain stable for 60 seconds with zero `OOMKilled` terminations, restarts, readiness flaps, or resource-related timeouts.
-- A passing one-shot initContainer or Job must complete successfully from a cold run and allow every dependent workload to become Ready.
-- If a lower tier fails any acceptance signal, use the next passing tier and repeat final validation from a fresh rollout.
-- Treat observed CPU and memory peaks and utilization percentages as diagnostic evidence; acceptance failures trigger tier promotion.
-- Keep requests derived from limits according to the Sealos resource ladder.
+Do not repeatedly lower resources to find a theoretical minimum. A
+long-running workload still must complete cold start, become Ready, complete
+the representative user flow, and remain stable for 60 seconds without
+`OOMKilled`, resource-related restarts, readiness flaps, allocation failures,
+or timeouts. An initContainer or Job must complete successfully and allow its
+dependents to become Ready. Any resource-insufficiency signal requires
+promotion of the affected CPU or memory dimension to a higher ladder tier,
+followed by a fresh deployment and Phase 6.5 validation. Keep requests derived
+from the final limits.
 
 ### In-container browser / remote desktop validation
 
-- Apply browser-specific validation only to containers that run Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar remote-desktop stack; browser-accessed web applications such as Langflow use the general personal low-load policy.
+- Apply browser-specific validation only to containers that run Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar remote-desktop stack; browser-accessed web applications such as Langflow use the general resource sizing policy.
 - Exercise cold start through readiness, a lightweight page, a real or medium page, an interactive or search action, and the 60-second stability window.
-- For Chrome + Xvfb + Selkies with a 4K maximum display, start validation at `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, then test adjacent ladder tiers under the same acceptance contract.
+- For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, and select a higher tier when project or runtime evidence requires it.
 
 ### Defaults vs inputs
 

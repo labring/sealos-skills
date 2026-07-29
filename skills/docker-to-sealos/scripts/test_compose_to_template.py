@@ -215,6 +215,48 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             self.assertEqual([], violations)
 
+    def test_preserves_higher_compose_resource_requirements(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    deploy:
+                      resources:
+                        limits:
+                          cpus: "0.75"
+                          memory: 600M
+                  postgres:
+                    image: postgres:16
+                    deploy:
+                      resources:
+                        limits:
+                          cpus: "1.5"
+                          memory: 1536M
+                """,
+            )
+
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            app_resources = deployment["spec"]["template"]["spec"]["containers"][0]["resources"]
+            self.assertEqual({"cpu": "1", "memory": "1024Mi"}, app_resources["limits"])
+            self.assertEqual({"cpu": "100m", "memory": "102Mi"}, app_resources["requests"])
+
+            cluster = next(doc for doc in docs if doc.get("kind") == "Cluster")
+            db_resources = cluster["spec"]["componentSpecs"][0]["resources"]
+            self.assertEqual({"cpu": "2", "memory": "2048Mi"}, db_resources["limits"])
+            self.assertEqual({"cpu": "200m", "memory": "204Mi"}, db_resources["requests"])
+            self._assert_generated_template_passes_consistency(root, index_path)
+
     def test_preserves_compose_deploy_replicas(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

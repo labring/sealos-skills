@@ -86,13 +86,13 @@ rules:
     description: Database connection env fields (endpoint/host/port/username/password) in business workloads must use approved Kubeblocks database secretKeyRef entries, except Redis host/port may use Sealos Redis Service FQDN and port 6379, MongoDB host/port or URLs may use Sealos MongoDB Service FQDN and port 27017, and endpoint/URL fields may compose values from approved DB secretKeyRef env vars.
     severity: error
   - id: R019
-    description: Database cluster component resources must use limits cpu=500m/memory=512Mi and requests cpu=50m/memory=51Mi.
+    description: Database cluster component limits must use the Sealos ladder at or above cpu=500m/memory=512Mi, with requests derived from the selected limits.
     severity: error
   - id: R039
     description: Supported database services must prefer KubeBlocks Cluster resources; a preserved raw source database requires a non-empty docker-to-sealos.kubeblocks-fallback-reason annotation.
     severity: error
   - id: R038
-    description: Managed workload container resources must use allowed Sealos limits ladder values and derive requests from limits.
+    description: Managed workload container limits must use the Sealos ladder at or above cpu=200m/memory=256Mi, with requests derived from the selected limits.
     severity: error
   - id: R020
     description: Service spec.ports entries must define non-empty name fields in template artifacts.

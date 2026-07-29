@@ -7,8 +7,8 @@ import re
 from typing import Dict, List, Set, Tuple
 
 from check_consistency_models import (
+    APP_COMPONENT_RESOURCE_LIMITS,
     DB_COMPONENT_RESOURCE_LIMITS,
-    DB_COMPONENT_RESOURCE_REQUESTS,
     MAX_PVC_STORAGE_BYTES,
     Rule,
     ScanContext,
@@ -120,6 +120,11 @@ def _display_allowed(values: Dict[str, str]) -> str:
     return "/".join(values.keys())
 
 
+def _resource_at_or_above(value: str, minimum: str, ladder: Dict[str, str]) -> bool:
+    ordered = list(ladder)
+    return value in ladder and ordered.index(value) >= ordered.index(minimum)
+
+
 def _resource_line(doc, key: str, value) -> int:
     if value is None:
         return find_line(doc, rf"^\s*{re.escape(key)}\s*:", default=find_line(doc, r"^\s*resources\s*:"))
@@ -207,6 +212,44 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                         ),
                     )
                 )
+            if (
+                cpu_limit in SEALOS_CPU_REQUEST_BY_LIMIT
+                and not _resource_at_or_above(
+                    cpu_limit,
+                    APP_COMPONENT_RESOURCE_LIMITS["cpu"],
+                    SEALOS_CPU_REQUEST_BY_LIMIT,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        rule_id="R038",
+                        path=doc.path,
+                        line=_resource_line(doc, "cpu", limits.get("cpu")),
+                        message=(
+                            f"container {name} limits.cpu must be at least "
+                            f"{APP_COMPONENT_RESOURCE_LIMITS['cpu']}"
+                        ),
+                    )
+                )
+            if (
+                memory_limit in SEALOS_MEMORY_REQUEST_BY_LIMIT
+                and not _resource_at_or_above(
+                    memory_limit,
+                    APP_COMPONENT_RESOURCE_LIMITS["memory"],
+                    SEALOS_MEMORY_REQUEST_BY_LIMIT,
+                )
+            ):
+                violations.append(
+                    Violation(
+                        rule_id="R038",
+                        path=doc.path,
+                        line=_resource_line(doc, "memory", limits.get("memory")),
+                        message=(
+                            f"container {name} limits.memory must be at least "
+                            f"{APP_COMPONENT_RESOURCE_LIMITS['memory']}"
+                        ),
+                    )
+                )
 
             expected_cpu_request = SEALOS_CPU_REQUEST_BY_LIMIT.get(cpu_limit)
             expected_memory_request = SEALOS_MEMORY_REQUEST_BY_LIMIT.get(memory_limit)
@@ -282,49 +325,72 @@ def check_database_cluster_component_resources(context: ScanContext) -> List[Vio
                 )
                 continue
 
-            expected_sections = (
-                ("limits", DB_COMPONENT_RESOURCE_LIMITS),
-                ("requests", DB_COMPONENT_RESOURCE_REQUESTS),
-            )
-            for section_name, expected_values in expected_sections:
-                section = resources.get(section_name)
-                if not isinstance(section, dict):
-                    line = find_line(
-                        doc,
-                        rf"^\s*name\s*:\s*{re.escape(component_name)}\s*$",
-                        default=find_line(doc, r"^\s*resources\s*:"),
+            limits = resources.get("limits")
+            requests = resources.get("requests")
+            if not isinstance(limits, dict):
+                violations.append(
+                    Violation(
+                        rule_id="R019",
+                        path=doc.path,
+                        line=find_line(doc, r"^\s*resources\s*:"),
+                        message=f"database component {component_name} must define resources.limits",
                     )
+                )
+                continue
+            if not isinstance(requests, dict):
+                violations.append(
+                    Violation(
+                        rule_id="R019",
+                        path=doc.path,
+                        line=find_line(doc, r"^\s*resources\s*:"),
+                        message=f"database component {component_name} must define resources.requests",
+                    )
+                )
+                continue
+
+            for key, ladder in (
+                ("cpu", SEALOS_CPU_REQUEST_BY_LIMIT),
+                ("memory", SEALOS_MEMORY_REQUEST_BY_LIMIT),
+            ):
+                actual_limit = str(limits.get(key, "")).strip()
+                minimum = DB_COMPONENT_RESOURCE_LIMITS[key]
+                if actual_limit not in ladder:
                     violations.append(
                         Violation(
                             rule_id="R019",
                             path=doc.path,
-                            line=line,
-                            message=f"database component {component_name} must define resources.{section_name}",
+                            line=_resource_line(doc, key, limits.get(key)),
+                            message=(
+                                f"database component {component_name} limits.{key} "
+                                f"must use the Sealos ladder ({_display_allowed(ladder)})"
+                            ),
                         )
                     )
                     continue
-
-                for key, expected in expected_values.items():
-                    actual = section.get(key)
-                    if actual == expected:
-                        continue
-                    line = find_line(
-                        doc,
-                        rf"^\s*{re.escape(key)}\s*:\s*['\"]?{re.escape(str(actual))}['\"]?\s*$",
-                        default=find_line(
-                            doc,
-                            rf"^\s*name\s*:\s*{re.escape(component_name)}\s*$",
-                            default=find_line(doc, r"^\s*resources\s*:"),
-                        ),
-                    )
+                if not _resource_at_or_above(actual_limit, minimum, ladder):
                     violations.append(
                         Violation(
                             rule_id="R019",
                             path=doc.path,
-                            line=line,
+                            line=_resource_line(doc, key, limits.get(key)),
                             message=(
-                                f"database component {component_name} resources.{section_name}.{key} "
-                                f"must be {expected}"
+                                f"database component {component_name} limits.{key} "
+                                f"must be at least {minimum}"
+                            ),
+                        )
+                    )
+
+                expected_request = ladder[actual_limit]
+                actual_request = str(requests.get(key, "")).strip()
+                if actual_request != expected_request:
+                    violations.append(
+                        Violation(
+                            rule_id="R019",
+                            path=doc.path,
+                            line=_resource_line(doc, key, requests.get(key)),
+                            message=(
+                                f"database component {component_name} requests.{key} "
+                                f"must be {expected_request} when limits.{key} is {actual_limit}"
                             ),
                         )
                     )

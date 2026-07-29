@@ -6394,11 +6394,11 @@ __MOUNTS__
                     - name: postgresql
                       resources:
                         limits:
-                          cpu: 1000m
-                          memory: 1024Mi
+                          cpu: 200m
+                          memory: 256Mi
                         requests:
-                          cpu: 100m
-                          memory: 102Mi
+                          cpu: 20m
+                          memory: 25Mi
                 """,
             )
 
@@ -7355,6 +7355,54 @@ __MOUNTS__
                 additional_include_paths=["template/demo/index.yaml"],
             )
             self.assertTrue(any(item.rule_id == "R038" for item in violations))
+
+    def test_detects_managed_workload_below_resource_floor(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / "template" / "demo" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: demo
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: demo
+                          image: nginx:1.27.2
+                          imagePullPolicy: IfNotPresent
+                          resources:
+                            requests:
+                              cpu: 10m
+                              memory: 12Mi
+                            limits:
+                              cpu: 100m
+                              memory: 128Mi
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=["template/demo/index.yaml"],
+            )
+            resource_messages = [
+                item.message for item in violations if item.rule_id == "R038"
+            ]
+            self.assertTrue(any("at least 200m" in message for message in resource_messages))
+            self.assertTrue(any("at least 256Mi" in message for message in resource_messages))
 
     def test_detects_request_not_derived_from_limits(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1004,7 +1004,11 @@ spec:
 
 **Important: The resources field of all containers must include both requests and limits.**
 
-All containers in application Deployments or StatefulSets must use the fixed Sealos resource ladder. Do not invent intermediate values during template generation or resource tuning.
+All managed workload containers must use the fixed Sealos resource ladder. Do
+not invent intermediate values during template generation or resource tuning.
+Application main containers, workers, sidecars, initContainers, and Job
+containers must use at least `cpu=200m` and `memory=256Mi`. Every KubeBlocks
+database component must use at least `cpu=500m` and `memory=512Mi`.
 
 Allowed `limits.cpu` values use canonical Kubernetes quantities:
 
@@ -1049,7 +1053,7 @@ Allowed `limits.memory` values:
 | `memory: 8192Mi` | `memory: 819Mi` |
 | `memory: 16384Mi` | `memory: 1638Mi` |
 
-**Default lightweight application quota:**
+**Application hard floor:**
 
 ```yaml
 resources:
@@ -1116,25 +1120,25 @@ resources:
     memory: 2G
 ```
 
-**Tuning guidance:**
+**Sizing guidance:**
 
-1. Move only between allowed `limits` ladder values.
-2. Recompute `requests` from the selected `limits`; do not preserve old requests.
-3. Treat `cpu=200m` and `memory=256Mi` as initial candidates when source evidence provides no explicit hard minimum. Static generation does not establish the final tier.
-4. Tune each application main container, sidecar, initContainer, and Job independently. Change CPU and memory one dimension and one ladder step at a time so failures remain attributable.
-5. Use an explicit source hard minimum as the lower bound. For each candidate, recreate or cleanly roll the Pod or rerun the one-shot workload from a cold state.
-6. Accept a long-running candidate after it completes cold start, becomes Ready, completes registration or login when applicable, completes at least two representative low-load actions, and remains stable for 60 seconds with zero `OOMKilled` terminations, restarts, readiness flaps, or resource-related timeouts.
-7. Accept a one-shot initContainer or Job after it completes successfully from a cold run and every dependent workload becomes Ready.
-8. Record observed CPU and memory peaks and utilization ratios as diagnostic evidence. Use acceptance failures as the tier-promotion signal.
-9. When a lower candidate fails, select the next passing tier and repeat the full acceptance flow from a fresh rollout before updating the template.
-10. Apply the browser and remote-desktop scenario only when the container itself runs Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar stack. A web application that users access from their own browser follows the general personal low-load flow.
+1. Move only between allowed `limits` ladder values and recompute `requests` from the selected limits.
+2. Select CPU and memory independently for every component. Start from the applicable application or database floor.
+3. Treat source Compose/Helm/Kubernetes resources and documented minimums as lower bounds that conversion must not reduce.
+4. Before deployment, let the AI raise either dimension based on runtime type, heap, worker/process count, browser or desktop stacks, caches, data held in memory, and initialization or migration work.
+5. The selected value is the greatest of the role floor, explicit source requirement, and AI runtime estimate, rounded up to the next ladder tier.
+6. Do not repeatedly lower a stable component to find a theoretical minimum.
+7. Accept a long-running selection only after it completes cold start, becomes Ready, completes the representative user flow, and remains stable for 60 seconds without `OOMKilled`, resource-related restarts, readiness flaps, allocation failures, or timeouts.
+8. Accept a one-shot initContainer or Job after it completes successfully from a cold run and every dependent workload becomes Ready.
+9. When runtime evidence proves a resource shortage, raise the affected dimension, recompute requests, redeploy, and repeat the full acceptance flow from a fresh baseline.
+10. Apply the browser and remote-desktop scenario only when the container itself runs Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar stack. A web application that users access from their own browser follows the general flow.
 
 **Personal low-load examples:**
 
 - Langflow at `limits.memory=2048Mi` with an observed peak of `1851Mi` keeps `2048Mi` after cold start, login or registration, two representative actions, and the 60-second stability window all pass without failure signals.
-- A candidate that OOMs, restarts, loses readiness, or times out moves to the next memory or CPU ladder tier. The selected tier receives one final cold validation.
+- A candidate that OOMs, restarts, loses readiness, or times out moves to a higher memory or CPU ladder tier. The selected tier receives a fresh validation.
 - A high utilization ratio remains eligible when the complete acceptance flow passes. The ratio stays in the runtime evidence for future tuning.
-- For Chrome + Xvfb + Selkies with a 4K maximum display, begin at `limits(cpu=200m,memory=1024Mi)` and derived `requests(cpu=20m,memory=102Mi)`, then test adjacent ladder tiers with the browser-specific interaction flow.
+- For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` and derived `requests(cpu=20m,memory=102Mi)`, then raise either dimension when project or runtime evidence requires it.
 
 ## Image Configuration Specification
 

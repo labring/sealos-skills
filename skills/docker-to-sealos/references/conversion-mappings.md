@@ -1171,12 +1171,13 @@ metadata:
 ### Persistent Storage
 - Docker volumes → StatefulSet + volumeClaimTemplates
 
-### Existing Template Resource Tuning
-- Tune CPU and memory through the Sealos resource ladder, one dimension and one step at a time for each application main container, sidecar, initContainer, and Job.
-- Select the lowest tier that passes a fresh role-specific personal low-load validation: cold start, readiness or successful completion, registration or login when applicable, at least two representative actions for long-running workloads, and a 60-second stability observation.
-- Promote a candidate when OOM kills, restarts, readiness flaps, or resource-related timeouts occur. Record peak utilization percentages as diagnostic evidence.
-- Treat `200m/256Mi` as the static initial candidate when source evidence supplies no explicit hard minimum. Keep KubeBlocks database components on their separate `500m/512Mi` contract.
-- Apply the browser and remote-desktop interaction scenario only when the container itself runs that stack. Browser-accessed web applications use the general personal low-load flow.
+### Resource Sizing
+- Keep every application main container, worker, sidecar, initContainer, and Job container at or above `200m/256Mi`; keep every KubeBlocks component at or above `500m/512Mi`.
+- Preserve explicit Compose/Helm/Kubernetes requirements and official minimums, rounding each CPU and memory value up to the next Sealos ladder tier.
+- Let the AI select a higher tier before deployment when runtime type, heap, process or worker count, browser/desktop execution, cache/data usage, or initialization work indicates that a floor value is unsafe.
+- Promote the affected dimension when OOM kills, resource-related restarts, readiness flaps, allocation failures, or timeouts occur, then redeploy and validate from a fresh runtime baseline.
+- Do not repeatedly lower stable resources to find a theoretical minimum.
+- Apply the browser and remote-desktop interaction scenario only when the container itself runs that stack. Browser-accessed web applications use the general resource sizing flow.
 - Preserve existing `ephemeral-storage` requests and limits exactly during template refreshes.
 - Change `ephemeral-storage` only when live evidence shows `EphemeralStorage`, eviction, or disk-pressure failures for that workload.
 - Adjust `requests.ephemeral-storage` and `limits.ephemeral-storage` together for the same container.
