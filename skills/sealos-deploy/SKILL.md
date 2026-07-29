@@ -27,10 +27,17 @@ Deploy cloud workloads to Sealos Cloud. Phase 1 begins with an internal AI
 judgment that has no separate artifact or report: obvious impossibility stops,
 everything else proceeds into readiness scoring.
 
-After Phase 1 continues, a failed image, Dockerfile, or build attempt rejects
-only that route, not the project. When buildable source remains, follow the
-bounded Phase 4 → Phase 3 → Phase 4 repair loop before stopping or moving to
-another project.
+Treat the repository as the source boundary, not necessarily as one deployable
+root application. Use project-owned evidence to find a reasonable online form,
+including a child application, static site, documentation site, Storybook, or
+example. Deterministic detectors and adapters provide evidence and common
+transformations; they do not replace AI judgment or define which projects are
+deployable.
+
+After Phase 1 continues, a missing root runtime or a failed image, Dockerfile,
+adapter, or build attempt rejects only that route, not the project. When
+buildable source remains, inspect other project-backed routes and follow the
+bounded Phase 4 → Phase 3 → Phase 4 repair loop before stopping.
 
 ## kubectl Safety Rules (all phases)
 
@@ -188,8 +195,8 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
 | `find-template-references.mjs` | `node find-template-references.mjs --work-dir <repo-dir> --skill-dir <SKILL_DIR> --analysis <analysis.json> --reuse-official-template <true\|false> [--github-url <url>] [--catalog-dir <dir>]` | Select a remotely verified unique exact official template for the Phase 6 fast path, or continue the standard pipeline; `--catalog-dir` is matching-only for tests/offline inspection |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
-| `inspect-deployment-source.mjs` | `node inspect-deployment-source.mjs <work-dir>` | Select one Compose, Helm, Kubernetes, or implicit source; safely render explicit Kubernetes topology and inventory its resources |
-| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Inventory declared images and the selected deployment-source topology, normalize per-service build plans, and resolve each exact selector to an immutable digest |
+| `inspect-deployment-source.mjs` | `node inspect-deployment-source.mjs <work-dir>` | Select one Compose, Helm, Kubernetes, or implicit source route; safely render explicit Kubernetes topology and inventory its resources |
+| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Inventory declared images and explicit deployment-source topology, normalize declared per-service build plans, and resolve each exact selector to an immutable digest; an implicit result leaves service selection to AI |
 | `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--service <name>] [--context <path>] [--dockerfile <path>] [--target <stage>] [--build-arg <NAME[=value]>]...` | Build one planned service for linux/amd64, push it to the lower-case current authenticated GitHub account namespace on GHCR, and write the Buildx digest plus pull-access handoff in its per-service result |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update the app-scoped GHCR pull Secret after the lifecycle has proved that all non-anonymous service images share one GHCR namespace; the active GitHub account must match that namespace |
 | `extract-deploy-app-name.mjs` | `printf '%s\n' "$DEPLOY_RESULT" \| node extract-deploy-app-name.mjs` | Extract and validate the server-generated Kubernetes application name from the sanitized Template API response before using it for Secret creation or runtime discovery |
@@ -236,12 +243,12 @@ Paths used in pipeline.md follow the pattern:
 | Phase | Action | Skip When |
 |-------|--------|-----------|
 | 0 — Preflight | Capability scan, complete source materialization, path-specific warnings, Sealos auth | Initial blockers resolved |
-| 1 — Assess | Stop only when AI is certain deployment is impossible; otherwise continue silently into readiness scoring and record risks | Existing deployment → UPDATE path; low score does not reject |
+| 1 — Assess | Find a reasonable project-backed online form; stop only when AI is certain deployment is impossible, otherwise continue silently into readiness scoring and record risks | Existing deployment → UPDATE path; low score does not reject |
 | 1.5 — Official Template | A unique, source-aligned official `spec.gitRepo` match is reused verbatim and jumps to Phase 6; otherwise continue | No safe unique exact match → Phase 2 |
-| 2 — Discover | Select the Compose, Helm, Kubernetes, or implicit deployment source; inventory all project-declared images and the complete service topology; resolve every reusable selector to an immutable digest without pre-screening third-party image architecture | Every final container workload covered → Phase 5 |
-| 3 — Prepare Build | Preserve or minimally prepare the exact context, Dockerfile, target, and build-argument names for each final container workload still needing a build; use the implicit application service only when no explicit topology exists; do not build here | No final container workload needs a build |
+| 2 — Discover | Select the Compose, Helm, Kubernetes, or implicit source route; use detector output as evidence, let AI confirm the actual services, inventory the complete topology, and resolve reusable selectors to immutable digests | Every final container workload covered → Phase 5 |
+| 3 — Prepare Build | Preserve or minimally prepare the exact context, Dockerfile, target, and build-argument names for each confirmed container workload still needing a build; do not assume the repository root is the application and do not build here | No final container workload needs a build |
 | 4 — Build & Push | Build each missing final container workload for `linux/amd64` from its Phase 3 plan, route build-plan failures back to Phase 3, push successful results to the lower-case current GitHub account namespace on GHCR, and record the Buildx digest plus pull-access handoff | No final container workload needs a build |
-| 5 — Template | Route the selected deployment source through its deterministic adapter, preserve complete topology, prefer KubeBlocks for supported non-external databases, and generate the Sealos application template without treating a documented raw-database fallback as a project failure | — |
+| 5 — Template | Prefer the source adapter, or generate an equivalent canonical template when the adapter cannot express the confirmed deployment; preserve complete topology, prefer KubeBlocks for supported non-external databases, and pass the same quality gate | — |
 | 5.5 — Configure | Validate the generated template, resolve its configuration, summarize the deploy, and obtain confirmation | Official-template fast path |
 | 6 — Deploy | Resolve any official-template inputs, dry-run, then deploy to Sealos Cloud | — |
 | 6.5 — Runtime Truth Pass | Verify Launchpad public networking, the actual Sealos runtime, logs, Event convergence, App URL, login path, object-storage flow, and resource footprint | — |
@@ -272,7 +279,8 @@ Input (GitHub URL / local path)
   │         └── skip Phase 2, 3, 4, 5, and 5.5 ───────────┐
   │                                                        │
   └── no safe unique exact match                           │
-        └── [Phase 2] Inventory images + full topology     │
+        └── [Phase 2] AI confirms services; inventory     │
+                      images + full topology               │
               ├── every container has digest ─────┐      │
               └── one or more containers need build │      │
                     ▼                               │      │

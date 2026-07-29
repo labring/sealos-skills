@@ -365,10 +365,11 @@
     {
       "id": 29,
       "prompt": "Resume deployment of a conventional single-app repository with no Compose file, no reusable published image, and an existing root Dockerfile. A previous run stopped after Phase 1 and the Dockerfile predates sealos-deploy.",
-      "expected_output": "Phase 2 creates or retains one implicit application service with context '.', Dockerfile 'Dockerfile', no target or build args, and existing origin. Phase 3 preserves that plan, Phase 4 builds it for linux/amd64, and Phase 5 uses a temporary single-service Compose input to produce the canonical validated Sealos template without modifying the project",
+      "expected_output": "The detector reports an implicit source without inventing a service. Phase 2 confirms from project evidence that the root is the application and records one service with context '.', Dockerfile 'Dockerfile', no target or build args, and existing origin. Phase 3 preserves that plan, Phase 4 builds it for linux/amd64, and Phase 5 uses a temporary Compose input to produce the canonical validated Sealos template without modifying the project",
       "files": [],
       "assertions": [
-        {"name": "creates-implicit-application-service", "description": "Keeps the ordinary no-Compose project in service_inventory as one build-required application service"},
+        {"name": "keeps-detector-advisory", "description": "Does not treat an implicit source result as proof that the repository root is the application"},
+        {"name": "confirms-root-application", "description": "Uses project evidence to record the ordinary root application in service_inventory as one build-required service"},
         {"name": "uses-root-build-defaults", "description": "Uses context '.', dockerfile 'Dockerfile', target null, args [], and origin existing"},
         {"name": "does-not-use-root-file-as-checkpoint", "description": "Does not skip all Phase 3 preparation merely because a root Dockerfile exists"},
         {"name": "preserves-existing-root-dockerfile", "description": "Uses the existing Dockerfile unchanged absent a certain blocker or concrete Phase 4 failure"},
@@ -527,10 +528,22 @@
       "expected_output": "Phase 5 does not stop because Compose is absent. It synthesizes the existing temporary adapter input with the application and PostgreSQL services, converts PostgreSQL to KubeBlocks, wires DATABASE_URL through the managed database Secret and Service, and continues through the normal quality gate without adding a lifecycle artifact",
       "files": [],
       "assertions": [
-        {"name": "does-not-require-explicit-database-topology", "description": "Does not reject the implicit single-service route merely because analysis.json records a supported database"},
+        {"name": "does-not-require-explicit-database-topology", "description": "Does not reject the implicit source route merely because analysis.json records a supported database"},
         {"name": "prefers-kubeblocks", "description": "Creates the supported PostgreSQL dependency as a KubeBlocks Cluster instead of a raw database workload"},
         {"name": "wires-managed-connection", "description": "Uses the KubeBlocks connection Secret and Service identity for the application's DATABASE_URL"},
         {"name": "keeps-existing-artifact-contract", "description": "Writes only the existing canonical template and does not introduce a new phase artifact"}
+      ]
+    },
+    {
+      "id": 42,
+      "prompt": "Deploy a component-library monorepo whose repository root has no application start command or listening port. Project-owned workspace scripts and CI build a Storybook site from packages/ui into static output, and the repository also contains runnable examples. There is no Compose, Helm, or Kubernetes topology.",
+      "expected_output": "The skill treats the repository as a source boundary instead of stopping on the root runtime contract. Phase 1 identifies the project-backed Storybook as a reasonable online form, Phase 2 records that actual service in the existing service inventory, Phase 3 prepares its real workspace build context and a static-serving final container, and the normal build, template, and quality-gate path continues without adding a target artifact",
+      "files": [],
+      "assertions": [
+        {"name": "does-not-require-root-runtime", "description": "Does not stop because the component-library repository root lacks an application start command or port"},
+        {"name": "uses-project-backed-online-form", "description": "Uses workspace and CI evidence to select a real Storybook, documentation, example, or other repository-supported deployable form"},
+        {"name": "serves-static-output", "description": "Turns the selected static build output into a concrete final runtime with a listening port"},
+        {"name": "keeps-existing-artifacts", "description": "Records reasoning in the existing analysis and service inventory without introducing a target-selection phase or artifact"}
       ]
     }
   ]

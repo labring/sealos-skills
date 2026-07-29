@@ -309,6 +309,10 @@ Use those directly — no need to re-derive.
 Ask one internal question: **Am I certain this selected project cannot run on
 Sealos in any reasonable form?**
 
+- Treat the repository as a source boundary, not as the only possible
+  deployment unit. A root library or monorepo may still contain an application,
+  documentation site, static site, Storybook, example, or another
+  repository-supported online runtime.
 - If yes, give the user one short, concrete reason and STOP. A confirmed
   Windows-only native desktop application with no server, web, remote-desktop,
   container, or alternative runtime target is an example.
@@ -328,6 +332,9 @@ above.
 node "<SKILL_DIR>/scripts/score-model.mjs" "$WORK_DIR"
 ```
 Output: `{ "score": N, "raw_score": N, "bonus": N, "verdict": "...", "dimensions": {...}, "signals": {...} }`
+
+The score and detected signals are advisory repository evidence. They do not
+select the deployment shape, define the deployable unit, or authorize a stop.
 
 **If Node.js not available (fallback):**
 Perform the scoring yourself by reading project files and applying these rules:
@@ -355,7 +362,7 @@ Score 6 dimensions (0-2 each, max 12). For detailed criteria, read:
 
 ### 1.2 AI Quick Assessment
 
-Use structured signals from Phase 1.1 score-model output directly:
+Use structured signals from Phase 1.1 score-model output as initial evidence:
 - `signals.primary_language` — primary language (priority-sorted when multiple detected)
 - `signals.framework` — detected frameworks
 - `signals.package_manager` — detected package manager (npm/yarn/pnpm/bun/pip/go/etc.)
@@ -369,14 +376,20 @@ values are not a Sealos support list. Supplement its output with direct project
 evidence, preserve unfamiliar non-empty names as written, and leave facts
 unknown when the repository does not establish them.
 
-Focus AI effort on what the script cannot detect: env_vars classification,
-complexity_tier assessment, and port override from source code (if `port_source` is "unknown").
+Focus AI effort on what the script cannot establish: the meaningful deployable
+shape, service boundaries, env_vars classification, complexity_tier assessment,
+and the final runtime port. A repository-wide framework default is not the
+runtime contract of an arbitrary root directory.
 
 Based on the score result and your own analysis of the project, assess:
 
-1. Read key files: `README.md`, `package.json`/`go.mod`/`requirements.txt`, `Dockerfile` (if exists)
-2. Check: Is this a web service, API, or worker with network interface?
-3. Determine: ports, required env vars, database dependencies, special concerns
+1. Read key files: `README.md`, dependency manifests, workspace definitions,
+   Dockerfiles, deployment workflows, and relevant application directories.
+2. Determine what reasonable online form the repository supports. This may be
+   a root application, a service in a monorepo, a static build, documentation,
+   Storybook, an example application, an API, or a worker.
+3. Determine the corresponding build context, ports, required env vars,
+   database dependencies, and special concerns.
 
 If the score is borderline (4-6), also read:
 - `<SKILL_DIR>/../cloud-native-readiness/knowledge/criteria.md` — detailed rubrics
@@ -384,6 +397,9 @@ If the score is borderline (4-6), also read:
 
 Record uncertain workload types, missing entry points, and other risks as analysis
 facts. Do not turn those signals into another stop decision later in Phase 1.
+The absence of a root start command or source-level listening port is not a
+runtime failure when project evidence supports a buildable child application
+or a static output that can be served by the final container.
 
 Record only known facts for later phases: `language`, `framework`, `port`,
 `env_vars`, `databases`, and `has_dockerfile`. Do not map static or unfamiliar
@@ -470,7 +486,7 @@ Recommended format:
 
 ```text
 Repository Analysis:
-  - Type: <web app | api | worker | cli | library>
+  - Type: <web app | static site | docs | Storybook | api | worker | library | other>
   - Language: <language>
   - Framework: <framework or "none detected">
   - Port: <port or "not detected">
@@ -630,10 +646,12 @@ The output always contains:
   inventory when applicable.
 - `image_inventory`: every parseable README, CI, Compose, Helm, and Kubernetes image
   declaration, including application, database, and infrastructure images.
-- `service_inventory`: every selected deployment workload, including database,
-  cache, proxy, queue, object-storage, and build-only services. Helm and
-  Kubernetes entries retain `resource_kind`, `workload_name`, `container_name`,
-  and `container_role` where applicable.
+- `service_inventory`: workloads established by an explicit Compose, Helm, or
+  Kubernetes source, including database, cache, proxy, queue, object-storage,
+  and build-only services. Helm and Kubernetes entries retain `resource_kind`,
+  `workload_name`, `container_name`, and `container_role` where applicable. An
+  implicit result does not invent a root application service; AI completes the
+  inventory from repository evidence.
 - backward-compatible primary fields (`found`, `image`, `tag`, `source`,
   `digest`, `image_ref`) only when one digest-resolved primary image is
   unambiguous at the highest-priority evidence level.
@@ -695,43 +713,51 @@ dependency or its application wiring disappear.
 
 ### 2.5 Update `analysis.json`
 
-Copy the detector's `deployment_source`, complete `image_inventory`, and
-`service_inventory` into `.sealos/analysis.json`. Set `image_ref` to the
+Treat the detector result as evidence, not as a deployment decision. Copy its
+`deployment_source` and complete `image_inventory` into
+`.sealos/analysis.json`, then verify and complete `service_inventory` from the
+actual project. Set `image_ref` to the
 immutable digest reference only
-when the detector returns one unambiguous primary image. Otherwise
-leave `image_ref` as `null`; the inventories, not a guessed primary, drive the
-remaining phases. Reconcile the `databases` list with database services found
+when the detector returns one unambiguous primary image and project evidence
+binds it to the chosen application service. Otherwise leave `image_ref` as
+`null`; the inventories, not a guessed primary, drive the remaining phases.
+Reconcile the `databases` list with database services found
 in the inventory so a dependency discovered in Compose cannot be lost merely
 because Phase 1 did not recognize it.
 
-Only when `deployment_source.kind` is `implicit-single-service` and there are
-no explicit services, create or retain one implicit application service named
-from the selected project directory (normally `REPO_NAME`) so the ordinary
-single-application path is not lost:
+When `deployment_source.kind` is `implicit-single-service`, the name means only
+that the repository supplied no directly usable Compose, Helm, or Kubernetes
+topology. It does not prove that the repository root is the application and it
+does not constrain AI to a root build. Use the full repository evidence to
+create the actual service entries in the existing inventory. For example, a
+Storybook inside a workspace can be represented without a new target artifact:
 
 ```json
 {
-  "name": "<repo-name>",
+  "name": "react-storybook",
   "role": "application",
   "source": "project",
-  "source_file": ".",
+  "source_file": "packages/react",
   "declared_image": null,
   "build": {
     "context": ".",
     "dockerfile": "Dockerfile",
     "target": null,
     "args": [],
-    "origin": "existing"
+    "origin": null
   },
   "image_status": "build_required"
 }
 ```
 
-Use `origin: null` when the root Dockerfile is absent. A unique README or CI
-image that already resolves to a digest still belongs to the implicit
-single-service route and may skip the build when it covers that service.
-Never create this fallback service for an explicitly detected Helm or
-Kubernetes topology.
+`source_file` identifies the project evidence for the service; `build.context`
+describes the files its build actually needs. They may differ, especially for
+workspaces that need a root lockfile and sibling packages. A conventional root
+application may still use `"."` for both. Bind a README or CI image to a
+service only when project evidence establishes that relationship; a
+repository-wide image declaration is not authority to replace an independently
+deployable child application. Do not create a candidate-list artifact or
+another lifecycle output for this reasoning.
 
 ### 2.6 Per-Service Routing
 
@@ -801,9 +827,11 @@ Honor Compose `build.context`, `build.dockerfile`, `build.target`, and argument
 names instead of falling back to the repository root. A root Dockerfile says
 nothing about whether another service's build plan is ready.
 
-For a project without Compose, operate on the implicit application service
-created in Phase 2. Its defaults are `context: "."`,
-`dockerfile: "Dockerfile"`, `target: null`, and `args: []`.
+For a project without explicit topology, operate on the actual services AI
+confirmed in Phase 2. Derive each context from its dependency boundary instead
+of defaulting to the repository root or to the service directory. A
+conventional root application may still resolve to `context: "."` and
+`dockerfile: "Dockerfile"`, but those are findings, not eligibility rules.
 
 ### 3.2 Preserve Existing Dockerfiles by Default
 
@@ -844,19 +872,25 @@ Before preparing any service, read the deploy-specific restricted integration:
 ```
 
 That module is the execution boundary and overrides standalone dockerfile-skill
-workflow/output instructions. When the effective Dockerfile is absent, use the
-detected service source and dockerfile-skill only as stack-analysis and template
-knowledge. Pre-load the relevant Phase 1 analysis, then re-check language,
-framework, package manager, workspace boundaries, port, build command, runtime
-entrypoint, and system dependencies inside that service's own context. Do not
-duplicate a fixed template allowlist here; select from dockerfile-skill's
-maintained templates. Set `origin: "generated"` after producing the minimal
-usable Dockerfile.
+workflow/output instructions. When the effective Dockerfile is absent, use
+repository evidence and dockerfile-skill only as stack-analysis and template
+knowledge. Pre-load the relevant Phase 1 analysis, then inspect the actual
+application, workspace boundaries, project-owned CI build, package manager,
+build command, output, runtime entrypoint, port, and system dependencies. The
+reasonable deployment may be a child application, Storybook, documentation
+build, example, or static output served by the final image. Do not duplicate a
+fixed template allowlist here; select from dockerfile-skill's maintained
+templates. Set `origin: "generated"` after producing the minimal usable
+Dockerfile.
 
-Missing or unfamiliar Phase 1 stack metadata is not an earlier blocker. Only
-when this service actually needs a generated Dockerfile may Phase 3 stop after
-its service-local re-check still cannot establish a concrete build and runtime
-contract. Existing Dockerfiles remain usable without known language metadata.
+Missing or unfamiliar Phase 1 stack metadata, a missing root start command, or
+the absence of a source-level listening port is not a blocker. A static build
+plus its final static server is a concrete runtime contract. If one proposed
+build route cannot be established, inspect the rest of the repository and its
+project-owned build/deploy evidence before rejecting the project. Stop only
+after actual preparation/build evidence proves that no reasonable,
+evidence-backed deployment form remains. Existing Dockerfiles remain usable
+without known language metadata.
 
 The dockerfile-skill integration is deliberately constrained. It may create or
 minimally repair the selected service's Dockerfile, a context-aware
@@ -1131,27 +1165,44 @@ Route generation from `analysis.json.deployment_source.kind`:
   preserve their runtime contract.
 - `kubernetes` uses the rendered/raw Kubernetes YAML and the same Kubernetes
   source adapter, including the same KubeBlocks-first database strategy.
-- `implicit-single-service` is the only route allowed to synthesize a temporary
-  Compose input. If source evidence identifies a supported server database and
-  does not explicitly select an external provider, add that database to the
-  same temporary input so the Compose adapter generates its KubeBlocks Cluster
-  and application wiring. SQLite remains application-local.
+- `implicit-single-service` is the compatibility name for a repository without
+  directly usable declared topology. AI may synthesize an evidence-backed
+  temporary Compose input for the actual service inventory, whether that
+  inventory contains one application or several proven services. If source
+  evidence identifies a supported server database and does not explicitly
+  select an external provider, add that database so the Compose adapter
+  generates its KubeBlocks Cluster and application wiring. SQLite remains
+  application-local.
 
-Every route uses a dry-run converter invocation and writes only the canonical
-`.sealos/template/index.yaml`. The explicit Helm/Kubernetes routes additionally
-write the declared source mapping and topology evidence artifacts. Missing
-adapter capabilities, an unrenderable source, unresolved explicit topology, or
-converter failure is not permission to hand-write around the adapter. A
-supported database that cannot be converted losslessly is preserved as a raw
-source workload with the adapter's existing resource mapping and a non-empty
+Prefer the dry-run converters because they encode the ordinary Sealos resource
+mapping, but treat them as tools rather than project eligibility gates. If an
+adapter cannot express an evidence-backed deployment shape, repair the
+temporary adapter input or generate the equivalent canonical
+`.sealos/template/index.yaml` directly. Every route still preserves the full
+confirmed topology, pins final images by digest, and passes the same complete
+quality gate. The explicit Helm/Kubernetes routes additionally write their
+declared source mapping and topology evidence artifacts. A supported database
+that cannot be converted losslessly is preserved as a raw source workload with
+the adapter's existing resource mapping and a non-empty
 `docker-to-sealos.kubeblocks-fallback-reason`; that preferred-route fallback is
 not a project-level failure.
 
 For a multi-service Compose project, `config.json.public_service` may name the
 one service that should receive the public Ingress. If exactly one application
-service declares `ports`, the converter selects it automatically. If multiple
-application services declare `ports` and no `public_service` is supplied,
-conversion stops instead of using declaration order.
+service declares `ports`, the converter selects it automatically. If several
+application services publish ports, determine the real public entry from an
+existing Ingress, README, frontend role, or run/deploy documentation.
+`public_service` can override that choice. Ask the user only when project
+evidence remains genuinely ambiguous and the choice materially changes the
+deployment; absence of a prewritten override is not itself a stop condition.
+
+The shell recipe below includes a convenience synthesizer for the common case
+where AI has confirmed exactly one application plus supported managed
+databases. It is not the definition of what an implicit project can deploy.
+For a richer AI-confirmed inventory, prepare the complete Compose input in the
+same system temporary directory and continue at the converter invocation, or
+generate the canonical template directly, skip this reference conversion
+recipe, and continue at the full quality gate.
 
 ```bash
 APP_NAME="$(
@@ -1222,7 +1273,7 @@ PY
 fi
 
 PUBLIC_SERVICE_ARGS=()
-if [ "$DEPLOYMENT_SOURCE_KIND" != "implicit-single-service" ] && [ -f "$WORK_DIR/.sealos/config.json" ]; then
+if [ -f "$WORK_DIR/.sealos/config.json" ]; then
   PUBLIC_SERVICE="$(
     "$PYTHON_BIN" - "$WORK_DIR/.sealos/config.json" <<'PY'
 import json
@@ -1315,12 +1366,14 @@ PY
       --topology-evidence-output "$WORK_DIR/.sealos/topology-evidence/$APP_NAME.yaml" \
       --dry-run
   )" || {
-    echo "Deterministic Kubernetes source conversion failed; Phase 5 stopped." >&2
+    echo "The current Kubernetes adapter input failed; repair the adapter input or generate the equivalent canonical template, then run the full quality gate." >&2
     exit 1
   }
   printf '%s\n' "$GENERATED_TEMPLATE" > "$WORK_DIR/.sealos/template/index.yaml"
 else
-COMPOSE_FILE=""
+# An AI-prepared temporary adapter input may pre-set these run-local variables.
+# Its creator owns cleanup; nothing is written under WORK_DIR.
+COMPOSE_FILE="${COMPOSE_FILE:-}"
 if [ "$DEPLOYMENT_SOURCE_KIND" = "compose" ]; then
   COMPOSE_SOURCE_PATH="$(
     "$PYTHON_BIN" - "$WORK_DIR/.sealos/analysis.json" <<'PY'
@@ -1351,8 +1404,8 @@ PY
   fi
 fi
 
-TEMP_COMPOSE_DIR=""
-SYNTHETIC_COMPOSE=false
+TEMP_COMPOSE_DIR="${TEMP_COMPOSE_DIR:-}"
+SYNTHETIC_COMPOSE="${SYNTHETIC_COMPOSE:-false}"
 if [ -z "$COMPOSE_FILE" ]; then
   TEMP_COMPOSE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/sealos-deploy-compose.XXXXXX")" || {
     echo "Unable to create a temporary Compose directory; Phase 5 stopped." >&2
@@ -1373,8 +1426,8 @@ analysis = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 services = analysis.get("service_inventory") or []
 if len(services) > 1:
     raise SystemExit(
-        "no-Compose Phase 5 supports one implicit application service only; "
-        "preserve multi-service topology in an explicit Compose input"
+        "the convenience synthesizer handles one application service; "
+        "prepare the evidence-backed temporary input for this richer inventory"
     )
 service = next(
     (item for item in services if item.get("role") == "application"),
@@ -1560,7 +1613,7 @@ Path(sys.argv[2]).write_text(
     encoding="utf-8",
 )
 PY
-    echo "Unable to synthesize a Compose input for the no-Compose project; Phase 5 stopped." >&2
+    echo "Automatic minimal synthesis was not applicable; prepare the evidence-backed temporary input or canonical template instead of rejecting the project." >&2
     rm -f "$COMPOSE_FILE"
     rmdir "$TEMP_COMPOSE_DIR" 2>/dev/null || true
     exit 1
@@ -1587,7 +1640,7 @@ fi
       rm -f "$COMPOSE_FILE"
       rmdir "$TEMP_COMPOSE_DIR" 2>/dev/null || true
     fi
-    echo "Deterministic Compose conversion failed; Phase 5 stopped." >&2
+    echo "The current Compose adapter input failed; repair the temporary input or generate the equivalent canonical template, then run the full quality gate." >&2
     exit 1
   }
 
@@ -1667,22 +1720,24 @@ PY
 fi
 ```
 
-The synthetic no-Compose input is temporary and is never written under
-`WORK_DIR`. This adapter is intentionally limited to one implicit application
-service without an unrepresented database or additional service topology.
-Required and optional classified environment variables are carried as Template
-inputs. Auto-managed variables with known defaults are included directly; an
-auto-managed variable without a resolved value stops conversion until Phase 5
-applies the existing database, public-URL, object-storage, or secret-generation
-rule that owns it.
+Every synthetic no-Compose input is temporary and is never written under
+`WORK_DIR`. The included convenience synthesizer handles one confirmed
+application plus supported managed databases; richer evidence-backed
+topologies use an AI-prepared temporary input or a directly generated canonical
+template. Required and optional classified environment variables are carried
+as Template inputs. Auto-managed variables with known defaults are included
+directly; an auto-managed variable without a resolved value must be handled by
+the existing database, public-URL, object-storage, or secret-generation rule
+that owns it before the final quality gate.
 
 The Helm/Kubernetes adapter writes `.sealos/deployment-source/resource-map.json`
 and `.sealos/topology-evidence/<app-name>.yaml` beside the canonical template.
 Every source resource must appear in the mapping exactly once; filtered resources
 must have an explicit `filtered` action, and transformed resources must identify
 their equivalent output. The topology evidence file is passed to the same
-quality gate as the template. An explicit multi-service source is never allowed
-to fall back to the synthetic single-service route.
+quality gate as the template. An explicit multi-service source must never be
+collapsed into a partial implicit topology merely because an adapter needs
+repair or replacement.
 
 For converted templates, map each inventory digest to the service it
 represents. Never apply one top-level `analysis.json.image_ref` to every

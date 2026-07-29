@@ -252,7 +252,7 @@ test('collects README labels, backticked refs, Compose snippets, and pull option
   })
 })
 
-test('treats README local build tags and ports as build evidence, not remote images', async () => {
+test('does not treat README local build tags and ports as remote image or topology evidence', async () => {
   await withFixture({
     'README.md': [
       'docker build -t sealos-brain-homepage .',
@@ -272,9 +272,8 @@ test('treats README local build tags and ports as build evidence, not remote ima
 
     assert.equal(fetchCount, 0)
     assert.deepEqual(result.image_inventory, [])
-    assert.equal(result.service_inventory.length, 1)
-    assert.equal(result.service_inventory[0].image_status, 'build_required')
-    assert.equal(result.service_inventory[0].build.origin, 'existing')
+    assert.equal(result.deployment_source.kind, 'implicit-single-service')
+    assert.deepEqual(result.service_inventory, [])
   })
 })
 
@@ -472,7 +471,7 @@ test('ignores CI tags that are never published', async () => {
   })
 })
 
-test('does not query name-guessed images when the project declares none', async () => {
+test('does not invent an implicit root service when the project declares no topology', async () => {
   await withFixture({}, async workDir => {
     let fetchCount = 0
     const result = await detectExistingImages(workDir, {
@@ -487,20 +486,11 @@ test('does not query name-guessed images when the project declares none', async 
     assert.equal(result.reason, 'no_explicit_image_declarations')
     assert.equal(fetchCount, 0)
     assert.deepEqual(result.image_inventory, [])
-    assert.equal(result.service_inventory.length, 1)
-    assert.equal(result.service_inventory[0].source, 'project')
-    assert.equal(result.service_inventory[0].name, 'guess-me')
-    assert.deepEqual(result.service_inventory[0].build, {
-      context: '.',
-      dockerfile: 'Dockerfile',
-      target: null,
-      args: [],
-      origin: null,
-    })
+    assert.deepEqual(result.service_inventory, [])
   })
 })
 
-test('attaches one verified README image to the implicit application service', async () => {
+test('keeps a verified README image as evidence without inventing its service', async () => {
   await withFixture({
     'README.md': 'docker pull acme/single:stable\n',
   }, async workDir => {
@@ -516,10 +506,8 @@ test('attaches one verified README image to the implicit application service', a
 
     assert.equal(result.found, true)
     assert.equal(result.deployment_source.kind, 'implicit-single-service')
-    assert.equal(result.service_inventory.length, 1)
-    assert.equal(result.service_inventory[0].image_status, 'verified')
-    assert.equal(result.service_inventory[0].image_ref, result.image_ref)
-    assert.equal(result.service_inventory[0].declared_image, 'acme/single:stable')
+    assert.equal(result.declared_ref, 'acme/single:stable')
+    assert.deepEqual(result.service_inventory, [])
   })
 })
 
@@ -546,9 +534,7 @@ test('does not treat Dockerfile FROM as a reusable project image', async () => {
     assert.deepEqual(evidence.declarations, [])
     assert.equal(result.found, false)
     assert.equal(fetchCount, 0)
-    assert.equal(result.service_inventory.length, 1)
-    assert.equal(result.service_inventory[0].source, 'project')
-    assert.equal(result.service_inventory[0].build.origin, 'existing')
+    assert.deepEqual(result.service_inventory, [])
   })
 })
 
@@ -568,12 +554,7 @@ test('treats role keywords as advisory when README declares the product image', 
     assert.equal(result.image_inventory[0].role, 'infrastructure')
     assert.equal(result.image_ref, `acme/nginx@${result.digest}`)
     assert.equal(result.deployment_source.kind, 'implicit-single-service')
-    assert.equal(result.service_inventory.length, 1)
-    assert.equal(result.service_inventory[0].source, 'project')
-    assert.equal(result.service_inventory[0].role, 'application')
-    assert.equal(result.service_inventory[0].declared_image, result.declared_ref)
-    assert.equal(result.service_inventory[0].image_status, 'verified')
-    assert.equal(result.service_inventory[0].image_ref, result.image_ref)
+    assert.deepEqual(result.service_inventory, [])
   })
 })
 

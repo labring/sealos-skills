@@ -10,8 +10,7 @@ That means:
 - Detect tool availability first
 - Detect auth/workspace state first
 - Resolve the project, fully materialize the current commit, and identify
-  whether it selects Compose, Helm, Kubernetes, or the implicit single-service
-  route
+  whether it selects Compose, Helm, Kubernetes, or the implicit source route
 - Record which later phases are currently blocked
 
 Preflight is responsible for early detection, but only some failures are immediate stop conditions.
@@ -407,7 +406,10 @@ the source:
    parent and is not a second candidate.
 4. Otherwise look for one Kubernetes manifest root/file in the supported
    project locations.
-5. Otherwise select `implicit-single-service`.
+5. Otherwise select `implicit-single-service`. This is a compatibility route
+   name meaning that no directly usable declared topology was found. It does
+   not establish that the repository root is one application; Phase 1 and
+   Phase 2 use project evidence to determine the actual deployable services.
 
 Independent multiple Helm Charts or multiple Kubernetes roots require a
 `deployment_source` config selection. Do not guess between them.

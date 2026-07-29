@@ -9,12 +9,13 @@
  *   README > CI workflows > Compose > rendered Helm > Kubernetes manifests
  *
  * Every parseable declaration is retained in the image inventory, including
- * database and infrastructure images. The selected deployment source also
- * determines the authoritative service/workload topology. Registry names inferred from the GitHub
- * owner/repository are intentionally never queried. A selected primary image
- * is returned as an immutable digest reference while preserving the exact
- * declared tag used for resolution. CPU architecture is not pre-screened;
- * rare incompatibilities are diagnosed from the deployed runtime.
+ * database and infrastructure images. An explicit selected deployment source
+ * determines the declared service/workload topology; an implicit source leaves
+ * service selection to the caller. Registry names inferred from the GitHub
+ * owner/repository are intentionally never queried. A selected primary image is
+ * returned as an immutable digest reference while preserving the exact declared
+ * tag used for resolution. CPU architecture is not pre-screened; rare
+ * incompatibilities are diagnosed from the deployed runtime.
  *
  * Usage:
  *   node detect-image.mjs <github-url> [work-dir]
@@ -1056,25 +1057,6 @@ function normalizeWorkflowBuildPlan (build, workDir) {
   }
 }
 
-function implicitProjectService (workDir, githubUrl = null) {
-  const build = finalizeBuildPlan(
-    createBuildPlan(),
-    path.join(workDir, 'compose.yaml'),
-  )
-  const repository = parseGithubRepository(githubUrl || getGithubUrlFromGitRemote(workDir))
-  return {
-    name: repository?.repo || path.basename(workDir) || 'project',
-    role: 'application',
-    source: 'project',
-    source_file: '.',
-    declared_image: null,
-    build,
-    image_status: 'build_required',
-    image_ref: null,
-    digest: null,
-  }
-}
-
 function extractComposeEvidence (workDir) {
   const declarations = []
   const services = []
@@ -1575,12 +1557,10 @@ async function detectExistingImages (workDir, options = {}) {
 
   const imageInventory = inventory.map(entry => entry.public)
   const serviceInventory = attachServiceResults(evidence.services, imageInventory)
-  const fallbackServiceInventory = (
-    serviceInventory.length === 0 &&
-    evidence.deploymentSource.kind === 'implicit-single-service'
-  )
-    ? [implicitProjectService(workDir, options.githubUrl)]
-    : serviceInventory
+  // An implicit source proves only that the repository did not declare a
+  // Compose, Helm, or Kubernetes topology. It does not prove that the
+  // repository root is the application. Leave service selection to the caller,
+  // which can bind repository evidence to the actual deployable workload.
   // `role` is descriptive topology evidence only. It must not disqualify a
   // product whose real application image happens to be named nginx, cache,
   // postgres, and so on. Project declaration context and Compose topology
@@ -1596,7 +1576,7 @@ async function detectExistingImages (workDir, options = {}) {
         : 'no_resolved_image',
       deployment_source: evidence.deploymentSource,
       image_inventory: imageInventory,
-      service_inventory: fallbackServiceInventory,
+      service_inventory: serviceInventory,
     }
   }
 
@@ -1613,7 +1593,7 @@ async function detectExistingImages (workDir, options = {}) {
       reason: 'ambiguous_primary_images',
       deployment_source: evidence.deploymentSource,
       image_inventory: imageInventory,
-      service_inventory: fallbackServiceInventory,
+      service_inventory: serviceInventory,
     }
   }
 
@@ -1621,19 +1601,6 @@ async function detectExistingImages (workDir, options = {}) {
   const selectedSource = selected.sources
     .slice()
     .sort((left, right) => SOURCE_PRIORITY[left.source] - SOURCE_PRIORITY[right.source])[0]
-  const selectedServiceInventory = (
-    evidence.deploymentSource.kind === 'implicit-single-service' &&
-    fallbackServiceInventory.length === 1 &&
-    serviceInventory.length === 0
-  )
-    ? [{
-        ...fallbackServiceInventory[0],
-        declared_image: selected.declared_ref,
-        image_status: 'verified',
-        image_ref: selected.image_ref,
-        digest: selected.digest,
-      }]
-    : serviceInventory
 
   return {
     found: true,
@@ -1645,7 +1612,7 @@ async function detectExistingImages (workDir, options = {}) {
     declared_ref: selectedSource.declared_ref,
     deployment_source: evidence.deploymentSource,
     image_inventory: imageInventory,
-    service_inventory: selectedServiceInventory,
+    service_inventory: serviceInventory,
   }
 }
 

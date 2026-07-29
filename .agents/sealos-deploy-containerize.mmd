@@ -13,7 +13,7 @@ flowchart TD
     P15{"Phase 1.5 - Unique verified official template?"}
     Official["Reuse official template verbatim"]
 
-    P2["Phase 2 - Discover images and full topology<br/>README, then CI, then Compose; implicit app for no-Compose source"]
+    P2["Phase 2 - Confirm services, images, and full topology<br/>Detectors provide evidence; AI resolves the implicit source"]
     Digest{"Every emitted container workload has<br/>an immutable digest?"}
     Reuse["Reuse digest-pinned images<br/>No third-party architecture pre-screen"]
     P3["Phase 3 - Prepare each missing container service<br/>Preserve existing Dockerfile; exact context, path, target, and arg names"]

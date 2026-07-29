@@ -7,8 +7,9 @@ dockerfile-skill workflow.
 ## Input
 
 Process every `service_inventory` entry that Phase 5 will emit as a container
-and whose `image_status` is `build_required`. This includes an implicit
-single-application service for a project without Compose.
+and whose `image_status` is `build_required`. For a project without declared
+topology, process the actual services AI established from repository evidence;
+do not assume that the repository root is the application.
 
 Each service must have a normalized build plan:
 
@@ -23,7 +24,9 @@ Each service must have a normalized build plan:
 ```
 
 `context` is relative to `WORK_DIR`; `dockerfile` is relative to that context.
-`args` contains names only, never values.
+`args` contains names only, never values. The application source and build
+context may differ: a child workspace, Storybook, documentation site, example,
+or static build can require the repository root as its dependency boundary.
 
 ## Existing Dockerfile
 
@@ -46,9 +49,12 @@ server configuration, and port instead of blindly swapping the base image.
 When the effective Dockerfile is missing, use dockerfile-skill only as
 stack-analysis and template knowledge. Select from its currently maintained
 templates rather than copying a fixed template list into `sealos-deploy`.
-Adapt the result to the service's real context, workspace boundaries, package
-manager, build command, runtime entrypoint, port, and required system
-dependencies. Set `origin` to `generated`.
+Use the whole repository's project-owned evidence to choose a reasonable
+deployable form, then adapt the result to its real context, workspace
+boundaries, package manager, build command, output, runtime entrypoint, port,
+and required system dependencies. Static output served by the final container
+is a valid runtime contract even when the source itself does not listen on a
+port. Set `origin` to `generated`.
 
 Do not execute dockerfile-skill's standalone workflow or treat its full
 `SKILL.md`, `modules/generate.md`, or `modules/build-fix.md` as an execution
@@ -56,6 +62,12 @@ checklist. In particular, Phase 3 must not build or run images, create Compose
 files, create `.env` or test-secret files, write standalone reports or
 deployment documentation, change service topology, or alter unrelated source
 or application configuration.
+
+A missing root start command, unfamiliar stack metadata, or one unusable build
+route does not reject the repository. Continue through relevant application
+directories, workspace scripts, examples, Storybooks, documentation builds,
+and project-owned CI/deploy workflows. Stop only after concrete preparation or
+build evidence leaves no reasonable project-backed deployment form.
 
 ## `.dockerignore`
 
