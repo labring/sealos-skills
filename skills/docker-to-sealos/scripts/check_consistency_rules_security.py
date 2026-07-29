@@ -14,7 +14,7 @@ from check_consistency_parser import find_line
 APP_NAME_PLACEHOLDER = r"\$\{\{\s*defaults\.app_name\s*\}\}"
 SERVICE_ACCOUNT_PLACEHOLDER = r"\$\{\{\s*SEALOS_SERVICE_ACCOUNT\s*\}\}"
 DB_SERVICE_ID_SUFFIX = r"(?:-[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)?"
-APPROVED_DB_SECRET_PATTERN = re.compile(
+KUBEBLOCKS_DB_SECRET_PATTERN = re.compile(
     rf"^{APP_NAME_PLACEHOLDER}(?:"
     rf"-pg{DB_SERVICE_ID_SUFFIX}-conn-credential|"
     rf"-mysql{DB_SERVICE_ID_SUFFIX}-conn-credential|"
@@ -24,6 +24,9 @@ APPROVED_DB_SECRET_PATTERN = re.compile(
     r"-redis-account-default|"
     rf"-broker{DB_SERVICE_ID_SUFFIX}-account-admin"
     r")$"
+)
+APP_DB_SECRET_PATTERN = re.compile(
+    rf"^{APP_NAME_PLACEHOLDER}-(?:pg|mysql){DB_SERVICE_ID_SUFFIX}-app-credential$"
 )
 OBJECT_STORAGE_BASE_SECRET_NAME = "object-storage-key"
 OBJECT_STORAGE_BUCKET_SECRET_PATTERN = re.compile(
@@ -75,10 +78,18 @@ MONGODB_SERVICE_HOST_TEMPLATE_PATTERN = re.compile(
 MONGODB_SERVICE_HOST_RUNTIME_PATTERN = re.compile(
     r"^[a-z0-9](?:[-a-z0-9]*mongo(?:db)?[-a-z0-9]*)-mongodb\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.svc(?:\.cluster\.local)?$"
 )
+KUBEBLOCKS_FALLBACK_ANNOTATION = "docker-to-sealos.kubeblocks-fallback-reason"
 
 
 def is_approved_db_secret_name(secret_name: str) -> bool:
-    return APPROVED_DB_SECRET_PATTERN.fullmatch(secret_name) is not None
+    return (
+        KUBEBLOCKS_DB_SECRET_PATTERN.fullmatch(secret_name) is not None
+        or APP_DB_SECRET_PATTERN.fullmatch(secret_name) is not None
+    )
+
+
+def is_kubeblocks_db_secret_name(secret_name: str) -> bool:
+    return KUBEBLOCKS_DB_SECRET_PATTERN.fullmatch(secret_name) is not None
 
 
 def is_approved_object_storage_secret_ref(source: str, secret_name: str, env_name: Optional[str]) -> bool:
@@ -469,6 +480,67 @@ def is_allowed_mongodb_service_env(
     return False
 
 
+def collect_annotated_raw_database_services(
+    context: ScanContext,
+) -> Dict[str, Set[str]]:
+    services: Dict[str, Set[str]] = {}
+    for doc in context.yaml_documents:
+        if doc.skip_checks or not isinstance(doc.data, dict):
+            continue
+        if doc.data.get("kind") != "Service":
+            continue
+        metadata = doc.data.get("metadata")
+        annotations = metadata.get("annotations") if isinstance(metadata, dict) else None
+        service_name = metadata.get("name") if isinstance(metadata, dict) else None
+        if (
+            not isinstance(service_name, str)
+            or not isinstance(annotations, dict)
+            or not str(annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION, "")).strip()
+        ):
+            continue
+        ports: Set[str] = set()
+        spec = doc.data.get("spec")
+        service_ports = spec.get("ports") if isinstance(spec, dict) else None
+        if isinstance(service_ports, list):
+            for port_spec in service_ports:
+                if not isinstance(port_spec, dict):
+                    continue
+                for field in ("port", "targetPort"):
+                    value = port_spec.get(field)
+                    if isinstance(value, int) and not isinstance(value, bool):
+                        ports.add(str(value))
+                    elif isinstance(value, str) and value.isdigit():
+                        ports.add(value)
+        services[service_name] = ports
+    return services
+
+
+def is_allowed_annotated_raw_database_env(
+    expected_key: str,
+    env_item: Dict[str, object],
+    raw_database_services: Dict[str, Set[str]],
+) -> bool:
+    value = env_item.get("value")
+    if not isinstance(value, str) or not raw_database_services:
+        return False
+    if expected_key == "port":
+        return any(value.strip() in ports for ports in raw_database_services.values())
+    if expected_key not in {"host", "endpoint"}:
+        return False
+    if expected_key == "endpoint" and "://" in value:
+        authority = value.split("://", 1)[1].split("/", 1)[0]
+        if "@" in authority:
+            return False
+    return any(
+        re.search(
+            rf"(?:^|//|@){re.escape(service_name)}(?::[0-9]+|[./?#]|$)",
+            value,
+        )
+        is not None
+        for service_name in raw_database_services
+    )
+
+
 def _find_secret_ref_line(doc, source: str, secret_name: str, env_name: Optional[str]) -> int:
     if source == "env" and isinstance(env_name, str):
         return find_line(doc, rf"^\s*-\s*name\s*:\s*{re.escape(env_name)}\s*$")
@@ -487,7 +559,7 @@ def _collect_reserved_db_secret_overrides(context: ScanContext) -> List[Violatio
 
         metadata = doc.data.get("metadata")
         secret_name = metadata.get("name") if isinstance(metadata, dict) else None
-        if not isinstance(secret_name, str) or not is_approved_db_secret_name(secret_name):
+        if not isinstance(secret_name, str) or not is_kubeblocks_db_secret_name(secret_name):
             continue
 
         line = find_line(
@@ -543,6 +615,7 @@ def check_business_env_secret_policy(context: ScanContext) -> List[Violation]:
 
 def check_db_connection_env_secret_requirements(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
+    raw_database_services = collect_annotated_raw_database_services(context)
 
     for doc in context.yaml_documents:
         if doc.skip_checks or not isinstance(doc.data, dict):
@@ -589,6 +662,12 @@ def check_db_connection_env_secret_requirements(context: ScanContext) -> List[Vi
                     ):
                         continue
                     if expected_key == "host" and is_composed_db_host_from_secret(env_item, env_items_by_name):
+                        continue
+                    if is_allowed_annotated_raw_database_env(
+                        expected_key,
+                        env_item,
+                        raw_database_services,
+                    ):
                         continue
                     line = find_line(doc, rf"^\s*-\s*name\s*:\s*{re.escape(env_name)}\s*$")
                     violations.append(

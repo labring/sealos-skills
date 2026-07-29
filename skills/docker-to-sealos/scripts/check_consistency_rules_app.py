@@ -118,6 +118,9 @@ DATABASE_WORKLOAD_IMAGE_NAMES = {
 DATABASE_RAW_WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
 DATABASE_RAW_RESOURCE_KINDS = DATABASE_RAW_WORKLOAD_KINDS | {"Service"}
 KUBEBLOCKS_FALLBACK_ANNOTATION = "docker-to-sealos.kubeblocks-fallback-reason"
+DATABASE_BOOTSTRAP_ANNOTATION = "docker-to-sealos.database-bootstrap"
+DATABASE_CLUSTER_ANNOTATION = "docker-to-sealos.database-cluster"
+DATABASE_ENGINE_ANNOTATION = "docker-to-sealos.database-engine"
 DATABASE_CLIENT_JOB_TOKENS = {"init", "migrate", "migration", "bootstrap", "setup", "seed", "backup", "restore"}
 DATABASE_RESOURCE_NAME_TOKENS = {"postgres", "postgresql", "mysql", "mariadb", "mongo", "mongodb", "redis", "kafka"}
 OFFICIAL_HEALTH_HTTP_EXPECTATIONS: Dict[str, Dict[str, Any]] = {
@@ -4211,6 +4214,205 @@ def check_postgres_custom_db_init_job(context: ScanContext) -> List[Violation]:
     return violations
 
 
+def _container_secret_names(container: Mapping[str, Any]) -> Set[str]:
+    names: Set[str] = set()
+    env = container.get("env")
+    if not isinstance(env, list):
+        return names
+    for item in env:
+        if not isinstance(item, dict):
+            continue
+        value_from = item.get("valueFrom")
+        secret_ref = (
+            value_from.get("secretKeyRef")
+            if isinstance(value_from, dict)
+            else None
+        )
+        secret_name = (
+            secret_ref.get("name")
+            if isinstance(secret_ref, dict)
+            else None
+        )
+        if isinstance(secret_name, str):
+            names.add(secret_name)
+    return names
+
+
+def _database_bootstrap_script_is_robust(engine: str, script: str) -> bool:
+    if engine == "mysql":
+        required_patterns = (
+            r"\bmysqladmin\s+ping\b",
+            r"CREATE\s+DATABASE\s+IF\s+NOT\s+EXISTS",
+            r"CREATE\s+USER\s+IF\s+NOT\s+EXISTS",
+            r"GRANT\s+ALL\s+PRIVILEGES",
+        )
+    elif engine == "postgres":
+        required_patterns = (
+            r"\bpg_isready\b",
+            r"FROM\s+pg_database",
+            r"CREATE\s+DATABASE",
+            r"CREATE\s+ROLE",
+            r"GRANT\s+ALL\s+PRIVILEGES",
+        )
+    else:
+        return False
+    return all(
+        re.search(pattern, script, re.IGNORECASE) is not None
+        for pattern in required_patterns
+    )
+
+
+def check_database_application_bootstrap_contract(
+    context: ScanContext,
+) -> List[Violation]:
+    violations: List[Violation] = []
+    artifact_docs = [
+        doc
+        for doc in context.yaml_documents
+        if _is_template_artifact_document(doc)
+        and isinstance(doc.data, dict)
+    ]
+    if not artifact_docs:
+        return violations
+
+    resources: Dict[Tuple[str, str], YamlDocument] = {}
+    for doc in artifact_docs:
+        metadata = doc.data.get("metadata")
+        name = metadata.get("name") if isinstance(metadata, dict) else None
+        kind = doc.data.get("kind")
+        if isinstance(kind, str) and isinstance(name, str):
+            resources[(kind, name)] = doc
+
+    workload_docs = [
+        doc
+        for doc in artifact_docs
+        if is_app_workload_document(doc)
+        and has_managed_workload_marker(doc.data)
+    ]
+    for secret_doc in artifact_docs:
+        if secret_doc.data.get("kind") != "Secret":
+            continue
+        metadata = secret_doc.data.get("metadata")
+        annotations = (
+            metadata.get("annotations")
+            if isinstance(metadata, dict)
+            else None
+        )
+        if (
+            not isinstance(annotations, dict)
+            or annotations.get(DATABASE_BOOTSTRAP_ANNOTATION)
+            != "application-credential"
+        ):
+            continue
+        secret_name = metadata.get("name")
+        cluster_name = annotations.get(DATABASE_CLUSTER_ANNOTATION)
+        engine = annotations.get(DATABASE_ENGINE_ANNOTATION)
+        string_data = secret_doc.data.get("stringData")
+        if (
+            not isinstance(secret_name, str)
+            or not isinstance(cluster_name, str)
+            or engine not in {"mysql", "postgres"}
+            or not isinstance(string_data, dict)
+            or not all(
+                isinstance(string_data.get(key), str)
+                and str(string_data.get(key)).strip()
+                for key in ("database", "username", "password")
+            )
+        ):
+            add_doc_violation(
+                violations,
+                rule_id="R058",
+                doc=secret_doc,
+                pattern=r"^\s*kind\s*:\s*Secret\s*$",
+                default_pattern=r"^\s*metadata\s*:",
+                message=(
+                    "application database credential Secrets must identify their "
+                    "Cluster and engine and define non-empty database, username, and password"
+                ),
+            )
+            continue
+
+        if ("Cluster", cluster_name) not in resources:
+            add_doc_violation(
+                violations,
+                rule_id="R058",
+                doc=secret_doc,
+                pattern=rf"^\s*{re.escape(DATABASE_CLUSTER_ANNOTATION)}\s*:",
+                default_pattern=r"^\s*annotations\s*:",
+                message=(
+                    f"application database credential Secret references missing "
+                    f"KubeBlocks Cluster {cluster_name!r}"
+                ),
+            )
+
+        init_job = resources.get(("Job", f"{cluster_name}-init"))
+        script = _extract_job_script(init_job) if init_job is not None else ""
+        if (
+            init_job is None
+            or not _database_bootstrap_script_is_robust(str(engine), script)
+        ):
+            add_doc_violation(
+                violations,
+                rule_id="R058",
+                doc=init_job or secret_doc,
+                pattern=r"^\s*(?:kind|command|args)\s*:",
+                default_pattern=r"^\s*metadata\s*:",
+                message=(
+                    f"{engine} application credentials require a linked idempotent "
+                    "bootstrap Job with readiness, database, user, and grant logic"
+                ),
+            )
+
+        app_uses_secret = False
+        app_has_gate = False
+        for workload_doc in workload_docs:
+            template_spec = get_template_spec(workload_doc.data)
+            if not isinstance(template_spec, dict):
+                continue
+            containers = template_spec.get("containers")
+            if isinstance(containers, list):
+                for container in containers:
+                    if (
+                        isinstance(container, dict)
+                        and secret_name in _container_secret_names(container)
+                    ):
+                        app_uses_secret = True
+            init_containers = template_spec.get("initContainers")
+            if isinstance(init_containers, list):
+                for container in init_containers:
+                    if not isinstance(container, dict):
+                        continue
+                    gate_script = "\n".join(
+                        str(item)
+                        for key in ("command", "args")
+                        for item in (
+                            container.get(key)
+                            if isinstance(container.get(key), list)
+                            else [container.get(key)]
+                        )
+                        if item is not None
+                    )
+                    if (
+                        secret_name in _container_secret_names(container)
+                        and "SELECT 1" in gate_script
+                    ):
+                        app_has_gate = True
+        if not app_uses_secret or not app_has_gate:
+            add_doc_violation(
+                violations,
+                rule_id="R058",
+                doc=secret_doc,
+                pattern=r"^\s*kind\s*:\s*Secret\s*$",
+                default_pattern=r"^\s*metadata\s*:",
+                message=(
+                    "application database credentials must be consumed by a business "
+                    "workload whose initContainer verifies the target database with the same Secret"
+                ),
+            )
+
+    return violations
+
+
 def _is_worker_args(args: Any) -> bool:
     if not isinstance(args, list) or not args:
         return False
@@ -4861,6 +5063,7 @@ APP_RULES: Dict[str, Rule] = {
     "R026": Rule("R026", check_http_ingress_annotations),
     "R048": Rule("R048", check_websocket_ingress_annotations),
     "R027": Rule("R027", check_postgres_custom_db_init_job),
+    "R058": Rule("R058", check_database_application_bootstrap_contract),
     "R037": Rule("R037", check_postgres_secret_refs_match_cluster_name),
     "R039": Rule("R039", check_database_services_use_clusters),
     "R042": Rule("R042", check_main_container_startup_contract),

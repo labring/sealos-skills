@@ -1435,6 +1435,96 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual("${{ defaults.app_name }}-mysql-conn-credential", port_ref.get("name"))
             self.assertEqual("port", port_ref.get("key"))
 
+    def test_preserves_standard_mariadb_database_user_and_grant_contract(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    ports:
+                      - "8080:8080"
+                    depends_on:
+                      - db
+                    environment:
+                      APP_DATABASE_HOST: db
+                      APP_DATABASE_NAME: crm
+                      APP_DATABASE_USER: crm
+                      APP_DATABASE_PASSWORD: source-password
+                  db:
+                    image: mariadb:11
+                    environment:
+                      MARIADB_ROOT_PASSWORD: source-root-password
+                      MARIADB_DATABASE: crm
+                      MARIADB_USER: crm
+                      MARIADB_PASSWORD: source-password
+                    volumes:
+                      - db-data:/var/lib/mysql
+                volumes:
+                  db-data:
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+
+            template = next(doc for doc in docs if doc.get("kind") == "Template")
+            self.assertIn(
+                "mysql_db_app_password",
+                template["spec"]["defaults"],
+            )
+            secret = next(doc for doc in docs if doc.get("kind") == "Secret")
+            self.assertEqual(
+                "${{ defaults.app_name }}-mysql-app-credential",
+                secret["metadata"]["name"],
+            )
+            self.assertEqual("crm", secret["stringData"]["database"])
+            self.assertEqual("crm", secret["stringData"]["username"])
+
+            init_job = next(doc for doc in docs if doc.get("kind") == "Job")
+            init_script = init_job["spec"]["template"]["spec"]["containers"][0]["args"][0]
+            self.assertIn("CREATE DATABASE IF NOT EXISTS", init_script)
+            self.assertIn("CREATE USER IF NOT EXISTS", init_script)
+            self.assertIn("GRANT ALL PRIVILEGES", init_script)
+
+            deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
+            pod_spec = deployment["spec"]["template"]["spec"]
+            env_by_name = {
+                item["name"]: item
+                for item in pod_spec["containers"][0]["env"]
+            }
+            self.assertEqual(
+                {
+                    "name": "${{ defaults.app_name }}-mysql-app-credential",
+                    "key": "username",
+                },
+                env_by_name["APP_DATABASE_USER"]["valueFrom"]["secretKeyRef"],
+            )
+            self.assertEqual(
+                {
+                    "name": "${{ defaults.app_name }}-mysql-app-credential",
+                    "key": "password",
+                },
+                env_by_name["APP_DATABASE_PASSWORD"]["valueFrom"]["secretKeyRef"],
+            )
+            gate = pod_spec["initContainers"][0]
+            self.assertIn("SELECT 1", gate["args"][0])
+            self.assertEqual(
+                "${{ defaults.app_name }}-mysql-app-credential",
+                next(
+                    item
+                    for item in gate["env"]
+                    if item["name"] == "DB_PASSWORD"
+                )["valueFrom"]["secretKeyRef"]["name"],
+            )
+            self._assert_generated_template_passes_consistency(root, index_path)
+
     def test_generates_mongodb_cluster_resources_and_secret_env_mapping(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1477,7 +1567,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual("${{ defaults.app_name }}-mongo-mongodb-account-root", host_ref.get("name"))
             self.assertEqual("host", host_ref.get("key"))
 
-    def test_librechat_mongodb_8_0_20_never_enters_application_workload_path(self):
+    def test_mongodb_custom_command_uses_annotated_raw_fallback(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose = root / "docker-compose.yml"
@@ -1486,7 +1576,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 """
                 services:
                   api:
-                    image: ghcr.io/danny-avila/librechat:v0.8.0-rc2
+                    image: ghcr.io/example/api:v1
                     ports:
                       - "3080:3080"
                     environment:
@@ -1510,22 +1600,32 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             docs = parse_yaml_documents(index_path)
 
-            mongodb_clusters = [
+            self.assertFalse(any(doc.get("kind") == "Cluster" for doc in docs))
+            raw_workload = next(
                 doc
                 for doc in docs
-                if doc.get("kind") == "Cluster"
-                and doc.get("metadata", {}).get("labels", {}).get("kb.io/database") == "mongodb-8.0.4"
-            ]
-            self.assertEqual(1, len(mongodb_clusters))
-            mongo_component = mongodb_clusters[0]["spec"]["componentSpecs"][0]
-            self.assertEqual("mongodb", mongo_component["componentDef"])
-            self.assertEqual("8.0.4", mongo_component["serviceVersion"])
+                if doc.get("kind") == "StatefulSet"
+                and doc.get("metadata", {}).get("name")
+                == "${{ defaults.app_name }}-mongo"
+            )
+            fallback_reason = raw_workload["metadata"]["annotations"].get(
+                "docker-to-sealos.kubeblocks-fallback-reason"
+            )
+            self.assertIn("unsupported database service fields: command", fallback_reason)
+            container = raw_workload["spec"]["template"]["spec"]["containers"][0]
+            self.assertEqual(["mongod", "--noauth"], container["args"])
+            raw_service = next(
+                doc
+                for doc in docs
+                if doc.get("kind") == "Service"
+                and doc.get("metadata", {}).get("name")
+                == "${{ defaults.app_name }}-mongo"
+            )
             self.assertEqual(
-                {
-                    "limits": {"cpu": "500m", "memory": "512Mi"},
-                    "requests": {"cpu": "50m", "memory": "51Mi"},
-                },
-                mongo_component["resources"],
+                fallback_reason,
+                raw_service["metadata"]["annotations"].get(
+                    "docker-to-sealos.kubeblocks-fallback-reason"
+                ),
             )
 
             raw_workload_kinds = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
@@ -1546,13 +1646,8 @@ class ComposeToTemplateTests(unittest.TestCase):
                     if str(container.get("image", "")).startswith("mongo:")
                 )
             self.assertEqual([], raw_mongo_images)
-            self.assertFalse(
-                any(
-                    doc.get("kind") == "Service"
-                    and "mongo" in str(doc.get("metadata", {}).get("name", "")).lower()
-                    for doc in docs
-                )
-            )
+
+            self._assert_generated_template_passes_consistency(root, index_path)
 
     def test_refuses_database_only_compose_instead_of_generating_statefulset(self):
         with tempfile.TemporaryDirectory() as temp_dir:

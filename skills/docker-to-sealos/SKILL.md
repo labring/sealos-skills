@@ -37,6 +37,9 @@ or reuse a catalog image without independent verification.
 Extract from Docker Compose/docs or the selected rendered Kubernetes source:
 
 - application services vs database services
+- for every database service, its database names, application accounts,
+  password sources, grants, initialization env, init scripts/mounts, custom
+  command/entrypoint, data paths, engine variant, and consuming services
 - volumes/config mounts/object storage requirements
 - ports, dependencies, service communication
 - env vars and secret usage
@@ -98,11 +101,18 @@ Apply field-level mappings from `references/conversion-mappings.md`, including:
 ### Step 5: Apply database strategy
 
 - Prefer KubeBlocks `Cluster` resources for supported PostgreSQL/MySQL/MongoDB/Redis/Kafka database services. Compose database services use this path by default; the Helm/Kubernetes adapter also converts a supported raw database workload when the current template can preserve its runtime contract.
+- Before removing a source database container, account for every startup and
+  initialization field. Each field must be translated, explicitly superseded
+  by an equivalent KubeBlocks capability, or become a raw-workload fallback
+  reason; image-based engine classification alone is not sufficient.
 - Preserve an explicitly external database connection instead of creating another database.
 - When source-defined database startup, initialization, replica, mount, or network semantics cannot be represented losslessly by the current KubeBlocks templates, keep the raw source workload and record a non-empty `docker-to-sealos.kubeblocks-fallback-reason` annotation. Inability to perform the preferred conversion is not by itself a reason to reject the deployment.
 - PostgreSQL must follow the pinned version and structure requirements.
 - MySQL/MongoDB/Redis/Kafka must use templates and secret naming from `references/database-templates.md`.
-- Add DB init Job/initContainer when application database bootstrap requires it.
+- Add an idempotent DB init Job and a dependent application startup gate when
+  application database bootstrap requires a database, application account, or
+  grants. The gate must connect to the target database with the same
+  credentials used by the application.
 - For PostgreSQL custom databases (non-`postgres`), the init Job must wait for PostgreSQL readiness before execution and create the target database idempotently.
 - Database client images may be used in app `initContainers` and init/migration/bootstrap Jobs for readiness and bootstrap gates.
 - Critical application compatibility objects must be verified in live database state. Use idempotent initContainer self-healing for compatibility views, legacy tables/views, indexes, extensions, search paths, and bootstrap state that the app requires on every cold start.
@@ -225,8 +235,9 @@ For managed or private object storage, live validation must upload known bytes t
 - Non-database sensitive values/inputs use direct `env[].value`.
 - When an official runtime profile constrains an env value's format or length, use a valid literal or a required input without a generated default; bare `${{ random(n) }}` is invalid for hex- or encoding-constrained values.
 - When an official runtime profile selects an external provider, the workload must wire a non-empty required credential for that provider; an optional input with an empty default is invalid.
-- Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB `host`/`port` or connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only.
-- Business containers must not use custom env/volume `Secret` references except approved Kubeblocks database secrets and object storage secrets.
+- Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved database secrets via `env[].valueFrom.secretKeyRef`. Host/port and administrative bootstrap credentials come from KubeBlocks secrets; a converter-owned `<cluster>-app-credential` Secret may provide the application username/password only when it is linked to an idempotent database/user/grant Job and an application startup gate. Redis `host`/`port` may use the Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB `host`/`port` or connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only. An annotated raw-database fallback may expose only its host, port, or connection URL through its matching annotated Service; usernames and passwords still require an approved Secret.
+- Every converter-owned application database credential Secret must identify its KubeBlocks Cluster and engine, contain non-empty database, username, and password fields, and be consumed by both the idempotent bootstrap Job and a business workload startup gate using the same credentials.
+- Business containers must not use custom env/volume `Secret` references except approved KubeBlocks database secrets, converter-owned application database credential Secrets, and object storage secrets.
 - A dedicated app-scoped registry pull Secret is allowed only for private-registry images and must be referenced only through `template.spec.imagePullSecrets`; public images must not add pull secrets.
 - Database connection/bootstrap may use Kubeblocks-provided secrets, and reserved Kubeblocks database secret names must not be redefined by custom `Secret` resources.
 - Env vars must be declared before referenced (for example password before URL composition).
@@ -244,6 +255,7 @@ For managed or private object storage, live validation must upload known bytes t
 ### Database-specific constraints
 
 - Supported database services must prefer KubeBlocks `Cluster` resources over application `Deployment` or `StatefulSet` workloads. A raw PostgreSQL/MySQL/MongoDB/Redis/Kafka source workload is allowed only when preserving source semantics requires it and both the workload and its Service carry a non-empty `docker-to-sealos.kubeblocks-fallback-reason` annotation. `StatefulSet` remains valid for stateful application components.
+- A Compose database service must not be reduced to only an engine name before its initialization contract has been evaluated. Standard recognized initialization may generate a KubeBlocks Cluster plus bootstrap resources; any unconsumed initialization, command, mount, engine-variant, replica, or network semantic must preserve the raw workload or reject only the adapter route for AI-native canonical conversion.
 - Every Compose database service must remain a distinct KubeBlocks `Cluster` with its own name, Secret, FQDN, and application wiring; never merge two services merely because they use the same database engine.
 - Database client images may be used in app `initContainers` and init/migration/bootstrap Jobs for readiness and bootstrap gates.
 - PostgreSQL version: `postgresql-16.4.0`.

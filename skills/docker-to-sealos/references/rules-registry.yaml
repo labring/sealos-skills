@@ -106,6 +106,9 @@ rules:
   - id: R027
     description: Template artifacts using non-default PostgreSQL database names must define a robust pg-init Job (readiness wait plus idempotent create).
     severity: error
+  - id: R058
+    description: Application database credential Secrets must link to a KubeBlocks Cluster, an idempotent database/user/grant bootstrap Job, and an application startup gate that verifies the target database with the same credentials.
+    severity: error
   - id: R037
     description: PostgreSQL Cluster metadata.name must align with referenced *-pg-conn-credential secret names in the same template artifact.
     severity: error

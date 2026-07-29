@@ -672,14 +672,33 @@ Omit `defaultMode` for ConfigMap volumes unless the application explicitly requi
 
 ## Database Service Mapping
 
-Classify every Compose service before generic workload generation. A service whose image repository basename is a supported database server (`postgres`, `mysql`, `mongo`, `mongodb`, `redis`, `kafka`, or a documented vendor variant) must be removed from the application-service set and emitted only through the matching KubeBlocks builder. Database classification or conversion failure is a hard stop; never fall back to a Deployment or StatefulSet.
+Classify every Compose service before generic workload generation. A service
+whose image repository basename is a supported database server (`postgres`,
+`mysql`, `mariadb`, `mongo`, `mongodb`, `redis`, `kafka`, or a documented
+vendor variant) is a database candidate, but image classification alone does
+not authorize removing its source workload.
+
+Before KubeBlocks conversion, inspect the original service's database names,
+application accounts, password sources, grants, initialization environment,
+init scripts/mounts, command/entrypoint, data paths, engine variant, replicas,
+network behavior, and application consumers. Every source semantic must be
+translated or explicitly superseded. Standard supported initialization emits
+the matching KubeBlocks Cluster, application credential Secret when needed,
+idempotent bootstrap Job, and dependent application startup gate. If any
+source semantic cannot be represented losslessly, preserve the raw workload
+and Service with a non-empty
+`docker-to-sealos.kubeblocks-fallback-reason`; if the deterministic raw mapper
+also cannot preserve it, reject only the adapter route so Phase 5 can generate
+the canonical template directly.
 
 Before returning the generated template, verify that every detected database
-service has its own matching KubeBlocks `Cluster` and connection identity.
+service has either its own matching KubeBlocks `Cluster` and connection
+identity or its own explicitly annotated raw fallback.
 Services of the same engine must not be deduplicated: for example, `cache` and
 `queue` Redis services remain two Clusters with distinct names, Secrets, and
-FQDNs. Also verify that no Deployment, StatefulSet, DaemonSet, Job, or CronJob
-main container uses a database-server image.
+FQDNs. Also verify that no unannotated Deployment, StatefulSet, DaemonSet,
+Job, or CronJob main container runs a database server. Database client images
+remain valid in linked initialization, migration, and readiness resources.
 
 ### Docker Compose
 ```yaml

@@ -525,12 +525,13 @@
     {
       "id": 41,
       "prompt": "Deploy a single application repository with no Compose, Helm, or Kubernetes topology. Phase 1 finds a PostgreSQL dependency and DATABASE_URL, the source does not declare an external database provider, and Phase 4 has produced the application image.",
-      "expected_output": "Phase 5 does not stop because Compose is absent. It synthesizes the existing temporary adapter input with the application and PostgreSQL services, converts PostgreSQL to KubeBlocks, wires DATABASE_URL through the managed database Secret and Service, and continues through the normal quality gate without adding a lifecycle artifact",
+      "expected_output": "Phase 5 does not stop because Compose is absent. It synthesizes the existing temporary adapter input with the application and PostgreSQL services, converts PostgreSQL to KubeBlocks, preserves the declared application database and user through an idempotent bootstrap Job, gates application startup on that exact credential, and continues through the normal quality gate without adding a lifecycle artifact",
       "files": [],
       "assertions": [
         {"name": "does-not-require-explicit-database-topology", "description": "Does not reject the implicit source route merely because analysis.json records a supported database"},
         {"name": "prefers-kubeblocks", "description": "Creates the supported PostgreSQL dependency as a KubeBlocks Cluster instead of a raw database workload"},
-        {"name": "wires-managed-connection", "description": "Uses the KubeBlocks connection Secret and Service identity for the application's DATABASE_URL"},
+        {"name": "preserves-application-database-semantics", "description": "Creates the declared database and application user with an idempotent bootstrap Job, grants access, and wires DATABASE_URL through that application credential and the KubeBlocks Service identity"},
+        {"name": "gates-on-application-credential", "description": "Verifies the target database with the same application credential before starting the business workload"},
         {"name": "keeps-existing-artifact-contract", "description": "Writes only the existing canonical template and does not introduce a new phase artifact"}
       ]
     },

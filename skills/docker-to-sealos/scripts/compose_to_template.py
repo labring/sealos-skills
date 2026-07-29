@@ -61,6 +61,69 @@ DB_SECRET_SUFFIX_BY_TYPE: Dict[str, str] = {
     "redis": "redis-account-default",
     "kafka": "account-admin",
 }
+DB_DEFAULT_PORT_BY_TYPE: Dict[str, int] = {
+    "postgres": 5432,
+    "mysql": 3306,
+    "mongodb": 27017,
+    "redis": 6379,
+    "kafka": 9092,
+}
+DB_BOOTSTRAP_CLIENT_IMAGE_BY_TYPE: Dict[str, str] = {
+    "postgres": "postgres:16.4",
+    "mysql": "mysql:8.0.35",
+}
+DB_STANDARD_DATA_PATHS_BY_TYPE: Dict[str, Set[str]] = {
+    "postgres": {"/var/lib/postgresql/data"},
+    "mysql": {"/var/lib/mysql"},
+    "mongodb": {"/data/db", "/data/configdb"},
+    "redis": {"/data"},
+    "kafka": {"/bitnami/kafka", "/var/lib/kafka/data"},
+}
+DB_STANDARD_ENV_NAMES_BY_TYPE: Dict[str, Set[str]] = {
+    "postgres": {"POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD"},
+    "mysql": {
+        "MYSQL_DATABASE",
+        "MYSQL_USER",
+        "MYSQL_PASSWORD",
+        "MYSQL_ROOT_PASSWORD",
+        "MYSQL_RANDOM_ROOT_PASSWORD",
+        "MYSQL_ALLOW_EMPTY_PASSWORD",
+        "MARIADB_DATABASE",
+        "MARIADB_USER",
+        "MARIADB_PASSWORD",
+        "MARIADB_ROOT_PASSWORD",
+        "MARIADB_RANDOM_ROOT_PASSWORD",
+        "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD",
+    },
+    "mongodb": set(),
+    "redis": set(),
+    "kafka": set(),
+}
+DB_MANAGED_SERVICE_KEYS = {
+    "image",
+    "environment",
+    "volumes",
+    "healthcheck",
+    "restart",
+    "ports",
+    "expose",
+    "networks",
+    "depends_on",
+    "container_name",
+    "deploy",
+}
+DB_KUBEBLOCKS_COMPATIBLE_IMAGE_NAMES: Dict[str, Set[str]] = {
+    "postgres": {"postgres", "postgresql"},
+    "mysql": {"mysql", "mariadb", "apecloud-mysql"},
+    "mongodb": {"mongo", "mongodb", "mongodb-community-server"},
+    "redis": {"redis", "valkey"},
+    "kafka": {"kafka"},
+}
+DB_BOOTSTRAP_ANNOTATION = "docker-to-sealos.database-bootstrap"
+DB_CLUSTER_ANNOTATION = "docker-to-sealos.database-cluster"
+DB_ENGINE_ANNOTATION = "docker-to-sealos.database-engine"
+KUBEBLOCKS_FALLBACK_ANNOTATION = "docker-to-sealos.kubeblocks-fallback-reason"
+DATABASE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
 DB_ENV_HINTS_BY_TYPE: Dict[str, Tuple[str, ...]] = {
     "postgres": ("POSTGRES", "POSTGRESQL", "PG"),
     "mysql": ("MYSQL", "MARIADB"),
@@ -309,6 +372,33 @@ class ConfigMount:
     target: str
     key: str
     content: str
+
+
+@dataclass(frozen=True)
+class DatabasePlan:
+    service_name: str
+    db_type: str
+    source_image: str
+    service: Mapping[str, Any]
+    cluster_name: str = ""
+    connection_secret_name: str = ""
+    app_secret_name: str = ""
+    password_default_name: str = ""
+    database_name: str = ""
+    app_username: str = ""
+    fallback_reason: str = ""
+
+    @property
+    def use_kubeblocks(self) -> bool:
+        return not self.fallback_reason
+
+    @property
+    def needs_bootstrap(self) -> bool:
+        return self.use_kubeblocks and bool(self.database_name)
+
+    @property
+    def has_app_credentials(self) -> bool:
+        return self.needs_bootstrap and bool(self.app_username)
 
 
 def db_component_resources() -> Dict[str, Dict[str, str]]:
@@ -1084,6 +1174,144 @@ def parse_mount_paths(service: Mapping[str, Any]) -> List[str]:
     return paths
 
 
+def _resolve_database_contract_value(
+    env_by_name: Mapping[str, str],
+    names: Sequence[str],
+) -> Tuple[str, str]:
+    resolved_values: List[Tuple[str, str]] = []
+    for name in names:
+        raw = env_by_name.get(name)
+        if raw is None:
+            continue
+        try:
+            value = resolve_compose_value(raw).strip() if "$" in raw else raw.strip()
+        except ValueError as exc:
+            return "", f"{name} cannot be resolved: {exc}"
+        if value:
+            resolved_values.append((name, value))
+    unique_values = sorted({value for _, value in resolved_values})
+    if len(unique_values) > 1:
+        fields = ", ".join(name for name, _ in resolved_values)
+        return "", f"conflicting database initialization values in {fields}"
+    return (unique_values[0] if unique_values else ""), ""
+
+
+def plan_database_service(
+    service_name: str,
+    db_type: str,
+    source_image: str,
+    service: Mapping[str, Any],
+) -> DatabasePlan:
+    fallback_reasons: List[str] = []
+    image_name = image_repository_basename(source_image)
+    if image_name not in DB_KUBEBLOCKS_COMPATIBLE_IMAGE_NAMES.get(db_type, set()):
+        fallback_reasons.append(
+            f"database image variant {image_name!r} is not covered by the {db_type} KubeBlocks mapping"
+        )
+
+    unsupported_keys = sorted(set(service) - DB_MANAGED_SERVICE_KEYS)
+    if unsupported_keys:
+        fallback_reasons.append(
+            "unsupported database service fields: " + ", ".join(unsupported_keys)
+        )
+
+    env_by_name = {name: value for name, value in parse_env(service)}
+    allowed_env_names = DB_STANDARD_ENV_NAMES_BY_TYPE.get(db_type, set())
+    unsupported_env_names = sorted(set(env_by_name) - allowed_env_names)
+    if unsupported_env_names:
+        fallback_reasons.append(
+            "unmapped database initialization environment: "
+            + ", ".join(unsupported_env_names)
+        )
+
+    standard_data_paths = DB_STANDARD_DATA_PATHS_BY_TYPE.get(db_type, set())
+    unsupported_mounts = [
+        target
+        for target in parse_mount_paths(service)
+        if target not in standard_data_paths
+    ]
+    if unsupported_mounts:
+        fallback_reasons.append(
+            "unmapped database mount targets: " + ", ".join(sorted(unsupported_mounts))
+        )
+
+    deploy = service.get("deploy")
+    if isinstance(deploy, dict):
+        replicas = deploy.get("replicas", 1)
+        if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas != 1:
+            fallback_reasons.append(
+                "database deploy.replicas is not exactly one and cannot be preserved by the current KubeBlocks template"
+            )
+
+    database_name = ""
+    app_username = ""
+    contract_error = ""
+    if db_type == "mysql":
+        database_name, contract_error = _resolve_database_contract_value(
+            env_by_name,
+            ("MARIADB_DATABASE", "MYSQL_DATABASE"),
+        )
+        if not contract_error:
+            app_username, contract_error = _resolve_database_contract_value(
+                env_by_name,
+                ("MARIADB_USER", "MYSQL_USER"),
+            )
+        app_password_declared = any(
+            env_by_name.get(name, "").strip()
+            for name in ("MARIADB_PASSWORD", "MYSQL_PASSWORD")
+        )
+        if app_username and not database_name:
+            contract_error = (
+                "application database user is declared without a target database"
+            )
+        elif app_username and not app_password_declared:
+            contract_error = (
+                "application database user is declared without its matching password"
+            )
+        elif app_password_declared and not app_username:
+            contract_error = (
+                "application database password is declared without its matching user"
+            )
+    elif db_type == "postgres":
+        database_name, contract_error = _resolve_database_contract_value(
+            env_by_name,
+            ("POSTGRES_DB",),
+        )
+        if not contract_error:
+            source_username, contract_error = _resolve_database_contract_value(
+                env_by_name,
+                ("POSTGRES_USER",),
+            )
+            if source_username and source_username.lower() != "postgres":
+                app_username = source_username
+                if not database_name:
+                    database_name = source_username
+        if database_name.lower() == "postgres" and not app_username:
+            database_name = ""
+
+    if contract_error:
+        fallback_reasons.append(contract_error)
+
+    for identifier_name, identifier in (
+        ("database", database_name),
+        ("application database user", app_username),
+    ):
+        if identifier and DATABASE_IDENTIFIER_RE.fullmatch(identifier) is None:
+            fallback_reasons.append(
+                f"{identifier_name} {identifier!r} is outside the safely translated identifier subset"
+            )
+
+    return DatabasePlan(
+        service_name=service_name,
+        db_type=db_type,
+        source_image=source_image,
+        service=service,
+        database_name=database_name,
+        app_username=app_username,
+        fallback_reason="; ".join(dict.fromkeys(fallback_reasons)),
+    )
+
+
 def _resolve_config_file_path(raw_path: Any, compose_dir: Path) -> Optional[Path]:
     if not isinstance(raw_path, str) or not raw_path.strip():
         return None
@@ -1159,6 +1387,107 @@ def parse_config_mounts(
     return mounts
 
 
+def _parse_bind_mount_source_and_target(
+    item: Any,
+) -> Tuple[Optional[str], Optional[str]]:
+    if isinstance(item, str):
+        parts = item.split(":")
+        if len(parts) < 2:
+            return None, parse_mount_target_from_string(item)
+        if len(parts) >= 3 and parts[-1] in MODE_SUFFIXES:
+            return ":".join(parts[:-2]), parts[-2]
+        return ":".join(parts[:-1]), parts[-1]
+    if isinstance(item, dict):
+        source = item.get("source")
+        target = item.get("target")
+        mount_type = item.get("type")
+        if mount_type not in (None, "bind"):
+            return None, str(target) if isinstance(target, str) else None
+        return (
+            str(source) if isinstance(source, str) else None,
+            str(target) if isinstance(target, str) else None,
+        )
+    return None, None
+
+
+def parse_database_fallback_mounts(
+    service: Mapping[str, Any],
+    compose_dir: Path,
+    db_type: str,
+) -> Tuple[List[str], List[ConfigMount]]:
+    volumes = service.get("volumes")
+    if not isinstance(volumes, list):
+        return [], []
+    persistent_paths: List[str] = []
+    config_mounts: List[ConfigMount] = []
+    standard_data_paths = DB_STANDARD_DATA_PATHS_BY_TYPE.get(db_type, set())
+    for item in volumes:
+        source, target = _parse_bind_mount_source_and_target(item)
+        if not isinstance(target, str) or not target.startswith("/"):
+            continue
+        if target in standard_data_paths:
+            if target not in persistent_paths:
+                persistent_paths.append(target)
+            continue
+        if not source:
+            raise ValueError(
+                f"raw database fallback cannot materialize volume target {target!r}; "
+                "use the AI-native canonical template route"
+            )
+        source_path = Path(source)
+        if not source_path.is_absolute():
+            source_path = compose_dir / source_path
+        try:
+            source_path = source_path.resolve()
+        except OSError as exc:
+            raise ValueError(
+                f"raw database fallback cannot resolve bind source {source!r}: {exc}"
+            ) from exc
+        if source_path.is_file():
+            try:
+                content = source_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                raise ValueError(
+                    f"raw database fallback cannot preserve non-text bind source {source!r}"
+                ) from exc
+            config_mounts.append(
+                ConfigMount(
+                    target=target,
+                    key=path_to_vn_name(target),
+                    content=content,
+                )
+            )
+            continue
+        if source_path.is_dir():
+            source_files = sorted(path for path in source_path.rglob("*") if path.is_file())
+            if not source_files:
+                raise ValueError(
+                    f"raw database fallback bind directory {source!r} is empty"
+                )
+            for source_file in source_files:
+                relative = source_file.relative_to(source_path).as_posix()
+                mount_target = f"{target.rstrip('/')}/{relative}"
+                try:
+                    content = source_file.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as exc:
+                    raise ValueError(
+                        f"raw database fallback cannot preserve non-text bind source {source_file}"
+                    ) from exc
+                config_mounts.append(
+                    ConfigMount(
+                        target=mount_target,
+                        key=path_to_vn_name(mount_target),
+                        content=content,
+                    )
+                )
+            continue
+        raise ValueError(
+            f"raw database fallback bind source {source!r} does not exist; "
+            "use the AI-native canonical template route"
+        )
+    return persistent_paths, config_mounts
+
+
 def parse_command_args(service: Mapping[str, Any]) -> List[str]:
     command = service.get("command")
     if isinstance(command, str):
@@ -1171,6 +1500,25 @@ def parse_command_args(service: Mapping[str, Any]) -> List[str]:
             return [text]
     if isinstance(command, list):
         return [str(item) for item in command if item is not None and str(item).strip()]
+    return []
+
+
+def parse_entrypoint_command(service: Mapping[str, Any]) -> List[str]:
+    entrypoint = service.get("entrypoint")
+    if isinstance(entrypoint, str):
+        text = entrypoint.strip()
+        if not text:
+            return []
+        try:
+            return shlex.split(text)
+        except ValueError:
+            return [text]
+    if isinstance(entrypoint, list):
+        return [
+            str(item)
+            for item in entrypoint
+            if item is not None and str(item).strip()
+        ]
     return []
 
 
@@ -1527,8 +1875,26 @@ def resolve_kompose_shapes(compose_path: Path, mode: str) -> Optional[Dict[str, 
     raise ValueError(f"unsupported kompose mode: {mode}")
 
 
-def build_template_resource(meta: MetadataOptions) -> Dict[str, Any]:
+def build_template_resource(
+    meta: MetadataOptions,
+    password_defaults: Sequence[str] = (),
+) -> Dict[str, Any]:
     readme_base = f"{TEMPLATE_README_BASE}/{meta.app_name}"
+    defaults: Dict[str, Dict[str, str]] = {
+        "app_host": {
+            "type": "string",
+            "value": f"{meta.app_name}-${{{{ random(8) }}}}",
+        },
+        "app_name": {
+            "type": "string",
+            "value": f"{meta.app_name}-${{{{ random(8) }}}}",
+        },
+    }
+    for default_name in sorted(set(password_defaults)):
+        defaults[default_name] = {
+            "type": "string",
+            "value": "Db${{ random(24) }}9",
+        }
     return {
         "apiVersion": "app.sealos.io/v1",
         "kind": "Template",
@@ -1552,16 +1918,7 @@ def build_template_resource(meta: MetadataOptions) -> Dict[str, Any]:
                 }
             },
             "categories": list(meta.categories),
-            "defaults": {
-                "app_host": {
-                    "type": "string",
-                    "value": f"{meta.app_name}-${{{{ random(8) }}}}",
-                },
-                "app_name": {
-                    "type": "string",
-                    "value": f"{meta.app_name}-${{{{ random(8) }}}}",
-                },
-            },
+            "defaults": defaults,
         },
     }
 
@@ -1592,6 +1949,17 @@ def database_secret_name(db_type: str, cluster_name: str) -> str:
     if suffix is None:
         raise ValueError(f"unsupported database type: {db_type}")
     return f"{cluster_name}-{suffix}"
+
+
+def database_app_secret_name(cluster_name: str) -> str:
+    return f"{cluster_name}-app-credential"
+
+
+def database_password_default_name(db_type: str, service_name: str) -> str:
+    return (
+        f"{normalize_env_token(db_type).lower()}_"
+        f"{normalize_env_token(service_name).lower()}_app_password"
+    )
 
 
 def build_postgres_resources(
@@ -2169,6 +2537,280 @@ def build_database_resources(
     return []
 
 
+def build_database_app_secret(plan: DatabasePlan) -> Dict[str, Any]:
+    if not plan.has_app_credentials:
+        raise ValueError("application database credentials require a bootstrap plan")
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": plan.app_secret_name,
+            "annotations": {
+                DB_BOOTSTRAP_ANNOTATION: "application-credential",
+                DB_CLUSTER_ANNOTATION: plan.cluster_name,
+                DB_ENGINE_ANNOTATION: plan.db_type,
+            },
+        },
+        "type": "Opaque",
+        "stringData": {
+            "database": plan.database_name,
+            "username": plan.app_username,
+            "password": f"${{{{ defaults.{plan.password_default_name} }}}}",
+        },
+    }
+
+
+def _database_bootstrap_env(plan: DatabasePlan) -> List[Dict[str, Any]]:
+    env = [
+        build_secret_ref_env_entry(
+            "DB_ADMIN_HOST",
+            plan.connection_secret_name,
+            "host",
+        ),
+        build_secret_ref_env_entry(
+            "DB_ADMIN_PORT",
+            plan.connection_secret_name,
+            "port",
+        ),
+        build_secret_ref_env_entry(
+            "DB_ADMIN_USER",
+            plan.connection_secret_name,
+            "username",
+        ),
+        build_secret_ref_env_entry(
+            "DB_ADMIN_PASSWORD",
+            plan.connection_secret_name,
+            "password",
+        ),
+        {"name": "DB_NAME", "value": plan.database_name},
+    ]
+    if plan.has_app_credentials:
+        env.extend(
+            [
+                build_secret_ref_env_entry(
+                    "DB_APP_USER",
+                    plan.app_secret_name,
+                    "username",
+                ),
+                build_secret_ref_env_entry(
+                    "DB_APP_PASSWORD",
+                    plan.app_secret_name,
+                    "password",
+                ),
+            ]
+        )
+    return env
+
+
+def _mysql_bootstrap_script(has_app_credentials: bool) -> str:
+    app_account_script = ""
+    if has_app_credentials:
+        app_account_script = r"""
+case "$DB_APP_USER" in
+  ''|*[!A-Za-z0-9_]*) echo "unsafe MySQL application username" >&2; exit 1 ;;
+esac
+escaped_password="$(printf '%s' "$DB_APP_PASSWORD" | sed "s/\\\\/\\\\\\\\/g; s/'/''/g")"
+MYSQL_PWD="$DB_ADMIN_PASSWORD" mysql \
+  -h "$DB_ADMIN_HOST" -P "$DB_ADMIN_PORT" -u "$DB_ADMIN_USER" <<SQL
+CREATE USER IF NOT EXISTS '$DB_APP_USER'@'%' IDENTIFIED BY '$escaped_password';
+ALTER USER '$DB_APP_USER'@'%' IDENTIFIED BY '$escaped_password';
+GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_APP_USER'@'%';
+SQL
+"""
+    return (
+        r"""set -eu
+case "$DB_NAME" in
+  ''|*[!A-Za-z0-9_]*) echo "unsafe MySQL database name" >&2; exit 1 ;;
+esac
+for attempt in $(seq 1 90); do
+  if MYSQL_PWD="$DB_ADMIN_PASSWORD" mysqladmin ping \
+    -h "$DB_ADMIN_HOST" -P "$DB_ADMIN_PORT" -u "$DB_ADMIN_USER" --silent; then
+    break
+  fi
+  sleep 2
+done
+MYSQL_PWD="$DB_ADMIN_PASSWORD" mysqladmin ping \
+  -h "$DB_ADMIN_HOST" -P "$DB_ADMIN_PORT" -u "$DB_ADMIN_USER" --silent
+MYSQL_PWD="$DB_ADMIN_PASSWORD" mysql \
+  -h "$DB_ADMIN_HOST" -P "$DB_ADMIN_PORT" -u "$DB_ADMIN_USER" \
+  -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;"
+"""
+        + app_account_script.lstrip("\n")
+    )
+
+
+def _postgres_bootstrap_script(has_app_credentials: bool) -> str:
+    app_account_script = ""
+    owner_expression = '"$DB_ADMIN_USER"'
+    if has_app_credentials:
+        owner_expression = '"$DB_APP_USER"'
+        app_account_script = r"""
+psql -v ON_ERROR_STOP=1 -v app_user="$DB_APP_USER" -v app_password="$DB_APP_PASSWORD" <<'SQL'
+SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user')
+\gexec
+SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
+\gexec
+SQL
+"""
+    return (
+        r"""set -eu
+export PGHOST="$DB_ADMIN_HOST"
+export PGPORT="$DB_ADMIN_PORT"
+export PGUSER="$DB_ADMIN_USER"
+export PGPASSWORD="$DB_ADMIN_PASSWORD"
+export PGDATABASE=postgres
+for attempt in $(seq 1 90); do
+  if pg_isready >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+pg_isready
+"""
+        + app_account_script.lstrip("\n")
+        + f"""DB_OWNER={owner_expression}
+psql -v ON_ERROR_STOP=1 -v db_name="$DB_NAME" -v db_owner="$DB_OWNER" <<'SQL'
+SELECT format('CREATE DATABASE %I OWNER %I', :'db_name', :'db_owner')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db_name')
+\\gexec
+SELECT format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'db_name', :'db_owner')
+\\gexec
+SQL
+"""
+    )
+
+
+def build_database_bootstrap_job(
+    plan: DatabasePlan,
+    client_image: str,
+) -> Dict[str, Any]:
+    if not plan.needs_bootstrap:
+        raise ValueError("database bootstrap Job requires a target database")
+    if plan.db_type == "mysql":
+        script = _mysql_bootstrap_script(plan.has_app_credentials)
+    elif plan.db_type == "postgres":
+        script = _postgres_bootstrap_script(plan.has_app_credentials)
+    else:
+        raise ValueError(
+            f"database bootstrap is not implemented for {plan.db_type}"
+        )
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": f"{plan.cluster_name}-init",
+            "annotations": {
+                DB_BOOTSTRAP_ANNOTATION: "database-user-grants",
+                DB_CLUSTER_ANNOTATION: plan.cluster_name,
+                DB_ENGINE_ANNOTATION: plan.db_type,
+            },
+        },
+        "spec": {
+            "backoffLimit": 3,
+            "template": {
+                "spec": {
+                    "automountServiceAccountToken": False,
+                    "containers": [
+                        {
+                            "name": f"{plan.db_type}-init",
+                            "image": client_image,
+                            "imagePullPolicy": "IfNotPresent",
+                            "env": _database_bootstrap_env(plan),
+                            "command": ["/bin/sh", "-c"],
+                            "args": [script],
+                            "resources": {
+                                "limits": dict(DEFAULT_RESOURCE_LIMITS),
+                                "requests": dict(DEFAULT_RESOURCE_REQUESTS),
+                            },
+                        }
+                    ],
+                    "restartPolicy": "OnFailure",
+                }
+            },
+            "ttlSecondsAfterFinished": 300,
+        },
+    }
+
+
+def build_database_ready_init_container(
+    plan: DatabasePlan,
+    client_image: str,
+) -> Dict[str, Any]:
+    if not plan.needs_bootstrap:
+        raise ValueError("database readiness gate requires a target database")
+    credential_secret_name = (
+        plan.app_secret_name
+        if plan.has_app_credentials
+        else plan.connection_secret_name
+    )
+    if plan.db_type == "mysql":
+        script = (
+            'set -eu\n'
+            'for attempt in $(seq 1 90); do\n'
+            '  if MYSQL_PWD="$DB_PASSWORD" mysql '
+            '-h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" '
+            '-Nse "SELECT 1" >/dev/null 2>&1; then exit 0; fi\n'
+            '  sleep 2\n'
+            'done\n'
+            'echo "application MySQL database contract is not ready" >&2\n'
+            'exit 1\n'
+        )
+    elif plan.db_type == "postgres":
+        script = (
+            'set -eu\n'
+            'export PGPASSWORD="$DB_PASSWORD"\n'
+            'for attempt in $(seq 1 90); do\n'
+            '  if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" '
+            '-d "$DB_NAME" -tAc "SELECT 1" >/dev/null 2>&1; then exit 0; fi\n'
+            '  sleep 2\n'
+            'done\n'
+            'echo "application PostgreSQL database contract is not ready" >&2\n'
+            'exit 1\n'
+        )
+    else:
+        raise ValueError(
+            f"database readiness gate is not implemented for {plan.db_type}"
+        )
+    container_name = normalize_k8s_name(
+        f"{plan.db_type}-{plan.service_name}-ready"
+    )[:63].rstrip("-")
+    return {
+        "name": container_name,
+        "image": client_image,
+        "imagePullPolicy": "IfNotPresent",
+        "env": [
+            build_secret_ref_env_entry(
+                "DB_HOST",
+                plan.connection_secret_name,
+                "host",
+            ),
+            build_secret_ref_env_entry(
+                "DB_PORT",
+                plan.connection_secret_name,
+                "port",
+            ),
+            build_secret_ref_env_entry(
+                "DB_USER",
+                credential_secret_name,
+                "username",
+            ),
+            build_secret_ref_env_entry(
+                "DB_PASSWORD",
+                credential_secret_name,
+                "password",
+            ),
+            {"name": "DB_NAME", "value": plan.database_name},
+        ],
+        "command": ["/bin/sh", "-c"],
+        "args": [script],
+        "resources": {
+            "limits": dict(DEFAULT_RESOURCE_LIMITS),
+            "requests": dict(DEFAULT_RESOURCE_REQUESTS),
+        },
+    }
+
+
 def build_object_storage_bucket() -> Dict[str, Any]:
     return {
         "apiVersion": "objectstorage.sealos.io/v1",
@@ -2294,6 +2936,7 @@ def infer_db_secret_ref(
     value: str,
     db_services: Mapping[str, str],
     db_secret_names: Mapping[str, str],
+    db_app_secret_names: Optional[Mapping[str, str]] = None,
 ) -> Optional[Dict[str, str]]:
     connection_key = detect_db_connection_key(env_name)
     if connection_key is None:
@@ -2323,6 +2966,10 @@ def infer_db_secret_ref(
         return None
 
     secret_name = db_secret_names.get(db_service)
+    if connection_key in {"username", "password"}:
+        app_secret_name = (db_app_secret_names or {}).get(db_service)
+        if isinstance(app_secret_name, str):
+            secret_name = app_secret_name
     if not isinstance(secret_name, str):
         return None
 
@@ -2334,11 +2981,59 @@ def infer_db_secret_ref(
     }
 
 
+def infer_service_database_dependencies(
+    service: Mapping[str, Any],
+    db_services: Mapping[str, str],
+) -> Set[str]:
+    dependencies: Set[str] = set()
+    depends_on = service.get("depends_on")
+    if isinstance(depends_on, dict):
+        dependencies.update(
+            name for name in depends_on if name in db_services
+        )
+    elif isinstance(depends_on, list):
+        dependencies.update(
+            str(name) for name in depends_on if str(name) in db_services
+        )
+
+    available_db_types = list(db_services.values())
+    for env_name, value in parse_env(service):
+        service_name = infer_db_service_from_value(value, db_services)
+        if service_name is not None:
+            dependencies.add(service_name)
+            continue
+        if detect_db_connection_key(env_name) is None:
+            continue
+        db_type = infer_db_type_from_env_name(env_name, available_db_types)
+        candidates = [
+            name
+            for name, candidate_type in db_services.items()
+            if candidate_type == db_type
+        ]
+        if len(candidates) == 1:
+            dependencies.add(candidates[0])
+
+    command_text = " ".join(
+        [
+            *parse_entrypoint_command(service),
+            *parse_command_args(service),
+        ]
+    )
+    for service_name in db_services:
+        if re.search(
+            rf"(?<![A-Za-z0-9_-]){re.escape(service_name)}(?![A-Za-z0-9_-])",
+            command_text,
+        ):
+            dependencies.add(service_name)
+    return dependencies
+
+
 def build_db_url_composed_env_entries(
     env_name: str,
     raw_value: str,
     secret_name: str,
     db_type: str,
+    credential_secret_name: str,
     db_services: Mapping[str, str],
     db_hosts: Mapping[str, str],
 ) -> Optional[List[Dict[str, Any]]]:
@@ -2384,9 +3079,21 @@ def build_db_url_composed_env_entries(
     has_password = parsed.password is not None
 
     if has_username:
-        helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
+        helper_entries.append(
+            build_secret_ref_env_entry(
+                user_var,
+                credential_secret_name,
+                "username",
+            )
+        )
     if has_password:
-        helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
+        helper_entries.append(
+            build_secret_ref_env_entry(
+                password_var,
+                credential_secret_name,
+                "password",
+            )
+        )
 
     if has_auth:
         if has_username and has_password:
@@ -2416,6 +3123,7 @@ def build_env_entries(
     db_hosts: Mapping[str, str],
     db_services: Mapping[str, str],
     db_secret_names: Mapping[str, str],
+    db_app_secret_names: Mapping[str, str],
     service_hosts: Mapping[str, str],
 ) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
@@ -2425,6 +3133,7 @@ def build_env_entries(
             value,
             db_services,
             db_secret_names,
+            db_app_secret_names,
         )
         if secret_ref is not None:
             if secret_ref["key"] == "endpoint":
@@ -2433,6 +3142,10 @@ def build_env_entries(
                     raw_value=value,
                     secret_name=secret_ref["name"],
                     db_type=secret_ref["db_type"],
+                    credential_secret_name=db_app_secret_names.get(
+                        secret_ref["db_service"],
+                        db_secret_names[secret_ref["db_service"]],
+                    ),
                     db_services=db_services,
                     db_hosts=db_hosts,
                 )
@@ -2476,10 +3189,14 @@ def build_workload(
     mount_paths: Sequence[str],
     config_mounts: Sequence[ConfigMount],
     probes: Mapping[str, Any],
+    init_containers: Sequence[Dict[str, Any]] = (),
+    entrypoint_command: Sequence[str] = (),
     image_pull_secret: bool = False,
+    allow_database_image: bool = False,
+    kubeblocks_fallback_reason: str = "",
 ) -> Dict[str, Any]:
     db_type = detect_db_type(image)
-    if db_type in SPECIAL_DB_RESOURCE_TYPES:
+    if db_type in SPECIAL_DB_RESOURCE_TYPES and not allow_database_image:
         raise ValueError(
             f"refusing to generate an application workload for {db_type} database image {image!r}; "
             "database services must use KubeBlocks Cluster resources"
@@ -2503,6 +3220,8 @@ def build_workload(
     }
     if image_pull_secret:
         template_spec["imagePullSecrets"] = [{"name": "${{ defaults.app_name }}"}]
+    if init_containers:
+        template_spec["initContainers"] = list(init_containers)
     container = template_spec["containers"][0]
     if ports:
         container["ports"] = [
@@ -2514,6 +3233,8 @@ def build_workload(
         ]
     if env_entries:
         container["env"] = list(env_entries)
+    if entrypoint_command:
+        container["command"] = list(entrypoint_command)
     if command_args:
         container["args"] = list(command_args)
     if probes:
@@ -2577,16 +3298,19 @@ def build_workload(
             }
         )
 
+    annotations = {
+        "originImageName": image,
+        "deploy.cloud.sealos.io/minReplicas": str(replicas),
+        "deploy.cloud.sealos.io/maxReplicas": str(replicas),
+    }
+    if kubeblocks_fallback_reason:
+        annotations[KUBEBLOCKS_FALLBACK_ANNOTATION] = kubeblocks_fallback_reason
     return {
         "apiVersion": "apps/v1",
         "kind": kind,
         "metadata": {
             "name": workload_name,
-            "annotations": {
-                "originImageName": image,
-                "deploy.cloud.sealos.io/minReplicas": str(replicas),
-                "deploy.cloud.sealos.io/maxReplicas": str(replicas),
-            },
+            "annotations": annotations,
             "labels": {
                 "cloud.sealos.io/app-deploy-manager": workload_name,
                 "app": workload_name,
@@ -2610,7 +3334,12 @@ def build_configmap(workload_name: str, config_mounts: Sequence[ConfigMount]) ->
     }
 
 
-def build_service(workload_name: str, ports: Sequence[int], websocket_ports: Set[int]) -> Optional[Dict[str, Any]]:
+def build_service(
+    workload_name: str,
+    ports: Sequence[int],
+    websocket_ports: Set[int],
+    kubeblocks_fallback_reason: str = "",
+) -> Optional[Dict[str, Any]]:
     if not ports:
         return None
     service_ports = [
@@ -2622,16 +3351,21 @@ def build_service(workload_name: str, ports: Sequence[int], websocket_ports: Set
         }
         for p in ports
     ]
+    metadata: Dict[str, Any] = {
+        "name": workload_name,
+        "labels": {
+            "app": workload_name,
+            "cloud.sealos.io/app-deploy-manager": workload_name,
+        },
+    }
+    if kubeblocks_fallback_reason:
+        metadata["annotations"] = {
+            KUBEBLOCKS_FALLBACK_ANNOTATION: kubeblocks_fallback_reason,
+        }
     return {
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": {
-            "name": workload_name,
-            "labels": {
-                "app": workload_name,
-                "cloud.sealos.io/app-deploy-manager": workload_name,
-            },
-        },
+        "metadata": metadata,
         "spec": {
             "ports": service_ports,
             "selector": {"app": workload_name},
@@ -2825,8 +3559,7 @@ def cluster_database_type(document: Mapping[str, Any]) -> Optional[str]:
 
 def validate_generated_database_contract(
     documents: Sequence[Mapping[str, Any]],
-    db_services: Mapping[str, str],
-    db_cluster_names: Mapping[str, str],
+    database_plans: Sequence[DatabasePlan],
 ) -> None:
     actual_clusters: Dict[str, Optional[str]] = {}
     for document in documents:
@@ -2840,14 +3573,18 @@ def validate_generated_database_contract(
 
     missing_services: List[str] = []
     mismatched_services: List[str] = []
-    for service_name, expected_type in db_services.items():
-        cluster_name = db_cluster_names[service_name]
-        actual_type = actual_clusters.get(cluster_name)
+    for plan in database_plans:
+        if not plan.use_kubeblocks:
+            continue
+        actual_type = actual_clusters.get(plan.cluster_name)
         if actual_type is None:
-            missing_services.append(f"{service_name} ({cluster_name})")
-        elif actual_type != expected_type:
+            missing_services.append(
+                f"{plan.service_name} ({plan.cluster_name})"
+            )
+        elif actual_type != plan.db_type:
             mismatched_services.append(
-                f"{service_name} ({cluster_name}: expected {expected_type}, got {actual_type})"
+                f"{plan.service_name} ({plan.cluster_name}: "
+                f"expected {plan.db_type}, got {actual_type})"
             )
     if missing_services:
         raise ValueError(
@@ -2859,6 +3596,78 @@ def validate_generated_database_contract(
             "database conversion emitted a KubeBlocks Cluster with the wrong engine: "
             + ", ".join(mismatched_services)
         )
+
+    document_by_kind_and_name: Dict[Tuple[str, str], Mapping[str, Any]] = {}
+    for document in documents:
+        metadata = document.get("metadata")
+        name = metadata.get("name") if isinstance(metadata, dict) else None
+        kind = document.get("kind")
+        if isinstance(kind, str) and isinstance(name, str):
+            document_by_kind_and_name[(kind, name)] = document
+
+    for plan in database_plans:
+        if plan.use_kubeblocks and plan.needs_bootstrap:
+            job = document_by_kind_and_name.get(
+                ("Job", f"{plan.cluster_name}-init")
+            )
+            if job is None:
+                raise ValueError(
+                    f"database service {plan.service_name!r} requires an idempotent "
+                    "bootstrap Job but none was generated"
+                )
+            metadata = job.get("metadata")
+            annotations = (
+                metadata.get("annotations")
+                if isinstance(metadata, dict)
+                else None
+            )
+            if (
+                not isinstance(annotations, dict)
+                or annotations.get(DB_CLUSTER_ANNOTATION) != plan.cluster_name
+            ):
+                raise ValueError(
+                    f"database bootstrap Job for {plan.service_name!r} is not linked "
+                    "to its KubeBlocks Cluster"
+                )
+            if plan.has_app_credentials and (
+                "Secret",
+                plan.app_secret_name,
+            ) not in document_by_kind_and_name:
+                raise ValueError(
+                    f"database service {plan.service_name!r} requires an application "
+                    "credential Secret but none was generated"
+                )
+            continue
+
+        if plan.use_kubeblocks:
+            continue
+        for kind in ("Deployment", "StatefulSet"):
+            raw_workload = document_by_kind_and_name.get(
+                (kind, plan.cluster_name)
+            )
+            if raw_workload is None:
+                continue
+            metadata = raw_workload.get("metadata")
+            annotations = (
+                metadata.get("annotations")
+                if isinstance(metadata, dict)
+                else None
+            )
+            if (
+                not isinstance(annotations, dict)
+                or annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
+                != plan.fallback_reason
+            ):
+                raise ValueError(
+                    f"raw database fallback for {plan.service_name!r} is missing "
+                    f"{KUBEBLOCKS_FALLBACK_ANNOTATION}"
+                )
+            break
+        else:
+            raise ValueError(
+                f"database service {plan.service_name!r} could not be converted "
+                "losslessly and its raw workload was not preserved"
+            )
 
     for document in documents:
         if document.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
@@ -2876,6 +3685,18 @@ def validate_generated_database_contract(
         containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
         if not isinstance(containers, list):
             continue
+        metadata = document.get("metadata")
+        annotations = (
+            metadata.get("annotations")
+            if isinstance(metadata, dict)
+            else None
+        )
+        if isinstance(annotations, dict):
+            if annotations.get(DB_BOOTSTRAP_ANNOTATION):
+                continue
+            fallback_reason = annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
+            if isinstance(fallback_reason, str) and fallback_reason.strip():
+                continue
         for container in containers:
             image = container.get("image") if isinstance(container, dict) else None
             db_type = detect_db_type(image) if isinstance(image, str) else None
@@ -2912,7 +3733,7 @@ def build_documents(
             + ", ".join(unknown_pull_secret_services)
         )
 
-    db_services: Dict[str, str] = {}
+    database_plans: List[DatabasePlan] = []
     app_services: List[Tuple[str, Mapping[str, Any]]] = []
     for name, service in service_items:
         declared_image = service.get("image")
@@ -2923,23 +3744,24 @@ def build_documents(
         )
         db_type = detect_db_type(classification_image)
         if db_type in SPECIAL_DB_RESOURCE_TYPES:
-            db_services[name] = db_type
+            database_plans.append(
+                plan_database_service(
+                    name,
+                    db_type,
+                    classification_image,
+                    service,
+                )
+            )
         else:
             app_services.append((name, service))
 
     if not app_services:
-        if db_services:
+        if database_plans:
             raise ValueError(
                 "compose contains database services but no application service; "
                 "refusing to convert a database into an application workload"
             )
         raise ValueError("compose contains no application services")
-    database_pull_secret_services = sorted(requested_pull_secret_services.intersection(db_services))
-    if database_pull_secret_services:
-        raise ValueError(
-            "image pull secret cannot target database service(s) converted to KubeBlocks: "
-            + ", ".join(database_pull_secret_services)
-        )
 
     selected_public_service = select_public_service(app_services, public_service)
     primary_service = selected_public_service or app_services[0][0]
@@ -2958,29 +3780,79 @@ def build_documents(
     }
 
     db_type_counts: Dict[str, int] = {}
-    for db_type in db_services.values():
-        db_type_counts[db_type] = db_type_counts.get(db_type, 0) + 1
-    db_cluster_names = {
-        service_name: database_cluster_name(
-            db_type,
-            service_name,
-            db_type_counts[db_type],
+    for plan in database_plans:
+        db_type_counts[plan.db_type] = db_type_counts.get(plan.db_type, 0) + 1
+    database_plans = [
+        replace(
+            plan,
+            cluster_name=database_cluster_name(
+                plan.db_type,
+                plan.service_name,
+                db_type_counts[plan.db_type],
+            ),
         )
-        for service_name, db_type in db_services.items()
+        for plan in database_plans
+    ]
+    database_plans = [
+        replace(
+            plan,
+            connection_secret_name=database_secret_name(
+                plan.db_type,
+                plan.cluster_name,
+            ),
+            app_secret_name=(
+                database_app_secret_name(plan.cluster_name)
+                if plan.app_username
+                else ""
+            ),
+            password_default_name=(
+                database_password_default_name(
+                    plan.db_type,
+                    plan.service_name,
+                )
+                if plan.app_username
+                else ""
+            ),
+        )
+        for plan in database_plans
+    ]
+    database_plans_by_name = {
+        plan.service_name: plan for plan in database_plans
     }
-    db_hosts = {
-        service_name: database_service_fqdn(
-            db_type,
-            db_cluster_names[service_name],
+    managed_db_services = {
+        plan.service_name: plan.db_type
+        for plan in database_plans
+        if plan.use_kubeblocks
+    }
+    database_pull_secret_services = sorted(
+        requested_pull_secret_services.intersection(managed_db_services)
+    )
+    if database_pull_secret_services:
+        raise ValueError(
+            "image pull secret cannot target database service(s) converted to KubeBlocks: "
+            + ", ".join(database_pull_secret_services)
         )
-        for service_name, db_type in db_services.items()
+
+    db_hosts = {
+        plan.service_name: (
+            database_service_fqdn(plan.db_type, plan.cluster_name)
+            if plan.use_kubeblocks
+            else (
+                f"{plan.cluster_name}.${{{{ SEALOS_NAMESPACE }}}}."
+                "svc.cluster.local"
+            )
+        )
+        for plan in database_plans
     }
     db_secret_names = {
-        service_name: database_secret_name(
-            db_type,
-            db_cluster_names[service_name],
-        )
-        for service_name, db_type in db_services.items()
+        plan.service_name: plan.connection_secret_name
+        for plan in database_plans
+        if plan.use_kubeblocks
+    }
+    db_app_secret_names = {
+        plan.service_name: plan.app_secret_name
+        for plan in database_plans
+        if plan.use_kubeblocks and plan.has_app_credentials
     }
 
     digest_cache: Dict[str, str] = {}
@@ -2991,9 +3863,40 @@ def build_documents(
             source_image,
             digest_cache=digest_cache,
         )
+    for plan in database_plans:
+        if plan.use_kubeblocks:
+            continue
+        resolved_images[plan.service_name] = resolve_image_reference(
+            normalized_images[plan.service_name],
+            digest_cache=digest_cache,
+        )
+
+    bootstrap_client_images: Dict[str, str] = {}
+    for plan in database_plans:
+        if not plan.needs_bootstrap:
+            continue
+        client_image = DB_BOOTSTRAP_CLIENT_IMAGE_BY_TYPE.get(plan.db_type)
+        if client_image is None:
+            raise ValueError(
+                f"database bootstrap is not implemented for {plan.db_type}"
+            )
+        if plan.db_type not in bootstrap_client_images:
+            bootstrap_client_images[plan.db_type] = resolve_image_reference(
+                client_image,
+                digest_cache=digest_cache,
+            )
 
     docs: List[Dict[str, Any]] = []
-    docs.append(build_template_resource(meta))
+    docs.append(
+        build_template_resource(
+            meta,
+            password_defaults=[
+                plan.password_default_name
+                for plan in database_plans
+                if plan.use_kubeblocks and plan.has_app_credentials
+            ],
+        )
+    )
 
     all_env_keys = set()
     for _, service in app_services:
@@ -3002,20 +3905,106 @@ def build_documents(
     if OBJECT_STORAGE_BUCKET_ENV_NAME in all_env_keys or OBJECT_STORAGE_BASE_ENV_NAMES.intersection(all_env_keys):
         docs.append(build_object_storage_bucket())
 
-    for service_name, _ in service_items:
-        db_type = db_services.get(service_name)
-        if not isinstance(db_type, str):
+    for plan in database_plans:
+        if not plan.use_kubeblocks:
             continue
         docs.extend(
             build_database_resources(
-                db_type,
-                db_cluster_names[service_name],
+                plan.db_type,
+                plan.cluster_name,
             )
         )
+        if plan.has_app_credentials:
+            docs.append(build_database_app_secret(plan))
+        if plan.needs_bootstrap:
+            docs.append(
+                build_database_bootstrap_job(
+                    plan,
+                    bootstrap_client_images[plan.db_type],
+                )
+            )
 
     workload_docs: List[Dict[str, Any]] = []
     service_docs: List[Dict[str, Any]] = []
     compose_dir = compose_path.parent if compose_path is not None else Path.cwd()
+    runtime_hosts = {**service_hosts, **db_hosts}
+
+    for plan in database_plans:
+        if plan.use_kubeblocks:
+            continue
+        service = plan.service
+        image = resolved_images[plan.service_name]
+        ports = merge_ports(
+            parse_ports(service),
+            parse_expose_ports(service),
+            [DB_DEFAULT_PORT_BY_TYPE[plan.db_type]],
+        )
+        mount_paths, bind_config_mounts = parse_database_fallback_mounts(
+            service,
+            compose_dir,
+            plan.db_type,
+        )
+        config_mounts = [
+            *parse_config_mounts(service, compose_data, compose_dir),
+            *bind_config_mounts,
+        ]
+        command_args = [
+            map_compose_service_reference(arg, runtime_hosts)
+            for arg in parse_command_args(service)
+        ]
+        entrypoint_command = [
+            map_compose_service_reference(arg, runtime_hosts)
+            for arg in parse_entrypoint_command(service)
+        ]
+        env_entries = [
+            {
+                "name": key,
+                "value": map_compose_env_value(
+                    value,
+                    db_hosts,
+                    service_hosts,
+                ),
+            }
+            for key, value in parse_env(service)
+        ]
+        websocket_ports: Set[int] = set()
+        probes = build_probe_pair(
+            service,
+            image,
+            ports,
+            command_args,
+        )
+        if config_mounts:
+            docs.append(build_configmap(plan.cluster_name, config_mounts))
+        docs.append(
+            build_workload(
+                workload_name=plan.cluster_name,
+                image=image,
+                replicas=parse_service_replicas(service),
+                ports=ports,
+                websocket_ports=websocket_ports,
+                env_entries=env_entries,
+                command_args=command_args,
+                entrypoint_command=entrypoint_command,
+                mount_paths=mount_paths,
+                config_mounts=config_mounts,
+                probes=probes,
+                image_pull_secret=(
+                    plan.service_name in requested_pull_secret_services
+                ),
+                allow_database_image=True,
+                kubeblocks_fallback_reason=plan.fallback_reason,
+            )
+        )
+        raw_service = build_service(
+            plan.cluster_name,
+            ports,
+            websocket_ports,
+            kubeblocks_fallback_reason=plan.fallback_reason,
+        )
+        if raw_service is not None:
+            docs.append(raw_service)
+
     public_port: Optional[int] = None
     public_ingress_protocol = "HTTP"
     for service_name, service in app_services:
@@ -3026,12 +4015,20 @@ def build_documents(
         env_entries = build_env_entries(
             service,
             db_hosts,
-            db_services,
+            managed_db_services,
             db_secret_names,
+            db_app_secret_names,
             service_hosts,
         )
         command_args = parse_command_args(service)
-        command_args = [map_compose_service_reference(arg, service_hosts) for arg in command_args]
+        command_args = [
+            map_compose_service_reference(arg, runtime_hosts)
+            for arg in command_args
+        ]
+        entrypoint_command = [
+            map_compose_service_reference(arg, runtime_hosts)
+            for arg in parse_entrypoint_command(service)
+        ]
         mount_paths = parse_mount_paths(service)
         config_mounts = parse_config_mounts(service, compose_data, compose_dir)
         if kompose_shapes:
@@ -3043,6 +4040,20 @@ def build_documents(
                     mount_paths = list(shape.mount_paths)
         websocket_ports = infer_websocket_ports(service)
         probes = build_probe_pair(service, image, ports, command_args)
+        database_dependencies = infer_service_database_dependencies(
+            service,
+            managed_db_services,
+        )
+        init_containers = [
+            build_database_ready_init_container(
+                database_plans_by_name[db_service_name],
+                bootstrap_client_images[
+                    database_plans_by_name[db_service_name].db_type
+                ],
+            )
+            for db_service_name in sorted(database_dependencies)
+            if database_plans_by_name[db_service_name].needs_bootstrap
+        ]
         workload = build_workload(
             workload_name=workload_name,
             image=image,
@@ -3051,9 +4062,11 @@ def build_documents(
             websocket_ports=websocket_ports,
             env_entries=env_entries,
             command_args=command_args,
+            entrypoint_command=entrypoint_command,
             mount_paths=mount_paths,
             config_mounts=config_mounts,
             probes=probes,
+            init_containers=init_containers,
             image_pull_secret=service_name in requested_pull_secret_services,
         )
         if config_mounts:
@@ -3074,8 +4087,7 @@ def build_documents(
     docs.append(build_app_resource(meta))
     validate_generated_database_contract(
         docs,
-        db_services,
-        db_cluster_names,
+        database_plans,
     )
     return docs
 

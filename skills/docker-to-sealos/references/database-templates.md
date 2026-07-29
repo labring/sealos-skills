@@ -7,15 +7,21 @@ This document contains complete Sealos template configurations for various datab
 Supported database services should be represented by KubeBlocks `Cluster`
 resources whenever the current templates can preserve their runtime contract.
 Compose database services such as PostgreSQL, MySQL, MongoDB, Redis, or Kafka
-use this path by default. For rendered Helm or native Kubernetes sources,
-preserve a raw database workload only when its source-defined startup,
-initialization, replica, mount, or network semantics cannot be represented
-losslessly; annotate that workload and its Service with a non-empty
+use this path by default. For Compose, rendered Helm, and native Kubernetes
+sources, preserve a raw database workload when its source-defined startup,
+initialization, replica, mount, engine-variant, or network semantics cannot be
+represented losslessly; annotate that workload and its Service with a non-empty
 `docker-to-sealos.kubeblocks-fallback-reason`. `StatefulSet` remains valid for
 stateful application components. Preserve one Cluster and connection identity
 per source database service; two services using the same engine are still two
 database instances unless the source explicitly proves they are aliases of one
 instance.
+
+Do not discard the source database service after image classification. First
+account for its initialization env, database names, application users,
+password sources, grants, scripts, mounts, command/entrypoint, data path,
+engine variant, replicas, and consumers. A KubeBlocks Cluster is equivalent
+only when every item is translated or explicitly superseded.
 
 ## PostgreSQL Full Template
 
@@ -246,6 +252,33 @@ subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-mysql
 ```
+
+### MySQL/MariaDB Application Database Initialization
+
+The official MySQL and MariaDB image variables `MYSQL_DATABASE` /
+`MARIADB_DATABASE`, `MYSQL_USER` / `MARIADB_USER`, and `MYSQL_PASSWORD` /
+`MARIADB_PASSWORD` describe first-start database state. KubeBlocks connection
+Secrets do not apply these image entrypoint variables.
+
+When those standard fields are present and the application accepts rewritten
+connection credentials, generate:
+
+1. `${{ defaults.app_name }}-mysql-app-credential` with the target database,
+   application username, and a generated password;
+2. `${{ defaults.app_name }}-mysql-init`, which waits with `mysqladmin ping`
+   and idempotently creates the database and user, updates the password, and
+   grants privileges by using the KubeBlocks `*-conn-credential` administrator
+   Secret; and
+3. an initContainer on every dependent application workload that connects to
+   the target database with the application credential and runs `SELECT 1`
+   before the business container starts.
+
+For multiple MySQL services, derive all three names from the corresponding
+per-service Cluster name. KubeBlocks administrator credentials are bootstrap
+credentials, not the default long-lived business identity. If the source uses
+custom init scripts, custom authentication, engine-specific behavior, or
+another unhandled initialization field, use the annotated raw fallback rather
+than silently dropping it.
 
 ## MongoDB Full Template
 

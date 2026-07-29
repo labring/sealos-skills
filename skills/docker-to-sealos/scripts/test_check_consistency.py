@@ -4266,6 +4266,40 @@ __MOUNTS__
         )
         self.assertTrue(any(item.rule_id == "R017" for item in violations))
 
+    def test_annotated_raw_database_url_does_not_allow_inline_credentials(self):
+        violations = self.run_checker(
+            """
+            ```yaml
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: demo-mongo
+              annotations:
+                docker-to-sealos.kubeblocks-fallback-reason: custom startup command
+            spec:
+              ports:
+                - port: 27017
+                  targetPort: 27017
+            ---
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: ghcr.io/example/api:v1
+                      imagePullPolicy: IfNotPresent
+                      env:
+                        - name: MONGO_URI
+                          value: mongodb://user:password@demo-mongo.default.svc.cluster.local:27017/app
+            ```
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R017" for item in violations))
+
     def test_detects_database_connection_env_with_mismatched_secret_key(self):
         violations = self.run_checker(
             """
@@ -6602,6 +6636,46 @@ __MOUNTS__
             """
         )
         self.assertFalse(any(item.rule_id == "R057" for item in violations))
+
+    def test_detects_application_database_secret_without_bootstrap_contract(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps.kubeblocks.io/v1alpha1
+            kind: Cluster
+            metadata:
+              name: demo-mysql
+              labels:
+                kb.io/database: apecloud-mysql-8.0.30
+                sealos-db-provider-cr: demo-mysql
+                clusterdefinition.kubeblocks.io/name: apecloud-mysql
+            spec:
+              componentSpecs:
+                - name: mysql
+                  componentDefRef: mysql
+                  serviceVersion: 8.0.30
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 50m
+                      memory: 51Mi
+            ---
+            apiVersion: v1
+            kind: Secret
+            metadata:
+              name: demo-mysql-app-credential
+              annotations:
+                docker-to-sealos.database-bootstrap: application-credential
+                docker-to-sealos.database-cluster: demo-mysql
+                docker-to-sealos.database-engine: mysql
+            stringData:
+              database: demo
+              username: demo
+              password: secret
+            """
+        )
+        self.assertTrue(any(item.rule_id == "R058" for item in violations))
 
     def test_detects_raw_database_statefulset_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:

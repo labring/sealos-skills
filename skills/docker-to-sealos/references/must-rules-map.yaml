@@ -292,11 +292,15 @@ must_rules:
     enforcement:
       type: rule
       target: R054
-  - must: "Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved Kubeblocks database secrets via `env[].valueFrom.secretKeyRef`; exception: Redis `host`/`port` may use Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB `host`/`port` or connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only."
+  - must: "Business containers must source database connection fields (`endpoint`, `host`, `port`, `username`, `password`) from approved database secrets via `env[].valueFrom.secretKeyRef`. Host/port and administrative bootstrap credentials come from KubeBlocks secrets; a converter-owned `<cluster>-app-credential` Secret may provide the application username/password only when it is linked to an idempotent database/user/grant Job and an application startup gate. Redis `host`/`port` may use the Sealos Redis Service FQDN and `6379` when the Redis secret only exposes credentials, and MongoDB `host`/`port` or connection URLs may use the Sealos MongoDB Service FQDN plus `27017` when the MongoDB secret exposes credentials only. An annotated raw-database fallback may expose only its host, port, or connection URL through its matching annotated Service; usernames and passwords still require an approved Secret."
     enforcement:
       type: rule
       target: R017
-  - must: "Business containers must not use custom env/volume `Secret` references except approved Kubeblocks database secrets and object storage secrets."
+  - must: "Every converter-owned application database credential Secret must identify its KubeBlocks Cluster and engine, contain non-empty database, username, and password fields, and be consumed by both the idempotent bootstrap Job and a business workload startup gate using the same credentials."
+    enforcement:
+      type: rule
+      target: R058
+  - must: "Business containers must not use custom env/volume `Secret` references except approved KubeBlocks database secrets, converter-owned application database credential Secrets, and object storage secrets."
     enforcement:
       type: rule
       target: R007
@@ -360,6 +364,10 @@ must_rules:
     enforcement:
       type: rule
       target: R039
+  - must: "A Compose database service must not be reduced to only an engine name before its initialization contract has been evaluated. Standard recognized initialization may generate a KubeBlocks Cluster plus bootstrap resources; any unconsumed initialization, command, mount, engine-variant, replica, or network semantic must preserve the raw workload or reject only the adapter route for AI-native canonical conversion."
+    enforcement:
+      type: manual
+      note: "The source-aware Compose adapter performs field accounting before classification output and validates either the KubeBlocks bootstrap route or the annotated raw fallback."
   - must: "Every Compose database service must remain a distinct KubeBlocks `Cluster` with its own name, Secret, FQDN, and application wiring; never merge two services merely because they use the same database engine."
     enforcement:
       type: manual

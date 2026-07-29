@@ -1187,6 +1187,19 @@ the adapter's existing resource mapping and a non-empty
 `docker-to-sealos.kubeblocks-fallback-reason`; that preferred-route fallback is
 not a project-level failure.
 
+Before a source database container is removed, retain and account for its
+database names, application accounts, password sources, grants,
+initialization environment, init scripts/mounts, command/entrypoint, data
+paths, engine variant, replicas, and consuming services. Standard supported
+initialization is converted in Phase 5 into the KubeBlocks Cluster plus any
+required application credential Secret, idempotent bootstrap Job, and
+dependent workload startup gate. Database port readiness or Cluster readiness
+alone does not prove that the application's database state exists. Any
+unconsumed source semantic selects the annotated raw fallback or rejects only
+the adapter route for canonical AI generation; it never silently disappears
+and never becomes a project-level stop by itself. This check is internal to
+Phase 5 and does not add another `.sealos` artifact.
+
 For a multi-service Compose project, `config.json.public_service` may name the
 one service that should receive the public Ingress. If exactly one application
 service declares `ports`, the converter selects it automatically. If several
