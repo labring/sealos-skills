@@ -269,8 +269,10 @@ For managed or private object storage, live validation must upload known bytes t
 - MySQL cluster must follow upgraded structure (`kb.io/database: ac-mysql-8.0.30-1`, `clusterDefinitionRef: apecloud-mysql`, `clusterVersionRef: ac-mysql-8.0.30-1`, `tolerations: []`).
 - Redis cluster must follow upgraded structure (`componentDef: redis-7`, `componentDef: redis-sentinel-7`, `serviceVersion: 7.2.7`, main data PVC `1Gi`, topology `replication`).
 - Every KubeBlocks database component must use limits of at least `cpu=500m` and `memory=512Mi`. Higher source requirements or AI-selected runtime estimates are valid; requests must be derived from the selected limits.
-- Every managed application main container, worker, sidecar, initContainer, and Job container must use limits of at least `cpu=200m` and `memory=256Mi`.
-- All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0.
+- Every managed long-running business primary container, including each standalone worker, must use limits of at least `cpu=500m` and `memory=2048Mi`, with requests of at least `cpu=50m` and `memory=512Mi`.
+- Every managed sidecar, initContainer, Job, and CronJob container must use limits of at least `cpu=200m` and `memory=256Mi`, with requests of at least `cpu=20m` and `memory=25Mi`.
+- For Deployment, StatefulSet, and DaemonSet workloads, the container whose name equals the workload name is the primary business container; when none matches, the first regular container is primary. Other regular containers are sidecars. Every container in a Job or CronJob is a helper container.
+- All managed workload container limits must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8` and `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`. Requests must be concrete Kubernetes quantities, must be at least both the role request floor and the limit-derived baseline (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`), and must not exceed limits. Preserve higher source requests. Never use `2G/4G/8G/16G` limits because Sealos Template API quota preview can parse bare `G` memory as 0.
 - Do not add, delete, or change existing `ephemeral-storage` resource fields during existing-template updates unless runtime evidence identifies ephemeral storage pressure; preserve the original requests/limits values while tuning CPU and memory.
 - Secret naming:
   - MongoDB: `<cluster-name>-mongodb-account-root`; the single-service default is `${{ defaults.app_name }}-mongo-mongodb-account-root`
@@ -280,10 +282,14 @@ For managed or private object storage, live validation must upload known bytes t
 
 ### Resource sizing
 
-Use these application limits as hard floors, not as fixed defaults:
+Use these role defaults as hard floors, not as fixed ceilings:
 
-- container limits: `cpu=200m`, `memory=256Mi`
-- container requests: `cpu=20m`, `memory=25Mi`
+| Role | Limits | Requests |
+|---|---|---|
+| Long-running business primary container, including a standalone worker | `cpu=500m`, `memory=2048Mi` | `cpu=50m`, `memory=512Mi` |
+| Sidecar, initContainer, Job, or CronJob container | `cpu=200m`, `memory=256Mi` | `cpu=20m`, `memory=25Mi` |
+| KubeBlocks database component | `cpu=500m`, `memory=512Mi` | `cpu=50m`, `memory=51Mi` |
+
 - `revisionHistoryLimit: 1`
 - `automountServiceAccountToken: false` by default; set it to `true` only when the application has explicit Kubernetes API/service account token requirements, evidenced by Kubernetes integration settings, `serviceAccountName`, or a `sealos.io/service-account-token-reason` workload annotation.
 - If a workload emits PodSecurity admission warnings and the image runs as a non-root user, add the restricted-compatible security context before reporting the template ready.
@@ -292,7 +298,9 @@ Select CPU and memory independently for every application main container,
 worker, sidecar, initContainer, Job container, and KubeBlocks component. The
 selected limit for each dimension is the greatest of the role floor, explicit
 source requirements, and the AI's runtime estimate, rounded up to the next
-Sealos ladder tier.
+Sealos ladder tier. Select requests independently as the greatest of the role
+request floor, the limit-derived baseline, explicit source requests, and the
+AI's scheduling estimate; requests must not exceed the selected limits.
 
 Before finalizing the template, inspect Compose/Helm/Kubernetes resources,
 official minimum requirements, runtime type, JVM heap, worker/process count,
@@ -311,14 +319,14 @@ the representative user flow, and remain stable for 60 seconds without
 or timeouts. An initContainer or Job must complete successfully and allow its
 dependents to become Ready. Any resource-insufficiency signal requires
 promotion of the affected CPU or memory dimension to a higher ladder tier,
-followed by a fresh deployment and Phase 6.5 validation. Keep requests derived
-from the final limits.
+followed by a fresh deployment and Phase 6.5 validation. Keep requests at or
+above the role floor and the final limit-derived baseline.
 
 ### In-container browser / remote desktop validation
 
 - Apply browser-specific validation only to containers that run Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar remote-desktop stack; browser-accessed web applications such as Langflow use the general resource sizing policy.
 - Exercise cold start through readiness, a lightweight page, a real or medium page, an interactive or search action, and the 60-second stability window.
-- For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, and select a higher tier when project or runtime evidence requires it.
+- For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` with `requests(cpu=20m,memory=102Mi)` when it is a sidecar; a primary business container still inherits the higher primary role floor. Select a higher tier when project or runtime evidence requires it.
 
 ### Defaults vs inputs
 

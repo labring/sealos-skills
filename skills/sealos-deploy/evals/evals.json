@@ -442,7 +442,7 @@
         {"name": "selects-public-service-by-contract", "description": "Uses frontend as the public workload and Ingress backend because it is the sole application service publishing Compose ports"},
         {"name": "preserves-internal-expose-port", "description": "Creates an internal api Service on port 8080 from Compose expose without creating an api Ingress"},
         {"name": "rewrites-internal-service-url", "description": "Maps http://api:8080 to the generated api Service FQDN using the Sealos namespace variable"},
-        {"name": "selects-safe-resource-tiers", "description": "Uses at least 200m/256Mi for every application component, rounds frontend to 1 CPU/1024Mi, and lets AI keep worker at 1 CPU/1024Mi from official runtime evidence"},
+        {"name": "selects-safe-resource-tiers", "description": "Uses at least limits 500m/2048Mi and requests 50m/512Mi for every long-running business primary container, rounds frontend to 1 CPU/2048Mi without lowering its source requirement, and keeps worker at 1 CPU/2048Mi after combining official evidence with the role floor"},
         {"name": "scopes-private-pull-secret", "description": "Adds imagePullSecrets with the app-scoped name only to frontend and omits it from the anonymous worker and reused services"},
         {"name": "validates-canonical-artifact", "description": "Runs the complete quality gate against .sealos/template/index.yaml and does not fail R013 on the canonical deploy path"}
       ]

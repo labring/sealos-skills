@@ -92,7 +92,7 @@ rules:
     description: Supported database services must prefer KubeBlocks Cluster resources; a preserved raw source database requires a non-empty docker-to-sealos.kubeblocks-fallback-reason annotation.
     severity: error
   - id: R038
-    description: Managed workload container limits must use the Sealos ladder at or above cpu=200m/memory=256Mi, with requests derived from the selected limits.
+    description: "Managed workload resources must use role-aware floors: long-running primary business containers use at least limits 500m/2048Mi and requests 50m/512Mi, while sidecars, initContainers, Jobs, and CronJobs use at least limits 200m/256Mi and requests 20m/25Mi; limits use the Sealos ladder and requests remain between the role/limit-derived floor and the selected limits."
     severity: error
   - id: R020
     description: Service spec.ports entries must define non-empty name fields in template artifacts.

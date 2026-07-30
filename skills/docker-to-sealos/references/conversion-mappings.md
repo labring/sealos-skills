@@ -769,7 +769,15 @@ env:
 
 ## Resource Limits Mapping
 
-Compose resource values must be normalized to the Sealos ladder. Use Compose limits only to choose the nearest allowed `limits` tier. Normalize 1G-class memory to `1024Mi`; normalize higher GiB classes to Mi values such as `2048Mi`, `4096Mi`, `8192Mi`, or `16384Mi`. Never emit bare `2G/4G/8G/16G` limits because the Sealos Template API quota preview can parse them as 0. Ignore Compose reservations for `requests`; Sealos `requests` are derived from the selected `limits` by dropping the last numeric digit, so `1024Mi` maps to `102Mi` and `4096Mi` maps to `409Mi`.
+Compose resource values must be normalized without reducing either limits or
+reservations. Choose each `limits` dimension from the greatest of the role
+limit floor, the Compose limit, the Compose reservation, and the AI estimate,
+then round up to the nearest allowed Sealos limit tier. Choose each `requests`
+dimension from the greatest of the role request floor, the selected limit's
+derived baseline, the Compose reservation, and the AI scheduling estimate.
+Normalize memory to canonical `Mi` values and never emit bare
+`2G/4G/8G/16G` limits because the Sealos Template API quota preview can parse
+them as 0.
 
 ### Docker Compose
 ```yaml
@@ -795,10 +803,10 @@ spec:
           resources:
             limits:
               cpu: 1
-              memory: 1024Mi
+              memory: 2048Mi
             requests:
-              cpu: 100m
-              memory: 102Mi
+              cpu: 500m
+              memory: 512Mi
 ```
 
 ## Health Check Mapping
@@ -1172,8 +1180,11 @@ metadata:
 - Docker volumes → StatefulSet + volumeClaimTemplates
 
 ### Resource Sizing
-- Keep every application main container, worker, sidecar, initContainer, and Job container at or above `200m/256Mi`; keep every KubeBlocks component at or above `500m/512Mi`.
+- Keep every long-running business primary container, including each standalone worker, at or above `limits(500m/2048Mi)` and `requests(50m/512Mi)`.
+- Keep sidecars, initContainers, Jobs, and CronJobs at or above `limits(200m/256Mi)` and `requests(20m/25Mi)`.
+- Keep every KubeBlocks component at or above `limits(500m/512Mi)` and `requests(50m/51Mi)`.
 - Preserve explicit Compose/Helm/Kubernetes requirements and official minimums, rounding each CPU and memory value up to the next Sealos ladder tier.
+- Preserve higher source requests independently; requests must remain at or above both the role floor and the limit-derived baseline and must not exceed limits.
 - Let the AI select a higher tier before deployment when runtime type, heap, process or worker count, browser/desktop execution, cache/data usage, or initialization work indicates that a floor value is unsafe.
 - Promote the affected dimension when OOM kills, resource-related restarts, readiness flaps, allocation failures, or timeouts occur, then redeploy and validate from a fresh runtime baseline.
 - Do not repeatedly lower stable resources to find a theoretical minimum.

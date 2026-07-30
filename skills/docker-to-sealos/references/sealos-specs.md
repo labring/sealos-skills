@@ -1006,9 +1006,18 @@ spec:
 
 All managed workload containers must use the fixed Sealos resource ladder. Do
 not invent intermediate values during template generation or resource tuning.
-Application main containers, workers, sidecars, initContainers, and Job
-containers must use at least `cpu=200m` and `memory=256Mi`. Every KubeBlocks
-database component must use at least `cpu=500m` and `memory=512Mi`.
+Each long-running business primary container, including a standalone worker,
+must use at least `limits(cpu=500m,memory=2048Mi)` and
+`requests(cpu=50m,memory=512Mi)`. Sidecars, initContainers, Jobs, and CronJobs
+must use at least `limits(cpu=200m,memory=256Mi)` and
+`requests(cpu=20m,memory=25Mi)`. Every KubeBlocks database component must use
+at least `limits(cpu=500m,memory=512Mi)` and
+`requests(cpu=50m,memory=51Mi)`.
+
+For Deployment, StatefulSet, and DaemonSet resources, the regular container
+whose name equals the workload name is primary. If no name matches, the first
+regular container is primary. Other regular containers are sidecars. Every
+container in a Job or CronJob is a helper.
 
 Allowed `limits.cpu` values use canonical Kubernetes quantities:
 
@@ -1032,7 +1041,7 @@ Allowed `limits.memory` values:
 - `8192Mi`
 - `16384Mi`
 
-`requests` must be derived from `limits` by dropping the last numeric digit:
+The following values define the limit-derived requests baseline:
 
 | limits | requests |
 |--------|----------|
@@ -1053,7 +1062,24 @@ Allowed `limits.memory` values:
 | `memory: 8192Mi` | `memory: 819Mi` |
 | `memory: 16384Mi` | `memory: 1638Mi` |
 
-**Application hard floor:**
+Final requests are selected independently. For each dimension, use the greatest
+of the role request floor, the limit-derived baseline, an explicit source
+request, and an AI scheduling estimate. Requests must be concrete Kubernetes
+quantities and must not exceed limits.
+
+**Primary business container hard floor:**
+
+```yaml
+resources:
+  requests:
+    cpu: 50m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 2048Mi
+```
+
+**Sidecar, initContainer, Job, or CronJob hard floor:**
 
 ```yaml
 resources:
@@ -1065,7 +1091,7 @@ resources:
     memory: 256Mi
 ```
 
-**Standard backend or broker quota after validation:**
+**KubeBlocks component hard floor:**
 
 ```yaml
 resources:
@@ -1077,22 +1103,10 @@ resources:
     memory: 512Mi
 ```
 
-**Heavy workload quota:**
-
-```yaml
-resources:
-  requests:
-    cpu: 200m
-    memory: 204Mi
-  limits:
-    cpu: 2
-    memory: 2048Mi
-```
-
 **Invalid examples:**
 
 ```yaml
-# Incorrect: non-ladder values
+# Incorrect: limits use non-ladder values
 resources:
   requests:
     cpu: 30m
@@ -1101,14 +1115,14 @@ resources:
     cpu: 300m
     memory: 384Mi
 
-# Incorrect: requests copied from old ratio guidance instead of deriving from limits
+# Incorrect for a primary business container: requests and limits are below its role floors
 resources:
   requests:
-    cpu: 100m
+    cpu: 20m
     memory: 256Mi
   limits:
-    cpu: 1
-    memory: 1024Mi
+    cpu: 200m
+    memory: 512Mi
 
 # Incorrect: G/Gi forms can make Sealos Template API quota preview parse memory as 0; use Mi ladder values
 resources:
@@ -1122,15 +1136,15 @@ resources:
 
 **Sizing guidance:**
 
-1. Move only between allowed `limits` ladder values and recompute `requests` from the selected limits.
-2. Select CPU and memory independently for every component. Start from the applicable application or database floor.
+1. Move limits only between allowed ladder values. Keep requests at or above both the role floor and the selected limit's derived baseline.
+2. Select CPU and memory independently for every component. Start from the applicable primary, helper, raw-database fallback, or KubeBlocks floor.
 3. Treat source Compose/Helm/Kubernetes resources and documented minimums as lower bounds that conversion must not reduce.
 4. Before deployment, let the AI raise either dimension based on runtime type, heap, worker/process count, browser or desktop stacks, caches, data held in memory, and initialization or migration work.
-5. The selected value is the greatest of the role floor, explicit source requirement, and AI runtime estimate, rounded up to the next ladder tier.
+5. The selected limit is the greatest of the role floor, explicit source requirement, and AI runtime estimate, rounded up to the next ladder tier. Select requests independently and preserve higher source requests.
 6. Do not repeatedly lower a stable component to find a theoretical minimum.
 7. Accept a long-running selection only after it completes cold start, becomes Ready, completes the representative user flow, and remains stable for 60 seconds without `OOMKilled`, resource-related restarts, readiness flaps, allocation failures, or timeouts.
 8. Accept a one-shot initContainer or Job after it completes successfully from a cold run and every dependent workload becomes Ready.
-9. When runtime evidence proves a resource shortage, raise the affected dimension, recompute requests, redeploy, and repeat the full acceptance flow from a fresh baseline.
+9. When runtime evidence proves a resource shortage, raise the affected dimension, keep requests above their applicable floors, redeploy, and repeat the full acceptance flow from a fresh baseline.
 10. Apply the browser and remote-desktop scenario only when the container itself runs Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar stack. A web application that users access from their own browser follows the general flow.
 
 **Personal low-load examples:**
@@ -1138,7 +1152,7 @@ resources:
 - Langflow at `limits.memory=2048Mi` with an observed peak of `1851Mi` keeps `2048Mi` after cold start, login or registration, two representative actions, and the 60-second stability window all pass without failure signals.
 - A candidate that OOMs, restarts, loses readiness, or times out moves to a higher memory or CPU ladder tier. The selected tier receives a fresh validation.
 - A high utilization ratio remains eligible when the complete acceptance flow passes. The ratio stays in the runtime evidence for future tuning.
-- For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` and derived `requests(cpu=20m,memory=102Mi)`, then raise either dimension when project or runtime evidence requires it.
+- For Chrome + Xvfb + Selkies with a 4K maximum display, a sidecar uses at least `limits(cpu=200m,memory=1024Mi)` and `requests(cpu=20m,memory=102Mi)`. A primary business container still inherits the higher primary role floor. Raise either dimension when project or runtime evidence requires it.
 
 ## Image Configuration Specification
 

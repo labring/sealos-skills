@@ -147,7 +147,9 @@ Accepted fix:
 - Generate GUI config in an initContainer with the official Syncthing command before the server starts.
 - Keep the main container on the official server startup path.
 - Validate `/rest/noauth/health`, login, an authenticated `/rest/system/status` call, a random authenticated 404, recent logs, and a 60-second stability window.
-- The validated minimum app resources were `limits.cpu=100m`, `limits.memory=128Mi`, `requests.cpu=10m`, and `requests.memory=12Mi`.
+- Apply the current primary business-container floor:
+  `limits(cpu=500m,memory=2048Mi)` and
+  `requests(cpu=50m,memory=512Mi)`.
 
 ## Fix Loop
 

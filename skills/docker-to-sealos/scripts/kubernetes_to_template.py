@@ -21,8 +21,12 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 import yaml
 
 from compose_to_template import (
+    DB_COMPONENT_RESOURCE_REQUESTS,
     DB_COMPONENT_RESOURCE_LIMITS,
+    DEFAULT_RESOURCE_REQUESTS,
     DEFAULT_RESOURCE_LIMITS,
+    HELPER_RESOURCE_LIMITS,
+    HELPER_RESOURCE_REQUESTS,
     HTTP_INGRESS_ANNOTATIONS,
     MetadataOptions,
     SEALOS_CPU_REQUEST_BY_LIMIT,
@@ -38,6 +42,7 @@ from compose_to_template import (
     detect_db_type,
     infer_db_secret_ref,
     normalize_resource_limits,
+    normalize_resource_requests,
     normalize_k8s_name,
     render_index_yaml,
 )
@@ -450,6 +455,7 @@ def _normalise_resources(
     container: MutableMapping[str, Any],
     *,
     minimum_limits: Mapping[str, str] = DEFAULT_RESOURCE_LIMITS,
+    minimum_requests: Mapping[str, str] = DEFAULT_RESOURCE_REQUESTS,
 ) -> None:
     resources = container.setdefault("resources", {})
     if not isinstance(resources, dict):
@@ -464,16 +470,22 @@ def _normalise_resources(
         requests = {}
         resources["requests"] = requests
 
+    source_cpu_request = requests.get("cpu")
+    source_memory_request = requests.get("memory")
     selected = _selected_resource_limits(
         resources,
         minimum_limits=minimum_limits,
     )
-    cpu = selected["cpu"]
-    memory = selected["memory"]
-    limits["cpu"] = cpu
-    limits["memory"] = memory
-    requests["cpu"] = SEALOS_CPU_REQUEST_BY_LIMIT[cpu]
-    requests["memory"] = SEALOS_MEMORY_REQUEST_BY_LIMIT[memory]
+    selected_requests = normalize_resource_requests(
+        limits=selected,
+        minimum_requests=minimum_requests,
+        cpu_values=(source_cpu_request,),
+        memory_values=(source_memory_request,),
+    )
+    limits["cpu"] = selected["cpu"]
+    limits["memory"] = selected["memory"]
+    requests["cpu"] = selected_requests["cpu"]
+    requests["memory"] = selected_requests["memory"]
 
 
 def _replace_service_reference(value: str, mapping: Mapping[str, str]) -> str:
@@ -564,6 +576,8 @@ def _normalise_workload(
     document: MutableMapping[str, Any],
     image_overrides: Mapping[str, str],
     pull_secret_services: Set[str],
+    *,
+    helper_only: bool = False,
 ) -> List[str]:
     workload_name = _name(document)
     pod_spec = _pod_spec(document)
@@ -585,10 +599,8 @@ def _normalise_workload(
         annotations = {}
         metadata["annotations"] = annotations
     fallback_reason = annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
-    resource_floor = (
-        DB_COMPONENT_RESOURCE_LIMITS
-        if isinstance(fallback_reason, str) and fallback_reason.strip()
-        else DEFAULT_RESOURCE_LIMITS
+    is_database_fallback = isinstance(fallback_reason, str) and bool(
+        fallback_reason.strip()
     )
 
     template = document.setdefault("spec", {}).setdefault("template", {})
@@ -614,6 +626,24 @@ def _normalise_workload(
     service_keys: List[str] = []
     main_images: List[str] = []
     total = len(containers)
+    regular_positions = [
+        position
+        for position, (_, role) in enumerate(containers)
+        if role == "main"
+    ]
+    named_primary = next(
+        (
+            position
+            for position in regular_positions
+            if str(containers[position][0].get("name") or "") == workload_name
+        ),
+        None,
+    )
+    primary_position = (
+        named_primary
+        if named_primary is not None
+        else (regular_positions[0] if regular_positions else None)
+    )
     needs_pull_secret = False
     for index, (container, role) in enumerate(containers):
         original_name = str(container.get("name") or f"container-{index + 1}")
@@ -628,17 +658,28 @@ def _normalise_workload(
             raise ValueError(
                 f"{document.get('kind')} {workload_name} container {original_name} requires an immutable image override"
             )
-        if role == "main" and not main_images:
+        is_primary = not helper_only and index == primary_position
+        if is_primary:
             main_images.append(image)
         container["imagePullPolicy"] = "IfNotPresent"
-        _normalise_resources(container, minimum_limits=resource_floor)
+        if not is_primary or role == "init":
+            minimum_limits = HELPER_RESOURCE_LIMITS
+            minimum_requests = HELPER_RESOURCE_REQUESTS
+        elif is_database_fallback:
+            minimum_limits = DB_COMPONENT_RESOURCE_LIMITS
+            minimum_requests = DB_COMPONENT_RESOURCE_REQUESTS
+        else:
+            minimum_limits = DEFAULT_RESOURCE_LIMITS
+            minimum_requests = DEFAULT_RESOURCE_REQUESTS
+        _normalise_resources(
+            container,
+            minimum_limits=minimum_limits,
+            minimum_requests=minimum_requests,
+        )
         if key in pull_secret_services:
             needs_pull_secret = True
 
-        if role == "main" and not main_images[:-1] and index == next(
-            (position for position, (_, item_role) in enumerate(containers) if item_role == "main"),
-            index,
-        ):
+        if is_primary:
             container["name"] = workload_name
 
         for volume in pod_spec.get("volumes", []) if isinstance(pod_spec.get("volumes"), list) else []:
@@ -1011,7 +1052,12 @@ def _normalise_job(
     image_overrides: Mapping[str, str],
     pull_secret_services: Set[str],
 ) -> List[str]:
-    keys = _normalise_workload(document, image_overrides, pull_secret_services)
+    keys = _normalise_workload(
+        document,
+        image_overrides,
+        pull_secret_services,
+        helper_only=True,
+    )
     if document.get("kind") == "CronJob":
         metadata = _metadata(document)
         labels = metadata.setdefault("labels", {})

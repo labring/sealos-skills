@@ -248,8 +248,8 @@ class ComposeToTemplateTests(unittest.TestCase):
             docs = parse_yaml_documents(index_path)
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             app_resources = deployment["spec"]["template"]["spec"]["containers"][0]["resources"]
-            self.assertEqual({"cpu": "1", "memory": "1024Mi"}, app_resources["limits"])
-            self.assertEqual({"cpu": "100m", "memory": "102Mi"}, app_resources["requests"])
+            self.assertEqual({"cpu": "1", "memory": "2048Mi"}, app_resources["limits"])
+            self.assertEqual({"cpu": "100m", "memory": "512Mi"}, app_resources["requests"])
 
             cluster = next(doc for doc in docs if doc.get("kind") == "Cluster")
             db_resources = cluster["spec"]["componentSpecs"][0]["resources"]
@@ -1530,10 +1530,18 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual("crm", secret["stringData"]["username"])
 
             init_job = next(doc for doc in docs if doc.get("kind") == "Job")
-            init_script = init_job["spec"]["template"]["spec"]["containers"][0]["args"][0]
+            init_container = init_job["spec"]["template"]["spec"]["containers"][0]
+            init_script = init_container["args"][0]
             self.assertIn("CREATE DATABASE IF NOT EXISTS", init_script)
             self.assertIn("CREATE USER IF NOT EXISTS", init_script)
             self.assertIn("GRANT ALL PRIVILEGES", init_script)
+            self.assertEqual(
+                {
+                    "limits": {"cpu": "200m", "memory": "256Mi"},
+                    "requests": {"cpu": "20m", "memory": "25Mi"},
+                },
+                init_container["resources"],
+            )
 
             deployment = next(doc for doc in docs if doc.get("kind") == "Deployment")
             pod_spec = deployment["spec"]["template"]["spec"]
@@ -1557,6 +1565,13 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             gate = pod_spec["initContainers"][0]
             self.assertIn("SELECT 1", gate["args"][0])
+            self.assertEqual(
+                {
+                    "limits": {"cpu": "200m", "memory": "256Mi"},
+                    "requests": {"cpu": "20m", "memory": "25Mi"},
+                },
+                gate["resources"],
+            )
             self.assertEqual(
                 "${{ defaults.app_name }}-mysql-app-credential",
                 next(

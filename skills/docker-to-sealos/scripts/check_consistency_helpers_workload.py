@@ -29,6 +29,64 @@ def iter_containers(node: Any) -> Iterator[dict]:
             yield from iter_containers(item)
 
 
+def iter_workload_containers_with_roles(
+    data: Mapping[str, Any],
+) -> Iterator[Tuple[dict, str]]:
+    kind = data.get("kind")
+    spec = data.get("spec")
+    if not isinstance(spec, Mapping):
+        return
+    if kind == "CronJob":
+        job_template = spec.get("jobTemplate")
+        job_spec = job_template.get("spec") if isinstance(job_template, Mapping) else None
+        template = job_spec.get("template") if isinstance(job_spec, Mapping) else None
+    else:
+        template = spec.get("template")
+    pod_spec = template.get("spec") if isinstance(template, Mapping) else None
+    if not isinstance(pod_spec, Mapping):
+        return
+
+    init_containers = pod_spec.get("initContainers")
+    if isinstance(init_containers, list):
+        for container in init_containers:
+            if isinstance(container, dict):
+                yield container, "helper"
+
+    containers = pod_spec.get("containers")
+    if not isinstance(containers, list):
+        return
+    regular = [container for container in containers if isinstance(container, dict)]
+    if kind in {"Job", "CronJob"}:
+        for container in regular:
+            yield container, "helper"
+        return
+
+    metadata = data.get("metadata")
+    workload_name = metadata.get("name") if isinstance(metadata, Mapping) else None
+    primary = next(
+        (
+            container
+            for container in regular
+            if isinstance(workload_name, str)
+            and container.get("name") == workload_name
+        ),
+        regular[0] if regular else None,
+    )
+    annotations = metadata.get("annotations") if isinstance(metadata, Mapping) else None
+    fallback_reason = (
+        annotations.get("docker-to-sealos.kubeblocks-fallback-reason")
+        if isinstance(annotations, Mapping)
+        else None
+    )
+    primary_role = (
+        "database"
+        if isinstance(fallback_reason, str) and fallback_reason.strip()
+        else "primary"
+    )
+    for container in regular:
+        yield container, primary_role if container is primary else "helper"
+
+
 def iter_workload_env_secret_refs(data: Mapping[str, Any]) -> Iterator[Tuple[str, str]]:
     for env_name, secret_name, _ in iter_workload_env_secret_key_refs(data):
         yield env_name, secret_name

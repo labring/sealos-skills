@@ -416,11 +416,19 @@ must_rules:
     enforcement:
       type: rule
       target: R019
-  - must: "Every managed application main container, worker, sidecar, initContainer, and Job container must use limits of at least `cpu=200m` and `memory=256Mi`."
+  - must: "Every managed long-running business primary container, including each standalone worker, must use limits of at least `cpu=500m` and `memory=2048Mi`, with requests of at least `cpu=50m` and `memory=512Mi`."
     enforcement:
       type: rule
       target: R038
-  - must: "All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0."
+  - must: "Every managed sidecar, initContainer, Job, and CronJob container must use limits of at least `cpu=200m` and `memory=256Mi`, with requests of at least `cpu=20m` and `memory=25Mi`."
+    enforcement:
+      type: rule
+      target: R038
+  - must: "For Deployment, StatefulSet, and DaemonSet workloads, the container whose name equals the workload name is the primary business container; when none matches, the first regular container is primary. Other regular containers are sidecars. Every container in a Job or CronJob is a helper container."
+    enforcement:
+      type: rule
+      target: R038
+  - must: "All managed workload container limits must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8` and `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`. Requests must be concrete Kubernetes quantities, must be at least both the role request floor and the limit-derived baseline (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`), and must not exceed limits. Preserve higher source requests. Never use `2G/4G/8G/16G` limits because Sealos Template API quota preview can parse bare `G` memory as 0."
     enforcement:
       type: rule
       target: R038
@@ -432,7 +440,7 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires browser or remote-desktop interaction evidence."
-  - must: "For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, and select a higher tier when project or runtime evidence requires it."
+  - must: "For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` with `requests(cpu=20m,memory=102Mi)` when it is a sidecar; a primary business container still inherits the higher primary role floor. Select a higher tier when project or runtime evidence requires it."
     enforcement:
       type: manual
       note: "Requires browser-specific runtime assessment and validation."
@@ -452,14 +460,6 @@ must_rules:
     enforcement:
       type: rule
       target: R007
-  - must: "container limits: `cpu=200m`, `memory=256Mi`"
-    enforcement:
-      type: rule
-      target: R038
-  - must: "container requests: `cpu=20m`, `memory=25Mi`"
-    enforcement:
-      type: rule
-      target: R038
   - must: "Do not add, delete, or change existing `ephemeral-storage` resource fields during existing-template updates unless runtime evidence identifies ephemeral storage pressure; preserve the original requests/limits values while tuning CPU and memory."
     enforcement:
       type: manual

@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from check_consistency_models import (
-    APP_COMPONENT_RESOURCE_LIMITS,
+    APP_PRIMARY_RESOURCE_LIMITS,
+    APP_PRIMARY_RESOURCE_REQUESTS,
     DB_COMPONENT_RESOURCE_LIMITS,
+    DB_COMPONENT_RESOURCE_REQUESTS,
+    HELPER_RESOURCE_LIMITS,
+    HELPER_RESOURCE_REQUESTS,
     MAX_PVC_STORAGE_BYTES,
     Rule,
     ScanContext,
@@ -25,7 +29,10 @@ from check_consistency_helpers_storage import (
     iter_pvc_storage_values,
     parse_storage_bytes,
 )
-from check_consistency_helpers_workload import iter_containers
+from check_consistency_helpers_workload import (
+    iter_containers,
+    iter_workload_containers_with_roles,
+)
 from path_converter import path_to_vn_name
 
 
@@ -135,6 +142,22 @@ def _resource_line(doc, key: str, value) -> int:
     )
 
 
+def _parse_cpu_millicores(value: str) -> Optional[float]:
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)(m?)", value.strip())
+    if not match:
+        return None
+    number = float(match.group(1))
+    return number if match.group(2) == "m" else number * 1000
+
+
+def _resource_profile(role: str) -> Tuple[Dict[str, str], Dict[str, str]]:
+    if role == "primary":
+        return APP_PRIMARY_RESOURCE_LIMITS, APP_PRIMARY_RESOURCE_REQUESTS
+    if role == "database":
+        return DB_COMPONENT_RESOURCE_LIMITS, DB_COMPONENT_RESOURCE_REQUESTS
+    return HELPER_RESOURCE_LIMITS, HELPER_RESOURCE_REQUESTS
+
+
 def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in context.yaml_documents:
@@ -145,12 +168,13 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
         if doc.data.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
             continue
 
-        for container in iter_containers(doc.data):
+        for container, role in iter_workload_containers_with_roles(doc.data):
             image = container.get("image")
             if not isinstance(image, str) or not image.strip():
                 continue
 
             name = str(container.get("name", "<unknown>"))
+            minimum_limits, minimum_requests = _resource_profile(role)
             resources = container.get("resources")
             if not isinstance(resources, dict):
                 violations.append(
@@ -181,7 +205,7 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                         rule_id="R038",
                         path=doc.path,
                         line=find_line(doc, r"^\s*resources\s*:"),
-                        message=f"container {name} must define resources.requests derived from limits",
+                        message=f"container {name} must define resources.requests",
                     )
                 )
                 continue
@@ -216,7 +240,7 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                 cpu_limit in SEALOS_CPU_REQUEST_BY_LIMIT
                 and not _resource_at_or_above(
                     cpu_limit,
-                    APP_COMPONENT_RESOURCE_LIMITS["cpu"],
+                    minimum_limits["cpu"],
                     SEALOS_CPU_REQUEST_BY_LIMIT,
                 )
             ):
@@ -227,7 +251,7 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                         line=_resource_line(doc, "cpu", limits.get("cpu")),
                         message=(
                             f"container {name} limits.cpu must be at least "
-                            f"{APP_COMPONENT_RESOURCE_LIMITS['cpu']}"
+                            f"{minimum_limits['cpu']} for its {role} role"
                         ),
                     )
                 )
@@ -235,7 +259,7 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                 memory_limit in SEALOS_MEMORY_REQUEST_BY_LIMIT
                 and not _resource_at_or_above(
                     memory_limit,
-                    APP_COMPONENT_RESOURCE_LIMITS["memory"],
+                    minimum_limits["memory"],
                     SEALOS_MEMORY_REQUEST_BY_LIMIT,
                 )
             ):
@@ -246,37 +270,97 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                         line=_resource_line(doc, "memory", limits.get("memory")),
                         message=(
                             f"container {name} limits.memory must be at least "
-                            f"{APP_COMPONENT_RESOURCE_LIMITS['memory']}"
+                            f"{minimum_limits['memory']} for its {role} role"
                         ),
                     )
                 )
 
-            expected_cpu_request = SEALOS_CPU_REQUEST_BY_LIMIT.get(cpu_limit)
-            expected_memory_request = SEALOS_MEMORY_REQUEST_BY_LIMIT.get(memory_limit)
             actual_cpu_request = str(requests.get("cpu", "")).strip()
             actual_memory_request = str(requests.get("memory", "")).strip()
-            if expected_cpu_request is not None and actual_cpu_request != expected_cpu_request:
+            actual_cpu_millis = _parse_cpu_millicores(actual_cpu_request)
+            actual_memory_bytes = parse_storage_bytes(actual_memory_request)
+            cpu_limit_millis = _parse_cpu_millicores(cpu_limit)
+            memory_limit_bytes = parse_storage_bytes(memory_limit)
+            derived_cpu_request = SEALOS_CPU_REQUEST_BY_LIMIT.get(cpu_limit)
+            derived_memory_request = SEALOS_MEMORY_REQUEST_BY_LIMIT.get(memory_limit)
+            minimum_cpu_millis = max(
+                value
+                for value in (
+                    _parse_cpu_millicores(minimum_requests["cpu"]),
+                    _parse_cpu_millicores(derived_cpu_request or ""),
+                )
+                if value is not None
+            )
+            minimum_memory_bytes = max(
+                value
+                for value in (
+                    parse_storage_bytes(minimum_requests["memory"]),
+                    parse_storage_bytes(derived_memory_request or ""),
+                )
+                if value is not None
+            )
+
+            if actual_cpu_millis is None:
+                violations.append(
+                    Violation(
+                        rule_id="R038",
+                        path=doc.path,
+                        line=_resource_line(doc, "cpu", requests.get("cpu")),
+                        message=f"container {name} requests.cpu must be a concrete CPU quantity",
+                    )
+                )
+            elif actual_cpu_millis < minimum_cpu_millis:
                 violations.append(
                     Violation(
                         rule_id="R038",
                         path=doc.path,
                         line=_resource_line(doc, "cpu", requests.get("cpu")),
                         message=(
-                            f"container {name} requests.cpu must be {expected_cpu_request} "
-                            f"when limits.cpu is {cpu_limit}"
+                            f"container {name} requests.cpu must be at least "
+                            f"{minimum_requests['cpu']} for its {role} role and must not "
+                            "fall below the limit-derived baseline"
                         ),
                     )
                 )
-            if expected_memory_request is not None and actual_memory_request != expected_memory_request:
+            elif cpu_limit_millis is not None and actual_cpu_millis > cpu_limit_millis:
+                violations.append(
+                    Violation(
+                        rule_id="R038",
+                        path=doc.path,
+                        line=_resource_line(doc, "cpu", requests.get("cpu")),
+                        message=f"container {name} requests.cpu must not exceed limits.cpu",
+                    )
+                )
+
+            if actual_memory_bytes is None:
+                violations.append(
+                    Violation(
+                        rule_id="R038",
+                        path=doc.path,
+                        line=_resource_line(doc, "memory", requests.get("memory")),
+                        message=f"container {name} requests.memory must be a concrete memory quantity",
+                    )
+                )
+            elif actual_memory_bytes < minimum_memory_bytes:
                 violations.append(
                     Violation(
                         rule_id="R038",
                         path=doc.path,
                         line=_resource_line(doc, "memory", requests.get("memory")),
                         message=(
-                            f"container {name} requests.memory must be {expected_memory_request} "
-                            f"when limits.memory is {memory_limit}"
+                            f"container {name} requests.memory must be at least "
+                            f"{minimum_requests['memory']} for its {role} role and must not "
+                            "fall below the limit-derived baseline"
                         ),
+                    )
+                )
+            elif memory_limit_bytes is not None and actual_memory_bytes > memory_limit_bytes:
+                violations.append(
+                    Violation(
+                        rule_id="R038",
+                        path=doc.path,
+                        line=_resource_line(doc, "memory", requests.get("memory")),
+                        message=f"container {name} requests.memory must not exceed limits.memory",
                     )
                 )
 

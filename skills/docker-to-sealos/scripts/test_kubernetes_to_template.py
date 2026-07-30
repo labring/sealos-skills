@@ -200,8 +200,12 @@ class KubernetesToTemplateTests(unittest.TestCase):
         self.assertEqual(container["image"], f"ghcr.io/example/api@{DIGEST_A}")
         self.assertEqual(container["imagePullPolicy"], "IfNotPresent")
         self.assertEqual(
-            {"cpu": "200m", "memory": "256Mi"},
+            {"cpu": "500m", "memory": "2048Mi"},
             container["resources"]["limits"],
+        )
+        self.assertEqual(
+            {"cpu": "50m", "memory": "512Mi"},
+            container["resources"]["requests"],
         )
         cluster = next(
             document
@@ -227,6 +231,91 @@ class KubernetesToTemplateTests(unittest.TestCase):
         self.assertEqual(
             env["API_URL"]["value"],
             "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}/v1",
+        )
+
+    def test_assigns_resource_profiles_by_container_role(self):
+        documents = source_documents()
+        pod_spec = documents[1]["spec"]["template"]["spec"]
+        pod_spec["initContainers"] = [
+            {
+                "name": "setup",
+                "image": "ghcr.io/example/setup:latest",
+            }
+        ]
+        pod_spec["containers"][0]["resources"] = {
+            "requests": {"cpu": "75m", "memory": "1Gi"},
+        }
+        pod_spec["containers"].append(
+            {
+                "name": "metrics",
+                "image": "ghcr.io/example/metrics:latest",
+            }
+        )
+        documents.append(
+            {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "metadata": {"name": "cleanup"},
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": "cleanup",
+                                    "image": "ghcr.io/example/cleanup:latest",
+                                }
+                            ],
+                            "restartPolicy": "Never",
+                        }
+                    }
+                },
+            }
+        )
+
+        _, normalized_documents, _ = convert_documents(
+            copy.deepcopy(documents),
+            meta=metadata(),
+            image_overrides={
+                "api.setup": f"ghcr.io/example/setup@{DIGEST_B}",
+                "api.api": f"ghcr.io/example/api@{DIGEST_A}",
+                "api.metrics": f"ghcr.io/example/metrics@{DIGEST_B}",
+                "cleanup": f"ghcr.io/example/cleanup@{DIGEST_B}",
+            },
+            image_pull_secret_services=set(),
+            public_service="api",
+            source_name="fixture/manifests",
+        )
+
+        deployment_doc = next(
+            document
+            for document in normalized_documents
+            if document.get("kind") == "Deployment"
+        )
+        deployment_pod_spec = deployment_doc["spec"]["template"]["spec"]
+        primary, sidecar = deployment_pod_spec["containers"]
+        init_container = deployment_pod_spec["initContainers"][0]
+        self.assertEqual(
+            {
+                "limits": {"cpu": "500m", "memory": "2048Mi"},
+                "requests": {"cpu": "75m", "memory": "1024Mi"},
+            },
+            primary["resources"],
+        )
+        helper_resources = {
+            "limits": {"cpu": "200m", "memory": "256Mi"},
+            "requests": {"cpu": "20m", "memory": "25Mi"},
+        }
+        self.assertEqual(helper_resources, sidecar["resources"])
+        self.assertEqual(helper_resources, init_container["resources"])
+
+        job = next(
+            document
+            for document in normalized_documents
+            if document.get("kind") == "Job"
+        )
+        self.assertEqual(
+            helper_resources,
+            job["spec"]["template"]["spec"]["containers"][0]["resources"],
         )
 
     def test_applies_pull_secret_to_only_the_selected_container(self):

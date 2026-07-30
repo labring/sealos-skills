@@ -1757,11 +1757,15 @@ Before the final quality gate, assess every application main container, worker,
 sidecar, initContainer, Job container, and KubeBlocks component from the
 project's declared resources, official minimum requirements, runtime type,
 heap/process/worker configuration, browser or desktop workload, cache/data
-usage, and initialization or migration work. Application containers must use
-at least `limits(cpu=200m,memory=256Mi)`; each KubeBlocks component must use at
-least `limits(cpu=500m,memory=512Mi)`. Select a higher CPU or memory ladder tier
+usage, and initialization or migration work. Every long-running business
+primary container, including a standalone worker, must use at least
+`limits(cpu=500m,memory=2048Mi)` and `requests(cpu=50m,memory=512Mi)`.
+Sidecars, initContainers, Jobs, and CronJobs must use at least
+`limits(cpu=200m,memory=256Mi)` and `requests(cpu=20m,memory=25Mi)`. Each
+KubeBlocks component keeps its floor of `limits(cpu=500m,memory=512Mi)` and
+`requests(cpu=50m,memory=51Mi)`. Select a higher CPU, memory, or request value
 whenever the evidence indicates that a floor value is unsafe. Never reduce a
-source limit or documented minimum. Write one short resource-selection line
+source limit, source request, or documented minimum. Write one short resource-selection line
 per component to the existing deploy log; do not create another artifact.
 
 For converted templates, map each inventory digest to the service it
@@ -1811,11 +1815,17 @@ After generating the base template, check if the app needs its public URL config
   `<repository>@sha256:<digest>`. Source tags such as `latest`, `stable`, `v2`,
   exact versions, and omitted tags are all valid resolution inputs.
 - PVC requests: `<= 1Gi`
-- Application container floor: `limits(cpu=200m,memory=256Mi)` with derived
-  `requests(cpu=20m,memory=25Mi)`; higher Sealos ladder tiers are valid and
-  required when project evidence indicates greater runtime needs.
+- Long-running business primary container floor, including standalone workers:
+  `limits(cpu=500m,memory=2048Mi)` and `requests(cpu=50m,memory=512Mi)`.
+- Sidecar, initContainer, Job, and CronJob floor:
+  `limits(cpu=200m,memory=256Mi)` and `requests(cpu=20m,memory=25Mi)`.
 - KubeBlocks component floor: `limits(cpu=500m,memory=512Mi)` with derived
   `requests(cpu=50m,memory=51Mi)`; higher Sealos ladder tiers are valid.
+- Deployment, StatefulSet, and DaemonSet primary role: the container named
+  after the workload, or the first regular container when none matches. Other
+  regular containers are sidecars; every Job/CronJob container is a helper.
+- Requests remain at or above both the role floor and the selected limit's
+  derived baseline, preserve higher source requests, and never exceed limits.
 - Init containers must define explicit resources; do not rely on namespace defaults. For expensive init work such as framework install, database migration, asset compilation, or `bench new-site`, allocate enough memory for the task.
 - `imagePullPolicy: IfNotPresent`
 - `revisionHistoryLimit: 1`
