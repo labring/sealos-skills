@@ -91,3 +91,15 @@ expected service is resolved.
 The final delivery validator aligns routes, service identities, digests,
 Template image refs, pull-Secret requirements, and manifest paths before
 handoff.
+
+## Target API Feedback Is The Final YAML Authority
+
+A local schema cannot prove compatibility with the target cluster's installed
+CRD version or admission policy. Keep the delivery Template unresolved, render
+only private synthetic validation copies, skip `kind: Template`, and run strict
+server-side dry-run one runtime document at a time.
+
+Repair the canonical unresolved YAML from safe API feedback, rerun the complete
+local gate, then rerender and recheck every document. Only a complete
+warning-or-success pass permits the delivery manifest; server-side dry-run
+never authorizes a persistent apply.

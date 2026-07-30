@@ -204,7 +204,7 @@
     {
       "id": 9,
       "prompt": "/sealos-deploy 完成镜像和模板准备后，请直接把它部署到云端并确认 URL。",
-      "expected_output": "Finishes the validated Brain delivery artifacts but explicitly stops before deployment because downstream owns deployment and runtime feedback.",
+      "expected_output": "Finishes locally and target-cluster validated Brain delivery artifacts but explicitly stops before deployment because downstream owns deployment and runtime feedback.",
       "files": [],
       "assertions": [
         {
@@ -213,15 +213,39 @@
         },
         {
           "name": "cross-validates",
-          "description": "Requires aligned routes, services, primary Brain projection, immutable images, pull-Secret references, existing manifest paths, and a passing YAML quality gate."
+          "description": "Requires aligned routes, services, primary Brain projection, immutable images, pull-Secret references, existing manifest paths, a passing local YAML quality gate, and a passing target-cluster server-side dry-run."
         },
         {
           "name": "does-not-deploy",
-          "description": "Does not call Sealos auth, choose region/workspace, invoke the Template API, apply final YAML, or write deployment state."
+          "description": "Does not call Sealos auth, choose region/workspace, invoke the Template API, persist final YAML, or write deployment state; the required server-side dry-run remains non-persistent."
         },
         {
           "name": "honest-final-status",
           "description": "Reports preparation complete and does not claim that the application is running or has a verified URL."
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "prompt": "/sealos-deploy 一个模板已通过本地质量门，但目标集群对其中一个 KubeBlocks Cluster 返回 strict decoding unknown field。",
+      "expected_output": "Keeps the delivery Template unresolved, privately renders validation scenarios, dry-runs each runtime document separately, repairs the canonical standard-route YAML from safe API feedback, reruns the full local and target gates, and writes the delivery manifest only after every document passes.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "private-rendered-copy",
+          "description": "Never sends the unresolved Template or kind Template metadata to kubectl and never overwrites the delivery YAML with rendered values."
+        },
+        {
+          "name": "per-document-strict-server-gate",
+          "description": "Runs kubectl apply --dry-run=server --validate=strict for each target runtime document using the current context and namespace."
+        },
+        {
+          "name": "complete-repair-loop",
+          "description": "Repairs the canonical unresolved YAML, reruns the complete local quality gate, rerenders all scenarios, and rechecks every document until no blocking API or admission error remains."
+        },
+        {
+          "name": "manifest-after-target-pass",
+          "description": "Does not write or confirm delivery-manifest.json before the complete target-cluster gate passes and never performs a persistent apply."
         }
       ]
     }

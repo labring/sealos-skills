@@ -20,10 +20,13 @@ fi
 kompose version 2>/dev/null || true
 helm version --short 2>/dev/null || true
 kubectl version --client 2>/dev/null || true
+kubectl config current-context 2>/dev/null || true
 
 test -n "${GITHUB_TOKEN:-}"
 test -n "${S3_ENDPOINT:-${AWS_ENDPOINT_URL_S3:-${AWS_ENDPOINT_URL:-}}}"
 test -n "${AWS_SECRET_ACCESS_KEY:-${SEALOS_DEVBOX_JWT_SECRET:-${DEVBOX_JWT_SECRET:-}}}"
+test -n "${SEALOS_CLOUD_DOMAIN:-}"
+test -n "${SEALOS_CERT_SECRET_NAME:-}"
 ```
 
 Record booleans and versions without printing secret values.
@@ -41,11 +44,16 @@ Conditional blockers:
 - Python 3.8+ or PyYAML is required only on the standard Template route
 - Kompose is required only for a selected Compose route
 - Helm 3+ is required only for a selected Helm route
-- kubectl, VersityGW settings, and `GITHUB_TOKEN` GHCR write access are required
-  only when at least one final container service must be built
+- kubectl plus the current target context, namespace, service account, cloud
+  domain, and certificate Secret name are required before any route can
+  complete the Phase 6 target-cluster validation gate
+- VersityGW settings and `GITHUB_TOKEN` GHCR write access are required only
+  when at least one final container service must be built
 
 No Docker daemon, Sealos authentication, region selection, workspace
 selection, or browser-based GitHub authentication belongs to preflight.
+Never use an admin kubeconfig fallback or guess a cloud domain, namespace,
+certificate Secret, or service account.
 
 Invoking this skill authorizes installation of path-selected dependencies when
 the sandbox can install them safely. Install only after the source route or
@@ -156,7 +164,10 @@ Report briefly:
 - whether the current commit is fully materialized
 - selected source route and adapter readiness
 - Node/Python readiness
-- whether build-only kubectl, token, and VersityGW capabilities are present
+- whether target kubectl context and Template-rendering built-ins are resolved
+- whether build-only token and VersityGW capabilities are present
 
 Do not describe missing conditional build capabilities as blockers until Phase
-2 proves that a build is necessary.
+2 proves that a build is necessary. Missing target-cluster validation
+capabilities become blockers only if the pipeline otherwise reaches the final
+handoff gate.

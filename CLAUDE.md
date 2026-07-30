@@ -10,23 +10,27 @@ Brain environment boundary.
 - GitHub credentials are injected; never start browser authentication.
 - Missing images are built with `skills/k8s-kaniko-job/` using the active
   sandbox namespace, kubeconfig, service account, and DevBox VersityGW.
+- The same target context performs strict per-document
+  `kubectl apply --dry-run=server` before delivery metadata is written.
 - No Docker daemon, Sealos OAuth, region selection, or workspace selection is
   part of this branch.
 - Keep Template inputs unresolved for the downstream deployment system.
-- Stop after `.sealos/template/index.yaml` and the delivery artifacts validate.
-- Do not add deployment state, UPDATE mode, final apply/API calls,
+- Stop after `.sealos/template/index.yaml` passes both local and target-cluster
+  validation and the delivery artifacts validate.
+- Do not add deployment state, UPDATE mode, persistent apply/API calls,
   rollout/rollback, runtime verification, or `sealos-canvas`.
 
 ## Pipeline
 
 ```text
 Preflight -> Assess -> Exact official-template lookup
-  exact and safe -> copy official YAML -> validate -> finish
+  exact and safe -> copy official YAML -> local + target validation -> finish
   otherwise -> discover full topology and images
             -> prepare per-service Dockerfiles
             -> aggregate reuse/Kaniko builds
             -> generate source-adapted Template
-            -> validate -> finish
+            -> local quality gate
+            -> target server-side dry-run -> finish
 ```
 
 A low readiness score warns and continues. Stop at Phase 1 only when the

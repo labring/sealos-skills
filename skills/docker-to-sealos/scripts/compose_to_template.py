@@ -2303,7 +2303,6 @@ def build_mysql_resources(
                         "name": "mysql",
                         "componentDefRef": "mysql",
                         "monitor": True,
-                        "noCreatePDB": False,
                         "replicas": 1,
                         "serviceAccountName": name,
                         "switchPolicy": {"type": "Noop"},

@@ -190,7 +190,6 @@ spec:
     - componentDefRef: mysql
       monitor: true
       name: mysql
-      noCreatePDB: false
       replicas: 1
       resources:
         limits:

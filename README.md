@@ -4,8 +4,8 @@ Prepare validated [Sealos Cloud](https://sealos.io) deployment artifacts from a
 GitHub repository with a `skills.sh` compatible agent.
 
 This branch is designed for the hosted Brain sandbox. The sandbox agent already
-has these skills, a current Kubernetes identity for image builds, and injected
-GitHub credentials.
+has these skills, a current Kubernetes identity for image builds and
+non-persistent target validation, and injected GitHub credentials.
 
 ## Quick Start
 
@@ -22,8 +22,10 @@ The workflow:
 4. preserves or prepares each required Dockerfile;
 5. reuses images or builds missing services with Kaniko in the current sandbox
    namespace;
-6. generates and validates a digest-pinned Sealos Template;
-7. writes a delivery manifest and stops for the downstream deployment system.
+6. generates and locally validates a digest-pinned Sealos Template;
+7. privately renders its runtime documents and validates each one against the
+   target API server with strict server-side dry-run;
+8. writes a delivery manifest and stops for the downstream deployment system.
 
 A low readiness score is a warning, not an automatic rejection. The repository
 may contain a deployable child app, documentation site, Storybook, example, or
@@ -53,8 +55,9 @@ tokens and Docker auth are never embedded in the YAML.
 ## Prepare-Only Boundary
 
 `/sealos-deploy` does not ask the user to authenticate to GitHub or Sealos,
-choose a region/workspace, apply the final YAML, or verify a running URL. It
-finishes when the YAML and delivery artifacts pass their quality gates.
+choose a region/workspace, persist the final YAML, or verify a running URL. It
+finishes only after the local quality gate and target-cluster server-side
+dry-run pass. The dry-run does not create runtime resources.
 
 Adjacent `/sealos-database` and `/sealos-s3` skills remain available for
 development-service workflows.

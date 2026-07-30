@@ -1,7 +1,7 @@
 ---
 name: sealos-deploy
-description: Prepare a GitHub repository or the current sandbox workspace for Sealos Cloud. Apply the current assessment, official-template, topology, per-service image, Dockerfile, and Template-generation rules; build missing images through Kaniko in the active sandbox namespace; validate the final YAML; and stop with prepare artifacts for the downstream deployment system. Use when the user asks to deploy a repository to Sealos or another cloud platform, asks to prepare or containerize it for Sealos, or invokes "/sealos-deploy".
-compatibility: Git and Node.js 18+ are required. Python 3.8+ with PyYAML is required for standard Template generation. Kompose or Helm 3 is conditional on the selected deployment source. Kaniko builds additionally require the sandbox-provided kubectl context and service account, DevBox VersityGW S3 settings, and an injected GITHUB_TOKEN with GHCR write access. No Docker daemon, browser authentication, Sealos login, region selection, or workspace selection is used.
+description: Prepare a GitHub repository or the current sandbox workspace for Sealos Cloud. Apply the current assessment, official-template, topology, per-service image, Dockerfile, and Template-generation rules; build missing images through Kaniko in the active sandbox namespace; validate rendered runtime resources against the target API server without persisting them; and stop with prepare artifacts for the downstream deployment system. Use when the user asks to deploy a repository to Sealos or another cloud platform, asks to prepare or containerize it for Sealos, or invokes "/sealos-deploy".
+compatibility: Git, Node.js 18+, kubectl, and the sandbox-provided target context, namespace, and service account are required. Python 3.8+ with PyYAML is required for standard Template generation and target-cluster validation. The target cloud domain and certificate Secret name must be injected by the sandbox. Kompose or Helm 3 is conditional on the selected deployment source. Kaniko builds additionally require DevBox VersityGW S3 settings and an injected GITHUB_TOKEN with GHCR write access. No Docker daemon, browser authentication, Sealos login, region selection, or workspace selection is used.
 metadata:
   author: labring
 ---
@@ -24,8 +24,9 @@ or a multi-service topology.
 - A GitHub token is injected. Never start browser authentication or ask the
   user to authenticate GitHub interactively.
 - Image builds use `k8s-kaniko-job` because the sandbox has no Docker daemon.
-- Build-time Kubernetes operations use the current kubeconfig, namespace, and
-  service account. Never ask the user to select a Sealos region or workspace.
+- Image builds and the final non-persistent server-side dry-run use the current
+  kubeconfig, namespace, and service account. Never ask the user to select a
+  Sealos region or workspace.
 - The skill produces and validates `.sealos/template/index.yaml` and the same
   Brain delivery artifacts, then stops.
 - Template inputs remain unresolved in the YAML for the downstream system.
@@ -33,8 +34,9 @@ or a multi-service topology.
   `imagePullSecrets` references. Do not put registry credentials or a Secret
   payload in the Template.
 - Do not create `.sealos/state.json`, detect DEPLOY/UPDATE mode, call the
-  Template API, apply the final YAML, verify rollout/runtime, or perform
-  rollback.
+  Template API, persist the final YAML, verify rollout/runtime, or perform
+  rollback. `kubectl apply --dry-run=server` is the required non-persistent
+  validation gate, not deployment.
 
 ## Usage
 
@@ -66,7 +68,8 @@ Preflight
           -> prepare every required per-service build plan
           -> reuse images or build with Kaniko
           -> generate a source-adapted, digest-pinned Template
-          -> validate and finish
+          -> pass the local quality gate
+          -> pass target server-side dry-run and finish
 ```
 
 Phase 1 stops only when the agent is certain that the repository has no
@@ -137,6 +140,7 @@ values, or resolved Template secrets.
 | `inspect-deployment-source.mjs` | Select and render Compose, Helm, Kubernetes, or implicit source |
 | `detect-image.mjs` | Inventory declared images and complete source topology; resolve exact selectors to digests |
 | `validate-artifacts.mjs` | Validate all governed JSON artifacts and cross-artifact semantics |
+| `server_dry_run.py` | Privately render Template scenarios and run strict per-document target API dry-runs |
 
 All helpers emit structured JSON on stdout and human diagnostics on stderr.
 
@@ -155,7 +159,9 @@ overrides the standalone Dockerfile skill's build/report workflow.
 
 ## Safety
 
-The final Template is read-only output in this workflow. Any manual deletion
-of Kubernetes resources still requires explicit user confirmation. Build
-credentials are temporary execution inputs and must never enter repository
-artifacts or user-facing output.
+The delivery Template remains unresolved and is never applied by this
+workflow. Validation-only rendered copies are mode `0600`, temporary, and
+deleted after strict server-side dry-run. Any manual deletion of Kubernetes
+resources still requires explicit user confirmation. Build credentials are
+temporary execution inputs and must never enter repository artifacts or
+user-facing output.

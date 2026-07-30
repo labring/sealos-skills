@@ -4,10 +4,12 @@ Run after Phase 0 has produced a complete source worktree. This branch has one
 mode and one terminal state: prepare a validated Sealos Template and delivery
 artifacts, then stop.
 
-There is no deployment-state detection, UPDATE path, cloud login, final
+There is no deployment-state detection, UPDATE path, cloud login, persistent
 `kubectl apply`, Template API call, rollout, rollback, or runtime verification.
-Kubernetes is used only as the Kaniko build executor when source images are
-missing.
+Kubernetes is used as the Kaniko build executor when source images are missing
+and as the target of the required non-persistent
+`kubectl apply --dry-run=server` validation gate. No runtime resource is
+persisted by this skill.
 
 `<SKILL_DIR>` is the directory containing this skill.
 
@@ -111,6 +113,9 @@ Existing files are hints, not proof:
   build results, references exactly those immutable images and pull-Secret
   requirements, matches the current deployment-source hash, and passes the
   complete quality gate.
+- Target-cluster validation is never reusable. Repeat it against the current
+  context in every run because CRDs, OpenAPI schemas, and admission policies
+  can change independently of repository artifacts.
 
 Regenerate owned files atomically. Do not reset or clean the project. Ask
 before deleting previous artifacts or Kubernetes resources.
@@ -284,9 +289,11 @@ node "<SKILL_DIR>/../k8s-kaniko-job/scripts/write-result.mjs" \
   --initialize true
 ```
 
-Validate the copied YAML. If it cannot pass the final non-mutating Template
-checks, disable reuse and continue the standard route; do not silently edit the
-official copy while claiming verbatim provenance.
+Validate the copied YAML. If it cannot pass the local quality gate or target
+server-side dry-run, disable reuse and continue the standard route whenever a
+YAML repair is required; do not silently edit the official copy while claiming
+verbatim provenance. A target authorization, connectivity, or missing-context
+failure blocks the run rather than changing project YAML.
 
 Then continue to Phase 6.
 
@@ -686,7 +693,7 @@ the current generator rules require. Do not collect values from the user and
 do not resolve inputs in this skill. The downstream deployment workflow owns
 that interaction.
 
-### Validate
+### Local Validation
 
 Write `.sealos/template/index.yaml`, then run the complete quality gate:
 
@@ -703,13 +710,16 @@ fi
 ```
 
 Fix the existing YAML and rerun the complete gate until it passes. Do not
-continue with partial validation.
+continue with partial validation. This gate checks repository-owned rules; it
+does not replace Phase 6 validation against the target cluster's live
+OpenAPI/CRD and admission behavior.
 
 ---
 
 ## Phase 6: Finish And Hand Off
 
-This phase writes delivery metadata; it does not deploy.
+This phase validates the rendered runtime documents against the target cluster,
+then writes delivery metadata. It does not deploy.
 
 Verify:
 
@@ -721,6 +731,103 @@ Verify:
   requested primary service, Template images and pull-Secret references match
   those results, explicit topology is fully accounted for, and the quality
   gate passed
+
+### Target-Cluster Validation Gate
+
+Resolve the current context, namespace, and service account with the sandbox
+Kubernetes identity:
+
+```bash
+node \
+  "<SKILL_DIR>/../k8s-kaniko-job/scripts/resolve-kube-context.mjs"
+```
+
+Require non-empty `current_context`, `namespace`, and `service_account_name`.
+Require the sandbox-injected `SEALOS_CLOUD_DOMAIN` and
+`SEALOS_CERT_SECRET_NAME`. Do not select another region/workspace, use an admin
+kubeconfig, or guess any missing value.
+
+Run the target gate before creating `delivery-manifest.json`:
+
+```bash
+"$PYTHON_BIN" "<SKILL_DIR>/scripts/server_dry_run.py" \
+  --template "$WORK_DIR/.sealos/template/index.yaml" \
+  --context "$TARGET_CONTEXT" \
+  --namespace "$TARGET_NAMESPACE" \
+  --service-account "$TARGET_SERVICE_ACCOUNT" \
+  --cloud-domain "$SEALOS_CLOUD_DOMAIN" \
+  --cert-secret-name "$SEALOS_CERT_SECRET_NAME" \
+  --private-log "$LOG_FILE"
+```
+
+A pre-existing delivery manifest is only a stale resume hint until this run
+passes the gate for the current Template bytes. Do not confirm or hand it off
+while target validation is pending or failed.
+
+The helper must:
+
+1. leave the unresolved delivery Template byte-for-byte unchanged;
+2. create only private mode-`0600` validation copies in a mode-`0700`
+   system-temporary directory;
+3. resolve defaults, synthetic non-secret inputs, `random()`, `base64()`, and
+   current sandbox built-ins, covering the reachable bounded conditional
+   scenarios rather than validating only one convenient branch;
+4. reject unsupported or incomplete rendering instead of presenting a partial
+   check as success;
+5. skip every `kind: Template` metadata document;
+6. split the remaining runtime YAML and invoke, for every unique single
+   document:
+
+   ```bash
+   kubectl --context "$TARGET_CONTEXT" apply \
+     --dry-run=server \
+     --validate=strict \
+     -o name \
+     -n "$TARGET_NAMESPACE" \
+     -f "$ONE_PRIVATE_DOCUMENT"
+   ```
+
+7. aggregate and privately log only safe `kind`/`name`, error category, and
+   field paths; never print or log the raw admission body because it may echo
+   rendered values; and
+8. remove all rendered files even on failure.
+
+The bundled safe expression evaluator is an implementation aid, not a project
+eligibility rule. If a valid Template uses syntax outside its supported subset,
+use a trustworthy sandbox-available, downstream-compatible renderer or safely
+materialize equivalent private scenarios, then perform the same placeholder
+check and per-document kubectl gate. Never execute repository expressions with
+raw `eval`, silently omit a branch, or stop merely because the bundled
+renderer needs a safe fallback.
+
+Do not use `--warnings-as-errors`. Ordinary PodSecurity and deprecated-API
+warnings are reported but do not block this gate unless an existing quality
+rule already forbids the condition. A nonzero API response, strict-decoding
+error, unknown field, BadRequest, missing required CRD/API, authorization
+failure, or admission denial blocks delivery.
+
+### API Feedback Repair Loop
+
+When the gate reports a blocking error:
+
+1. distinguish a repairable manifest/schema problem from missing target
+   capability, authorization, connectivity, or unresolved sandbox context;
+2. for a repairable standard-route problem, use the API feedback to make the
+   smallest correct change in the canonical unresolved
+   `.sealos/template/index.yaml`;
+3. if an official copy needs any YAML edit, disable the official fast path and
+   rebuild through the standard route instead of editing it under official
+   provenance;
+4. rerun the complete local Phase 5 quality gate;
+5. discard every previous temporary render, render all scenarios again from
+   the canonical unresolved Template, and rerun server-side dry-run for every
+   runtime document, not only the document that previously failed; and
+6. repeat until the complete target gate has no blocking errors.
+
+Never treat one successful document, a warning-only result, or a previously
+successful attempt as proof for the current Template. If the remaining failure
+cannot be fixed in YAML, stop with the classified blocker. Do not apply
+resources to test a repair.
 
 Write `.sealos/delivery-manifest.json` version `2.0`:
 
@@ -770,5 +877,6 @@ The final response reports:
 - absolute paths to the Template, build request/result, analysis, delivery
   manifest, and private log
 
-State clearly that preparation is complete and deployment is delegated to the
-downstream system. Do not claim that the application is running.
+State clearly that local validation and target-cluster server-side dry-run
+passed, preparation is complete, and deployment is delegated to the downstream
+system. Do not claim that the application is running.

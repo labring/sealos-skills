@@ -5,8 +5,9 @@
 Seakills is the prepare-only Sealos Cloud skills pack for the `skills.sh`
 ecosystem. This branch accepts a GitHub repository or current sandbox
 worktree, applies the current shared Sealos analysis and Template rules, builds
-missing images inside Kubernetes, and hands validated YAML to a downstream
-deployment system.
+missing images inside Kubernetes, validates rendered runtime resources against
+the target API server without persisting them, and hands the validated YAML to
+a downstream deployment system.
 
 It must not become the user-facing local plugin/runtime workflow.
 
@@ -29,13 +30,13 @@ Adapt only the environment boundary:
 
 - use the injected GitHub token; never start browser authentication;
 - use Kaniko plus DevBox VersityGW instead of a Docker daemon;
-- use the sandbox's current kubeconfig, namespace, and service account only for
-  image builds;
+- use the sandbox's current kubeconfig, namespace, and service account for
+  image builds and the final non-persistent server-side dry-run;
 - keep required Template inputs for downstream resolution;
-- stop after validated YAML and delivery artifacts.
+- stop after locally and target-cluster validated YAML and delivery artifacts.
 
 Do not add local Sealos OAuth, region/workspace selection, final Template API
-deployment, final `kubectl apply`, deployment state, UPDATE mode,
+deployment, persistent `kubectl apply`, deployment state, UPDATE mode,
 rollout/rollback, runtime smoke verification, or `sealos-canvas`.
 
 Keep these shared skills aligned with the current source commit unless an
@@ -78,7 +79,8 @@ Preflight
           -> per-service Dockerfile preparation
           -> aggregate image reuse/Kaniko build
           -> source-adapted Template generation
-          -> validate -> finish
+          -> local quality gate
+          -> target server-side dry-run -> finish
 ```
 
 Phase 1 stops only when the agent is certain there is no reasonable
@@ -140,6 +142,7 @@ For changed deploy/Kaniko helpers:
 ```bash
 node --check <changed-script.mjs>
 node --test skills/sealos-deploy/scripts/test-*.mjs
+python3 skills/sealos-deploy/scripts/test_server_dry_run.py
 node --test skills/k8s-kaniko-job/scripts/*.test.mjs
 ```
 
@@ -164,5 +167,6 @@ Use `--artifacts /absolute/path/to/index.yaml` when a concrete Template exists.
 
 Keep tokens, kubeconfig content, S3 secrets, `.env` values, Docker auth, build
 arguments, and connection strings out of committed files and output. Scope all
-build Kubernetes operations to the selected namespace and named temporary
-resources. Any manual Kubernetes deletion requires explicit user confirmation.
+build operations and server-side dry-runs to the selected context and
+namespace. Server-side dry-run must never persist runtime resources. Any manual
+Kubernetes deletion requires explicit user confirmation.
