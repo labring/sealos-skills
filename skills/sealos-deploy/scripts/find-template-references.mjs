@@ -3,9 +3,10 @@
 /**
  * Discover exact Sealos templates.
  *
- * A unique exact match can be copied byte-for-byte to the deployment template
- * path only when the caller explicitly requests official-template reuse. This
- * script never renders, applies, or executes a catalog template.
+ * Official-template reuse is automatic unless the caller explicitly disables
+ * it because the current source intent is incompatible. A unique exact match
+ * is copied byte-for-byte as the initial delivery template. This script never
+ * renders, applies, or executes a catalog template.
  */
 
 import crypto from 'node:crypto'
@@ -83,9 +84,9 @@ function parseArgs(argv) {
   return result
 }
 
-function parseBooleanOption(value, optionName) {
+function parseBooleanOption(value, optionName, defaultValue = false) {
   if (value === undefined) {
-    return false
+    return defaultValue
   }
   if (value === 'true') {
     return true
@@ -1186,17 +1187,17 @@ function decideRoute({
   catalogVerifiedForReuse,
   project,
   references,
-  reuseRequested,
+  reuseEnabled,
 }) {
   const exactReferences = references.filter((reference) => reference.match === 'exact')
 
-  if (!reuseRequested) {
+  if (!reuseEnabled) {
     return {
       route: 'continue_standard_pipeline',
       reuse_requested: false,
       reference_name: null,
       template_path: null,
-      reason: 'official template reuse was not requested',
+      reason: 'official template reuse was explicitly disabled for the current source intent',
     }
   }
   if (exactReferences.length === 0) {
@@ -1250,7 +1251,7 @@ function decideRoute({
     reuse_requested: true,
     reference_name: exactReferences[0].name,
     template_path: DEPLOYMENT_TEMPLATE_PATH,
-    reason: 'one exact official template match was selected for direct deployment',
+    reason: 'one exact official template match was selected as the initial delivery template',
   }
 }
 
@@ -1298,12 +1299,10 @@ function findPreviousOfficialMaterialization(workDir) {
     }
 
     const deploymentPath = resolveSafeWorkspaceOutput(workDir, DEPLOYMENT_TEMPLATE_PATH)
-    const referencePath = resolveSafeWorkspaceOutput(workDir, reference.reference_path)
     const deploymentYaml = readBoundedRegularFile(deploymentPath, MAX_TEMPLATE_BYTES)
+    const referencePath = resolveSafeWorkspaceOutput(workDir, reference.reference_path)
     const referenceYaml = readBoundedRegularFile(referencePath, MAX_TEMPLATE_BYTES)
-    return deploymentYaml !== null && deploymentYaml === referenceYaml
-      ? deploymentPath
-      : null
+    return deploymentYaml !== null && referenceYaml !== null ? deploymentPath : null
   } catch {
     return null
   }
@@ -1345,7 +1344,7 @@ function writeArtifact(workDir, artifact, emitSummary = true) {
   }
 }
 
-function baseArtifact(catalog, project, reuseRequested, reason) {
+function baseArtifact(catalog, project, reuseEnabled, reason) {
   return {
     version: '2.0',
     generated_at: new Date().toISOString(),
@@ -1371,7 +1370,7 @@ function baseArtifact(catalog, project, reuseRequested, reason) {
     },
     decision: {
       route: 'continue_standard_pipeline',
-      reuse_requested: reuseRequested,
+      reuse_requested: reuseEnabled,
       reference_name: null,
       template_path: null,
       reason,
@@ -1393,11 +1392,12 @@ try {
 const workDir = path.resolve(args['work-dir'])
 const skillDir = path.resolve(args['skill-dir'])
 const analysisPath = path.resolve(args.analysis)
-let reuseRequested
+let reuseEnabled
 try {
-  reuseRequested = parseBooleanOption(
+  reuseEnabled = parseBooleanOption(
     args['reuse-official-template'],
     'reuse-official-template',
+    true,
   )
 } catch (error) {
   usage()
@@ -1453,7 +1453,7 @@ function writeUnavailable(reason) {
   if (previousOfficialMaterialization) {
     fs.rmSync(previousOfficialMaterialization, { force: true })
   }
-  writeArtifact(workDir, baseArtifact(catalog, publicProject, reuseRequested, reason))
+  writeArtifact(workDir, baseArtifact(catalog, publicProject, reuseEnabled, reason))
 }
 
 if (configReadError || configErrors.length > 0) {
@@ -1467,7 +1467,7 @@ if (!catalog.enabled) {
 
 let resolved
 try {
-  resolved = resolveCatalog(catalog, args['catalog-dir'], reuseRequested)
+  resolved = resolveCatalog(catalog, args['catalog-dir'], reuseEnabled)
 } catch (error) {
   writeUnavailable(`template catalog could not be prepared: ${error.message}`)
   process.exit(0)
@@ -1509,7 +1509,7 @@ const decision = decideRoute({
   catalogVerifiedForReuse: resolved.verifiedForReuse,
   project: publicProject,
   references,
-  reuseRequested,
+  reuseEnabled,
 })
 let selectedExact = null
 if (decision.route === 'deploy_official_template') {

@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import {
   inferArtifactKind,
@@ -10,6 +15,9 @@ import {
 
 const digest = `sha256:${'a'.repeat(64)}`
 const secondDigest = `sha256:${'b'.repeat(64)}`
+const templateReferenceFinder = fileURLToPath(
+  new URL('./find-template-references.mjs', import.meta.url),
+)
 
 function analysis(overrides = {}) {
   return {
@@ -237,6 +245,35 @@ test('accepts current Phase 1 facts and open vocabulary', () => {
 
   assert.equal(current.valid, true, JSON.stringify(current.errors))
   assert.equal(staticProject.valid, true, JSON.stringify(staticProject.errors))
+})
+
+test('enables automatic official-template reuse when the option is omitted', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sealos-template-reuse-'))
+  const skillDir = path.join(root, 'skill')
+  const analysisPath = path.join(root, '.sealos', 'analysis.json')
+  const current = analysis()
+  current.project.work_dir = root
+  fs.mkdirSync(path.dirname(analysisPath), { recursive: true })
+  fs.mkdirSync(skillDir)
+  fs.writeFileSync(analysisPath, `${JSON.stringify(current)}\n`)
+  fs.writeFileSync(
+    path.join(skillDir, 'config.json'),
+    `${JSON.stringify({ template_catalog: { enabled: false } })}\n`,
+  )
+
+  const result = spawnSync(process.execPath, [
+    templateReferenceFinder,
+    '--work-dir', root,
+    '--skill-dir', skillDir,
+    '--analysis', analysisPath,
+  ], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+
+  const references = JSON.parse(
+    fs.readFileSync(path.join(root, '.sealos', 'template-references.json'), 'utf8'),
+  )
+
+  assert.equal(references.decision.reuse_requested, true)
 })
 
 test('enforces the score arithmetic contract', () => {

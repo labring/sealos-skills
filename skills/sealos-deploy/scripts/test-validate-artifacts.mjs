@@ -265,7 +265,7 @@ test('complete artifact CLI accepts the Brain-compatible handoff', () => {
   assert.equal(JSON.parse(result.stdout).valid, true)
 })
 
-test('accepts the stable empty build contract for an official Template', () => {
+test('accepts a repaired official delivery copy while retaining its source reference', () => {
   const root = createCompleteProject()
   write(root, '.sealos/template-references.json', {
     references: [{
@@ -309,8 +309,20 @@ test('accepts the stable empty build contract for an official Template', () => {
 
   write(root, '.sealos/template/index.yaml', `${officialTemplate}metadata:\n  name: changed\n`)
   const changedValidation = validateArtifactSet(root, { requireComplete: true })
-  assert.equal(changedValidation.valid, false)
-  assert.ok(changedValidation.errors.some((error) => error.message.includes('identical')))
+  assert.equal(changedValidation.valid, true, JSON.stringify(changedValidation.errors))
+  assert.equal(
+    fs.readFileSync(path.join(root, '.sealos/template-references/web.yaml'), 'utf8'),
+    officialTemplate,
+  )
+
+  fs.unlinkSync(path.join(root, '.sealos/template-references/web.yaml'))
+  const missingReferenceValidation = validateArtifactSet(root, { requireComplete: true })
+  assert.equal(missingReferenceValidation.valid, false)
+  assert.ok(
+    missingReferenceValidation.errors.some(
+      (error) => error.message.includes('selected materialized reference'),
+    ),
+  )
 })
 
 test('rejects a missing final artifact', () => {

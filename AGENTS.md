@@ -73,7 +73,9 @@ The prepare pipeline is:
 Preflight
   -> Assess
   -> exact official-template lookup
-     -> safe unique exact match: copy YAML -> validate -> finish
+     -> safe unique exact match:
+          copy YAML -> repair the delivery copy if needed
+          -> validate -> finish
      -> otherwise:
           source/topology/image discovery
           -> per-service Dockerfile preparation

@@ -794,7 +794,7 @@ function validateTemplateReferencesSemantics(data, errors) {
       pushError(
         errors,
         '$.decision.route',
-        'must select the unique exact official template when reuse was requested',
+        'must select the unique exact official template when automatic reuse is enabled',
       )
     }
     if (data.decision.reference_name !== exactReferences[0].name) {

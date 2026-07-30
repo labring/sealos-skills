@@ -234,8 +234,9 @@ Present only a concise analysis summary and continue.
 
 ## Phase 1.5: Exact Official Template
 
-Ask whether one official Template can be reused exactly. The configured
-catalog is `labring-actions/templates` at its configured ref.
+Automatically determine whether one official Template can be reused. The
+configured catalog is `labring-actions/templates` at its configured ref.
+The user does not need to request or confirm official-template reuse.
 
 An automatic fast path requires all of:
 
@@ -249,11 +250,16 @@ For a local checkout, the pre-artifact snapshot must be clean on its tracked
 default branch with `HEAD` equal to upstream. Custom branches, local changes,
 detached or unknown upstream, pre-existing prepare artifacts, project config
 overrides, a selected subtree, or an explicit request for current source
-disable reuse. A fresh unqualified GitHub clone may enable it.
+disable reuse. An explicit user refusal also disables reuse. A fresh
+unqualified GitHub clone enables reuse unless one of those source-intent
+conditions applies. The absence of an explicit request for an official
+Template is never a reason to disable it.
 
-Set `REUSE_OFFICIAL_TEMPLATE=true` only when all of those conditions are
-proven; otherwise set it to `false`. Uncertainty always selects the standard
-pipeline.
+Set `REUSE_OFFICIAL_TEMPLATE=true` automatically when those source-intent
+conditions allow reuse. Set it to `false` only for a concrete disabling
+condition above; record that condition rather than saying reuse was not
+requested. Uncertainty about whether the official Template still represents
+the selected source intent selects the standard pipeline.
 
 Run:
 
@@ -270,8 +276,11 @@ Read the validated `decision.route`; never infer it from file existence.
 
 ### `deploy_official_template`
 
-The helper copies the unique official YAML verbatim and atomically to
-`.sealos/template/index.yaml`. Skip Phases 2–5.
+The helper materializes the selected official YAML under
+`.sealos/template-references/` as immutable provenance and copies it verbatim
+and atomically to `.sealos/template/index.yaml` as the initial delivery
+Template. Never edit the materialized reference or the catalog cache. Skip
+Phases 2–5.
 
 Write aggregate build-request version `2.0` with:
 
@@ -289,11 +298,21 @@ node "<SKILL_DIR>/../k8s-kaniko-job/scripts/write-result.mjs" \
   --initialize true
 ```
 
-Validate the copied YAML. If it cannot pass the local quality gate or target
-server-side dry-run, disable reuse and continue the standard route whenever a
-YAML repair is required; do not silently edit the official copy while claiming
-verbatim provenance. A target authorization, connectivity, or missing-context
-failure blocks the run rather than changing project YAML.
+Validate the delivery copy. If the local quality gate or target server-side
+dry-run reports a repairable YAML, CRD-schema, or admission error, make the
+smallest correct compatibility repair in `.sealos/template/index.yaml`, then
+repeat the complete local and target validation loop. Keep the route
+`official-template`; the immutable materialized reference and catalog commit
+remain the official provenance while the final Template is the validated
+delivery copy.
+
+Repairs must preserve the selected application's repository identity,
+topology, images, inputs, and runtime intent. A change that actually requires
+building a new image, selecting different project source, or redesigning the
+application topology is not an official-template compatibility repair and
+uses the standard route. Target authorization, connectivity, missing-context,
+or missing-capability failures block the run rather than changing project
+YAML.
 
 Then continue to Phase 6.
 
@@ -812,12 +831,13 @@ When the gate reports a blocking error:
 
 1. distinguish a repairable manifest/schema problem from missing target
    capability, authorization, connectivity, or unresolved sandbox context;
-2. for a repairable standard-route problem, use the API feedback to make the
+2. for a repairable problem on either route, use the API feedback to make the
    smallest correct change in the canonical unresolved
-   `.sealos/template/index.yaml`;
-3. if an official copy needs any YAML edit, disable the official fast path and
-   rebuild through the standard route instead of editing it under official
-   provenance;
+   `.sealos/template/index.yaml`; on the official route, never edit the
+   materialized reference under `.sealos/template-references/`;
+3. preserve application identity, topology, images, inputs, and runtime intent
+   when repairing an official delivery copy; switch to the standard route only
+   when the required change is genuinely a source build or topology redesign;
 4. rerun the complete local Phase 5 quality gate;
 5. discard every previous temporary render, render all scenarios again from
    the canonical unresolved Template, and rerun server-side dry-run for every

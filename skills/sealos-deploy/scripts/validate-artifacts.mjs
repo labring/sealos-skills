@@ -212,12 +212,12 @@ function validateArtifactSet(workDir, { requireComplete = false } = {}) {
     if (
       !referenceFile
       || !fs.existsSync(referenceFile)
+      || !fs.statSync(referenceFile).isFile()
       || template === null
-      || fs.readFileSync(referenceFile, 'utf8') !== template
     ) {
       errors.push({
         path: '.sealos/template/index.yaml',
-        message: 'official Template must remain identical to its selected materialized reference',
+        message: 'official delivery must retain its selected materialized reference and final Template',
       })
     }
   } else {

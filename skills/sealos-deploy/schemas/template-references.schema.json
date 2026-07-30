@@ -183,7 +183,8 @@
           ]
         },
         "reuse_requested": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Compatibility field: true when automatic official-template reuse is enabled for the current source intent; no explicit user request is required."
         },
         "reference_name": {
           "anyOf": [

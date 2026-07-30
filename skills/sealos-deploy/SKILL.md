@@ -63,7 +63,9 @@ The pipeline is:
 Preflight
   -> Assess
   -> Exact official-template lookup
-     -> safe unique exact match: copy official YAML and finish
+     -> safe unique exact match: copy official YAML
+          -> repair the delivery copy if validation requires it
+          -> local + target validation and finish
      -> otherwise: discover source/topology/images
           -> prepare every required per-service build plan
           -> reuse images or build with Kaniko
@@ -112,9 +114,11 @@ The final handoff always includes these six invariant paths:
 `.sealos/template-references.json` records the Phase 1.5 decision on both
 routes. The official-template route writes an empty aggregate build request
 and a skipped aggregate build result so downstream consumers receive one
-stable artifact contract. Standard aggregate build results also expose the
-selected `primary_service` through top-level `mode`, `image`, and `kubernetes`
-fields required by Brain, while `services[]` remains the complete authority.
+stable artifact contract. Its materialized reference is immutable provenance;
+the delivery copy may contain the smallest validation-driven compatibility
+repairs. Standard aggregate build results also expose the selected
+`primary_service` through top-level `mode`, `image`, and `kubernetes` fields
+required by Brain, while `services[]` remains the complete authority.
 
 ## Logging
 

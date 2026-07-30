@@ -24,7 +24,7 @@
     {
       "id": 1,
       "prompt": "/sealos-deploy https://github.com/example/exact-official-app 。这是默认分支的干净 fresh clone，官方 catalog 中只有一个 spec.gitRepo 精确匹配。",
-      "expected_output": "Refreshes and verifies the official catalog, copies the exact official YAML verbatim, skips source image/build/template generation, writes empty official-route aggregate build artifacts, validates, and finishes.",
+      "expected_output": "Automatically selects the verified exact official Template without requiring an explicit reuse request, keeps the materialized official YAML as immutable provenance, validates and minimally repairs only the delivery copy if needed, writes empty official-route aggregate build artifacts, and finishes.",
       "files": [],
       "assertions": [
         {
@@ -32,8 +32,12 @@
           "description": "Fast path requires one exact spec.gitRepo match from a refreshed verified official catalog."
         },
         {
-          "name": "copies-verbatim",
-          "description": "Copies the selected official index.yaml verbatim and does not regenerate it."
+          "name": "automatic-reuse",
+          "description": "A safe fresh unqualified GitHub source enables exact official-template reuse without asking the user to request or confirm it."
+        },
+        {
+          "name": "preserves-official-provenance",
+          "description": "Keeps the materialized official reference unchanged while allowing the delivery copy to receive the smallest validation-driven compatibility repair."
         },
         {
           "name": "stable-official-artifacts",
