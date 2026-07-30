@@ -1,257 +1,293 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://skills.sh/k8s-kaniko-job/schemas/build-result.schema.json",
-  "title": "K8s Kaniko Job Build Result Artifact",
+  "title": "K8s Kaniko Job Aggregate Build Result Artifact",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "version",
     "generated_at",
+    "route",
     "status",
-    "mode",
-    "image",
-    "source",
-    "logs"
+    "expected_services",
+    "services"
   ],
   "properties": {
     "version": {
       "type": "string",
-      "const": "1.0"
+      "const": "2.0"
     },
     "generated_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "route": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "official-template"
+      ]
     },
     "status": {
       "type": "string",
       "enum": [
         "succeeded",
         "failed",
+        "in_progress",
         "skipped"
       ]
     },
-    "mode": {
-      "type": "string",
-      "enum": [
-        "reuse-image",
-        "build-required"
-      ]
+    "expected_services": {
+      "type": "integer",
+      "minimum": 0
     },
-    "image": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "image_ref",
-        "digest"
-      ],
-      "properties": {
-        "image_ref": {
-          "type": "string",
-          "minLength": 1
-        },
-        "digest": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^sha256:[a-fA-F0-9]{64}$"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
-    },
-    "source": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "github_url",
-        "repo",
-        "ref",
-        "context_path",
-        "dockerfile_path"
-      ],
-      "properties": {
-        "github_url": {
-          "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "repo": {
-          "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ref": {
-          "type": "string",
-          "minLength": 1
-        },
-        "context_path": {
-          "type": "string",
-          "minLength": 1
-        },
-        "dockerfile_path": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "kubernetes": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "namespace",
-        "job",
-        "pod"
-      ],
-      "properties": {
-        "namespace": {
-          "type": "string",
-          "minLength": 1
-        },
-        "job": {
-          "type": "string",
-          "minLength": 1
-        },
-        "pod": {
-          "anyOf": [
-            {
-              "type": "string",
-              "minLength": 1
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      }
-    },
-    "logs": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "local_file"
-      ],
-      "properties": {
-        "local_file": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "error": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "phase",
-        "message"
-      ],
-      "properties": {
-        "phase": {
-          "type": "string",
-          "enum": [
-            "preflight",
-            "build-request",
-            "auth",
-            "context",
-            "dockerfile",
-            "kaniko",
-            "push",
-            "kubernetes",
-            "timeout",
-            "unknown"
-          ]
-        },
-        "message": {
-          "type": "string",
-          "minLength": 1
-        }
-      }
-    },
-    "registry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "host",
-        "pull_auth_required",
-        "pull_secret_name",
-        "pull_auth_reason",
-        "inline_pull_secret"
-      ],
-      "properties": {
-        "host": {
-          "type": "string",
-          "const": "ghcr.io"
-        },
-        "pull_auth_required": {
-          "type": "boolean",
-          "const": true
-        },
-        "pull_secret_name": {
-          "type": "string",
-          "const": "${{ defaults.app_name }}"
-        },
-        "pull_auth_reason": {
-          "type": "string",
-          "const": "built-and-pushed-private-ghcr"
-        },
-        "inline_pull_secret": {
-          "type": "boolean",
-          "const": true
-        }
-      }
-    }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "status": {
-            "const": "failed"
-          }
-        },
+    "services": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
         "required": [
-          "status"
-        ]
-      },
-      "then": {
-        "required": [
-          "error"
-        ]
-      }
-    },
-    {
-      "if": {
+          "name",
+          "artifact_key",
+          "outcome",
+          "image",
+          "build",
+          "kubernetes",
+          "logs",
+          "error",
+          "finished_at"
+        ],
         "properties": {
-          "status": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9_][a-z0-9_.-]*$"
+          },
+          "outcome": {
+            "type": "string",
             "enum": [
-              "succeeded",
+              "reused",
+              "success",
               "failed"
             ]
+          },
+          "image": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "remote_image",
+              "digest",
+              "image_ref",
+              "platforms",
+              "pull_access"
+            ],
+            "properties": {
+              "remote_image": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "digest": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-fA-F]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image_ref": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[^\\s@]+@sha256:[0-9a-fA-F]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "platforms": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "pull_access": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "anonymous",
+                      "ghcr_secret_required",
+                      "indeterminate"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "build": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "context",
+                  "dockerfile",
+                  "target",
+                  "build_arg_names"
+                ],
+                "properties": {
+                  "context": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dockerfile": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "target": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.-]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "build_arg_names": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kubernetes": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "namespace",
+                  "job",
+                  "pod"
+                ],
+                "properties": {
+                  "namespace": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "job": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "pod": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "logs": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "local_file"
+                ],
+                "properties": {
+                  "local_file": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "phase",
+                  "message"
+                ],
+                "properties": {
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "preflight",
+                      "build-request",
+                      "auth",
+                      "context",
+                      "dockerfile",
+                      "kaniko",
+                      "push",
+                      "kubernetes",
+                      "unknown"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
           }
-        },
-        "required": [
-          "status"
-        ]
-      },
-      "then": {
-        "required": [
-          "kubernetes"
-        ]
+        }
       }
     }
-  ]
+  }
 }

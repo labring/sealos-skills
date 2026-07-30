@@ -1,73 +1,61 @@
 # Result
 
-Write `.sealos/build-result.json` after every run.
+Update `<WORK_DIR>/.sealos/build-result.json` after every service.
 
-## Path
-
-```text
-<WORK_DIR>/.sealos/build-result.json
-```
-
-## Success
-
-For a successful build:
+For a reusable image:
 
 ```bash
 node "$SKILL_DIR/scripts/write-result.mjs" \
   --request "$WORK_DIR/.sealos/build-request.json" \
   --out "$WORK_DIR/.sealos/build-result.json" \
+  --service "$SERVICE_KEY" \
+  --status skipped
+```
+
+For a successful Kaniko build:
+
+```bash
+node "$SKILL_DIR/scripts/write-result.mjs" \
+  --request "$WORK_DIR/.sealos/build-request.json" \
+  --out "$WORK_DIR/.sealos/build-result.json" \
+  --service "$SERVICE_KEY" \
   --status succeeded \
+  --digest "$DIGEST" \
+  --pull-access "$PULL_ACCESS" \
   --namespace "$NAMESPACE" \
   --job "$JOB_NAME" \
   --pod "$POD_NAME" \
   --log-file "$LOG_FILE"
 ```
 
-## Failure
-
-For a failed build:
+For failure:
 
 ```bash
 node "$SKILL_DIR/scripts/write-result.mjs" \
   --request "$WORK_DIR/.sealos/build-request.json" \
   --out "$WORK_DIR/.sealos/build-result.json" \
+  --service "$SERVICE_KEY" \
   --status failed \
-  --namespace "$NAMESPACE" \
-  --job "$JOB_NAME" \
-  --pod "$POD_NAME" \
-  --log-file "$LOG_FILE" \
-  --error-phase kaniko \
-  --error-message "Kaniko build failed; see logs.local_file"
+  --error-phase "$ERROR_PHASE" \
+  --error-message "$SAFE_ERROR_MESSAGE" \
+  ${NAMESPACE:+--namespace "$NAMESPACE"} \
+  ${JOB_NAME:+--job "$JOB_NAME"} \
+  ${POD_NAME:+--pod "$POD_NAME"} \
+  ${LOG_FILE:+--log-file "$LOG_FILE"}
 ```
 
-## Skipped
+Failed services have no deployable `image_ref`. The aggregate becomes failed
+if any service fails, succeeded only when every expected service has either
+been reused or built, and remains in progress while services are outstanding.
 
-For `mode=reuse-image`, write a skipped result:
+Before returning to `sealos-deploy`, validate:
 
-```bash
-node "$SKILL_DIR/scripts/write-result.mjs" \
-  --request "$WORK_DIR/.sealos/build-request.json" \
-  --out "$WORK_DIR/.sealos/build-result.json" \
-  --status skipped \
-  --log-file "$LOG_FILE"
-```
+- schema version and route match the request
+- `expected_services` equals the request service count
+- each request service appears exactly once
+- every usable image is immutable
+- successful built images record Kaniko Job, digest, platform, log path, and
+  pull classification
 
-## Final Response
-
-Report:
-
-- status
-- image ref
-- `build-result.json` path
-- log file path
-- kaniko Job and Pod names when applicable
-
-Do not include secrets.
-
-## Cleanup
-
-After writing `build-result.json` and saving logs, delete the temporary Job unless debugging requires keeping it:
-
-```bash
-kubectl delete job "$JOB_NAME" -n "$NAMESPACE" --ignore-not-found
-```
+Report only status, service names, immutable image refs, and safe evidence
+paths. Do not include credentials.

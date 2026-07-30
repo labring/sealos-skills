@@ -4,7 +4,30 @@ This document contains complete Sealos template configurations for various datab
 
 ## Database Workload Rule
 
-Database services must be represented by KubeBlocks `Cluster` resources. Do not translate Compose database services such as PostgreSQL, MySQL, MongoDB, Redis, or Kafka into raw Kubernetes `Deployment` or `StatefulSet` workloads. `StatefulSet` remains valid for stateful application components, but not for managed database services.
+Supported database services should be represented by KubeBlocks `Cluster`
+resources whenever the current templates can preserve their runtime contract.
+Compose database services such as PostgreSQL, MySQL, MongoDB, Redis, or Kafka
+use this path by default. For Compose, rendered Helm, and native Kubernetes
+sources, preserve a raw database workload when its source-defined startup,
+initialization, replica, mount, engine-variant, or network semantics cannot be
+represented losslessly; annotate that workload and its Service with a non-empty
+`docker-to-sealos.kubeblocks-fallback-reason`. `StatefulSet` remains valid for
+stateful application components. Preserve one Cluster and connection identity
+per source database service; two services using the same engine are still two
+database instances unless the source explicitly proves they are aliases of one
+instance.
+
+Do not discard the source database service after image classification. First
+account for its initialization env, database names, application users,
+password sources, grants, scripts, mounts, command/entrypoint, data path,
+engine variant, replicas, and consumers. A KubeBlocks Cluster is equivalent
+only when every item is translated or explicitly superseded.
+
+The `500m/512Mi` limits shown below are the per-component KubeBlocks floor, not
+the only valid database size. Preserve higher source or documented
+requirements and let the AI select a larger Sealos ladder tier when the
+database engine, heap, workload, or runtime evidence requires it. Derive
+requests from the selected limits.
 
 ## PostgreSQL Full Template
 
@@ -109,7 +132,7 @@ spec:
     spec:
       containers:
         - name: pgsql-init
-          image: postgres:16-alpine
+          image: postgres@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           imagePullPolicy: IfNotPresent
           env:
             - name: PG_PASSWORD
@@ -235,6 +258,33 @@ subjects:
   - kind: ServiceAccount
     name: ${{ defaults.app_name }}-mysql
 ```
+
+### MySQL/MariaDB Application Database Initialization
+
+The official MySQL and MariaDB image variables `MYSQL_DATABASE` /
+`MARIADB_DATABASE`, `MYSQL_USER` / `MARIADB_USER`, and `MYSQL_PASSWORD` /
+`MARIADB_PASSWORD` describe first-start database state. KubeBlocks connection
+Secrets do not apply these image entrypoint variables.
+
+When those standard fields are present and the application accepts rewritten
+connection credentials, generate:
+
+1. `${{ defaults.app_name }}-mysql-app-credential` with the target database,
+   application username, and a generated password;
+2. `${{ defaults.app_name }}-mysql-init`, which waits with `mysqladmin ping`
+   and idempotently creates the database and user, updates the password, and
+   grants privileges by using the KubeBlocks `*-conn-credential` administrator
+   Secret; and
+3. an initContainer on every dependent application workload that connects to
+   the target database with the application credential and runs `SELECT 1`
+   before the business container starts.
+
+For multiple MySQL services, derive all three names from the corresponding
+per-service Cluster name. KubeBlocks administrator credentials are bootstrap
+credentials, not the default long-lived business identity. If the source uses
+custom init scripts, custom authentication, engine-specific behavior, or
+another unhandled initialization field, use the annotated raw fallback rather
+than silently dropping it.
 
 ## MongoDB Full Template
 
@@ -576,7 +626,7 @@ subjects:
 
 The following specifications are consistent with the database upgrade documentation:
 
-- Database connection fields (`endpoint`/`host`/`port`/`username`/`password`) in application containers must be obtained via `secretKeyRef`; Redis host/port may use the Sealos Redis Service FQDN plus `6379` when the secret only exposes credentials, and MongoDB URLs may use the Sealos MongoDB Service FQDN plus `27017` when the secret only exposes credentials
+- Database connection fields (`endpoint`/`host`/`port`/`username`/`password`) in application containers must be obtained via `secretKeyRef`; Redis host/port may use the Sealos Redis Service FQDN plus `6379` when the secret only exposes credentials, and MongoDB host/port or URLs may use the Sealos MongoDB Service FQDN plus `27017` when the secret only exposes credentials
 - PostgreSQL Cluster uses `postgresql-16.4.0` and includes `kb.io/database`, `disableExporter: true`, `enabledLogs: [running]`
 - Secret naming upgrades:
   - `xxx-redis-conn-credential` -> `xxx-redis-redis-account-default`
@@ -585,11 +635,14 @@ The following specifications are consistent with the database upgrade documentat
 
 ### Secret Naming Conventions
 
-- PostgreSQL: `${{ defaults.app_name }}-pg-conn-credential`
-- MySQL: `${{ defaults.app_name }}-mysql-conn-credential`
-- MongoDB: `${{ defaults.app_name }}-mongo-mongodb-account-root` (or `${{ defaults.app_name }}-mongodb-mongodb-account-root` when the MongoDB Cluster name uses `${{ defaults.app_name }}-mongodb`)
-- Redis: `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)
-- Kafka: `${{ defaults.app_name }}-broker-account-admin`
+- PostgreSQL: `<cluster-name>-conn-credential`; single-service default `${{ defaults.app_name }}-pg-conn-credential`
+- MySQL: `<cluster-name>-conn-credential`; single-service default `${{ defaults.app_name }}-mysql-conn-credential`
+- MongoDB: `<cluster-name>-mongodb-account-root`; single-service default `${{ defaults.app_name }}-mongo-mongodb-account-root`
+- Redis: `<cluster-name>-redis-account-default`; single-service default `${{ defaults.app_name }}-redis-redis-account-default` (legacy `${{ defaults.app_name }}-redis-account-default` may be accepted for backward compatibility)
+- Kafka: `<cluster-name>-account-admin`; single-service default `${{ defaults.app_name }}-broker-account-admin`
+
+When more than one service uses the same engine, append the normalized Compose
+service name to the standard Cluster base before applying these suffixes.
 
 **Important — Redis naming pattern:**
 The Redis secret and service names contain a "double redis" because Kubeblocks follows the pattern `<cluster>-<component>-account-default` for secrets and `<cluster>-<component>-<component>` for ClusterIP services:

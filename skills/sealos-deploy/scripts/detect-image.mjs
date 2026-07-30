@@ -1,849 +1,1673 @@
 #!/usr/bin/env node
 
 /**
- * Container Image Detection
+ * Container image discovery for Phase 2.
  *
- * Detects deployment intent and reusable container images for a GitHub project.
+ * Only images explicitly declared by the project are eligible. Declarations
+ * are collected in this order:
  *
- * Priority (conflict resolution): README > Release > CI > project files > direct naming > Docker Hub search
+ *   README > CI workflows > Compose > rendered Helm > Kubernetes manifests
+ *
+ * Every parseable declaration is retained in the image inventory, including
+ * database and infrastructure images. An explicit selected deployment source
+ * determines the declared service/workload topology; an implicit source leaves
+ * service selection to the caller. Registry names inferred from the GitHub
+ * owner/repository are intentionally never queried. A selected primary image is
+ * returned as an immutable digest reference while preserving the exact declared
+ * tag used for resolution. CPU architecture is not pre-screened; rare
+ * incompatibilities are diagnosed from the deployed runtime.
  *
  * Usage:
  *   node detect-image.mjs <github-url> [work-dir]
  *   node detect-image.mjs <work-dir>
- *
- * Output (JSON):
- *   { "found": true, "mode": "reuse-image", "deployment_mode": "prebuilt", ... }
- *   { "found": false, "mode": "build-required", "deployment_mode": "build", "reason": "..." }
  */
 
+import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import { pathToFileURL } from 'url'
+import { inspectDeploymentSource } from './inspect-deployment-source.mjs'
 
-const BUILD_SIGNAL_RES = [
-  /\bdocker\s+build\b/i,
-  /\bdocker\s+compose\s+build\b/i,
-  /\bdocker-compose\s+build\b/i,
-  /\bdocker\s+compose\s+up\b[^\n]*--build\b/i,
-  /\bcompose\s+up\b[^\n]*--build\b/i,
-  /\bbuildx\s+build\b/i,
-]
+const SOURCE_PRIORITY = Object.freeze({
+  readme: 0,
+  ci: 1,
+  compose: 2,
+  helm: 3,
+  kubernetes: 4,
+})
 
-const DEPLOY_SECTION_RES = [
-  /^#+\s*(deploy(?:ment)?|install(?:ation)?|docker|quick\s*start|getting\s*started|running|usage)\b/im,
-  /^#+\s*(部署|安装|运行|快速开始)\b/im,
-]
-
-// ── Infrastructure images to exclude ─────────────────────
-
-const INFRA_IMAGES = new Set([
-  'postgres', 'postgresql', 'mysql', 'mariadb', 'redis', 'mongo', 'mongodb',
-  'memcached', 'elasticsearch', 'rabbitmq', 'minio', 'nats', 'zookeeper',
-  'kafka', 'consul', 'vault', 'nginx', 'traefik', 'envoy', 'haproxy',
+const DATABASE_NAMES = new Set([
+  'cockroachdb',
+  'couchdb',
+  'database',
+  'db',
+  'mariadb',
+  'mongo',
+  'mongodb',
+  'mysql',
+  'neo4j',
+  'postgres',
+  'postgresql',
+  'questdb',
+  'timescaledb',
 ])
 
-function isInfraImage (name) {
-  const lower = name.toLowerCase()
-  return INFRA_IMAGES.has(lower) || [...INFRA_IMAGES].some(inf => lower.startsWith(inf + ':') || lower === inf)
+const INFRASTRUCTURE_NAMES = new Set([
+  'broker',
+  'cache',
+  'consul',
+  'elasticsearch',
+  'envoy',
+  'etcd',
+  'haproxy',
+  'kafka',
+  'keycloak',
+  'memcached',
+  'minio',
+  'nats',
+  'nginx',
+  'opensearch',
+  'proxy',
+  'queue',
+  'rabbitmq',
+  'redis',
+  'traefik',
+  'vault',
+  'zookeeper',
+])
+
+const MANIFEST_ACCEPT = [
+  'application/vnd.oci.image.index.v1+json',
+  'application/vnd.oci.image.manifest.v1+json',
+  'application/vnd.docker.distribution.manifest.list.v2+json',
+  'application/vnd.docker.distribution.manifest.v2+json',
+].join(', ')
+
+function stripQuotes (value) {
+  return value.trim().replace(/^(['"`])(.*)\1$/, '$2')
 }
 
-// ── GitHub URL Parser ──────────────────────────────────────
-
-function parseGithubUrl (url) {
-  const sshMatch = url.match(/git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/)
-  if (sshMatch) return { owner: sshMatch[1], repo: sshMatch[2] }
-
-  const httpsMatch = url.match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/.*)?$/)
-  if (httpsMatch) return { owner: httpsMatch[1], repo: httpsMatch[2] }
-
-  return null
+function stripYamlComment (value) {
+  let quote = null
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if ((character === '"' || character === "'") && value[index - 1] !== '\\') {
+      quote = quote === character ? null : (quote || character)
+    } else if (character === '#' && quote === null) {
+      return value.slice(0, index).trim()
+    }
+  }
+  return value.trim()
 }
 
-// ── Image Reference Parser ────────────────────────────────
+function imageBasename (image) {
+  const parts = image.repository.split('/')
+  return parts[parts.length - 1].toLowerCase()
+}
 
+function classifyImageRole (image, serviceName = '') {
+  const names = [
+    imageBasename(image),
+    serviceName.toLowerCase(),
+  ].filter(Boolean)
+  const tokens = names.flatMap(name => name.split(/[^a-z0-9]+/).filter(Boolean))
+
+  if (tokens.some(name => DATABASE_NAMES.has(name))) return 'database'
+  if (tokens.some(name => INFRASTRUCTURE_NAMES.has(name))) return 'infrastructure'
+  return 'application'
+}
+
+/**
+ * Parse a registry reference without changing its tag or digest.
+ *
+ * Docker Hub's implicit `library/` namespace is used only for registry calls;
+ * `displayImage` retains the familiar declaration form for compatibility.
+ */
 function parseImageRef (raw) {
-  const s = raw.trim().replace(/^['"]|['"]$/g, '')
-  if (!s || s.startsWith('$') || s.startsWith('{')) return null
+  const declaredRef = stripQuotes(stripYamlComment(String(raw || '')))
+    .replace(/[),;]+$/, '')
 
-  const ghcrMatch = s.match(/^ghcr\.io\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)(?::([a-zA-Z0-9_.-]+))?$/)
-  if (ghcrMatch) return { registry: 'ghcr', owner: ghcrMatch[1], repo: ghcrMatch[2], tag: ghcrMatch[3] || null }
+  if (!declaredRef || /\s/.test(declaredRef) || declaredRef.includes('$')) return null
+  if (/^(?:https?|git):\/\//i.test(declaredRef)) return null
 
-  const dockerMatch = s.match(/^(?:docker\.io\/)?([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)(?::([a-zA-Z0-9_.-]+))?$/)
-  if (dockerMatch) {
-    const owner = dockerMatch[1]
-    const repo = dockerMatch[2]
-    if (owner === 'library') return null
-    return { registry: 'dockerhub', owner, repo, tag: dockerMatch[3] || null }
+  const digestParts = declaredRef.split('@')
+  if (digestParts.length > 2) return null
+
+  const nameAndTag = digestParts[0]
+  const declaredDigest = digestParts[1] || null
+  if (declaredDigest && !/^sha256:[a-fA-F0-9]{64}$/.test(declaredDigest)) return null
+
+  const lastSlash = nameAndTag.lastIndexOf('/')
+  const lastColon = nameAndTag.lastIndexOf(':')
+  const hasTag = lastColon > lastSlash
+  const declaredTag = hasTag ? nameAndTag.slice(lastColon + 1) : null
+  const imageName = hasTag ? nameAndTag.slice(0, lastColon) : nameAndTag
+
+  if (!imageName || (hasTag && !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(declaredTag))) return null
+
+  const parts = imageName.split('/')
+  const first = parts[0]
+  const hasExplicitRegistry = parts.length > 1 &&
+    (first.includes('.') || first.includes(':') || first === 'localhost')
+  const validParts = parts.every((part, index) => {
+    if (!part) return false
+    if (index === 0 && hasExplicitRegistry) {
+      return /^(?:localhost|[A-Za-z0-9.-]+)(?::[0-9]{1,5})?$/.test(part)
+    }
+    return /^[A-Za-z0-9_.-]+$/.test(part)
+  })
+  if (!validParts) return null
+
+  let registryHost
+  let repository
+  let displayImage
+  let registry
+
+  if (hasExplicitRegistry) {
+    registryHost = first.toLowerCase()
+    repository = parts.slice(1).join('/').toLowerCase()
+    if (registryHost === 'docker.io' || registryHost === 'index.docker.io') {
+      registryHost = 'registry-1.docker.io'
+      registry = 'dockerhub'
+      repository = repository.includes('/') ? repository : `library/${repository}`
+      displayImage = repository.startsWith('library/')
+        ? repository.slice('library/'.length)
+        : repository
+    } else {
+      registry = registryHost === 'ghcr.io' ? 'ghcr' : registryHost
+      displayImage = `${first}/${parts.slice(1).join('/')}`
+    }
+  } else {
+    registryHost = 'registry-1.docker.io'
+    registry = 'dockerhub'
+    repository = parts.length === 1
+      ? `library/${parts[0].toLowerCase()}`
+      : parts.join('/').toLowerCase()
+    displayImage = imageName
+  }
+
+  if (!repository) return null
+
+  const selector = declaredDigest || declaredTag || 'latest'
+  return {
+    registry,
+    registryHost,
+    repository,
+    displayImage,
+    declaredRef,
+    declaredTag,
+    declaredDigest,
+    selector,
+    key: `${registryHost}/${repository}@${selector}`,
+  }
+}
+
+function addDeclaration (declarations, raw, evidence) {
+  const image = parseImageRef(raw)
+  if (!image) {
+    const declaredRef = stripQuotes(stripYamlComment(String(raw || '')))
+    if (!evidence.retainUnresolved || !declaredRef || !declaredRef.includes('$')) return null
+    const literalRegistry = declaredRef.match(/^([A-Za-z0-9.-]+(?::[0-9]{1,5})?)\//)?.[1]
+    const unresolved = {
+      registry: literalRegistry || 'unresolved',
+      registryHost: literalRegistry || 'unresolved',
+      repository: declaredRef,
+      displayImage: declaredRef,
+      declaredRef,
+      declaredTag: null,
+      declaredDigest: null,
+      selector: null,
+      key: `unresolved:${evidence.source}:${evidence.sourceFile}:${evidence.service || ''}:${declaredRef}`,
+      unresolved: true,
+    }
+    const declaration = {
+      ...unresolved,
+      source: evidence.source,
+      sourceFile: evidence.sourceFile,
+      service: evidence.service || null,
+      role: evidence.role || 'application',
+      selectionRank: evidence.selectionRank ?? 0,
+    }
+    declarations.push(declaration)
+    return declaration
+  }
+
+  const declaration = {
+    ...image,
+    source: evidence.source,
+    sourceFile: evidence.sourceFile,
+    service: evidence.service || null,
+    role: evidence.role || classifyImageRole(image, evidence.service),
+    selectionRank: evidence.selectionRank ?? 0,
+  }
+  declarations.push(declaration)
+  return declaration
+}
+
+function resolveComposeImageExpression (raw) {
+  const value = stripQuotes(stripYamlComment(String(raw || '')))
+  const defaultMatch = value.match(/^\$\{[A-Za-z_][A-Za-z0-9_]*(?::-|-)([^}]+)\}$/)
+  return defaultMatch ? defaultMatch[1] : value
+}
+
+function parseGithubRepository (url) {
+  if (!url) return null
+  const match = String(url).match(
+    /github\.com(?::|\/)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/,
+  )
+  return match ? { owner: match[1], repo: match[2] } : null
+}
+
+function getGitHead (workDir) {
+  try {
+    const head = execFileSync(
+      'git',
+      ['rev-parse', 'HEAD'],
+      { cwd: workDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim()
+    return /^[a-fA-F0-9]{40,64}$/.test(head) ? head : null
+  } catch {
+    return null
+  }
+}
+
+function resolveCiExpressions (value, context) {
+  let resolved = String(value || '')
+  const replacements = new Map([
+    ['github.repository', context.githubRepository
+      ? `${context.githubRepository.owner}/${context.githubRepository.repo}`
+      : null],
+    ['github.repository_owner', context.githubRepository?.owner || null],
+    ['github.event.repository.name', context.githubRepository?.repo || null],
+    ['github.sha', context.githubSha || null],
+  ])
+
+  for (const [expression, replacement] of replacements) {
+    if (!replacement) continue
+    const escaped = expression.replace(/\./g, '\\.')
+    resolved = resolved.replace(
+      new RegExp(`\\$\\{\\{\\s*${escaped}\\s*\\}\\}`, 'g'),
+      replacement,
+    )
+  }
+  return resolved
+}
+
+function findReadmePath (workDir) {
+  const preferred = ['README.md', 'readme.md', 'README.MD', 'Readme.md']
+  return preferred
+    .map(name => path.join(workDir, name))
+    .find(file => fs.existsSync(file)) || null
+}
+
+function dockerCommandImage (command, argsText) {
+  const tokens = argsText
+    .replace(/\\\r?\n/g, ' ')
+    .split(/\s+/)
+    .map(token => token.replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean)
+
+  const runOptionsWithValues = new Set([
+    '--add-host', '--annotation', '--attach', '--blkio-weight', '--cap-add',
+    '--cap-drop', '--cgroup-parent', '--cidfile', '--cpus', '--device',
+    '--dns', '--dns-option', '--dns-search', '--entrypoint', '--env',
+    '--env-file', '--expose', '--gpus', '--group-add', '--hostname',
+    '--ip', '--ip6', '--label', '--label-file', '--link', '--log-driver',
+    '--log-opt', '--memory', '--mount', '--name', '--network',
+    '--network-alias', '--pid', '--platform', '--publish', '--restart',
+    '--runtime', '--security-opt', '--shm-size', '--stop-signal',
+    '--stop-timeout', '--tmpfs', '--ulimit', '--user', '--userns',
+    '--volume', '--volume-driver', '--workdir',
+    '-a', '-c', '-e', '-h', '-l', '-m', '-p', '-u', '-v', '-w',
+  ])
+  const pullOptionsWithValues = new Set(['--platform'])
+  const optionsWithValues = command === 'run'
+    ? runOptionsWithValues
+    : pullOptionsWithValues
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (token === '--') return tokens[index + 1] || null
+    if (token.startsWith('-')) {
+      const option = token.split('=')[0]
+      if (!token.includes('=') && optionsWithValues.has(option)) index += 1
+      continue
+    }
+    if (parseImageRef(token) || token.includes('$')) return token
   }
 
   return null
 }
 
-function imageKey (img) {
-  return `${img.registry}:${img.owner}/${img.repo}`
-}
+function dockerBuildTags (argsText) {
+  const tokens = argsText
+    .replace(/\\\r?\n/g, ' ')
+    .split(/\s+/)
+    .map(token => token.replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean)
+  const tags = []
 
-function dedupeImages (images) {
-  const seen = new Set()
-  return images.filter(img => {
-    const key = imageKey(img)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
-
-function isFloatingTag (tag) {
-  return (
-    tag === 'latest' ||
-    tag === 'stable' ||
-    tag === 'main' ||
-    tag === 'master' ||
-    tag === 'edge' ||
-    tag === 'nightly' ||
-    tag === 'dev' ||
-    /^v?\d+(?:\.\d+)?$/.test(tag)
-  )
-}
-
-function extractImageRefsFromText (text) {
-  const images = []
-
-  for (const m of text.matchAll(/ghcr\.io\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)(?::([a-zA-Z0-9_.-]+))?/g)) {
-    images.push({ registry: 'ghcr', owner: m[1], repo: m[2], tag: m[3] || null })
-  }
-
-  for (const m of text.matchAll(/docker\s+(?:run|pull)\s+([^\n]+)/g)) {
-    const commandTail = m[1]
-    for (const token of commandTail.split(/\s+/)) {
-      const ref = parseImageRef(token)
-      if (ref) images.push(ref)
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (token === '-t' || token === '--tag') {
+      if (tokens[index + 1]) tags.push(tokens[index + 1])
+      index += 1
+    } else if (token.startsWith('--tag=') || token.startsWith('-t=')) {
+      tags.push(token.slice(token.indexOf('=') + 1))
     }
   }
 
-  for (const m of text.matchAll(/hub\.docker\.com\/r\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+)/g)) {
-    images.push({ registry: 'dockerhub', owner: m[1], repo: m[2], tag: null })
-  }
-
-  return dedupeImages(images.filter(img => !isInfraImage(img.repo) && !isInfraImage(img.owner)))
+  return tags
 }
 
-function hasBuildSignals (text) {
-  return BUILD_SIGNAL_RES.some(re => re.test(text))
-}
+function extractReadmeDeclarations (workDir) {
+  const declarations = []
+  const readmePath = findReadmePath(workDir)
+  if (!readmePath) return declarations
 
-function extractDeploySections (content) {
-  const lines = content.split('\n')
-  const sections = []
-  let current = null
-  let inFence = false
+  const content = fs.readFileSync(readmePath, 'utf8')
+  const sourceFile = path.relative(workDir, readmePath)
+  const localBuildKeys = new Set()
 
-  for (const line of lines) {
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence
-      if (current) current.push(line)
-      continue
-    }
-
-    if (!inFence && /^#+\s/.test(line)) {
-      const isDeploy = DEPLOY_SECTION_RES.some(re => re.test(line))
-      if (isDeploy) {
-        current = [line]
-        sections.push(current)
-      } else if (current) {
-        current = null
-      }
-    } else if (current) {
-      current.push(line)
+  for (const match of content.matchAll(/\bdocker\s+(?:buildx\s+build|build)\s+([^\n]+)/gi)) {
+    for (const tag of dockerBuildTags(match[1])) {
+      const parsed = parseImageRef(tag)
+      if (parsed) localBuildKeys.add(parsed.key)
     }
   }
 
-  if (sections.length === 0) return [content]
-  return sections.map(s => s.join('\n'))
-}
-
-function collectReadmeFiles (workDir) {
-  const files = []
-  const seen = new Set()
-  const rootNames = ['README.md', 'readme.md', 'README.MD', 'Readme.md']
-
-  const pushFile = (file) => {
-    let key
-    try {
-      key = fs.realpathSync.native(file)
-    } catch {
-      key = path.resolve(file)
-    }
-    if (seen.has(key)) return
-    seen.add(key)
-    files.push(file)
+  for (const match of content.matchAll(/\bghcr\.io\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+(?::[A-Za-z0-9_.-]+|@sha256:[a-fA-F0-9]{64})?/g)) {
+    addDeclaration(declarations, match[0], { source: 'readme', sourceFile })
   }
 
-  for (const name of rootNames) {
-    const p = path.join(workDir, name)
-    if (fs.existsSync(p)) pushFile(p)
+  for (const match of content.matchAll(/\b(?:docker\.io|index\.docker\.io)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_./-]+)?(?::[A-Za-z0-9_.-]+|@sha256:[a-fA-F0-9]{64})?/g)) {
+    addDeclaration(declarations, match[0], { source: 'readme', sourceFile })
   }
 
-  const docsDir = path.join(workDir, 'docs')
-  if (fs.existsSync(docsDir)) {
-    walkDocs(docsDir, pushFile)
+  for (const match of content.matchAll(/hub\.docker\.com\/r\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/g)) {
+    addDeclaration(declarations, match[1], { source: 'readme', sourceFile })
   }
 
-  return files
-}
-
-function walkDocs (dir, pushFile) {
-  let entries
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return
+  for (const match of content.matchAll(/\bdocker\s+(pull|run)\s+([^\n]+)/gi)) {
+    const command = match[1].toLowerCase()
+    const raw = dockerCommandImage(command, match[2])
+    const parsed = parseImageRef(raw)
+    if (command === 'run' && parsed && localBuildKeys.has(parsed.key)) continue
+    if (raw) addDeclaration(declarations, raw, { source: 'readme', sourceFile })
   }
 
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      walkDocs(full, pushFile)
-      continue
-    }
-    if (!entry.name.endsWith('.md')) continue
-    const lower = entry.name.toLowerCase()
-    if (
-      lower.includes('readme') ||
-      lower.includes('install') ||
-      lower.includes('deploy') ||
-      lower.includes('docker')
-    ) {
-      pushFile(full)
-    }
-  }
-}
-
-function analyzeReadmeDeployment (workDir) {
-  const files = collectReadmeFiles(workDir)
-  const evidence = []
-  const images = []
-  let buildSignals = false
-  let deployContent = ''
-
-  for (const file of files) {
-    const content = fs.readFileSync(file, 'utf-8')
-    const rel = path.relative(workDir, file)
-    const sections = extractDeploySections(content)
-    const scoped = sections.join('\n\n')
-    deployContent += `\n${scoped}`
-
-    if (hasBuildSignals(scoped)) {
-      buildSignals = true
-      evidence.push({ source: 'readme', signal: `build instructions in ${rel}` })
-    }
-
-    const found = extractImageRefsFromText(scoped)
-    for (const img of found) {
-      images.push(img)
-      evidence.push({
-        source: 'readme',
-        signal: `${img.registry === 'ghcr' ? 'ghcr.io' : 'docker.io'}/${img.owner}/${img.repo}${img.tag ? `:${img.tag}` : ''} in ${rel}`,
-      })
+  // Explicit image labels and Compose snippets in deployment documentation.
+  for (const match of content.matchAll(/^\s*(?:[-*>]\s*)?image\s*:\s*(.+?)\s*$/gim)) {
+    const raw = resolveComposeImageExpression(match[1])
+    if (parseImageRef(raw)) {
+      addDeclaration(declarations, raw, { source: 'readme', sourceFile })
     }
   }
 
-  const uniqueImages = dedupeImages(images)
-  let deploymentMode = 'unclear'
-  if (buildSignals) deploymentMode = 'build'
-  else if (uniqueImages.length > 0) deploymentMode = 'prebuilt'
-
-  return { deploymentMode, images: uniqueImages, buildSignals, evidence, deployContent }
-}
-
-// ── Docker Hub ─────────────────────────────────────────────
-
-async function checkDockerHub (namespace, repoName, preferredTag = null, fallbackTag = null) {
-  const url = `https://hub.docker.com/v2/namespaces/${namespace}/repositories/${repoName}/tags?page_size=10`
-  try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 10000)
-    const resp = await fetch(url, { signal: controller.signal })
-    clearTimeout(timer)
-
-    if (!resp.ok) return null
-
-    const data = await resp.json()
-    if (!data.results || data.results.length === 0) return null
-
-    const versionTagRe = /^v?\d+\.\d+/
-
-    const priorityTags = [preferredTag, fallbackTag]
-      .filter((tag, index, tags) => tag && tags.indexOf(tag) === index)
-
-    for (const tag of priorityTags) {
-      const entry = data.results.find(e => e.name === tag)
-      if (entry?.images?.some(img => img.architecture === 'amd64')) {
-        const platforms = entry.images
-          .map(img => `${img.os}/${img.architecture}`)
-          .filter((v, i, a) => a.indexOf(v) === i)
-        return { source: 'dockerhub', image: `${namespace}/${repoName}`, tag, platforms }
-      }
+  // A backticked image reference is an explicit project declaration. Command
+  // snippets are ignored here and handled by the docker command parser above.
+  for (const match of content.matchAll(/`([^`\r\n]+)`/g)) {
+    const raw = stripQuotes(match[1])
+    if (!/^\d+$/.test(raw) && parseImageRef(raw)) {
+      addDeclaration(declarations, raw, { source: 'readme', sourceFile })
     }
-
-    let bestTag = null
-    for (const entry of data.results) {
-      const hasAmd64 = entry.images?.some(img => img.architecture === 'amd64')
-      if (!hasAmd64) continue
-
-      const platforms = entry.images
-        .map(img => `${img.os}/${img.architecture}`)
-        .filter((v, i, a) => a.indexOf(v) === i)
-
-      if (!bestTag || (versionTagRe.test(entry.name) && !versionTagRe.test(bestTag.tag))) {
-        bestTag = { tag: entry.name, platforms }
-      }
-    }
-
-    if (!bestTag) return null
-    return { source: 'dockerhub', image: `${namespace}/${repoName}`, tag: bestTag.tag, platforms: bestTag.platforms }
-  } catch {
-    return null
   }
-}
 
-// ── GHCR ───────────────────────────────────────────────────
-
-async function checkGhcr (owner, repo, preferredTag = null, fallbackTag = null) {
-  try {
-    const tokenController = new AbortController()
-    const tokenTimer = setTimeout(() => tokenController.abort(), 10000)
-    const tokenResp = await fetch(
-      `https://ghcr.io/token?scope=repository:${owner}/${repo}:pull`,
-      { signal: tokenController.signal },
+  // Also accept a reference on its own Markdown line. Requiring a tag, digest,
+  // or explicit registry avoids treating ordinary paths such as docs/setup as
+  // Docker Hub repositories.
+  for (const line of content.split(/\r?\n/)) {
+    const raw = stripQuotes(
+      line
+        .replace(/^\s*(?:[-*+>]\s+|\d+\.\s+)/, '')
+        .replace(/[.;]\s*$/, '')
+        .trim(),
     )
-    clearTimeout(tokenTimer)
+    const parsed = parseImageRef(raw)
+    if (parsed && (
+      parsed.declaredTag ||
+      parsed.declaredDigest ||
+      parsed.registry !== 'dockerhub'
+    )) {
+      addDeclaration(declarations, raw, { source: 'readme', sourceFile })
+    }
+  }
 
-    if (!tokenResp.ok) return null
-    const { token } = await tokenResp.json()
+  return declarations
+}
 
-    const tagsController = new AbortController()
-    const tagsTimer = setTimeout(() => tagsController.abort(), 10000)
-    const tagsResp = await fetch(
-      `https://ghcr.io/v2/${owner}/${repo}/tags/list`,
-      { headers: { Authorization: `Bearer ${token}` }, signal: tagsController.signal },
-    )
-    clearTimeout(tagsTimer)
+function extractRefsFromYamlValue (value, context) {
+  const refs = []
+  const cleaned = resolveCiExpressions(stripYamlComment(value), context)
+    .replace(/^[|>]\s*/, '')
+    .replace(/^\s*-\s*/, '')
+    .replace(/^\[/, '')
+    .replace(/\]$/, '')
 
-    if (!tagsResp.ok) return null
-    const { tags } = await tagsResp.json()
-    if (!tags || tags.length === 0) return null
+  if (cleaned.includes('$') && cleaned.trim()) return [stripQuotes(cleaned.trim())]
 
-    const verifyTag = async (tag) => {
-      try {
-        const mfController = new AbortController()
-        const mfTimer = setTimeout(() => mfController.abort(), 10000)
-        const mfResp = await fetch(
-          `https://ghcr.io/v2/${owner}/${repo}/manifests/${tag}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: 'application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json',
-            },
-            signal: mfController.signal,
-          },
-        )
-        clearTimeout(mfTimer)
+  for (const token of cleaned.split(/[\s,]+/)) {
+    const candidate = token.replace(/^[-'"]+|['"]+$/g, '')
+    if (parseImageRef(candidate)) refs.push(candidate)
+  }
+  return refs
+}
 
-        if (!mfResp.ok) return null
+function isMetadataTagsOutput (value) {
+  return /^\$\{\{\s*steps\.[A-Za-z0-9_-]+\.outputs\.tags\s*}}$/.test(value)
+}
 
-        const manifest = await mfResp.json()
-        let platforms = []
+function dockerActionForField (lines, fieldIndex, fieldIndent) {
+  let stepStart = -1
+  let stepIndent = -1
 
-        if (manifest.manifests) {
-          platforms = manifest.manifests
-            .filter(m => m.platform)
-            .map(m => `${m.platform.os}/${m.platform.architecture}`)
-          if (!platforms.some(p => p.includes('amd64'))) return null
-        } else {
-          platforms = ['linux/amd64']
-        }
+  for (let index = fieldIndex - 1; index >= 0; index -= 1) {
+    const step = lines[index].match(/^(\s*)-\s+(?:name|uses|run):/)
+    if (step && step[1].length < fieldIndent) {
+      stepStart = index
+      stepIndent = step[1].length
+      break
+    }
+  }
+  if (stepStart < 0) return null
 
-        return { source: 'ghcr', image: `ghcr.io/${owner}/${repo}`, tag, platforms }
-      } catch {
-        return null
+  let stepEnd = lines.length
+  for (let index = stepStart + 1; index < lines.length; index += 1) {
+    const nextStep = lines[index].match(/^(\s*)-\s+(?:name|uses|run):/)
+    if (nextStep && nextStep[1].length === stepIndent) {
+      stepEnd = index
+      break
+    }
+  }
+
+  const block = lines.slice(stepStart, stepEnd).join('\n')
+  const action = block.match(/\buses:\s*['"]?(docker\/(?:metadata-action|build-push-action))@/i)
+  if (!action) return null
+
+  return {
+    action: action[1].toLowerCase(),
+    block,
+    id: block.match(/^\s*id:\s*['"]?([A-Za-z0-9_-]+)/mi)?.[1] || null,
+  }
+}
+
+function actionStepPublishes (block) {
+  const push = block.match(/^\s*push:\s*(.+)$/mi)
+  if (push) {
+    const value = stripQuotes(stripYamlComment(push[1])).trim()
+    if (value === 'true' || /^\$\{\{[\s\S]+}}$/.test(value)) return true
+  }
+  return /(?:^|[\s,])type\s*=\s*registry(?:[\s,]|$)/i.test(block)
+}
+
+function publishedMetadataIds (lines) {
+  const ids = new Set()
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const step = lines[index].match(/^(\s*)-\s+(?:name|uses|run):/)
+    if (!step) continue
+
+    const stepIndent = step[1].length
+    let stepEnd = lines.length
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const nextStep = lines[next].match(/^(\s*)-\s+(?:name|uses|run):/)
+      if (nextStep && nextStep[1].length === stepIndent) {
+        stepEnd = next
+        break
       }
     }
 
-    const priorityTags = [preferredTag, fallbackTag]
-      .filter((tag, index, candidates) => tag && candidates.indexOf(tag) === index)
+    const block = lines.slice(index, stepEnd).join('\n')
+    if (!/\buses:\s*['"]?docker\/build-push-action@/i.test(block)) continue
+    if (!actionStepPublishes(block)) continue
 
-    for (const tag of priorityTags) {
-      if (!tags.includes(tag)) continue
-      const verified = await verifyTag(tag)
-      if (verified) return verified
+    for (const match of block.matchAll(/\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.tags\s*}}/g)) {
+      ids.add(match[1])
     }
-
-    const versionTagRe = /^v?\d+\.\d+/
-    const ordered = [...tags].sort((a, b) => {
-      const aVer = versionTagRe.test(a) ? 1 : 0
-      const bVer = versionTagRe.test(b) ? 1 : 0
-      return bVer - aVer
-    })
-
-    for (const tag of ordered.filter(t => !priorityTags.includes(t)).slice(0, 5)) {
-      const verified = await verifyTag(tag)
-      if (verified) return verified
-    }
-
-    return null
-  } catch {
-    return null
-  }
-}
-
-async function verifyImageRef (img, preferredTag = null) {
-  const fallbackTag = img.tag && isFloatingTag(img.tag) ? img.tag : null
-  const tag = fallbackTag ? preferredTag || fallbackTag : img.tag
-  if (img.registry === 'ghcr') {
-    return checkGhcr(img.owner, img.repo, tag, fallbackTag)
-  }
-  return checkDockerHub(img.owner, img.repo, tag, fallbackTag)
-}
-
-// ── Docker Compose Image Extraction ────────────────────────
-
-function extractImagesFromCompose (workDir) {
-  const images = []
-  const composeNames = ['docker-compose.yml', 'docker-compose.yaml', 'compose.yml', 'compose.yaml']
-
-  for (const name of composeNames) {
-    const p = path.join(workDir, name)
-    if (!fs.existsSync(p)) continue
-
-    const content = fs.readFileSync(p, 'utf-8')
-    for (const m of content.matchAll(/^\s*image:\s*['"]?([^\s'"#]+)['"]?/gm)) {
-      const ref = parseImageRef(m[1])
-      if (!ref) continue
-      if (isInfraImage(ref.repo) || isInfraImage(ref.owner)) continue
-      images.push(ref)
-    }
-    break
   }
 
-  return dedupeImages(images)
+  return ids
 }
 
-// ── CI Workflow Image Extraction ───────────────────────────
+function dockerBuildCommandPublishes (command) {
+  return /(?:^|\s)--push(?:=true)?(?=\s|$)/.test(command) ||
+    /(?:^|\s)(?:--output|-o)(?:=|\s+)['"]?type\s*=\s*registry\b/i.test(command)
+}
 
-function extractImagesFromWorkflows (workDir) {
-  const images = []
+function extractWorkflowDeclarations (workDir, context) {
+  const declarations = []
   const workflowDir = path.join(workDir, '.github', 'workflows')
-
-  if (!fs.existsSync(workflowDir)) return images
+  if (!fs.existsSync(workflowDir)) return declarations
 
   let files
   try {
-    files = fs.readdirSync(workflowDir).filter(f => f.endsWith('.yml') || f.endsWith('.yaml'))
+    files = fs.readdirSync(workflowDir)
+      .filter(file => /\.ya?ml$/i.test(file))
+      .sort()
   } catch {
-    return images
+    return declarations
   }
 
   for (const file of files) {
-    const content = fs.readFileSync(path.join(workflowDir, file), 'utf-8')
+    const filePath = path.join(workflowDir, file)
+    const sourceFile = path.relative(workDir, filePath)
+    const content = fs.readFileSync(filePath, 'utf8')
+    const uncommented = content
+      .split(/\r?\n/)
+      .filter(line => !line.trimStart().startsWith('#'))
+      .join('\n')
+    const shellContent = resolveCiExpressions(
+      uncommented.replace(/\\\r?\n\s*/g, ' '),
+      context,
+    )
 
-    for (const m of content.matchAll(/docker\s+push\s+['"]?([^\s'"$]+)['"]?/g)) {
-      const ref = parseImageRef(m[1])
-      if (ref) images.push(ref)
-    }
-
-    for (const m of content.matchAll(/docker\s+buildx\s+[^]*?-t\s+['"]?([^\s'"$]+)['"]?/g)) {
-      const ref = parseImageRef(m[1])
-      if (ref) images.push(ref)
-    }
-
-    for (const m of content.matchAll(/images:\s*['"]?([^\s'"#]+)['"]?/g)) {
-      const ref = parseImageRef(m[1])
-      if (ref) images.push(ref)
-    }
-
-    for (const m of content.matchAll(/tags:\s*[|>]?\s*\n((?:\s+.+\n?)*)/g)) {
-      const block = m[1]
-      for (const line of block.split('\n')) {
-        const tagMatch = line.match(/^\s*-?\s*['"]?([^\s'"#$]+)['"]?\s*$/)
-        if (tagMatch) {
-          const ref = parseImageRef(tagMatch[1])
-          if (ref) images.push(ref)
-        }
+    for (const match of shellContent.matchAll(/\bdocker\s+push\s+([^\n;&|]+)/g)) {
+      const raw = dockerCommandImage('push', match[1])
+      if (raw) {
+        addDeclaration(declarations, raw, {
+          source: 'ci',
+          sourceFile,
+          retainUnresolved: true,
+        })
       }
     }
-  }
 
-  return dedupeImages(images)
-}
+    for (const match of shellContent.matchAll(/\bdocker\s+(?:buildx\s+build|build)\b[^\n;&|]*/g)) {
+      if (!dockerBuildCommandPublishes(match[0])) continue
+      for (const tag of match[0].matchAll(/(?:^|\s)(?:-t|--tag)(?:=|\s+)['"]?([^\s'"]+)/g)) {
+        addDeclaration(declarations, tag[1], {
+          source: 'ci',
+          sourceFile,
+          retainUnresolved: true,
+        })
+      }
+    }
 
-// ── Release extraction ─────────────────────────────────────
+    const lines = content.split(/\r?\n/)
+    const metadataIdsUsedByPublish = publishedMetadataIds(lines)
+    for (let index = 0; index < lines.length; index += 1) {
+      const field = lines[index].match(/^(\s*)(?:images|tags):\s*(.*)$/)
+      if (!field) continue
 
-async function fetchGithubReleases (owner, repo) {
-  const headers = {
-    Accept: 'application/vnd.github+json',
-    'User-Agent': 'sealos-deploy-detect-image',
-  }
-  const token = process.env.GITHUB_TOKEN
-  if (token) headers.Authorization = `Bearer ${token}`
+      const fieldIndent = field[1].length
+      const actionStep = dockerActionForField(lines, index, fieldIndent)
+      if (!actionStep) continue
+      const fieldName = lines[index].trimStart().split(':', 1)[0]
+      if (fieldName === 'images') {
+        if (actionStep.action !== 'docker/metadata-action') continue
+        if (!actionStep.id || !metadataIdsUsedByPublish.has(actionStep.id)) continue
+      }
+      if (fieldName === 'tags') {
+        if (actionStep.action !== 'docker/build-push-action') continue
+        if (!actionStepPublishes(actionStep.block)) continue
+      }
 
-  const texts = []
-  const evidence = []
+      const inline = field[2]
+      for (const ref of extractRefsFromYamlValue(inline, context)) {
+        if (fieldName === 'tags' && isMetadataTagsOutput(ref)) continue
+        addDeclaration(declarations, ref, {
+          source: 'ci',
+          sourceFile,
+          retainUnresolved: true,
+        })
+      }
 
-  for (const endpoint of [
-    `https://api.github.com/repos/${owner}/${repo}/releases/latest`,
-    `https://api.github.com/repos/${owner}/${repo}/releases?per_page=5`,
-  ]) {
-    try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 10000)
-      const resp = await fetch(endpoint, { headers, signal: controller.signal })
-      clearTimeout(timer)
-      if (!resp.ok) continue
-
-      const data = await resp.json()
-      const releases = Array.isArray(data) ? data : [data]
-      for (const release of releases) {
-        if (release?.body) {
-          texts.push(release.body)
-          evidence.push({
-            source: 'release',
-            signal: `release ${release.tag_name || release.name || 'unknown'}`,
+      if (inline && inline !== '|' && inline !== '>') continue
+      for (let next = index + 1; next < lines.length; next += 1) {
+        const indentation = lines[next].match(/^\s*/)[0].length
+        if (lines[next].trim() && indentation <= fieldIndent) break
+        for (const ref of extractRefsFromYamlValue(lines[next], context)) {
+          if (fieldName === 'tags' && isMetadataTagsOutput(ref)) continue
+          addDeclaration(declarations, ref, {
+            source: 'ci',
+            sourceFile,
+            retainUnresolved: true,
           })
         }
       }
-      if (texts.length > 0) break
-    } catch {
+    }
+  }
+
+  return declarations
+}
+
+function unquoteYamlScalar (raw) {
+  const value = stripYamlComment(String(raw || '')).trim()
+  if (!value) return ''
+  return stripQuotes(value)
+}
+
+function workflowBuildArgNames (content) {
+  const names = new Set()
+  const lines = content.split(/\r?\n/)
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const field = lines[index].match(/^(\s*)build-args:\s*(.*)$/)
+    if (!field) continue
+    const fieldIndent = field[1].length
+    if (field[2] && !['|', '>'].includes(field[2].trim())) {
+      for (const item of splitInlineYamlItems(field[2])) {
+        const name = buildArgName(item)
+        if (name) names.add(name)
+      }
       continue
     }
-  }
 
-  const images = []
-  for (const text of texts) {
-    images.push(...extractImageRefsFromText(text))
-  }
-
-  return { images: dedupeImages(images), evidence }
-}
-
-function extractImagesFromLocalReleases (workDir) {
-  const evidence = []
-  const images = []
-  const candidates = [
-    'CHANGELOG.md',
-    'RELEASES.md',
-    path.join('.github', 'release.yml'),
-  ]
-
-  for (const rel of candidates) {
-    const p = path.join(workDir, rel)
-    if (!fs.existsSync(p)) continue
-    const content = fs.readFileSync(p, 'utf-8')
-    images.push(...extractImageRefsFromText(content))
-    evidence.push({ source: 'release', signal: `local file ${rel}` })
-  }
-
-  return { images: dedupeImages(images), evidence }
-}
-
-// ── Package metadata ───────────────────────────────────────
-
-function extractPackageHints (workDir) {
-  const evidence = []
-  const pkgPath = path.join(workDir, 'package.json')
-  if (!fs.existsSync(pkgPath)) return { version: null, evidence }
-
-  try {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
-    if (pkg.version) {
-      evidence.push({ source: 'ci-workflow', signal: `package.json version ${pkg.version}` })
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const indentation = lines[next].match(/^\s*/)[0].length
+      if (lines[next].trim() && indentation <= fieldIndent) break
+      const name = buildArgName(lines[next])
+      if (name) names.add(name)
     }
-    return { version: pkg.version || null, evidence }
+  }
+
+  return [...names].sort()
+}
+
+function nearestYamlParent (lines, index, childIndent, key) {
+  for (let previous = index - 1; previous >= 0; previous -= 1) {
+    const content = stripYamlComment(lines[previous])
+    if (!content) continue
+    const indentation = lines[previous].match(/^\s*/)[0].length
+    if (indentation >= childIndent) continue
+    const mapping = parseYamlMapping(content)
+    if (mapping?.key === key) return { index: previous, indent: indentation }
+    childIndent = indentation
+  }
+  return null
+}
+
+function extractMatrixBuildPlans (content, sourceFile, workDir) {
+  const plans = []
+  const lines = content.split(/\r?\n/)
+  const sharedArgs = workflowBuildArgNames(content)
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const includeMatch = lines[index].match(/^(\s*)include:\s*$/)
+    if (!includeMatch) continue
+    const includeIndent = includeMatch[1].length
+    if (!nearestYamlParent(lines, index, includeIndent, 'matrix')) continue
+
+    let current = null
+    let itemIndent = null
+    const flush = () => {
+      if (!current) return
+      const component = current.component || current.service || current.name || ''
+      const image = current.image || ''
+      const context = current.context || '.'
+      const dockerfile = current.dockerfile || current.file || 'Dockerfile'
+      if (!component && !image) {
+        current = null
+        return
+      }
+      const build = normalizeWorkflowBuildPlan(finalizeBuildPlan({
+        context,
+        dockerfile,
+        target: current.target || null,
+        args: sharedArgs.slice(),
+        origin: null,
+      }, path.join(workDir, 'compose.yaml')), workDir)
+      plans.push({
+        component,
+        image,
+        build,
+        source_file: sourceFile,
+      })
+      current = null
+    }
+
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const contentLine = stripYamlComment(lines[next])
+      const indentation = lines[next].match(/^\s*/)[0].length
+      if (contentLine && indentation <= includeIndent) break
+      if (!contentLine) continue
+
+      const item = contentLine.match(/^\s*-\s*([A-Za-z0-9_.-]+):\s*(.*)$/)
+      if (item) {
+        if (itemIndent === null) itemIndent = indentation
+        if (indentation === itemIndent) {
+          flush()
+          current = {}
+          current[item[1]] = unquoteYamlScalar(item[2])
+          continue
+        }
+      }
+
+      if (!current || itemIndent === null || indentation <= itemIndent) continue
+      const mapping = parseYamlMapping(contentLine)
+      if (mapping) current[mapping.key] = unquoteYamlScalar(mapping.value)
+    }
+    flush()
+  }
+
+  return plans
+}
+
+function extractWorkflowBuildPlans (workDir) {
+  const workflowDir = path.join(workDir, '.github', 'workflows')
+  if (!fs.existsSync(workflowDir)) return []
+
+  let files
+  try {
+    files = fs.readdirSync(workflowDir)
+      .filter(file => /\.ya?ml$/i.test(file))
+      .sort()
   } catch {
-    return { version: null, evidence }
+    return []
+  }
+
+  return files.flatMap(file => {
+    const filePath = path.join(workflowDir, file)
+    return extractMatrixBuildPlans(
+      fs.readFileSync(filePath, 'utf8'),
+      path.relative(workDir, filePath),
+      workDir,
+    )
+  })
+}
+
+function identityToken (value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+function imageNameToken (value) {
+  const parsed = parseImageRef(value)
+  if (parsed) return identityToken(imageBasename(parsed))
+  const withoutSelector = String(value || '').split('@', 1)[0].replace(/:[^/]+$/, '')
+  return identityToken(withoutSelector.split('/').pop())
+}
+
+function buildPlanMatchRank (service, plan) {
+  const serviceImage = imageNameToken(service.declared_image)
+  const planImage = imageNameToken(plan.image)
+  if (serviceImage && planImage && serviceImage === planImage) return 0
+
+  const serviceName = identityToken(service.name)
+  const workloadName = identityToken(service.workload_name)
+  const component = identityToken(plan.component)
+  if (component && (component === serviceName || component === workloadName)) return 1
+  if (
+    component &&
+    (
+      serviceName.endsWith(component) ||
+      serviceName.startsWith(component) ||
+      workloadName.endsWith(component) ||
+      workloadName.startsWith(component)
+    )
+  ) return 2
+  return null
+}
+
+function attachWorkflowBuildPlans (services, plans) {
+  return services.map(service => {
+    if (service.build || service.role === 'database') return service
+    const candidates = plans
+      .map(plan => ({ plan, rank: buildPlanMatchRank(service, plan) }))
+      .filter(candidate => candidate.rank !== null)
+      .sort((left, right) => left.rank - right.rank)
+    if (candidates.length === 0) return service
+    const bestRank = candidates[0].rank
+    const best = candidates.filter(candidate => candidate.rank === bestRank)
+    if (best.length !== 1) return service
+    return {
+      ...service,
+      build: best[0].plan.build,
+      image_status: service.image_status === 'verified'
+        ? 'verified'
+        : 'build_required',
+    }
+  })
+}
+
+function findComposePath (workDir) {
+  return ['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml']
+    .map(name => path.join(workDir, name))
+    .find(file => fs.existsSync(file)) || null
+}
+
+function parseYamlMapping (content) {
+  const match = content.match(/^\s*(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_.-]+)):\s*(.*)$/)
+  if (!match) return null
+  return {
+    key: match[1] || match[2] || match[3],
+    value: match[4],
   }
 }
 
-// ── Docker Hub Search + Verify ─────────────────────────────
+function inlineNames (value) {
+  return value
+    .replace(/^[\[{]/, '')
+    .replace(/[\]}]$/, '')
+    .split(',')
+    .map(item => stripQuotes(item.trim().split(':', 1)[0]))
+    .filter(name => /^[A-Za-z0-9_.-]+$/.test(name))
+}
 
-async function searchAndVerifyDockerHub (query, githubOwner, githubRepo) {
-  try {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 10000)
-    const resp = await fetch(
-      `https://hub.docker.com/v2/search/repositories/?query=${encodeURIComponent(query)}&page_size=5`,
-      { signal: controller.signal },
-    )
-    clearTimeout(timer)
+function splitInlineYamlItems (value) {
+  const items = []
+  let start = 0
+  let quote = null
+  let depth = 0
 
-    if (!resp.ok) return null
-    const data = await resp.json()
-    if (!data.results || data.results.length === 0) return null
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index]
+    if ((character === '"' || character === "'") && value[index - 1] !== '\\') {
+      quote = quote === character ? null : (quote || character)
+      continue
+    }
+    if (quote) continue
+    if (character === '[' || character === '{') depth += 1
+    if (character === ']' || character === '}') depth = Math.max(0, depth - 1)
+    if (character === ',' && depth === 0) {
+      items.push(value.slice(start, index).trim())
+      start = index + 1
+    }
+  }
 
-    const githubUrlPattern = new RegExp(`github\\.com[/:]${githubOwner}/${githubRepo}`, 'i')
+  items.push(value.slice(start).trim())
+  return items.filter(Boolean)
+}
 
-    for (const result of data.results) {
-      const ns = result.repo_owner || result.repo_name?.split('/')[0]
-      const repo = result.repo_name?.includes('/') ? result.repo_name.split('/')[1] : result.repo_name
-      if (!ns || !repo) continue
+function inlineYamlMapping (value) {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
 
-      try {
-        const detailController = new AbortController()
-        const detailTimer = setTimeout(() => detailController.abort(), 10000)
-        const detailResp = await fetch(
-          `https://hub.docker.com/v2/repositories/${ns}/${repo}/`,
-          { signal: detailController.signal },
-        )
-        clearTimeout(detailTimer)
+  const mapping = new Map()
+  const body = trimmed.slice(1, -1)
+  for (const item of splitInlineYamlItems(body)) {
+    let quote = null
+    let depth = 0
+    let separator = -1
 
-        if (!detailResp.ok) continue
-        const detail = await detailResp.json()
-
-        const desc = (detail.full_description || '') + ' ' + (detail.description || '')
-        if (!githubUrlPattern.test(desc)) continue
-
-        const tagResult = await checkDockerHub(ns, repo)
-        if (tagResult) {
-          return { ...tagResult, source: 'dockerhub-search' }
-        }
-      } catch {
+    for (let index = 0; index < item.length; index += 1) {
+      const character = item[index]
+      if ((character === '"' || character === "'") && item[index - 1] !== '\\') {
+        quote = quote === character ? null : (quote || character)
         continue
+      }
+      if (quote) continue
+      if (character === '[' || character === '{') depth += 1
+      if (character === ']' || character === '}') depth = Math.max(0, depth - 1)
+      if (character === ':' && depth === 0) {
+        separator = index
+        break
       }
     }
 
-    return null
-  } catch {
-    return null
+    if (separator < 0) continue
+    const key = stripQuotes(item.slice(0, separator).trim())
+    if (!key) continue
+    mapping.set(key, item.slice(separator + 1).trim())
+  }
+  return mapping
+}
+
+function buildArgName (raw) {
+  let value = String(raw || '').trim().replace(/^-\s*/, '')
+  if (!value) return null
+
+  const mapping = parseYamlMapping(value)
+  if (mapping) value = mapping.key
+  else {
+    value = stripQuotes(value)
+    const equals = value.indexOf('=')
+    if (equals >= 0) value = value.slice(0, equals)
+  }
+
+  value = stripQuotes(value.trim())
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) ? value : null
+}
+
+function addBuildArg (build, raw) {
+  const name = buildArgName(raw)
+  if (name && !build.args.includes(name)) build.args.push(name)
+}
+
+function addBuildArgs (build, raw) {
+  const value = String(raw || '').trim()
+  if (!value) return
+
+  if (value.startsWith('[') && value.endsWith(']')) {
+    for (const item of splitInlineYamlItems(value.slice(1, -1))) {
+      addBuildArg(build, item)
+    }
+    return
+  }
+
+  const mapping = inlineYamlMapping(value)
+  if (mapping) {
+    for (const name of mapping.keys()) addBuildArg(build, name)
+    return
+  }
+
+  addBuildArg(build, value)
+}
+
+function createBuildPlan (context = '.') {
+  return {
+    context: stripQuotes(String(context || '').trim()) || '.',
+    dockerfile: 'Dockerfile',
+    target: null,
+    args: [],
+    origin: null,
   }
 }
 
-function confidenceForSource (source) {
-  if (source === 'readme' || source === 'release') return 'high'
-  if (source === 'ci-workflow' || source === 'compose' || source === 'ghcr' || source === 'dockerhub') return 'medium'
-  return 'low'
+function applyBuildMapping (build, mapping) {
+  if (mapping.has('context')) {
+    build.context = stripQuotes(mapping.get('context')) || '.'
+  }
+  if (mapping.has('dockerfile')) {
+    build.dockerfile = stripQuotes(mapping.get('dockerfile')) || 'Dockerfile'
+  }
+  if (mapping.has('target')) {
+    build.target = stripQuotes(mapping.get('target')) || null
+  }
+  if (mapping.has('args')) addBuildArgs(build, mapping.get('args'))
 }
 
-function buildReuseResult (verified, source, evidence) {
+function parseBuildDeclaration (raw) {
+  const value = String(raw || '').trim()
+  if (!value) return createBuildPlan()
+
+  const mapping = inlineYamlMapping(value)
+  if (mapping) {
+    const build = createBuildPlan()
+    applyBuildMapping(build, mapping)
+    return build
+  }
+
+  return createBuildPlan(value)
+}
+
+function finalizeBuildPlan (build, composePath) {
+  if (!build) return null
+
+  const unresolved = [build.context, build.dockerfile]
+    .some(value => value.includes('$'))
+  const remoteContext = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|git@)/.test(build.context)
+  if (unresolved || remoteContext) return build
+
+  const composeDir = path.dirname(composePath)
+  const contextPath = path.isAbsolute(build.context)
+    ? build.context
+    : path.resolve(composeDir, build.context)
+  const dockerfilePath = path.isAbsolute(build.dockerfile)
+    ? build.dockerfile
+    : path.resolve(contextPath, build.dockerfile)
+
+  try {
+    if (fs.statSync(dockerfilePath).isFile()) build.origin = 'existing'
+  } catch {
+    // Phase 3 will generate or minimally repair a missing local Dockerfile.
+  }
+  return build
+}
+
+function normalizeWorkflowBuildPlan (build, workDir) {
+  if (!build) return build
+  const contextValue = String(build.context || '.')
+  const dockerfileValue = String(build.dockerfile || 'Dockerfile')
+  if (
+    contextValue.includes('$') ||
+    dockerfileValue.includes('$') ||
+    /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|git@)/.test(contextValue)
+  ) {
+    return build
+  }
+
+  const contextPath = path.resolve(workDir, contextValue)
+  const rootDockerfilePath = path.isAbsolute(dockerfileValue)
+    ? path.normalize(dockerfileValue)
+    : path.resolve(workDir, dockerfileValue)
+  const contextDockerfilePath = path.isAbsolute(dockerfileValue)
+    ? path.normalize(dockerfileValue)
+    : path.resolve(contextPath, dockerfileValue)
+
+  let dockerfilePath = null
+  // docker/build-push-action accepts a repository-root Dockerfile path even
+  // when `context` points at a subdirectory. build-push.mjs consumes the
+  // normalized path relative to that context, so resolve the file that
+  // actually exists in the checkout before handing the plan to Phase 3/4.
+  for (const candidate of [rootDockerfilePath, contextDockerfilePath]) {
+    try {
+      if (fs.statSync(candidate).isFile()) {
+        dockerfilePath = candidate
+        break
+      }
+    } catch {
+      // Try the next interpretation.
+    }
+  }
+  if (!dockerfilePath) return build
+
+  try {
+    if (!fs.statSync(contextPath).isDirectory()) return build
+  } catch {
+    return build
+  }
+
+  const relativeDockerfile = path.relative(contextPath, dockerfilePath)
+  return {
+    ...build,
+    context: (path.relative(workDir, contextPath) || '.').split(path.sep).join('/'),
+    dockerfile: (relativeDockerfile || path.basename(dockerfilePath)).split(path.sep).join('/'),
+    origin: build.origin || 'existing',
+  }
+}
+
+function extractComposeEvidence (workDir) {
+  const declarations = []
+  const services = []
+  const composePath = findComposePath(workDir)
+  if (!composePath) return { declarations, services }
+
+  const sourceFile = path.relative(workDir, composePath)
+  const lines = fs.readFileSync(composePath, 'utf8').split(/\r?\n/)
+  let servicesIndent = null
+  let currentState = null
+  let activeBlock = null
+  const states = new Map()
+
+  function setServiceImage (state, rawValue) {
+    const resolvedValue = resolveComposeImageExpression(rawValue)
+    const parsed = parseImageRef(resolvedValue)
+    state.service.declared_image = parsed?.declaredRef || resolvedValue
+    state.service.image_status = parsed ? 'unavailable' : (
+      state.service.build ? 'build_required' : 'unavailable'
+    )
+    if (!parsed) {
+      state.declaration = addDeclaration(declarations, resolvedValue, {
+        source: 'compose',
+        sourceFile,
+        service: state.service.name,
+        role: state.service.role,
+        selectionRank: 3,
+        retainUnresolved: true,
+      })
+      return
+    }
+
+    state.service.role = classifyImageRole(parsed, state.service.name)
+    state.declaration = addDeclaration(declarations, resolvedValue, {
+      source: 'compose',
+      sourceFile,
+      service: state.service.name,
+      role: state.service.role,
+      selectionRank: 3,
+    })
+  }
+
+  function startService (name, indent, inlineBody = '') {
+    const service = {
+      name,
+      role: 'application',
+      source: 'compose',
+      source_file: sourceFile,
+      declared_image: null,
+      build: null,
+      image_status: 'unavailable',
+      image_ref: null,
+      digest: null,
+    }
+    services.push(service)
+    currentState = {
+      service,
+      indent,
+      declaration: null,
+      dependsOn: new Set(),
+      publishesPorts: false,
+    }
+    states.set(name, currentState)
+    activeBlock = null
+
+    const inlineImage = inlineBody.match(/\bimage:\s*(\$\{[^}]+\}|"[^"]+"|'[^']+'|[^,}]+)/)
+    if (inlineImage) setServiceImage(currentState, inlineImage[1])
+
+    const inlineService = inlineYamlMapping(inlineBody)
+    const inlineBuild = inlineService?.get('build')
+    if (inlineBuild !== undefined) {
+      service.build = parseBuildDeclaration(inlineBuild)
+      if (!service.declared_image) service.image_status = 'build_required'
+    }
+
+    const inlineDepends = inlineBody.match(/\bdepends_on:\s*(\[[^\]]*]|\{[^}]*})/)
+    if (inlineDepends) {
+      for (const dependency of inlineNames(inlineDepends[1])) {
+        currentState.dependsOn.add(dependency)
+      }
+    }
+
+    if (/\bports:\s*(?:\[|[^,}\s])/.test(inlineBody)) {
+      currentState.publishesPorts = true
+    }
+  }
+
+  for (const line of lines) {
+    const content = stripYamlComment(line)
+    if (!content) continue
+    const indent = line.match(/^\s*/)[0].length
+
+    if (servicesIndent === null) {
+      const servicesMatch = content.match(/^(\s*)services:\s*$/)
+      if (servicesMatch) servicesIndent = servicesMatch[1].length
+      continue
+    }
+
+    if (indent <= servicesIndent) break
+
+    const mapping = parseYamlMapping(content)
+    if (mapping && (!currentState || indent <= currentState.indent)) {
+      startService(mapping.key, indent, mapping.value)
+      continue
+    }
+
+    if (!currentState || indent <= currentState.indent) continue
+
+    if (activeBlock && indent > activeBlock.indent) {
+      if (activeBlock.name === 'depends_on') {
+        const listItem = content.match(/^\s*-\s*['"]?([A-Za-z0-9_.-]+)/)
+        const dependencyMapping = parseYamlMapping(content)
+        if (activeBlock.itemIndent === undefined && (listItem || dependencyMapping)) {
+          activeBlock.itemIndent = indent
+        }
+        const dependency = indent === activeBlock.itemIndent
+          ? (listItem?.[1] || dependencyMapping?.key)
+          : null
+        if (dependency) currentState.dependsOn.add(dependency)
+        continue
+      }
+      if (activeBlock.name === 'ports') {
+        if (/^\s*-\s*\S+/.test(content)) currentState.publishesPorts = true
+        continue
+      }
+      if (activeBlock.name === 'build') {
+        if (
+          activeBlock.argsIndent !== undefined &&
+          indent > activeBlock.argsIndent
+        ) {
+          addBuildArg(currentState.service.build, content)
+          continue
+        }
+        if (
+          activeBlock.argsIndent !== undefined &&
+          indent <= activeBlock.argsIndent
+        ) {
+          activeBlock.argsIndent = undefined
+        }
+
+        const buildMapping = parseYamlMapping(content)
+        if (buildMapping) {
+          if (activeBlock.propertyIndent === undefined) {
+            activeBlock.propertyIndent = indent
+          }
+          if (indent !== activeBlock.propertyIndent) continue
+
+          if (buildMapping.key === 'context') {
+            currentState.service.build.context =
+              stripQuotes(buildMapping.value) || '.'
+          } else if (buildMapping.key === 'dockerfile') {
+            currentState.service.build.dockerfile =
+              stripQuotes(buildMapping.value) || 'Dockerfile'
+          } else if (buildMapping.key === 'target') {
+            currentState.service.build.target =
+              stripQuotes(buildMapping.value) || null
+          } else if (buildMapping.key === 'args') {
+            if (buildMapping.value) {
+              addBuildArgs(currentState.service.build, buildMapping.value)
+            } else {
+              activeBlock.argsIndent = indent
+            }
+          }
+        }
+        continue
+      }
+    }
+    activeBlock = null
+
+    const imageMatch = content.match(/^\s*image:\s*(.+)$/)
+    if (imageMatch) {
+      setServiceImage(currentState, imageMatch[1])
+      continue
+    }
+
+    const buildMatch = content.match(/^\s*build:\s*(.*)$/)
+    if (buildMatch) {
+      currentState.service.build = parseBuildDeclaration(buildMatch[1])
+      currentState.service.image_status = 'build_required'
+      if (!buildMatch[1]) activeBlock = { name: 'build', indent }
+      continue
+    }
+
+    const dependsMatch = content.match(/^\s*depends_on:\s*(.*)$/)
+    if (dependsMatch) {
+      if (dependsMatch[1]) {
+        for (const dependency of inlineNames(dependsMatch[1])) {
+          currentState.dependsOn.add(dependency)
+        }
+      } else {
+        activeBlock = { name: 'depends_on', indent }
+      }
+      continue
+    }
+
+    const portsMatch = content.match(/^\s*ports:\s*(.*)$/)
+    if (portsMatch) {
+      if (portsMatch[1]) currentState.publishesPorts = true
+      else activeBlock = { name: 'ports', indent }
+    }
+  }
+
+  const imageStates = [...states.values()].filter(state => state.declaration)
+  const dependedUpon = new Set(
+    [...states.values()].flatMap(state => [...state.dependsOn]),
+  )
+
+  for (const state of imageStates) {
+    let selectionRank
+    if (imageStates.length === 1 || state.service.build || state.dependsOn.size > 0) {
+      selectionRank = 0
+    } else if (state.publishesPorts) {
+      selectionRank = 1
+    } else if (!dependedUpon.has(state.service.name)) {
+      selectionRank = 2
+    } else {
+      selectionRank = 3
+    }
+    state.declaration.selectionRank = selectionRank
+  }
+
+  for (const state of states.values()) {
+    state.service.build = finalizeBuildPlan(state.service.build, composePath)
+  }
+
+  return { declarations, services }
+}
+
+function collectProjectEvidence (workDir, options = {}) {
+  const githubUrl = options.githubUrl || getGithubUrlFromGitRemote(workDir)
+  const context = {
+    githubRepository: parseGithubRepository(githubUrl),
+    githubSha: getGitHead(workDir),
+  }
+  const readme = extractReadmeDeclarations(workDir)
+  const ci = extractWorkflowDeclarations(workDir, context)
+  const compose = extractComposeEvidence(workDir)
+  const deployment = inspectDeploymentSource(workDir, {
+    helmPath: options.helmPath,
+    pythonPath: options.pythonPath,
+    writeRendered: options.writeRenderedSource !== false,
+  })
+  const topologyDeclarations = []
+  const topologyServices = deployment.deployment_source.kind === 'compose'
+    ? compose.services
+    : deployment.services.map(service => {
+        if (!service.declared_image) return service
+        const parsed = parseImageRef(service.declared_image)
+        return {
+          ...service,
+          role: parsed
+            ? classifyImageRole(parsed, service.workload_name || service.name)
+            : service.role,
+        }
+      })
+
+  for (const image of deployment.images) {
+    const parsed = parseImageRef(image.image)
+    const service = topologyServices.find(item => item.name === image.service)
+    addDeclaration(topologyDeclarations, image.image, {
+      source: deployment.deployment_source.kind,
+      sourceFile: deployment.deployment_source.rendered_path || deployment.deployment_source.path,
+      service: image.service,
+      role: parsed
+        ? classifyImageRole(parsed, service?.workload_name || image.workload_name)
+        : 'application',
+      selectionRank: 3,
+      retainUnresolved: true,
+    })
+  }
+  const services = attachWorkflowBuildPlans(
+    topologyServices,
+    extractWorkflowBuildPlans(workDir),
+  )
+
+  return {
+    declarations: [...readme, ...ci, ...compose.declarations, ...topologyDeclarations],
+    services,
+    deploymentSource: deployment.deployment_source,
+  }
+}
+
+async function fetchWithTimeout (fetchImpl, url, options = {}) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10000)
+  try {
+    return await fetchImpl(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function registryToken (image, fetchImpl) {
+  let url
+  if (image.registry === 'dockerhub') {
+    url = `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${image.repository}:pull`
+  } else if (image.registry === 'ghcr') {
+    url = `https://ghcr.io/token?scope=repository:${image.repository}:pull`
+  } else {
+    return null
+  }
+
+  const response = await fetchWithTimeout(fetchImpl, url)
+  if (!response.ok) return null
+  const payload = await response.json()
+  return payload.token || payload.access_token || null
+}
+
+function parseBearerChallenge (header) {
+  if (!header || !/^Bearer\s+/i.test(header)) return null
+  const parameters = {}
+  for (const match of header.slice(header.indexOf(' ') + 1).matchAll(/(\w+)="([^"]*)"/g)) {
+    parameters[match[1]] = match[2]
+  }
+  return parameters.realm ? parameters : null
+}
+
+async function challengeToken (challenge, fetchImpl) {
+  const url = new URL(challenge.realm)
+  if (challenge.service) url.searchParams.set('service', challenge.service)
+  if (challenge.scope) url.searchParams.set('scope', challenge.scope)
+  const response = await fetchWithTimeout(fetchImpl, url)
+  if (!response.ok) return null
+  const payload = await response.json()
+  return payload.token || payload.access_token || null
+}
+
+function registryBaseUrl (image) {
+  if (image.registry === 'dockerhub') return 'https://registry-1.docker.io'
+  return `https://${image.registryHost}`
+}
+
+async function requestRegistry (url, token, fetchImpl, accept = MANIFEST_ACCEPT) {
+  const headers = { Accept: accept }
+  if (token) headers.Authorization = `Bearer ${token}`
+  return fetchWithTimeout(fetchImpl, url, { headers })
+}
+
+async function fetchManifest (image, fetchImpl) {
+  const baseUrl = registryBaseUrl(image)
+  const manifestUrl = `${baseUrl}/v2/${image.repository}/manifests/${image.selector}`
+  let token = await registryToken(image, fetchImpl)
+  let response = await requestRegistry(manifestUrl, token, fetchImpl)
+
+  if (response.status === 401) {
+    const challenge = parseBearerChallenge(response.headers.get('www-authenticate'))
+    if (challenge) {
+      token = await challengeToken(challenge, fetchImpl)
+      if (token) response = await requestRegistry(manifestUrl, token, fetchImpl)
+    }
+  }
+
+  if (!response.ok) {
+    return {
+      error: `registry returned HTTP ${response.status} for the declared reference`,
+    }
+  }
+
+  const raw = await response.text()
+  let manifest
+  try {
+    manifest = JSON.parse(raw)
+  } catch {
+    return { error: 'registry returned an invalid manifest' }
+  }
+
+  const responseDigest = response.headers.get('docker-content-digest')?.toLowerCase()
+  const bodyDigest = `sha256:${crypto.createHash('sha256').update(raw).digest('hex')}`
+  if (!/^sha256:[a-f0-9]{64}$/.test(responseDigest || '')) {
+    return { error: 'registry response did not provide a valid content digest' }
+  }
+  if (responseDigest !== bodyDigest) {
+    return { error: 'registry manifest body does not match its content digest' }
+  }
+  if (image.declaredDigest && image.declaredDigest.toLowerCase() !== responseDigest) {
+    return { error: 'registry manifest does not match the requested digest' }
+  }
+
+  return { baseUrl, token, manifest, digest: responseDigest }
+}
+
+async function resolveRegistryImage (image, fetchImpl = globalThis.fetch) {
+  try {
+    const resolved = await fetchManifest(image, fetchImpl)
+    if (resolved.error) {
+      return { status: 'unavailable', error: resolved.error }
+    }
+
+    return {
+      status: 'verified',
+      digest: resolved.digest,
+      image_ref: `${image.displayImage}@${resolved.digest}`,
+    }
+  } catch {
+    return {
+      status: 'unavailable',
+      error: 'could not resolve the declared image from its registry',
+    }
+  }
+}
+
+function groupDeclarations (declarations) {
+  const groups = new Map()
+
+  for (const declaration of declarations) {
+    if (!groups.has(declaration.key)) {
+      groups.set(declaration.key, {
+        image: declaration.displayImage,
+        declared_ref: declaration.declaredRef,
+        declared_tag: declaration.declaredTag,
+        resolution_tag: declaration.declaredDigest ? null : declaration.selector,
+        declared_digest: declaration.declaredDigest,
+        registry: declaration.registry,
+        role: declaration.role,
+        priority: SOURCE_PRIORITY[declaration.source],
+        selectionRank: declaration.selectionRank,
+        sources: [],
+        parsed: declaration,
+      })
+    }
+
+    const group = groups.get(declaration.key)
+    group.priority = Math.min(group.priority, SOURCE_PRIORITY[declaration.source])
+    group.selectionRank = Math.min(group.selectionRank, declaration.selectionRank)
+    if (group.role !== 'application' && declaration.role === 'application') {
+      group.role = 'application'
+    }
+    group.sources.push({
+      source: declaration.source,
+      file: declaration.sourceFile,
+      service: declaration.service,
+      declared_ref: declaration.declaredRef,
+    })
+  }
+
+  return [...groups.values()]
+}
+
+function attachServiceResults (services, inventory) {
+  const byService = new Map()
+  for (const image of inventory) {
+    for (const source of image.sources) {
+      if (source.service) {
+        byService.set(source.service, image)
+      }
+    }
+  }
+
+  return services.map(service => {
+    const image = byService.get(service.name)
+    if (!image) return service
+    const imageStatus = image.status === 'verified'
+      ? 'verified'
+      : (service.build ? 'build_required' : image.status)
+    return {
+      ...service,
+      image_status: imageStatus,
+      image_ref: image.image_ref || null,
+      digest: image.digest || null,
+    }
+  })
+}
+
+function publicInventoryEntry (group, resolution) {
+  return {
+    image: group.image,
+    declared_ref: group.declared_ref,
+    declared_tag: group.declared_tag,
+    resolution_tag: group.resolution_tag,
+    declared_digest: group.declared_digest,
+    registry: group.registry,
+    role: group.role,
+    sources: group.sources,
+    status: resolution.status,
+    digest: resolution.digest || null,
+    image_ref: resolution.image_ref || null,
+    error: resolution.error || null,
+  }
+}
+
+async function detectExistingImages (workDir, options = {}) {
+  const fetchImpl = options.fetchImpl || globalThis.fetch
+  const evidence = collectProjectEvidence(workDir, options)
+  const groups = groupDeclarations(evidence.declarations)
+
+  const inventory = await Promise.all(groups.map(async group => {
+    const resolution = group.parsed.unresolved
+      ? {
+          status: 'unavailable',
+          error: 'declared image contains an unresolved variable',
+        }
+      : await resolveRegistryImage(group.parsed, fetchImpl)
+    return {
+      group,
+      public: publicInventoryEntry(group, resolution),
+    }
+  }))
+
+  const imageInventory = inventory.map(entry => entry.public)
+  const serviceInventory = attachServiceResults(evidence.services, imageInventory)
+  // An implicit source proves only that the repository did not declare a
+  // Compose, Helm, or Kubernetes topology. It does not prove that the
+  // repository root is the application. Leave service selection to the caller,
+  // which can bind repository evidence to the actual deployable workload.
+  // `role` is descriptive topology evidence only. It must not disqualify a
+  // product whose real application image happens to be named nginx, cache,
+  // postgres, and so on. Project declaration context and Compose topology
+  // decide primary-image intent.
+  const verifiedCandidates = inventory
+    .filter(entry => entry.public.status === 'verified')
+
+  if (verifiedCandidates.length === 0) {
+    return {
+      found: false,
+      reason: groups.length === 0
+        ? 'no_explicit_image_declarations'
+        : 'no_resolved_image',
+      deployment_source: evidence.deploymentSource,
+      image_inventory: imageInventory,
+      service_inventory: serviceInventory,
+    }
+  }
+
+  const highestPriority = Math.min(...verifiedCandidates.map(entry => entry.group.priority))
+  const sourcePreferred = verifiedCandidates
+    .filter(entry => entry.group.priority === highestPriority)
+  const highestIntent = Math.min(...sourcePreferred.map(entry => entry.group.selectionRank))
+  const preferred = sourcePreferred
+    .filter(entry => entry.group.selectionRank === highestIntent)
+
+  if (preferred.length !== 1) {
+    return {
+      found: false,
+      reason: 'ambiguous_primary_images',
+      deployment_source: evidence.deploymentSource,
+      image_inventory: imageInventory,
+      service_inventory: serviceInventory,
+    }
+  }
+
+  const selected = preferred[0].public
+  const selectedSource = selected.sources
+    .slice()
+    .sort((left, right) => SOURCE_PRIORITY[left.source] - SOURCE_PRIORITY[right.source])[0]
+
   return {
     found: true,
-    mode: 'reuse-image',
-    deployment_mode: 'prebuilt',
-    image: verified.image,
-    tag: verified.tag,
-    source,
-    confidence: confidenceForSource(source),
-    platforms: verified.platforms,
-    evidence,
+    image: selected.image,
+    tag: selected.resolution_tag,
+    source: selectedSource.source,
+    digest: selected.digest,
+    image_ref: selected.image_ref,
+    declared_ref: selectedSource.declared_ref,
+    deployment_source: evidence.deploymentSource,
+    image_inventory: imageInventory,
+    service_inventory: serviceInventory,
   }
 }
-
-function buildBuildRequiredResult (reason, evidence = [], deploymentMode = 'build') {
-  return {
-    found: false,
-    mode: 'build-required',
-    deployment_mode: deploymentMode,
-    reason,
-    evidence,
-  }
-}
-
-async function verifyCandidateList (candidates, source, evidence, preferredTag = null) {
-  for (const img of candidates) {
-    const verified = await verifyImageRef(img, preferredTag)
-    if (verified) {
-      return buildReuseResult(verified, source, evidence)
-    }
-  }
-  return null
-}
-
-// ── Orchestrator ───────────────────────────────────────────
-
-async function detectExistingImage (githubUrl, workDir) {
-  const parsed = parseGithubUrl(githubUrl)
-  if (!parsed) {
-    return { found: false, mode: 'build-required', deployment_mode: 'unclear', error: 'Cannot parse GitHub URL' }
-  }
-  const { owner, repo } = parsed
-  const evidence = []
-
-  if (!workDir) {
-    workDir = '.'
-  }
-
-  // Stage A — README intent (local, no network)
-  const readme = analyzeReadmeDeployment(workDir)
-  evidence.push(...readme.evidence)
-  const packageHints = extractPackageHints(workDir)
-  evidence.push(...packageHints.evidence)
-  const preferredTag = packageHints.version
-
-  // Stage B — evidence tiers: README > Release > CI > compose
-  if (readme.images.length > 0) {
-    const result = await verifyCandidateList(readme.images, 'readme', evidence, preferredTag)
-    if (result) return result
-  }
-
-  if (readme.deploymentMode === 'build') {
-    return buildBuildRequiredResult(
-      'README documents docker build deployment; skipping registry reuse',
-      evidence,
-      'build',
-    )
-  }
-
-  const releaseRemote = await fetchGithubReleases(owner, repo)
-  evidence.push(...releaseRemote.evidence)
-  if (releaseRemote.images.length > 0) {
-    const result = await verifyCandidateList(releaseRemote.images, 'release', evidence)
-    if (result) return result
-  }
-
-  const releaseLocal = extractImagesFromLocalReleases(workDir)
-  evidence.push(...releaseLocal.evidence)
-  if (releaseLocal.images.length > 0) {
-    const result = await verifyCandidateList(releaseLocal.images, 'release', evidence)
-    if (result) return result
-  }
-
-  const workflowImages = extractImagesFromWorkflows(workDir)
-  if (workflowImages.length > 0) {
-    evidence.push({ source: 'ci-workflow', signal: `${workflowImages.length} workflow image reference(s)` })
-    const result = await verifyCandidateList(workflowImages, 'ci-workflow', evidence)
-    if (result) return result
-  }
-  const composeImages = extractImagesFromCompose(workDir)
-  if (composeImages.length > 0) {
-    evidence.push({ source: 'compose', signal: `${composeImages.length} compose image reference(s)` })
-    const result = await verifyCandidateList(composeImages, 'compose', evidence)
-    if (result) return result
-  }
-
-  // Stage D — direct naming match
-  const dockerhub = await checkDockerHub(owner, repo)
-  if (dockerhub) {
-    return buildReuseResult(dockerhub, 'dockerhub', [
-      ...evidence,
-      { source: 'dockerhub', signal: `direct match ${owner}/${repo}` },
-    ])
-  }
-
-  if (repo !== owner) {
-    const dockerhubFallback = await checkDockerHub(repo, repo)
-    if (dockerhubFallback) {
-      return buildReuseResult(dockerhubFallback, 'dockerhub', [
-        ...evidence,
-        { source: 'dockerhub', signal: `direct match ${repo}/${repo}` },
-      ])
-    }
-  }
-
-  const ghcr = await checkGhcr(owner, repo)
-  if (ghcr) {
-    return buildReuseResult(ghcr, 'ghcr', [
-      ...evidence,
-      { source: 'ghcr', signal: `direct match ghcr.io/${owner}/${repo}` },
-    ])
-  }
-
-  // Stage E — Docker Hub search
-  const searchResult = await searchAndVerifyDockerHub(repo, owner, repo)
-  if (searchResult) {
-    return buildReuseResult(searchResult, 'dockerhub-search', [
-      ...evidence,
-      { source: 'dockerhub-search', signal: `search match for ${repo}` },
-    ])
-  }
-
-  return buildBuildRequiredResult(
-    'No reusable amd64 image found',
-    evidence,
-    readme.deploymentMode === 'prebuilt' ? 'prebuilt' : 'unclear',
-  )
-}
-
-async function detectWithoutGithubUrl (workDir) {
-  const evidence = []
-  const readme = analyzeReadmeDeployment(workDir)
-  evidence.push(...readme.evidence)
-  const packageHints = extractPackageHints(workDir)
-  evidence.push(...packageHints.evidence)
-  const preferredTag = packageHints.version
-
-  const releaseLocal = extractImagesFromLocalReleases(workDir)
-  evidence.push(...releaseLocal.evidence)
-
-  const tiers = [
-    { images: readme.images, source: 'readme' },
-    { images: releaseLocal.images, source: 'release' },
-    { images: extractImagesFromWorkflows(workDir), source: 'ci-workflow' },
-    { images: extractImagesFromCompose(workDir), source: 'compose' },
-  ]
-
-  for (const tier of tiers) {
-    if (tier.images.length === 0) continue
-    const result = await verifyCandidateList(tier.images, tier.source, evidence, preferredTag)
-    if (result) {
-      result.source = `${result.source}-local`
-      return result
-    }
-  }
-
-  if (readme.deploymentMode === 'build') {
-    return buildBuildRequiredResult(
-      'README documents docker build deployment; skipping registry reuse',
-      evidence,
-      'build',
-    )
-  }
-
-  return buildBuildRequiredResult('No reusable amd64 image found', evidence, 'unclear')
-}
-
-// ── Git Remote Helper ─────────────────────────────────────
 
 function getGithubUrlFromGitRemote (dir) {
   try {
-    const remote = execSync('git remote get-url origin', { cwd: dir, encoding: 'utf-8' }).trim()
-    if (remote.includes('github.com')) return remote
-  } catch {}
-  return null
-}
-
-export { detectExistingImage, detectWithoutGithubUrl, extractImageRefsFromText, parseImageRef }
-
-// ── CLI ────────────────────────────────────────────────────
-
-function isCliEntrypoint () {
-  return Boolean(process.argv[1]) && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+    const remote = execFileSync(
+      'git',
+      ['remote', 'get-url', 'origin'],
+      { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim()
+    return remote.includes('github.com') ? remote : null
+  } catch {
+    return null
+  }
 }
 
 async function main () {
   const [, , arg1, arg2] = process.argv
-
   if (!arg1) {
     console.error('Usage: node detect-image.mjs <github-url> [work-dir]')
     console.error('       node detect-image.mjs <work-dir>')
-    process.exit(1)
+    process.exitCode = 1
+    return
   }
 
-  let githubUrl, workDir
-  if (/^https?:\/\//.test(arg1) || arg1.startsWith('git@')) {
-    githubUrl = arg1
-    workDir = arg2 || '.'
-  } else {
-    workDir = arg1
-    githubUrl = getGithubUrlFromGitRemote(workDir)
+  const firstIsUrl = /^https?:\/\//.test(arg1) || arg1.startsWith('git@')
+  const workDir = path.resolve(firstIsUrl ? (arg2 || '.') : arg1)
+  const githubUrl = firstIsUrl ? arg1 : getGithubUrlFromGitRemote(workDir)
+
+  if (!fs.existsSync(workDir) || !fs.statSync(workDir).isDirectory()) {
+    console.log(JSON.stringify({
+      found: false,
+      reason: 'work_directory_not_found',
+      image_inventory: [],
+      service_inventory: [],
+    }, null, 2))
+    process.exitCode = 1
+    return
   }
 
-  const result = githubUrl
-    ? await detectExistingImage(githubUrl, workDir)
-    : await detectWithoutGithubUrl(workDir)
-
+  const result = await detectExistingImages(workDir, { githubUrl })
   console.log(JSON.stringify(result, null, 2))
 }
 
-if (isCliEntrypoint()) {
-  await main()
+const isMain = process.argv[1] &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+
+if (isMain) await main()
+
+export {
+  classifyImageRole,
+  collectProjectEvidence,
+  detectExistingImages,
+  extractWorkflowBuildPlans,
+  normalizeWorkflowBuildPlan,
+  parseImageRef,
+  resolveRegistryImage,
 }

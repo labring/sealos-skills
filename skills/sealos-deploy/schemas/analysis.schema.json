@@ -18,7 +18,9 @@
     "env_vars",
     "has_dockerfile",
     "complexity_tier",
-    "image_ref"
+    "image_ref",
+    "image_inventory",
+    "service_inventory"
   ],
   "properties": {
     "generated_at": {
@@ -71,6 +73,18 @@
           "minimum": 0,
           "maximum": 12
         },
+        "raw_score": {
+          "description": "Sum of the six dimension scores before Dockerfile/Compose bonuses.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "bonus": {
+          "description": "Existing Docker artifact bonus reported by score-model.mjs.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
         "verdict": {
           "type": "string",
           "minLength": 1
@@ -98,61 +112,40 @@
       }
     },
     "language": {
-      "type": "string",
-      "enum": [
-        "go",
-        "rust",
-        "java",
-        "node",
-        "python",
-        "php",
-        "ruby",
-        "dotnet"
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
       ]
     },
     "all_languages": {
       "type": "array",
-      "minItems": 1,
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "enum": [
-          "go",
-          "rust",
-          "java",
-          "node",
-          "python",
-          "php",
-          "ruby",
-          "dotnet"
-        ]
+        "minLength": 1
       }
     },
     "framework": {
-      "type": "string",
-      "minLength": 1
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
     },
     "package_manager": {
-      "type": "string",
-      "enum": [
-        "npm",
-        "yarn",
-        "pnpm",
-        "bun",
-        "pip",
-        "pipenv",
-        "go",
-        "cargo",
-        "maven",
-        "gradle",
-        "composer",
-        "bundler"
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
       ]
     },
     "port": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 65535
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        { "type": "null" }
+      ]
     },
     "databases": {
       "type": "array",
@@ -169,21 +162,22 @@
       }
     },
     "runtime_version": {
-      "type": "object",
-      "minProperties": 2,
-      "required": [
-        "source"
-      ],
-      "properties": {
-        "source": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "additionalProperties": {
-        "type": "string",
-        "minLength": 1
-      }
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "source": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        { "type": "null" }
+      ]
     },
     "env_vars": {
       "type": "object",
@@ -215,135 +209,6 @@
       },
       "additionalProperties": false
     },
-    "build_environment": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "source",
-        "status",
-        "confidence",
-        "evidence_paths"
-      ],
-      "properties": {
-        "source": {
-          "type": "string",
-          "const": "railpack"
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "detected",
-            "skipped",
-            "failed"
-          ]
-        },
-        "reason": {
-          "type": "string",
-          "minLength": 1
-        },
-        "project_type": {
-          "type": "string",
-          "minLength": 1
-        },
-        "providers": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "runtime_versions": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "package_manager": {
-          "type": "string",
-          "enum": [
-            "npm",
-            "yarn",
-            "pnpm",
-            "bun",
-            "pip",
-            "pipenv",
-            "go",
-            "cargo",
-            "maven",
-            "gradle",
-            "composer",
-            "bundler"
-          ]
-        },
-        "port": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "install_command": {
-          "type": "string",
-          "minLength": 1
-        },
-        "build_command": {
-          "type": "string",
-          "minLength": 1
-        },
-        "start_command": {
-          "type": "string",
-          "minLength": 1
-        },
-        "system_packages": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "env_vars": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "confidence": {
-          "type": "string",
-          "enum": [
-            "high",
-            "medium",
-            "low"
-          ]
-        },
-        "evidence_paths": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              ".sealos/railpack-info.json",
-              ".sealos/railpack-plan.json"
-            ]
-          }
-        },
-        "config_overrides": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "enum": [
-              "port",
-              "runtime_versions",
-              "start_command",
-              "build_command",
-              "system_packages",
-              "env_vars"
-            ]
-          }
-        }
-      }
-    },
     "has_dockerfile": {
       "type": "boolean"
     },
@@ -360,6 +225,409 @@
         { "type": "string", "minLength": 1 },
         { "type": "null" }
       ]
+    },
+    "deployment_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path",
+        "source_hash",
+        "evidence",
+        "rendered_path",
+        "dependency_mode",
+        "resources"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "compose",
+            "helm",
+            "kubernetes",
+            "implicit-single-service"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_hash": {
+          "type": "string",
+          "pattern": "^sha256:[a-fA-F0-9]{64}$"
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "rendered_path": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "dependency_mode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "locked",
+                "unlocked",
+                "none"
+              ]
+            },
+            { "type": "null" }
+          ]
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "api_version",
+              "kind",
+              "name",
+              "source_file"
+            ],
+            "properties": {
+              "api_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_file": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "image_inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "image",
+          "declared_ref",
+          "declared_tag",
+          "resolution_tag",
+          "declared_digest",
+          "registry",
+          "role",
+          "sources",
+          "status",
+          "digest",
+          "image_ref",
+          "error"
+        ],
+        "properties": {
+          "image": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declared_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "declared_tag": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "resolution_tag": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "declared_digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "registry": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "application",
+              "database",
+              "infrastructure"
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source",
+                "file",
+                "service",
+                "declared_ref"
+              ],
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "readme",
+                    "ci",
+                    "compose",
+                    "helm",
+                    "kubernetes"
+                  ]
+                },
+                "file": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "service": {
+                  "anyOf": [
+                    { "type": "string", "minLength": 1 },
+                    { "type": "null" }
+                  ]
+                },
+                "declared_ref": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "unavailable"
+            ]
+          },
+          "platforms": {
+            "description": "Optional legacy registry metadata. Third-party image selection does not depend on this field.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "image_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "@sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          }
+        }
+      }
+    },
+    "service_inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "role",
+          "source",
+          "source_file",
+          "declared_image",
+          "build"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "application",
+              "database",
+              "infrastructure"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "compose",
+              "project",
+              "helm",
+              "kubernetes",
+              "implicit-single-service"
+            ]
+          },
+          "source_file": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resource_kind": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "workload_name": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "container_name": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "container_role": {
+            "anyOf": [
+              { "type": "string", "enum": ["init", "main"] },
+              { "type": "null" }
+            ]
+          },
+          "declared_image": {
+            "anyOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "null" }
+            ]
+          },
+          "build": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "context",
+                  "dockerfile",
+                  "target",
+                  "args",
+                  "origin"
+                ],
+                "properties": {
+                  "context": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dockerfile": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "target": {
+                    "anyOf": [
+                      { "type": "string", "minLength": 1 },
+                      { "type": "null" }
+                    ]
+                  },
+                  "args": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  },
+                  "origin": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "existing",
+                          "generated",
+                          "repaired"
+                        ]
+                      },
+                      { "type": "null" }
+                    ]
+                  }
+                }
+              },
+              { "type": "null" }
+            ]
+          },
+          "image_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "verified",
+                  "unavailable",
+                  "build_required",
+                  "built"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image_ref": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "@sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-fA-F0-9]{64}$"
+              },
+              { "type": "null" }
+            ]
+          },
+          "platforms": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
     }
   }
 }

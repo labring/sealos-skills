@@ -21,10 +21,11 @@ function writeJson(file, data) {
   fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`)
 }
 
-function sampleRequest(workDir, overrides = {}) {
+function sampleRequest(workDir, serviceOverrides = {}) {
   return {
-    version: '1.0',
+    version: '2.0',
     generated_at: '2026-06-16T00:00:00.000Z',
+    route: 'standard',
     source: {
       type: 'sandbox-context',
       github_url: 'https://github.com/example/web',
@@ -32,20 +33,28 @@ function sampleRequest(workDir, overrides = {}) {
       ref: '0123456789abcdef0123456789abcdef01234567',
       work_dir: workDir,
     },
-    mode: 'build-required',
-    image: {
-      image_ref: null,
-      target_image: 'ghcr.io/example/web:prepare-test',
-    },
-    build: {
-      context_path: 'apps/web',
-      dockerfile_path: 'apps/web/Dockerfile',
-      build_args: {},
-    },
-    runtime: {
-      port: 3000,
-    },
-    ...overrides,
+    services: [{
+      name: 'web',
+      artifact_key: 'web',
+      role: 'frontend',
+      mode: 'build-required',
+      image: {
+        image_ref: null,
+        target_image: 'ghcr.io/example/web:prepare-test',
+        platforms: [],
+        pull_access: null,
+      },
+      build: {
+        context_path: 'apps/web',
+        dockerfile_path: 'apps/web/Dockerfile',
+        target: null,
+        build_arg_names: [],
+      },
+      runtime: {
+        port: 3000,
+      },
+      ...serviceOverrides,
+    }],
   }
 }
 
@@ -55,7 +64,7 @@ test('packs the requested Docker context and reports kaniko dockerfile path insi
   const appDir = path.join(workDir, 'apps', 'web')
   const contextRoot = path.join(root, '.versitygw-s3', 'kaniko-contexts', 'contexts')
   const requestFile = path.join(workDir, '.sealos', 'build-request.json')
-  const metadataFile = path.join(workDir, '.sealos', 'kaniko-context.json')
+  const metadataFile = path.join(workDir, '.sealos', 'kaniko', 'web', 'context.json')
 
   fs.mkdirSync(path.join(appDir, 'src'), { recursive: true })
   fs.mkdirSync(path.join(appDir, '.sealos'), { recursive: true })
@@ -71,6 +80,8 @@ test('packs the requested Docker context and reports kaniko dockerfile path insi
     script,
     '--request',
     requestFile,
+    '--service',
+    'web',
     '--context-root',
     contextRoot,
     '--bucket',
@@ -92,6 +103,7 @@ test('packs the requested Docker context and reports kaniko dockerfile path insi
   assert.equal(metadata.context.object_key, 'contexts/devbox-a/build-1/context.tar.gz')
   assert.equal(metadata.context.uri, 's3://kaniko-contexts/contexts/devbox-a/build-1/context.tar.gz')
   assert.equal(metadata.context.tar_path, path.join(contextRoot, 'devbox-a', 'build-1', 'context.tar.gz'))
+  assert.deepEqual(metadata.service, { name: 'web', artifact_key: 'web' })
   assert.equal(metadata.kaniko.dockerfile, 'Dockerfile')
   assert.equal(metadata.kaniko.context_sub_path, null)
 
@@ -110,7 +122,7 @@ test('excludes runtime S3 store when context root is inside the build context', 
   const workDir = path.join(root, 'repo')
   const contextRoot = path.join(workDir, '.versitygw-s3', 'kaniko-contexts', 'contexts')
   const requestFile = path.join(workDir, '.sealos', 'build-request.json')
-  const metadataFile = path.join(workDir, '.sealos', 'kaniko-context.json')
+  const metadataFile = path.join(workDir, '.sealos', 'kaniko', 'web', 'context.json')
 
   fs.mkdirSync(path.join(workDir, 'apps', 'web'), { recursive: true })
   fs.mkdirSync(path.join(workDir, '.versitygw-s3', 'kaniko-contexts', 'contexts', 'old-build'), { recursive: true })
@@ -125,7 +137,8 @@ test('excludes runtime S3 store when context root is inside the build context', 
     build: {
       context_path: '.',
       dockerfile_path: 'Dockerfile',
-      build_args: {},
+      target: null,
+      build_arg_names: [],
     },
   }))
 
@@ -133,6 +146,8 @@ test('excludes runtime S3 store when context root is inside the build context', 
     script,
     '--request',
     requestFile,
+    '--service',
+    'web',
     '--context-root',
     contextRoot,
     '--bucket',
@@ -170,7 +185,8 @@ test('rejects dockerfiles outside the selected context', () => {
     build: {
       context_path: 'apps/web',
       dockerfile_path: 'Dockerfile',
-      build_args: {},
+      target: null,
+      build_arg_names: [],
     },
   }))
 
@@ -178,6 +194,8 @@ test('rejects dockerfiles outside the selected context', () => {
     script,
     '--request',
     requestFile,
+    '--service',
+    'web',
     '--context-root',
     path.join(root, '.versitygw-s3', 'kaniko-contexts', 'contexts'),
     '--bucket',
@@ -189,7 +207,7 @@ test('rejects dockerfiles outside the selected context', () => {
     '--build-id',
     'build-1',
     '--out',
-    path.join(workDir, '.sealos', 'kaniko-context.json'),
+    path.join(workDir, '.sealos', 'kaniko', 'web', 'context.json'),
   ])
 
   assert.notEqual(result.status, 0)

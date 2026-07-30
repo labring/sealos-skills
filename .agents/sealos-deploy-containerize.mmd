@@ -1,40 +1,54 @@
 flowchart TD
-    A["User runs /sealos-deploy<br/>Input: GitHub URL, local path, or current project"]
+    A["/sealos-deploy<br/>GitHub URL or current sandbox repository"]
 
-    subgraph P0["Phase 0 - Preflight"]
-        P01["Check basic local tools needed for analysis only<br/>git, node, python, curl, jq"]
-        P02["Resolve WORK_DIR, clone if needed,<br/>detect git metadata, read README"]
-        P03["Do not require Sealos auth,<br/>region switch, workspace switch, namespace switch"]
-        P04["Do not require Docker daemon,<br/>gh auth, kubectl, kubeconfig"]
-        P05["Ready summary<br/>Record project context"]
+    subgraph P0["Phase 0 — Preflight"]
+        P01["Resolve and fully materialize exact Git source"]
+        P02["Capture clean/default-branch snapshot for official reuse"]
+        P03["Select Compose, Helm, Kubernetes, or implicit source"]
+        P04["Classify conditional Template and Kaniko capabilities"]
     end
 
-    subgraph D["Prepare Path"]
-        D1["Phase 1 - Assess<br/>score-model.mjs or AI fallback"]
-        D2{"Score >= 4?"}
-        D3["Write .sealos/analysis.json<br/>Present analysis summary"]
-
-        D4["Phase 2 - Detect Existing Image<br/>GitHub URL / local repo / README / compose / registry checks"]
-        D5{"Found usable amd64 image?"}
-        D6["Update analysis.json.image_ref<br/>Skip Dockerfile build request details where possible"]
-
-        D7["Phase 3 - Dockerfile<br/>Reuse, fix, or generate Dockerfile"]
-        D8["Validate Dockerfile<br/>Prepare .dockerignore if needed"]
-
-        D9["Phase 4 - Generate delivery artifacts"]
-        D10["Write build-request.json"]
-        D11["Write delivery-manifest.json"]
-        D12["Write .sealos/template/index.yaml"]
-        D13["Phase 5 - Upload delivery bundle<br/>to GitHub persistent storage"]
-        D14["Write upload-result.json<br/>Return commit SHA / artifact paths / URL"]
-
-        DStop1["Stop - unsuitable project"]
+    subgraph P1["Phase 1 — Assess"]
+        J{"Certain no reasonable<br/>project-backed online form?"}
+        STOP["Stop with one concrete reason"]
+        SCORE["Score 0–12<br/>Low score warns and continues"]
+        ANALYSIS["Write analysis.json"]
     end
 
-    A --> P01 --> P02 --> P03 --> P04 --> P05 --> D1
-    D1 --> D2
-    D2 -- "No" --> DStop1
-    D2 -- "Yes" --> D3 --> D4 --> D5
-    D5 -- "Yes" --> D6 --> D9
-    D5 -- "No" --> D7 --> D8 --> D9
-    D9 --> D10 --> D11 --> D12 --> D13 --> D14
+    subgraph O["Phase 1.5 — Official Template"]
+        EXACT{"One refreshed, verified,<br/>safe exact spec.gitRepo match?"}
+        COPY["Copy official YAML verbatim"]
+        OFFBUILD["Write empty official-route<br/>build request + skipped result"]
+    end
+
+    subgraph STANDARD["Standard Route"]
+        DISCOVER["Phase 2<br/>Discover source, full topology,<br/>declared images and digests"]
+        PLAN["Phase 3<br/>Prepare exact per-service<br/>Dockerfile plans"]
+        REQUEST["Write aggregate build-request.json"]
+        REUSE["Record reusable immutable images"]
+        KANIKO["Build missing services with Kaniko<br/>current namespace + service account<br/>VersityGW context → GHCR digest"]
+        REPAIR{"Build-plan failure?"}
+        RESULT["Complete aggregate build-result.json"]
+        TEMPLATE["Phase 5<br/>Source-adapted, digest-pinned Template<br/>inputs remain unresolved"]
+    end
+
+    subgraph FINISH["Phase 6 — Finish"]
+        SECRET["Private images: reference only<br/>defaults.app_name pull Secret"]
+        YAMLVALIDATE["YAML quality gate"]
+        MANIFEST["Write delivery-manifest.json"]
+        ARTIFACTVALIDATE["Complete JSON +<br/>cross-artifact validation"]
+        DONE["Preparation complete<br/>Downstream system deploys later"]
+    end
+
+    A --> P01 --> P02 --> P03 --> P04 --> J
+    J -- "Yes" --> STOP
+    J -- "No / uncertain" --> SCORE --> ANALYSIS --> EXACT
+    EXACT -- "Yes" --> COPY --> OFFBUILD --> YAMLVALIDATE
+    EXACT -- "No" --> DISCOVER --> PLAN --> REQUEST
+    REQUEST --> REUSE
+    REQUEST --> KANIKO --> REPAIR
+    REPAIR -- "Repair this service; max 3" --> PLAN
+    REPAIR -- "No" --> RESULT
+    REUSE --> RESULT
+    RESULT --> TEMPLATE --> SECRET --> YAMLVALIDATE
+    YAMLVALIDATE --> MANIFEST --> ARTIFACTVALIDATE --> DONE

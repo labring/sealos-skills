@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -14,9 +15,9 @@ import subprocess
 import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 from urllib.request import Request, urlopen
 
 import yaml
@@ -25,38 +26,104 @@ from path_converter import path_to_vn_name
 
 
 DB_TYPE_PATTERNS: Dict[str, Tuple[str, ...]] = {
-    "postgres": ("postgres", "postgresql"),
-    "mysql": ("mysql", "mariadb"),
-    "mongodb": ("mongo", "mongodb"),
-    "redis": ("redis",),
+    "postgres": ("postgres", "postgresql", "postgis", "timescaledb"),
+    "mysql": ("mysql", "mariadb", "apecloud-mysql"),
+    "mongodb": (
+        "mongo",
+        "mongodb",
+        "mongodb-community-server",
+        "mongodb-sharded",
+        "percona-server-mongodb",
+    ),
+    "redis": ("redis", "valkey"),
     "kafka": ("kafka",),
 }
 SPECIAL_DB_RESOURCE_TYPES = {"postgres", "mysql", "mongodb", "redis", "kafka"}
-EDGE_GATEWAY_SERVICE_HINTS: Tuple[str, ...] = ("traefik",)
-EDGE_GATEWAY_IMAGE_HINTS: Tuple[str, ...] = ("traefik",)
-EDGE_GATEWAY_PORT_HINTS = {80, 443}
-EDGE_GATEWAY_COMMAND_HINTS: Tuple[str, ...] = (
-    "--entrypoints.",
-    "--providers.",
-    "--api.dashboard",
-    "--ping",
-    "traefik",
-)
 
-DB_FQDN_BY_TYPE: Dict[str, str] = {
-    "postgres": "${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
-    "mysql": "${{ defaults.app_name }}-mysql-mysql.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
-    "mongodb": "${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
-    "redis": "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
-    "kafka": "${{ defaults.app_name }}-broker-kafka.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+DB_CLUSTER_SUFFIX_BY_TYPE: Dict[str, str] = {
+    "postgres": "pg",
+    "mysql": "mysql",
+    "mongodb": "mongo",
+    "redis": "redis",
+    "kafka": "broker",
 }
-DB_SECRET_NAME_BY_TYPE: Dict[str, str] = {
-    "postgres": "${{ defaults.app_name }}-pg-conn-credential",
-    "mysql": "${{ defaults.app_name }}-mysql-conn-credential",
-    "mongodb": "${{ defaults.app_name }}-mongo-mongodb-account-root",
-    "redis": "${{ defaults.app_name }}-redis-redis-account-default",
-    "kafka": "${{ defaults.app_name }}-broker-account-admin",
+DB_SERVICE_SUFFIX_BY_TYPE: Dict[str, str] = {
+    "postgres": "postgresql",
+    "mysql": "mysql",
+    "mongodb": "mongodb",
+    "redis": "redis-redis",
+    "kafka": "kafka",
 }
+DB_SECRET_SUFFIX_BY_TYPE: Dict[str, str] = {
+    "postgres": "conn-credential",
+    "mysql": "conn-credential",
+    "mongodb": "mongodb-account-root",
+    "redis": "redis-account-default",
+    "kafka": "account-admin",
+}
+DB_DEFAULT_PORT_BY_TYPE: Dict[str, int] = {
+    "postgres": 5432,
+    "mysql": 3306,
+    "mongodb": 27017,
+    "redis": 6379,
+    "kafka": 9092,
+}
+DB_BOOTSTRAP_CLIENT_IMAGE_BY_TYPE: Dict[str, str] = {
+    "postgres": "postgres:16.4",
+    "mysql": "mysql:8.0.35",
+}
+DB_STANDARD_DATA_PATHS_BY_TYPE: Dict[str, Set[str]] = {
+    "postgres": {"/var/lib/postgresql/data"},
+    "mysql": {"/var/lib/mysql"},
+    "mongodb": {"/data/db", "/data/configdb"},
+    "redis": {"/data"},
+    "kafka": {"/bitnami/kafka", "/var/lib/kafka/data"},
+}
+DB_STANDARD_ENV_NAMES_BY_TYPE: Dict[str, Set[str]] = {
+    "postgres": {"POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD"},
+    "mysql": {
+        "MYSQL_DATABASE",
+        "MYSQL_USER",
+        "MYSQL_PASSWORD",
+        "MYSQL_ROOT_PASSWORD",
+        "MYSQL_RANDOM_ROOT_PASSWORD",
+        "MYSQL_ALLOW_EMPTY_PASSWORD",
+        "MARIADB_DATABASE",
+        "MARIADB_USER",
+        "MARIADB_PASSWORD",
+        "MARIADB_ROOT_PASSWORD",
+        "MARIADB_RANDOM_ROOT_PASSWORD",
+        "MARIADB_ALLOW_EMPTY_ROOT_PASSWORD",
+    },
+    "mongodb": set(),
+    "redis": set(),
+    "kafka": set(),
+}
+DB_MANAGED_SERVICE_KEYS = {
+    "image",
+    "environment",
+    "volumes",
+    "healthcheck",
+    "restart",
+    "ports",
+    "expose",
+    "networks",
+    "depends_on",
+    "container_name",
+    "deploy",
+}
+DB_KUBEBLOCKS_COMPATIBLE_IMAGE_NAMES: Dict[str, Set[str]] = {
+    "postgres": {"postgres", "postgresql"},
+    "mysql": {"mysql", "mariadb", "apecloud-mysql"},
+    "mongodb": {"mongo", "mongodb", "mongodb-community-server"},
+    "redis": {"redis", "valkey"},
+    "kafka": {"kafka"},
+}
+DB_BOOTSTRAP_ANNOTATION = "docker-to-sealos.database-bootstrap"
+DB_CLUSTER_ANNOTATION = "docker-to-sealos.database-cluster"
+DB_ENGINE_ANNOTATION = "docker-to-sealos.database-engine"
+KUBEBLOCKS_FALLBACK_ANNOTATION = "docker-to-sealos.kubeblocks-fallback-reason"
+DATABASE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_]+$")
 DB_ENV_HINTS_BY_TYPE: Dict[str, Tuple[str, ...]] = {
     "postgres": ("POSTGRES", "POSTGRESQL", "PG"),
     "mysql": ("MYSQL", "MARIADB"),
@@ -71,27 +138,41 @@ OBJECT_STORAGE_BASE_ENV_NAMES = {
     "BACKEND_STORAGE_MINIO_EXTERNAL_ENDPOINT",
 }
 OBJECT_STORAGE_BUCKET_ENV_NAME = "S3_BUCKET"
-TEMPLATE_DEPLOY_KEY = "cloud.sealos.io/deploy-on-sealos"
 COMPOSE_REFERENCE_RE = re.compile(r"\$\{[^}]+\}")
 INVALID_NAME_RE = re.compile(r"[^a-z0-9]+")
-SHA256_DIGEST_RE = re.compile(r"sha256:[0-9a-fA-F]{64}")
 MODE_SUFFIXES = {"ro", "rw", "z", "Z", "cached", "delegated", "consistent"}
-TLS_TERMINATION_PORT = 443
-TLS_CERT_DIR_NAMES = {"ssl", "cert", "certs", "tls"}
-TLS_CERT_MOUNT_EXACT_PATHS = {
-    "/etc/nginx/ssl",
-    "/etc/ssl",
-    "/etc/certs",
-    "/etc/tls",
-    "/ssl",
-    "/certs",
-    "/tls",
-}
-EXPLICIT_VERSION_TAG_RE = re.compile(
-    r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:[-+](?P<suffix>[0-9A-Za-z][0-9A-Za-z._-]*))?$"
+WEBSOCKET_FIELD_HINTS = (
+    "websocket",
+    "web-socket",
+    "web_socket",
+    "ws",
+    "wss",
+    "devtools",
+    "chrome_devtools",
+    "cdp",
+    "debugger",
+    "socketio",
 )
-FLOATING_NUMERIC_TAG_RE = re.compile(r"^v?\d+(?:\.\d+)?$")
-FLOATING_ALIAS_TAGS = {"latest", "stable", "main", "master", "edge", "nightly", "dev"}
+WEBSOCKET_VALUE_HINTS = (
+    "ws://",
+    "wss://",
+    "websocket",
+    "web-socket",
+    "chrome devtools",
+    "devtools",
+    "cdp",
+    "socket.io",
+)
+SHA256_DIGEST_RE = re.compile(r"^sha256:[0-9a-fA-F]{64}$")
+REGISTRY_REQUEST_TIMEOUT = 20
+REGISTRY_MANIFEST_ACCEPT = ", ".join(
+    (
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    )
+)
 COMPOSE_BRACED_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 COMPOSE_SIMPLE_VAR_RE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
 SEALOS_CPU_REQUEST_BY_LIMIT = {
@@ -114,6 +195,8 @@ SEALOS_MEMORY_REQUEST_BY_LIMIT = {
     "8192Mi": "819Mi",
     "16384Mi": "1638Mi",
 }
+SEALOS_CPU_LIMITS = tuple(SEALOS_CPU_REQUEST_BY_LIMIT)
+SEALOS_MEMORY_LIMITS = tuple(SEALOS_MEMORY_REQUEST_BY_LIMIT)
 DEFAULT_RESOURCE_LIMITS = {"cpu": "200m", "memory": "256Mi"}
 DEFAULT_RESOURCE_REQUESTS = {
     "cpu": SEALOS_CPU_REQUEST_BY_LIMIT[DEFAULT_RESOURCE_LIMITS["cpu"]],
@@ -197,6 +280,14 @@ HTTP_INGRESS_ANNOTATIONS = {
         "}"
     ),
 }
+WEBSOCKET_INGRESS_ANNOTATIONS = {
+    "kubernetes.io/ingress.class": "nginx",
+    "nginx.ingress.kubernetes.io/proxy-body-size": "32m",
+    "nginx.ingress.kubernetes.io/proxy-read-timeout": "3600",
+    "nginx.ingress.kubernetes.io/proxy-send-timeout": "3600",
+    "nginx.ingress.kubernetes.io/backend-protocol": "WS",
+    "nginx.ingress.kubernetes.io/ssl-redirect": "true",
+}
 COMPOSE_DURATION_PART_RE = re.compile(r"(\d+)(ns|us|ms|s|m|h)")
 URL_IN_COMMAND_RE = re.compile(r"https?://[^\s\"'`]+")
 
@@ -214,7 +305,35 @@ OFFICIAL_HEALTH_HTTP_PROFILES: Dict[str, Dict[str, Any]] = {
         "startupPeriodSeconds": 10,
         "startupTimeoutSeconds": 5,
         "startupFailureThreshold": 90,
-    }
+    },
+    "ghcr.io/danny-avila/librechat-rag-api-dev-lite": {
+        "liveness_path": "/health",
+        "readiness_path": "/health",
+        "startup_path": "/health",
+        "preferred_port": 8000,
+        "scheme": "HTTP",
+        "initialDelaySeconds": 10,
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+        "failureThreshold": 6,
+        "startupPeriodSeconds": 10,
+        "startupTimeoutSeconds": 5,
+        "startupFailureThreshold": 30,
+    },
+    "ghcr.io/clickhouse/librechat-admin-panel": {
+        "liveness_path": "/health",
+        "readiness_path": "/health",
+        "startup_path": "/health",
+        "preferred_port": 3000,
+        "scheme": "HTTP",
+        "initialDelaySeconds": 10,
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+        "failureThreshold": 6,
+        "startupPeriodSeconds": 10,
+        "startupTimeoutSeconds": 5,
+        "startupFailureThreshold": 30,
+    },
 }
 OFFICIAL_HEALTH_WORKER_PROFILES: Dict[str, Dict[str, Any]] = {
     "goauthentik/server": {
@@ -257,7 +376,183 @@ class ConfigMount:
     content: str
 
 
-def db_component_resources() -> Dict[str, Dict[str, str]]:
+@dataclass(frozen=True)
+class DatabasePlan:
+    service_name: str
+    db_type: str
+    source_image: str
+    service: Mapping[str, Any]
+    cluster_name: str = ""
+    connection_secret_name: str = ""
+    app_secret_name: str = ""
+    password_default_name: str = ""
+    database_name: str = ""
+    app_username: str = ""
+    fallback_reason: str = ""
+
+    @property
+    def use_kubeblocks(self) -> bool:
+        return not self.fallback_reason
+
+    @property
+    def needs_bootstrap(self) -> bool:
+        return self.use_kubeblocks and bool(self.database_name)
+
+    @property
+    def has_app_credentials(self) -> bool:
+        return self.needs_bootstrap and bool(self.app_username)
+
+
+def _parse_cpu_quantity(value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"unsupported CPU quantity: {value!r}")
+    if isinstance(value, (int, float)):
+        return float(value) * 1000
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("CPU quantity must not be empty")
+    if "$" in text:
+        text = resolve_compose_value(text).strip()
+    if text.endswith("m"):
+        return float(text[:-1])
+    return float(text) * 1000
+
+
+def _parse_memory_quantity(value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"unsupported memory quantity: {value!r}")
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("memory quantity must not be empty")
+    if "$" in text:
+        text = resolve_compose_value(text).strip()
+    match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([A-Za-z]*)", text)
+    if not match:
+        raise ValueError(f"unsupported memory quantity: {value!r}")
+    number = float(match.group(1))
+    suffix = match.group(2).lower()
+    factors = {
+        "": 1,
+        "b": 1,
+        "k": 1000,
+        "kb": 1000,
+        "m": 1000**2,
+        "mb": 1000**2,
+        "g": 1000**3,
+        "gb": 1000**3,
+        "ki": 1024,
+        "kib": 1024,
+        "mi": 1024**2,
+        "mib": 1024**2,
+        "gi": 1024**3,
+        "gib": 1024**3,
+    }
+    if suffix not in factors:
+        raise ValueError(f"unsupported memory quantity: {value!r}")
+    return number * factors[suffix]
+
+
+def _round_up_resource_quantity(
+    values: Sequence[Any],
+    *,
+    minimum: str,
+    ladder: Sequence[str],
+    parser: Callable[[Any], float],
+    resource_name: str,
+) -> str:
+    requested = parser(minimum)
+    for value in values:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            continue
+        requested = max(requested, parser(value))
+    for candidate in ladder:
+        if parser(candidate) >= requested:
+            return candidate
+    raise ValueError(
+        f"{resource_name} requirement exceeds the largest supported Sealos tier "
+        f"{ladder[-1]}"
+    )
+
+
+def normalize_resource_limits(
+    *,
+    minimum_limits: Mapping[str, str],
+    cpu_values: Sequence[Any] = (),
+    memory_values: Sequence[Any] = (),
+) -> Dict[str, str]:
+    return {
+        "cpu": _round_up_resource_quantity(
+            cpu_values,
+            minimum=minimum_limits["cpu"],
+            ladder=SEALOS_CPU_LIMITS,
+            parser=_parse_cpu_quantity,
+            resource_name="CPU",
+        ),
+        "memory": _round_up_resource_quantity(
+            memory_values,
+            minimum=minimum_limits["memory"],
+            ladder=SEALOS_MEMORY_LIMITS,
+            parser=_parse_memory_quantity,
+            resource_name="memory",
+        ),
+    }
+
+
+def resource_requirements(limits: Mapping[str, str]) -> Dict[str, Dict[str, str]]:
+    cpu = limits["cpu"]
+    memory = limits["memory"]
+    return {
+        "limits": {"cpu": cpu, "memory": memory},
+        "requests": {
+            "cpu": SEALOS_CPU_REQUEST_BY_LIMIT[cpu],
+            "memory": SEALOS_MEMORY_REQUEST_BY_LIMIT[memory],
+        },
+    }
+
+
+def parse_service_resource_limits(
+    service: Mapping[str, Any],
+    *,
+    minimum_limits: Mapping[str, str],
+) -> Dict[str, str]:
+    cpu_values: List[Any] = [service.get("cpus")]
+    memory_values: List[Any] = [
+        service.get("mem_limit"),
+        service.get("mem_reservation"),
+    ]
+
+    deploy = service.get("deploy")
+    if deploy is not None and not isinstance(deploy, Mapping):
+        raise ValueError("service deploy must be an object when provided")
+    resources = deploy.get("resources") if isinstance(deploy, Mapping) else None
+    if resources is not None and not isinstance(resources, Mapping):
+        raise ValueError("service deploy.resources must be an object when provided")
+    if isinstance(resources, Mapping):
+        for section_name in ("limits", "reservations"):
+            section = resources.get(section_name)
+            if section is None:
+                continue
+            if not isinstance(section, Mapping):
+                raise ValueError(
+                    f"service deploy.resources.{section_name} must be an object when provided"
+                )
+            cpu_values.append(section.get("cpus", section.get("cpu")))
+            memory_values.append(section.get("memory"))
+
+    return normalize_resource_limits(
+        minimum_limits=minimum_limits,
+        cpu_values=cpu_values,
+        memory_values=memory_values,
+    )
+
+
+def db_component_resources(
+    limits: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Dict[str, str]]:
+    if limits is not None:
+        return resource_requirements(limits)
     return {
         "limits": dict(DB_COMPONENT_RESOURCE_LIMITS),
         "requests": dict(DB_COMPONENT_RESOURCE_REQUESTS),
@@ -411,28 +706,6 @@ def prepare_logo_asset(meta: MetadataOptions, app_dir: Path, enabled: bool) -> M
     return meta
 
 
-def has_pinned_image(image: str) -> bool:
-    text = image.strip()
-    if not text:
-        return False
-    if "@" in text:
-        repository, _, digest = split_image_reference(text)
-        return bool(repository and digest and SHA256_DIGEST_RE.fullmatch(digest))
-    last_segment = text.rsplit("/", 1)[-1]
-    if ":" not in last_segment:
-        return False
-    return bool(last_segment.rsplit(":", 1)[-1])
-
-
-def is_latest_image(image: str) -> bool:
-    without_digest = image.strip().split("@", 1)[0]
-    last_segment = without_digest.rsplit("/", 1)[-1]
-    if ":" not in last_segment:
-        return False
-    tag = last_segment.rsplit(":", 1)[-1].lower()
-    return tag == "latest"
-
-
 def split_image_reference(image: str) -> Tuple[str, Optional[str], Optional[str]]:
     text = image.strip()
     digest: Optional[str] = None
@@ -445,140 +718,226 @@ def split_image_reference(image: str) -> Tuple[str, Optional[str], Optional[str]
     return text, None, digest
 
 
-def is_explicit_version_tag(tag: str) -> bool:
-    return EXPLICIT_VERSION_TAG_RE.fullmatch(tag.strip()) is not None
+RegistryRequester = Callable[
+    [str, Mapping[str, str]],
+    Tuple[int, Mapping[str, str], bytes],
+]
 
 
-def is_floating_tag(tag: str) -> bool:
-    normalized = tag.strip().lower()
-    if normalized in FLOATING_ALIAS_TAGS:
-        return True
-    return FLOATING_NUMERIC_TAG_RE.fullmatch(normalized) is not None
+def _registry_request(
+    url: str,
+    headers: Mapping[str, str],
+) -> Tuple[int, Mapping[str, str], bytes]:
+    request = Request(url, headers=dict(headers))
+    try:
+        with urlopen(request, timeout=REGISTRY_REQUEST_TIMEOUT) as response:
+            return response.status, response.headers, response.read()
+    except HTTPError as exc:
+        return exc.code, exc.headers or {}, exc.read()
+    except (URLError, TimeoutError, OSError) as exc:
+        raise ValueError(f"registry request failed: {exc}") from exc
 
 
-def _version_sort_key(tag: str) -> Tuple[int, int, int, int, str]:
-    match = EXPLICIT_VERSION_TAG_RE.fullmatch(tag.strip())
-    if match is None:
-        raise ValueError(f"not an explicit version tag: {tag}")
-    suffix = match.group("suffix") or ""
-    is_stable = 1 if not suffix else 0
-    return (
-        int(match.group("major")),
-        int(match.group("minor")),
-        int(match.group("patch")),
-        is_stable,
-        suffix,
+def _parse_bearer_challenge(challenge: str) -> Dict[str, str]:
+    scheme, separator, parameters = challenge.partition(" ")
+    if not separator or scheme.lower() != "bearer":
+        raise ValueError("registry requires an unsupported authentication scheme")
+
+    parsed: Dict[str, str] = {}
+    pattern = re.compile(r'([A-Za-z][A-Za-z0-9_-]*)=(?:"((?:[^"\\]|\\.)*)"|([^,\s]+))')
+    for match in pattern.finditer(parameters):
+        quoted_value, bare_value = match.group(2), match.group(3)
+        value = quoted_value if quoted_value is not None else bare_value
+        parsed[match.group(1).lower()] = re.sub(r"\\(.)", r"\1", value or "")
+    if not parsed.get("realm"):
+        raise ValueError("registry bearer challenge does not include a token realm")
+    return parsed
+
+
+def _registry_location(repository: str) -> Tuple[str, str]:
+    if not repository or repository.startswith("/") or "://" in repository:
+        raise ValueError(f"invalid image repository: {repository!r}")
+
+    parts = repository.split("/")
+    first = parts[0]
+    if len(parts) > 1 and ("." in first or ":" in first or first == "localhost"):
+        registry = first
+        registry_repository = "/".join(parts[1:])
+    else:
+        registry = "registry-1.docker.io"
+        registry_repository = repository
+        if "/" not in registry_repository:
+            registry_repository = f"library/{registry_repository}"
+
+    if registry in {"docker.io", "index.docker.io", "registry-1.docker.io"}:
+        registry = "registry-1.docker.io"
+        if "/" not in registry_repository:
+            registry_repository = f"library/{registry_repository}"
+    if not registry_repository:
+        raise ValueError(f"invalid image repository: {repository!r}")
+    return registry, registry_repository
+
+
+def _bearer_token(
+    challenge: str,
+    registry_repository: str,
+    requester: RegistryRequester,
+) -> str:
+    parameters = _parse_bearer_challenge(challenge)
+    realm = parameters["realm"]
+    parsed_realm = urlparse(realm)
+    if parsed_realm.scheme not in {"http", "https"} or not parsed_realm.netloc:
+        raise ValueError("registry bearer challenge contains an invalid token realm")
+
+    query = list(parse_qsl(parsed_realm.query, keep_blank_values=True))
+    existing_keys = {key for key, _ in query}
+    if parameters.get("service") and "service" not in existing_keys:
+        query.append(("service", parameters["service"]))
+    if "scope" not in existing_keys:
+        query.append(
+            (
+                "scope",
+                parameters.get("scope") or f"repository:{registry_repository}:pull",
+            )
+        )
+    token_url = urlunparse(parsed_realm._replace(query=urlencode(query)))
+    status, _, body = requester(
+        token_url,
+        {
+            "Accept": "application/json",
+            "User-Agent": "docker-to-sealos/1.0",
+        },
     )
+    if status < 200 or status >= 300:
+        raise ValueError(f"registry token request failed with HTTP {status}")
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("registry token endpoint returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("registry token endpoint returned an invalid response")
+    token = payload.get("token") or payload.get("access_token")
+    if not isinstance(token, str) or not token:
+        raise ValueError("registry token endpoint did not return a bearer token")
+    return token
 
 
-def select_best_version_tag(tags: Sequence[str]) -> str:
-    explicit_tags = [tag for tag in tags if is_explicit_version_tag(tag)]
-    if not explicit_tags:
-        raise ValueError("no explicit version tags available")
-    return max(explicit_tags, key=_version_sort_key)
+def resolve_registry_digest(
+    image: str,
+    *,
+    requester: Optional[RegistryRequester] = None,
+) -> str:
+    repository, tag, declared_digest = split_image_reference(image)
+    if not repository:
+        raise ValueError(f"invalid image reference: {image!r}")
+    if declared_digest is not None:
+        if SHA256_DIGEST_RE.fullmatch(declared_digest) is None:
+            raise ValueError(
+                f"image {image!r} contains an invalid sha256 digest: {declared_digest!r}"
+            )
+        return declared_digest.lower()
 
+    registry, registry_repository = _registry_location(repository)
+    selector = tag or "latest"
+    manifest_url = (
+        f"https://{registry}/v2/{quote(registry_repository, safe='/')}/"
+        f"manifests/{quote(selector, safe=':')}"
+    )
+    request_headers = {
+        "Accept": REGISTRY_MANIFEST_ACCEPT,
+        "User-Agent": "docker-to-sealos/1.0",
+    }
+    requester = requester or _registry_request
+    status, response_headers, body = requester(manifest_url, request_headers)
+    if status == 401:
+        challenge = str(response_headers.get("WWW-Authenticate") or "")
+        token = _bearer_token(challenge, registry_repository, requester)
+        request_headers = dict(request_headers)
+        request_headers["Authorization"] = f"Bearer {token}"
+        status, response_headers, body = requester(manifest_url, request_headers)
+    if status < 200 or status >= 300:
+        raise ValueError(
+            f"registry manifest request failed for {image!r} with HTTP {status}"
+        )
 
-def require_crane_binary() -> str:
-    crane_bin = shutil.which("crane")
-    if not crane_bin:
-        raise ValueError("crane is required to resolve floating image tags but was not found in PATH")
-    return crane_bin
+    try:
+        manifest = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"registry returned an invalid manifest for {image!r}"
+        ) from exc
+    if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
+        raise ValueError(f"registry returned an invalid manifest for {image!r}")
 
-
-def run_crane_command(crane_bin: str, args: Sequence[str]) -> str:
-    command = [crane_bin, *args]
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
-        raise ValueError(f"crane command failed ({' '.join(command)}): {detail}")
-    return result.stdout.strip()
+    computed_digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
+    header_digest = str(response_headers.get("Docker-Content-Digest") or "").strip()
+    if header_digest:
+        if SHA256_DIGEST_RE.fullmatch(header_digest) is None:
+            raise ValueError(
+                f"registry returned an invalid sha256 digest for {image!r}: "
+                f"{header_digest!r}"
+            )
+        header_digest = header_digest.lower()
+        if header_digest != computed_digest:
+            raise ValueError(
+                f"registry digest for {image!r} does not match the returned manifest"
+            )
+        return header_digest
+    return computed_digest
 
 
 def resolve_image_reference(
     image: str,
     *,
     digest_cache: Optional[Dict[str, str]] = None,
-    tag_cache: Optional[Dict[str, List[str]]] = None,
+    digest_resolver: Optional[Callable[[str], str]] = None,
 ) -> str:
-    repository, tag, digest = split_image_reference(image)
-    if digest:
-        return image.strip()
-    if not repository or not tag:
-        return image.strip()
-    if is_latest_image(image):
-        return image.strip()
-    if is_explicit_version_tag(tag):
-        return image.strip()
-    if not is_floating_tag(tag):
-        return image.strip()
+    source_image = image.strip()
+    repository, _, declared_digest = split_image_reference(source_image)
+    if not repository:
+        raise ValueError(f"invalid image reference: {image!r}")
+    if declared_digest is not None:
+        if SHA256_DIGEST_RE.fullmatch(declared_digest) is None:
+            raise ValueError(
+                f"image {source_image!r} contains an invalid sha256 digest: "
+                f"{declared_digest!r}"
+            )
+        return f"{repository}@{declared_digest.lower()}"
 
     digest_cache = digest_cache if digest_cache is not None else {}
-    tag_cache = tag_cache if tag_cache is not None else {}
-    crane_bin = require_crane_binary()
-
-    source_image = f"{repository}:{tag}"
     source_digest = digest_cache.get(source_image)
     if source_digest is None:
-        source_digest = run_crane_command(crane_bin, ["digest", source_image])
+        resolver = digest_resolver or resolve_registry_digest
+        source_digest = resolver(source_image)
+        if SHA256_DIGEST_RE.fullmatch(source_digest) is None:
+            raise ValueError(
+                f"registry returned an invalid sha256 digest for {source_image!r}: "
+                f"{source_digest!r}"
+            )
+        source_digest = source_digest.lower()
         digest_cache[source_image] = source_digest
-
-    tags = tag_cache.get(repository)
-    if tags is None:
-        tags_output = run_crane_command(crane_bin, ["ls", repository])
-        tags = [line.strip() for line in tags_output.splitlines() if line.strip()]
-        tag_cache[repository] = tags
-
-    candidate_tags = [candidate for candidate in tags if is_explicit_version_tag(candidate)]
-    matched_tags: List[str] = []
-    for candidate_tag in candidate_tags:
-        candidate_image = f"{repository}:{candidate_tag}"
-        candidate_digest = digest_cache.get(candidate_image)
-        if candidate_digest is None:
-            try:
-                candidate_digest = run_crane_command(crane_bin, ["digest", candidate_image])
-            except ValueError:
-                continue
-            digest_cache[candidate_image] = candidate_digest
-        if candidate_digest == source_digest:
-            matched_tags.append(candidate_tag)
-
-    if matched_tags:
-        best_tag = select_best_version_tag(matched_tags)
-        return f"{repository}:{best_tag}"
-
     return f"{repository}@{source_digest}"
 
 
+def image_repository_basename(image: str) -> str:
+    reference = image.strip()
+    if "@" in reference:
+        reference = reference.split("@", 1)[0]
+
+    slash_index = reference.rfind("/")
+    colon_index = reference.rfind(":")
+    if colon_index > slash_index:
+        reference = reference[:colon_index]
+
+    return reference.rsplit("/", 1)[-1].lower()
+
+
 def detect_db_type(image: str) -> Optional[str]:
-    normalized = image.strip().lower()
+    repository_basename = image_repository_basename(image)
     for db_type, patterns in DB_TYPE_PATTERNS.items():
-        if any(pattern in normalized for pattern in patterns):
+        if repository_basename in patterns:
             return db_type
     return None
-
-
-def _matches_gateway_hint(text: str, hints: Sequence[str]) -> bool:
-    normalized = text.strip().lower()
-    if not normalized:
-        return False
-    return any(hint in normalized for hint in hints)
-
-
-def is_platform_edge_gateway_service(service_name: str, service: Mapping[str, Any], image: str) -> bool:
-    if not _matches_gateway_hint(service_name, EDGE_GATEWAY_SERVICE_HINTS) and not _matches_gateway_hint(
-        image, EDGE_GATEWAY_IMAGE_HINTS
-    ):
-        return False
-
-    ports = parse_ports(service)
-    if any(port in EDGE_GATEWAY_PORT_HINTS for port in ports):
-        return True
-
-    command_args = parse_command_args(service)
-    merged = " ".join(command_args).lower()
-    if _matches_gateway_hint(merged, EDGE_GATEWAY_COMMAND_HINTS):
-        return True
-    return False
 
 
 def _resolve_compose_variable_expression(expr: str) -> str:
@@ -796,13 +1155,68 @@ def parse_container_port(item: Any) -> Optional[int]:
     return None
 
 
+def _text_has_websocket_hint(value: Any) -> bool:
+    normalized = str(value).lower()
+    return any(hint in normalized for hint in WEBSOCKET_VALUE_HINTS)
+
+
+def _field_has_websocket_hint(value: Any) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(value).lower()).strip("-")
+    if not normalized:
+        return False
+    tokens = set(normalized.split("-"))
+    return any(hint in normalized for hint in WEBSOCKET_FIELD_HINTS) or bool(tokens & set(WEBSOCKET_FIELD_HINTS))
+
+
+def _iter_compose_values(value: Any) -> Iterable[Any]:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield key
+            yield item
+            yield from _iter_compose_values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield item
+            yield from _iter_compose_values(item)
+    else:
+        yield value
+
+
+def parse_port_name(item: Any) -> Optional[str]:
+    if isinstance(item, dict):
+        for key in ("name", "app_protocol", "appProtocol", "protocol"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def is_port_websocket(item: Any) -> bool:
+    name = parse_port_name(item)
+    if name and (_field_has_websocket_hint(name) or _text_has_websocket_hint(name)):
+        return True
+    if isinstance(item, dict):
+        for key in ("app_protocol", "appProtocol", "protocol"):
+            value = item.get(key)
+            if isinstance(value, str) and _text_has_websocket_hint(value):
+                return True
+    return False
+
+
 def parse_ports(service: Mapping[str, Any]) -> List[int]:
-    ports = service.get("ports")
-    if not isinstance(ports, list):
+    return parse_declared_ports(service.get("ports"))
+
+
+def parse_expose_ports(service: Mapping[str, Any]) -> List[int]:
+    return parse_declared_ports(service.get("expose"))
+
+
+def parse_declared_ports(raw_ports: Any) -> List[int]:
+    if not isinstance(raw_ports, list):
         return []
     values: List[int] = []
     seen = set()
-    for item in ports:
+    for item in raw_ports:
         port = parse_container_port(item)
         if port is None or port in seen:
             continue
@@ -811,13 +1225,59 @@ def parse_ports(service: Mapping[str, Any]) -> List[int]:
     return values
 
 
-def normalize_ports_for_gateway_tls_termination(ports: Sequence[int]) -> List[int]:
-    normalized = list(ports)
-    # Sealos Ingress terminates TLS. If an app exposes both HTTP and HTTPS ports,
-    # keep only HTTP-facing ports to avoid redundant in-container TLS.
-    if TLS_TERMINATION_PORT in normalized and any(port != TLS_TERMINATION_PORT for port in normalized):
-        normalized = [port for port in normalized if port != TLS_TERMINATION_PORT]
-    return normalized
+def merge_ports(*port_groups: Sequence[int]) -> List[int]:
+    merged: List[int] = []
+    seen = set()
+    for ports in port_groups:
+        for port in ports:
+            if port not in seen:
+                seen.add(port)
+                merged.append(port)
+    return merged
+
+
+def infer_websocket_ports(service: Mapping[str, Any]) -> Set[int]:
+    websocket_ports: Set[int] = set()
+    ports = service.get("ports")
+    if isinstance(ports, list):
+        for item in ports:
+            port = parse_container_port(item)
+            if port is not None and is_port_websocket(item):
+                websocket_ports.add(port)
+
+    expose = service.get("expose")
+    if isinstance(expose, list):
+        for item in expose:
+            port = parse_container_port(item)
+            if port is not None and is_port_websocket(item):
+                websocket_ports.add(port)
+
+    for key, value in parse_env(service):
+        if (_field_has_websocket_hint(key) or _text_has_websocket_hint(value)) and value.isdigit():
+            websocket_ports.add(int(value))
+
+    return websocket_ports
+
+
+def service_requires_websocket_ingress(service_name: str, service: Mapping[str, Any], selected_port: int) -> bool:
+    websocket_ports = infer_websocket_ports(service)
+    if selected_port in websocket_ports:
+        return True
+    if _field_has_websocket_hint(service_name):
+        return True
+    for key, value in parse_env(service):
+        if _field_has_websocket_hint(key) or _text_has_websocket_hint(value):
+            return True
+    for value in _iter_compose_values(
+        {
+            "labels": service.get("labels"),
+            "command": service.get("command"),
+            "entrypoint": service.get("entrypoint"),
+        }
+    ):
+        if _text_has_websocket_hint(value) or _field_has_websocket_hint(value):
+            return True
+    return False
 
 
 def parse_mount_target_from_string(raw: str) -> Optional[str]:
@@ -841,18 +1301,6 @@ def is_persistent_mount_target(target: str) -> bool:
     return not target.lower().endswith(".sock")
 
 
-def is_tls_certificate_mount_target(target: str) -> bool:
-    normalized = target.strip().rstrip("/").lower()
-    if not normalized:
-        return False
-    if normalized in TLS_CERT_MOUNT_EXACT_PATHS:
-        return True
-    parts = [part for part in normalized.split("/") if part]
-    if not parts:
-        return False
-    return parts[-1] in TLS_CERT_DIR_NAMES
-
-
 def parse_mount_paths(service: Mapping[str, Any]) -> List[str]:
     volumes = service.get("volumes")
     if not isinstance(volumes, list):
@@ -870,12 +1318,149 @@ def parse_mount_paths(service: Mapping[str, Any]) -> List[str]:
         if (
             target
             and is_persistent_mount_target(target)
-            and not is_tls_certificate_mount_target(target)
             and target not in seen
         ):
             seen.add(target)
             paths.append(target)
     return paths
+
+
+def _resolve_database_contract_value(
+    env_by_name: Mapping[str, str],
+    names: Sequence[str],
+) -> Tuple[str, str]:
+    resolved_values: List[Tuple[str, str]] = []
+    for name in names:
+        raw = env_by_name.get(name)
+        if raw is None:
+            continue
+        try:
+            value = resolve_compose_value(raw).strip() if "$" in raw else raw.strip()
+        except ValueError as exc:
+            return "", f"{name} cannot be resolved: {exc}"
+        if value:
+            resolved_values.append((name, value))
+    unique_values = sorted({value for _, value in resolved_values})
+    if len(unique_values) > 1:
+        fields = ", ".join(name for name, _ in resolved_values)
+        return "", f"conflicting database initialization values in {fields}"
+    return (unique_values[0] if unique_values else ""), ""
+
+
+def plan_database_service(
+    service_name: str,
+    db_type: str,
+    source_image: str,
+    service: Mapping[str, Any],
+) -> DatabasePlan:
+    fallback_reasons: List[str] = []
+    image_name = image_repository_basename(source_image)
+    if image_name not in DB_KUBEBLOCKS_COMPATIBLE_IMAGE_NAMES.get(db_type, set()):
+        fallback_reasons.append(
+            f"database image variant {image_name!r} is not covered by the {db_type} KubeBlocks mapping"
+        )
+
+    unsupported_keys = sorted(set(service) - DB_MANAGED_SERVICE_KEYS)
+    if unsupported_keys:
+        fallback_reasons.append(
+            "unsupported database service fields: " + ", ".join(unsupported_keys)
+        )
+
+    env_by_name = {name: value for name, value in parse_env(service)}
+    allowed_env_names = DB_STANDARD_ENV_NAMES_BY_TYPE.get(db_type, set())
+    unsupported_env_names = sorted(set(env_by_name) - allowed_env_names)
+    if unsupported_env_names:
+        fallback_reasons.append(
+            "unmapped database initialization environment: "
+            + ", ".join(unsupported_env_names)
+        )
+
+    standard_data_paths = DB_STANDARD_DATA_PATHS_BY_TYPE.get(db_type, set())
+    unsupported_mounts = [
+        target
+        for target in parse_mount_paths(service)
+        if target not in standard_data_paths
+    ]
+    if unsupported_mounts:
+        fallback_reasons.append(
+            "unmapped database mount targets: " + ", ".join(sorted(unsupported_mounts))
+        )
+
+    deploy = service.get("deploy")
+    if isinstance(deploy, dict):
+        replicas = deploy.get("replicas", 1)
+        if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas != 1:
+            fallback_reasons.append(
+                "database deploy.replicas is not exactly one and cannot be preserved by the current KubeBlocks template"
+            )
+
+    database_name = ""
+    app_username = ""
+    contract_error = ""
+    if db_type == "mysql":
+        database_name, contract_error = _resolve_database_contract_value(
+            env_by_name,
+            ("MARIADB_DATABASE", "MYSQL_DATABASE"),
+        )
+        if not contract_error:
+            app_username, contract_error = _resolve_database_contract_value(
+                env_by_name,
+                ("MARIADB_USER", "MYSQL_USER"),
+            )
+        app_password_declared = any(
+            env_by_name.get(name, "").strip()
+            for name in ("MARIADB_PASSWORD", "MYSQL_PASSWORD")
+        )
+        if app_username and not database_name:
+            contract_error = (
+                "application database user is declared without a target database"
+            )
+        elif app_username and not app_password_declared:
+            contract_error = (
+                "application database user is declared without its matching password"
+            )
+        elif app_password_declared and not app_username:
+            contract_error = (
+                "application database password is declared without its matching user"
+            )
+    elif db_type == "postgres":
+        database_name, contract_error = _resolve_database_contract_value(
+            env_by_name,
+            ("POSTGRES_DB",),
+        )
+        if not contract_error:
+            source_username, contract_error = _resolve_database_contract_value(
+                env_by_name,
+                ("POSTGRES_USER",),
+            )
+            if source_username and source_username.lower() != "postgres":
+                app_username = source_username
+                if not database_name:
+                    database_name = source_username
+        if database_name.lower() == "postgres" and not app_username:
+            database_name = ""
+
+    if contract_error:
+        fallback_reasons.append(contract_error)
+
+    for identifier_name, identifier in (
+        ("database", database_name),
+        ("application database user", app_username),
+    ):
+        if identifier and DATABASE_IDENTIFIER_RE.fullmatch(identifier) is None:
+            fallback_reasons.append(
+                f"{identifier_name} {identifier!r} is outside the safely translated identifier subset"
+            )
+
+    return DatabasePlan(
+        service_name=service_name,
+        db_type=db_type,
+        source_image=source_image,
+        service=service,
+        database_name=database_name,
+        app_username=app_username,
+        fallback_reason="; ".join(dict.fromkeys(fallback_reasons)),
+    )
 
 
 def _resolve_config_file_path(raw_path: Any, compose_dir: Path) -> Optional[Path]:
@@ -953,6 +1538,107 @@ def parse_config_mounts(
     return mounts
 
 
+def _parse_bind_mount_source_and_target(
+    item: Any,
+) -> Tuple[Optional[str], Optional[str]]:
+    if isinstance(item, str):
+        parts = item.split(":")
+        if len(parts) < 2:
+            return None, parse_mount_target_from_string(item)
+        if len(parts) >= 3 and parts[-1] in MODE_SUFFIXES:
+            return ":".join(parts[:-2]), parts[-2]
+        return ":".join(parts[:-1]), parts[-1]
+    if isinstance(item, dict):
+        source = item.get("source")
+        target = item.get("target")
+        mount_type = item.get("type")
+        if mount_type not in (None, "bind"):
+            return None, str(target) if isinstance(target, str) else None
+        return (
+            str(source) if isinstance(source, str) else None,
+            str(target) if isinstance(target, str) else None,
+        )
+    return None, None
+
+
+def parse_database_fallback_mounts(
+    service: Mapping[str, Any],
+    compose_dir: Path,
+    db_type: str,
+) -> Tuple[List[str], List[ConfigMount]]:
+    volumes = service.get("volumes")
+    if not isinstance(volumes, list):
+        return [], []
+    persistent_paths: List[str] = []
+    config_mounts: List[ConfigMount] = []
+    standard_data_paths = DB_STANDARD_DATA_PATHS_BY_TYPE.get(db_type, set())
+    for item in volumes:
+        source, target = _parse_bind_mount_source_and_target(item)
+        if not isinstance(target, str) or not target.startswith("/"):
+            continue
+        if target in standard_data_paths:
+            if target not in persistent_paths:
+                persistent_paths.append(target)
+            continue
+        if not source:
+            raise ValueError(
+                f"raw database fallback cannot materialize volume target {target!r}; "
+                "use the AI-native canonical template route"
+            )
+        source_path = Path(source)
+        if not source_path.is_absolute():
+            source_path = compose_dir / source_path
+        try:
+            source_path = source_path.resolve()
+        except OSError as exc:
+            raise ValueError(
+                f"raw database fallback cannot resolve bind source {source!r}: {exc}"
+            ) from exc
+        if source_path.is_file():
+            try:
+                content = source_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                raise ValueError(
+                    f"raw database fallback cannot preserve non-text bind source {source!r}"
+                ) from exc
+            config_mounts.append(
+                ConfigMount(
+                    target=target,
+                    key=path_to_vn_name(target),
+                    content=content,
+                )
+            )
+            continue
+        if source_path.is_dir():
+            source_files = sorted(path for path in source_path.rglob("*") if path.is_file())
+            if not source_files:
+                raise ValueError(
+                    f"raw database fallback bind directory {source!r} is empty"
+                )
+            for source_file in source_files:
+                relative = source_file.relative_to(source_path).as_posix()
+                mount_target = f"{target.rstrip('/')}/{relative}"
+                try:
+                    content = source_file.read_text(encoding="utf-8")
+                except (OSError, UnicodeError) as exc:
+                    raise ValueError(
+                        f"raw database fallback cannot preserve non-text bind source {source_file}"
+                    ) from exc
+                config_mounts.append(
+                    ConfigMount(
+                        target=mount_target,
+                        key=path_to_vn_name(mount_target),
+                        content=content,
+                    )
+                )
+            continue
+        raise ValueError(
+            f"raw database fallback bind source {source!r} does not exist; "
+            "use the AI-native canonical template route"
+        )
+    return persistent_paths, config_mounts
+
+
 def parse_command_args(service: Mapping[str, Any]) -> List[str]:
     command = service.get("command")
     if isinstance(command, str):
@@ -965,6 +1651,25 @@ def parse_command_args(service: Mapping[str, Any]) -> List[str]:
             return [text]
     if isinstance(command, list):
         return [str(item) for item in command if item is not None and str(item).strip()]
+    return []
+
+
+def parse_entrypoint_command(service: Mapping[str, Any]) -> List[str]:
+    entrypoint = service.get("entrypoint")
+    if isinstance(entrypoint, str):
+        text = entrypoint.strip()
+        if not text:
+            return []
+        try:
+            return shlex.split(text)
+        except ValueError:
+            return [text]
+    if isinstance(entrypoint, list):
+        return [
+            str(item)
+            for item in entrypoint
+            if item is not None and str(item).strip()
+        ]
     return []
 
 
@@ -1321,8 +2026,26 @@ def resolve_kompose_shapes(compose_path: Path, mode: str) -> Optional[Dict[str, 
     raise ValueError(f"unsupported kompose mode: {mode}")
 
 
-def build_template_resource(meta: MetadataOptions) -> Dict[str, Any]:
+def build_template_resource(
+    meta: MetadataOptions,
+    password_defaults: Sequence[str] = (),
+) -> Dict[str, Any]:
     readme_base = f"{TEMPLATE_README_BASE}/{meta.app_name}"
+    defaults: Dict[str, Dict[str, str]] = {
+        "app_host": {
+            "type": "string",
+            "value": f"{meta.app_name}-${{{{ random(8) }}}}",
+        },
+        "app_name": {
+            "type": "string",
+            "value": f"{meta.app_name}-${{{{ random(8) }}}}",
+        },
+    }
+    for default_name in sorted(set(password_defaults)):
+        defaults[default_name] = {
+            "type": "string",
+            "value": "Db${{ random(24) }}9",
+        }
     return {
         "apiVersion": "app.sealos.io/v1",
         "kind": "Template",
@@ -1346,22 +2069,53 @@ def build_template_resource(meta: MetadataOptions) -> Dict[str, Any]:
                 }
             },
             "categories": list(meta.categories),
-            "defaults": {
-                "app_host": {
-                    "type": "string",
-                    "value": f"{meta.app_name}-${{{{ random(8) }}}}",
-                },
-                "app_name": {
-                    "type": "string",
-                    "value": f"{meta.app_name}-${{{{ random(8) }}}}",
-                },
-            },
+            "defaults": defaults,
         },
     }
 
 
-def build_postgres_resources() -> List[Dict[str, Any]]:
-    name = "${{ defaults.app_name }}-pg"
+def default_database_cluster_name(db_type: str) -> str:
+    suffix = DB_CLUSTER_SUFFIX_BY_TYPE.get(db_type)
+    if suffix is None:
+        raise ValueError(f"unsupported database type: {db_type}")
+    return f"${{{{ defaults.app_name }}}}-{suffix}"
+
+
+def database_cluster_name(db_type: str, service_name: str, same_type_count: int) -> str:
+    base_name = default_database_cluster_name(db_type)
+    if same_type_count == 1:
+        return base_name
+    return f"{base_name}-{normalize_k8s_name(service_name)}"
+
+
+def database_service_fqdn(db_type: str, cluster_name: str) -> str:
+    suffix = DB_SERVICE_SUFFIX_BY_TYPE.get(db_type)
+    if suffix is None:
+        raise ValueError(f"unsupported database type: {db_type}")
+    return f"{cluster_name}-{suffix}.${{{{ SEALOS_NAMESPACE }}}}.svc.cluster.local"
+
+
+def database_secret_name(db_type: str, cluster_name: str) -> str:
+    suffix = DB_SECRET_SUFFIX_BY_TYPE.get(db_type)
+    if suffix is None:
+        raise ValueError(f"unsupported database type: {db_type}")
+    return f"{cluster_name}-{suffix}"
+
+
+def database_app_secret_name(cluster_name: str) -> str:
+    return f"{cluster_name}-app-credential"
+
+
+def database_password_default_name(db_type: str, service_name: str) -> str:
+    return (
+        f"{normalize_env_token(db_type).lower()}_"
+        f"{normalize_env_token(service_name).lower()}_app_password"
+    )
+
+
+def build_postgres_resources(
+    name: str = "${{ defaults.app_name }}-pg",
+) -> List[Dict[str, Any]]:
     labels = {
         "sealos-db-provider-cr": name,
         "app.kubernetes.io/instance": name,
@@ -1458,8 +2212,9 @@ def build_postgres_resources() -> List[Dict[str, Any]]:
     ]
 
 
-def build_mysql_resources() -> List[Dict[str, Any]]:
-    name = "${{ defaults.app_name }}-mysql"
+def build_mysql_resources(
+    name: str = "${{ defaults.app_name }}-mysql",
+) -> List[Dict[str, Any]]:
     labels = {
         "sealos-db-provider-cr": name,
         "app.kubernetes.io/instance": name,
@@ -1559,8 +2314,9 @@ def build_mysql_resources() -> List[Dict[str, Any]]:
     ]
 
 
-def build_mongodb_resources() -> List[Dict[str, Any]]:
-    name = "${{ defaults.app_name }}-mongo"
+def build_mongodb_resources(
+    name: str = "${{ defaults.app_name }}-mongo",
+) -> List[Dict[str, Any]]:
     labels = {
         "sealos-db-provider-cr": name,
         "app.kubernetes.io/instance": name,
@@ -1653,8 +2409,9 @@ def build_mongodb_resources() -> List[Dict[str, Any]]:
     ]
 
 
-def build_redis_resources() -> List[Dict[str, Any]]:
-    name = "${{ defaults.app_name }}-redis"
+def build_redis_resources(
+    name: str = "${{ defaults.app_name }}-redis",
+) -> List[Dict[str, Any]]:
     labels = {
         "sealos-db-provider-cr": name,
         "app.kubernetes.io/instance": name,
@@ -1771,8 +2528,9 @@ def build_redis_resources() -> List[Dict[str, Any]]:
     ]
 
 
-def build_kafka_resources() -> List[Dict[str, Any]]:
-    name = "${{ defaults.app_name }}-broker"
+def build_kafka_resources(
+    name: str = "${{ defaults.app_name }}-broker",
+) -> List[Dict[str, Any]]:
     labels = {
         "sealos-db-provider-cr": name,
         "app.kubernetes.io/instance": name,
@@ -1912,18 +2670,309 @@ def build_kafka_resources() -> List[Dict[str, Any]]:
     ]
 
 
-def build_database_resources(db_type: str) -> List[Dict[str, Any]]:
+def build_database_resources(
+    db_type: str,
+    name: Optional[str] = None,
+    resource_limits: Optional[Mapping[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    cluster_name = name or default_database_cluster_name(db_type)
     if db_type == "postgres":
-        return build_postgres_resources()
-    if db_type == "mysql":
-        return build_mysql_resources()
-    if db_type == "mongodb":
-        return build_mongodb_resources()
-    if db_type == "redis":
-        return build_redis_resources()
-    if db_type == "kafka":
-        return build_kafka_resources()
-    return []
+        documents = build_postgres_resources(cluster_name)
+    elif db_type == "mysql":
+        documents = build_mysql_resources(cluster_name)
+    elif db_type == "mongodb":
+        documents = build_mongodb_resources(cluster_name)
+    elif db_type == "redis":
+        documents = build_redis_resources(cluster_name)
+    elif db_type == "kafka":
+        documents = build_kafka_resources(cluster_name)
+    else:
+        return []
+
+    if resource_limits is None:
+        return documents
+    for document in documents:
+        if document.get("kind") != "Cluster":
+            continue
+        component_specs = document.get("spec", {}).get("componentSpecs", [])
+        for component in component_specs:
+            if isinstance(component, dict):
+                component["resources"] = db_component_resources(resource_limits)
+    return documents
+
+
+def build_database_app_secret(plan: DatabasePlan) -> Dict[str, Any]:
+    if not plan.has_app_credentials:
+        raise ValueError("application database credentials require a bootstrap plan")
+    return {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": plan.app_secret_name,
+            "annotations": {
+                DB_BOOTSTRAP_ANNOTATION: "application-credential",
+                DB_CLUSTER_ANNOTATION: plan.cluster_name,
+                DB_ENGINE_ANNOTATION: plan.db_type,
+            },
+        },
+        "type": "Opaque",
+        "stringData": {
+            "database": plan.database_name,
+            "username": plan.app_username,
+            "password": f"${{{{ defaults.{plan.password_default_name} }}}}",
+        },
+    }
+
+
+def _database_bootstrap_env(plan: DatabasePlan) -> List[Dict[str, Any]]:
+    env = [
+        build_secret_ref_env_entry(
+            "DB_ADMIN_HOST",
+            plan.connection_secret_name,
+            "host",
+        ),
+        build_secret_ref_env_entry(
+            "DB_ADMIN_PORT",
+            plan.connection_secret_name,
+            "port",
+        ),
+        build_secret_ref_env_entry(
+            "DB_ADMIN_USER",
+            plan.connection_secret_name,
+            "username",
+        ),
+        build_secret_ref_env_entry(
+            "DB_ADMIN_PASSWORD",
+            plan.connection_secret_name,
+            "password",
+        ),
+        {"name": "DB_NAME", "value": plan.database_name},
+    ]
+    if plan.has_app_credentials:
+        env.extend(
+            [
+                build_secret_ref_env_entry(
+                    "DB_APP_USER",
+                    plan.app_secret_name,
+                    "username",
+                ),
+                build_secret_ref_env_entry(
+                    "DB_APP_PASSWORD",
+                    plan.app_secret_name,
+                    "password",
+                ),
+            ]
+        )
+    return env
+
+
+def _mysql_bootstrap_script(has_app_credentials: bool) -> str:
+    app_account_script = ""
+    if has_app_credentials:
+        app_account_script = r"""
+case "$DB_APP_USER" in
+  ''|*[!A-Za-z0-9_]*) echo "unsafe MySQL application username" >&2; exit 1 ;;
+esac
+escaped_password="$(printf '%s' "$DB_APP_PASSWORD" | sed "s/\\\\/\\\\\\\\/g; s/'/''/g")"
+MYSQL_PWD="$DB_ADMIN_PASSWORD" mysql \
+  -h "$DB_ADMIN_HOST" -P "$DB_ADMIN_PORT" -u "$DB_ADMIN_USER" <<SQL
+CREATE USER IF NOT EXISTS '$DB_APP_USER'@'%' IDENTIFIED BY '$escaped_password';
+ALTER USER '$DB_APP_USER'@'%' IDENTIFIED BY '$escaped_password';
+GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_APP_USER'@'%';
+SQL
+"""
+    return (
+        r"""set -eu
+case "$DB_NAME" in
+  ''|*[!A-Za-z0-9_]*) echo "unsafe MySQL database name" >&2; exit 1 ;;
+esac
+for attempt in $(seq 1 90); do
+  if MYSQL_PWD="$DB_ADMIN_PASSWORD" mysqladmin ping \
+    -h "$DB_ADMIN_HOST" -P "$DB_ADMIN_PORT" -u "$DB_ADMIN_USER" --silent; then
+    break
+  fi
+  sleep 2
+done
+MYSQL_PWD="$DB_ADMIN_PASSWORD" mysqladmin ping \
+  -h "$DB_ADMIN_HOST" -P "$DB_ADMIN_PORT" -u "$DB_ADMIN_USER" --silent
+MYSQL_PWD="$DB_ADMIN_PASSWORD" mysql \
+  -h "$DB_ADMIN_HOST" -P "$DB_ADMIN_PORT" -u "$DB_ADMIN_USER" \
+  -e "CREATE DATABASE IF NOT EXISTS \`$DB_NAME\`;"
+"""
+        + app_account_script.lstrip("\n")
+    )
+
+
+def _postgres_bootstrap_script(has_app_credentials: bool) -> str:
+    app_account_script = ""
+    owner_expression = '"$DB_ADMIN_USER"'
+    if has_app_credentials:
+        owner_expression = '"$DB_APP_USER"'
+        app_account_script = r"""
+psql -v ON_ERROR_STOP=1 -v app_user="$DB_APP_USER" -v app_password="$DB_APP_PASSWORD" <<'SQL'
+SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user')
+\gexec
+SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
+\gexec
+SQL
+"""
+    return (
+        r"""set -eu
+export PGHOST="$DB_ADMIN_HOST"
+export PGPORT="$DB_ADMIN_PORT"
+export PGUSER="$DB_ADMIN_USER"
+export PGPASSWORD="$DB_ADMIN_PASSWORD"
+export PGDATABASE=postgres
+for attempt in $(seq 1 90); do
+  if pg_isready >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+pg_isready
+"""
+        + app_account_script.lstrip("\n")
+        + f"""DB_OWNER={owner_expression}
+psql -v ON_ERROR_STOP=1 -v db_name="$DB_NAME" -v db_owner="$DB_OWNER" <<'SQL'
+SELECT format('CREATE DATABASE %I OWNER %I', :'db_name', :'db_owner')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'db_name')
+\\gexec
+SELECT format('GRANT ALL PRIVILEGES ON DATABASE %I TO %I', :'db_name', :'db_owner')
+\\gexec
+SQL
+"""
+    )
+
+
+def build_database_bootstrap_job(
+    plan: DatabasePlan,
+    client_image: str,
+) -> Dict[str, Any]:
+    if not plan.needs_bootstrap:
+        raise ValueError("database bootstrap Job requires a target database")
+    if plan.db_type == "mysql":
+        script = _mysql_bootstrap_script(plan.has_app_credentials)
+    elif plan.db_type == "postgres":
+        script = _postgres_bootstrap_script(plan.has_app_credentials)
+    else:
+        raise ValueError(
+            f"database bootstrap is not implemented for {plan.db_type}"
+        )
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": f"{plan.cluster_name}-init",
+            "annotations": {
+                DB_BOOTSTRAP_ANNOTATION: "database-user-grants",
+                DB_CLUSTER_ANNOTATION: plan.cluster_name,
+                DB_ENGINE_ANNOTATION: plan.db_type,
+            },
+        },
+        "spec": {
+            "backoffLimit": 3,
+            "template": {
+                "spec": {
+                    "automountServiceAccountToken": False,
+                    "containers": [
+                        {
+                            "name": f"{plan.db_type}-init",
+                            "image": client_image,
+                            "imagePullPolicy": "IfNotPresent",
+                            "env": _database_bootstrap_env(plan),
+                            "command": ["/bin/sh", "-c"],
+                            "args": [script],
+                            "resources": {
+                                "limits": dict(DEFAULT_RESOURCE_LIMITS),
+                                "requests": dict(DEFAULT_RESOURCE_REQUESTS),
+                            },
+                        }
+                    ],
+                    "restartPolicy": "OnFailure",
+                }
+            },
+            "ttlSecondsAfterFinished": 300,
+        },
+    }
+
+
+def build_database_ready_init_container(
+    plan: DatabasePlan,
+    client_image: str,
+) -> Dict[str, Any]:
+    if not plan.needs_bootstrap:
+        raise ValueError("database readiness gate requires a target database")
+    credential_secret_name = (
+        plan.app_secret_name
+        if plan.has_app_credentials
+        else plan.connection_secret_name
+    )
+    if plan.db_type == "mysql":
+        script = (
+            'set -eu\n'
+            'for attempt in $(seq 1 90); do\n'
+            '  if MYSQL_PWD="$DB_PASSWORD" mysql '
+            '-h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" "$DB_NAME" '
+            '-Nse "SELECT 1" >/dev/null 2>&1; then exit 0; fi\n'
+            '  sleep 2\n'
+            'done\n'
+            'echo "application MySQL database contract is not ready" >&2\n'
+            'exit 1\n'
+        )
+    elif plan.db_type == "postgres":
+        script = (
+            'set -eu\n'
+            'export PGPASSWORD="$DB_PASSWORD"\n'
+            'for attempt in $(seq 1 90); do\n'
+            '  if psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" '
+            '-d "$DB_NAME" -tAc "SELECT 1" >/dev/null 2>&1; then exit 0; fi\n'
+            '  sleep 2\n'
+            'done\n'
+            'echo "application PostgreSQL database contract is not ready" >&2\n'
+            'exit 1\n'
+        )
+    else:
+        raise ValueError(
+            f"database readiness gate is not implemented for {plan.db_type}"
+        )
+    container_name = normalize_k8s_name(
+        f"{plan.db_type}-{plan.service_name}-ready"
+    )[:63].rstrip("-")
+    return {
+        "name": container_name,
+        "image": client_image,
+        "imagePullPolicy": "IfNotPresent",
+        "env": [
+            build_secret_ref_env_entry(
+                "DB_HOST",
+                plan.connection_secret_name,
+                "host",
+            ),
+            build_secret_ref_env_entry(
+                "DB_PORT",
+                plan.connection_secret_name,
+                "port",
+            ),
+            build_secret_ref_env_entry(
+                "DB_USER",
+                credential_secret_name,
+                "username",
+            ),
+            build_secret_ref_env_entry(
+                "DB_PASSWORD",
+                credential_secret_name,
+                "password",
+            ),
+            {"name": "DB_NAME", "value": plan.database_name},
+        ],
+        "command": ["/bin/sh", "-c"],
+        "args": [script],
+        "resources": {
+            "limits": dict(DEFAULT_RESOURCE_LIMITS),
+            "requests": dict(DEFAULT_RESOURCE_REQUESTS),
+        },
+    }
 
 
 def build_object_storage_bucket() -> Dict[str, Any]:
@@ -1935,18 +2984,40 @@ def build_object_storage_bucket() -> Dict[str, Any]:
     }
 
 
-def map_compose_env_value(value: str, db_hosts: Mapping[str, str]) -> str:
+def map_compose_env_value(
+    value: str,
+    db_hosts: Mapping[str, str],
+    service_hosts: Mapping[str, str],
+) -> str:
     if not isinstance(value, str):
         return str(value)
     if COMPOSE_REFERENCE_RE.search(value):
         return value
     if value in db_hosts:
         return db_hosts[value]
+    if value in service_hosts:
+        return service_hosts[value]
     mapped = value
     for service_name, fqdn in db_hosts.items():
         mapped = mapped.replace(f"@{service_name}:", f"@{fqdn}:")
         mapped = mapped.replace(f"//{service_name}:", f"//{fqdn}:")
-    return mapped
+    return map_compose_service_reference(mapped, service_hosts)
+
+
+def map_compose_service_reference(value: str, service_hosts: Mapping[str, str]) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    for service_name, fqdn in service_hosts.items():
+        escaped_name = re.escape(service_name)
+        direct_reference = re.fullmatch(rf"{escaped_name}(?P<port>:\d+)", value)
+        if direct_reference:
+            return f"{fqdn}{direct_reference.group('port')}"
+        value = re.sub(
+            rf"(?P<prefix>://|@){escaped_name}(?P<suffix>(?::\d+)?(?:[/?#]|$))",
+            lambda match: f"{match.group('prefix')}{fqdn}{match.group('suffix')}",
+            value,
+        )
+    return value
 
 
 def detect_db_connection_key(env_name: str) -> Optional[str]:
@@ -1989,16 +3060,16 @@ def build_secret_ref_env_entry(env_name: str, secret_name: str, secret_key: str)
     }
 
 
-def infer_db_type_from_value(value: str, db_services: Mapping[str, str]) -> Optional[str]:
+def infer_db_service_from_value(value: str, db_services: Mapping[str, str]) -> Optional[str]:
     text = value.strip().lower()
     matched: List[str] = []
-    for service_name, db_type in db_services.items():
+    for service_name in db_services:
         service = service_name.lower()
         if text == service:
-            matched.append(db_type)
+            matched.append(service_name)
             continue
         if f"//{service}" in text or f"@{service}" in text or f"{service}:" in text:
-            matched.append(db_type)
+            matched.append(service_name)
             continue
     unique = sorted(set(matched))
     if len(unique) == 1:
@@ -2024,7 +3095,13 @@ def infer_db_type_from_env_name(env_name: str, available_db_types: Sequence[str]
     return None
 
 
-def infer_db_secret_ref(env_name: str, value: str, db_services: Mapping[str, str]) -> Optional[Dict[str, str]]:
+def infer_db_secret_ref(
+    env_name: str,
+    value: str,
+    db_services: Mapping[str, str],
+    db_secret_names: Mapping[str, str],
+    db_app_secret_names: Optional[Mapping[str, str]] = None,
+) -> Optional[Dict[str, str]]:
     connection_key = detect_db_connection_key(env_name)
     if connection_key is None:
         return None
@@ -2033,22 +3110,86 @@ def infer_db_secret_ref(env_name: str, value: str, db_services: Mapping[str, str
     if not available_db_types:
         return None
 
-    from_value = infer_db_type_from_value(value, db_services)
-    from_name = infer_db_type_from_env_name(env_name, available_db_types)
-    db_type = from_value or from_name
-    if db_type is None:
+    db_service = infer_db_service_from_value(value, db_services)
+    if db_service is None:
+        from_name = infer_db_type_from_env_name(env_name, available_db_types)
+        candidates = [
+            service_name
+            for service_name, service_type in db_services.items()
+            if service_type == from_name
+        ]
+        if len(candidates) == 1:
+            db_service = candidates[0]
+    if db_service is None:
         return None
+    db_type = db_services[db_service]
 
     # Some KubeBlocks account secrets only expose credentials. Host/port use
     # stable Sealos Service FQDN values for those databases instead.
     if db_type == "redis" and connection_key in {"host", "port"}:
         return None
 
-    secret_name = DB_SECRET_NAME_BY_TYPE.get(db_type)
+    secret_name = db_secret_names.get(db_service)
+    if connection_key in {"username", "password"}:
+        app_secret_name = (db_app_secret_names or {}).get(db_service)
+        if isinstance(app_secret_name, str):
+            secret_name = app_secret_name
     if not isinstance(secret_name, str):
         return None
 
-    return {"name": secret_name, "key": connection_key, "db_type": db_type}
+    return {
+        "name": secret_name,
+        "key": connection_key,
+        "db_type": db_type,
+        "db_service": db_service,
+    }
+
+
+def infer_service_database_dependencies(
+    service: Mapping[str, Any],
+    db_services: Mapping[str, str],
+) -> Set[str]:
+    dependencies: Set[str] = set()
+    depends_on = service.get("depends_on")
+    if isinstance(depends_on, dict):
+        dependencies.update(
+            name for name in depends_on if name in db_services
+        )
+    elif isinstance(depends_on, list):
+        dependencies.update(
+            str(name) for name in depends_on if str(name) in db_services
+        )
+
+    available_db_types = list(db_services.values())
+    for env_name, value in parse_env(service):
+        service_name = infer_db_service_from_value(value, db_services)
+        if service_name is not None:
+            dependencies.add(service_name)
+            continue
+        if detect_db_connection_key(env_name) is None:
+            continue
+        db_type = infer_db_type_from_env_name(env_name, available_db_types)
+        candidates = [
+            name
+            for name, candidate_type in db_services.items()
+            if candidate_type == db_type
+        ]
+        if len(candidates) == 1:
+            dependencies.add(candidates[0])
+
+    command_text = " ".join(
+        [
+            *parse_entrypoint_command(service),
+            *parse_command_args(service),
+        ]
+    )
+    for service_name in db_services:
+        if re.search(
+            rf"(?<![A-Za-z0-9_-]){re.escape(service_name)}(?![A-Za-z0-9_-])",
+            command_text,
+        ):
+            dependencies.add(service_name)
+    return dependencies
 
 
 def build_db_url_composed_env_entries(
@@ -2056,7 +3197,9 @@ def build_db_url_composed_env_entries(
     raw_value: str,
     secret_name: str,
     db_type: str,
+    credential_secret_name: str,
     db_services: Mapping[str, str],
+    db_hosts: Mapping[str, str],
 ) -> Optional[List[Dict[str, Any]]]:
     text = raw_value.strip()
     if not text or COMPOSE_REFERENCE_RE.search(text):
@@ -2064,7 +3207,9 @@ def build_db_url_composed_env_entries(
 
     parsed = urlparse(text)
     host = (parsed.hostname or "").strip().lower()
-    if not parsed.scheme or not host or host not in db_services:
+    service_lookup = {service_name.lower(): service_name for service_name in db_services}
+    db_service = service_lookup.get(host)
+    if not parsed.scheme or not db_service:
         return None
 
     env_token = normalize_endpoint_helper_token(env_name) or "DB_CONNECTION"
@@ -2078,12 +3223,12 @@ def build_db_url_composed_env_entries(
     helper_entries: List[Dict[str, Any]]
     if db_type == "redis":
         helper_entries = [
-            {"name": host_var, "value": DB_FQDN_BY_TYPE["redis"]},
+            {"name": host_var, "value": db_hosts[db_service]},
             {"name": port_var, "value": "6379"},
         ]
     elif db_type == "mongodb":
         helper_entries = [
-            {"name": host_var, "value": DB_FQDN_BY_TYPE["mongodb"]},
+            {"name": host_var, "value": db_hosts[db_service]},
             {"name": port_var, "value": "27017"},
         ]
     else:
@@ -2098,9 +3243,21 @@ def build_db_url_composed_env_entries(
     has_password = parsed.password is not None
 
     if has_username:
-        helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
+        helper_entries.append(
+            build_secret_ref_env_entry(
+                user_var,
+                credential_secret_name,
+                "username",
+            )
+        )
     if has_password:
-        helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
+        helper_entries.append(
+            build_secret_ref_env_entry(
+                password_var,
+                credential_secret_name,
+                "password",
+            )
+        )
 
     if has_auth:
         if has_username and has_password:
@@ -2129,10 +3286,19 @@ def build_env_entries(
     service: Mapping[str, Any],
     db_hosts: Mapping[str, str],
     db_services: Mapping[str, str],
+    db_secret_names: Mapping[str, str],
+    db_app_secret_names: Mapping[str, str],
+    service_hosts: Mapping[str, str],
 ) -> List[Dict[str, Any]]:
     entries: List[Dict[str, Any]] = []
     for key, value in parse_env(service):
-        secret_ref = infer_db_secret_ref(key, value, db_services)
+        secret_ref = infer_db_secret_ref(
+            key,
+            value,
+            db_services,
+            db_secret_names,
+            db_app_secret_names,
+        )
         if secret_ref is not None:
             if secret_ref["key"] == "endpoint":
                 composed_entries = build_db_url_composed_env_entries(
@@ -2140,7 +3306,12 @@ def build_env_entries(
                     raw_value=value,
                     secret_name=secret_ref["name"],
                     db_type=secret_ref["db_type"],
+                    credential_secret_name=db_app_secret_names.get(
+                        secret_ref["db_service"],
+                        db_secret_names[secret_ref["db_service"]],
+                    ),
                     db_services=db_services,
+                    db_hosts=db_hosts,
                 )
                 if composed_entries is not None:
                     entries.extend(composed_entries)
@@ -2151,23 +3322,51 @@ def build_env_entries(
         entries.append(
             {
                 "name": key,
-                "value": map_compose_env_value(value, db_hosts),
+                "value": map_compose_env_value(value, db_hosts, service_hosts),
             }
         )
     return entries
+
+
+def parse_service_replicas(service: Mapping[str, Any]) -> int:
+    deploy = service.get("deploy")
+    if deploy is None:
+        return 1
+    if not isinstance(deploy, dict):
+        raise ValueError("service deploy must be an object when provided")
+
+    replicas = deploy.get("replicas", 1)
+    if isinstance(replicas, bool) or not isinstance(replicas, int) or replicas < 1:
+        raise ValueError("service deploy.replicas must be a positive integer")
+    return replicas
 
 
 def build_workload(
     *,
     workload_name: str,
     image: str,
+    replicas: int,
     ports: Sequence[int],
+    websocket_ports: Set[int],
     env_entries: Sequence[Dict[str, Any]],
     command_args: Sequence[str],
     mount_paths: Sequence[str],
     config_mounts: Sequence[ConfigMount],
     probes: Mapping[str, Any],
+    init_containers: Sequence[Dict[str, Any]] = (),
+    entrypoint_command: Sequence[str] = (),
+    image_pull_secret: bool = False,
+    allow_database_image: bool = False,
+    kubeblocks_fallback_reason: str = "",
+    resource_limits: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Any]:
+    db_type = detect_db_type(image)
+    if db_type in SPECIAL_DB_RESOURCE_TYPES and not allow_database_image:
+        raise ValueError(
+            f"refusing to generate an application workload for {db_type} database image {image!r}; "
+            "database services must use KubeBlocks Cluster resources"
+        )
+
     is_stateful = bool(mount_paths)
     kind = "StatefulSet" if is_stateful else "Deployment"
     template_spec: Dict[str, Any] = {
@@ -2177,18 +3376,29 @@ def build_workload(
                 "name": workload_name,
                 "image": image,
                 "imagePullPolicy": "IfNotPresent",
-                "resources": {
-                    "limits": dict(DEFAULT_RESOURCE_LIMITS),
-                    "requests": dict(DEFAULT_RESOURCE_REQUESTS),
-                },
+                "resources": resource_requirements(
+                    resource_limits or DEFAULT_RESOURCE_LIMITS
+                ),
             }
         ],
     }
+    if image_pull_secret:
+        template_spec["imagePullSecrets"] = [{"name": "${{ defaults.app_name }}"}]
+    if init_containers:
+        template_spec["initContainers"] = list(init_containers)
     container = template_spec["containers"][0]
     if ports:
-        container["ports"] = [{"containerPort": p} for p in ports]
+        container["ports"] = [
+            {
+                "containerPort": p,
+                "name": "websocket" if p in websocket_ports else f"tcp-{p}",
+            }
+            for p in ports
+        ]
     if env_entries:
         container["env"] = list(env_entries)
+    if entrypoint_command:
+        container["command"] = list(entrypoint_command)
     if command_args:
         container["args"] = list(command_args)
     if probes:
@@ -2219,7 +3429,7 @@ def build_workload(
         container["volumeMounts"] = volume_mounts
 
     spec: Dict[str, Any] = {
-        "replicas": 1,
+        "replicas": replicas,
         "revisionHistoryLimit": 1,
         "selector": {"matchLabels": {"app": workload_name}},
         "template": {
@@ -2234,10 +3444,6 @@ def build_workload(
                 "metadata": {
                     "name": path_to_vn_name(path),
                     "annotations": {"path": path, "value": "1"},
-                    "labels": {
-                        "app": workload_name,
-                        TEMPLATE_DEPLOY_KEY: "${{ defaults.app_name }}",
-                    },
                 },
                 "spec": {
                     "accessModes": ["ReadWriteOnce"],
@@ -2252,30 +3458,30 @@ def build_workload(
                 "name": f"{workload_name}-cm",
                 "configMap": {
                     "name": workload_name,
-                    "defaultMode": 493,
                 },
             }
         )
 
+    annotations = {
+        "originImageName": image,
+        "deploy.cloud.sealos.io/minReplicas": str(replicas),
+        "deploy.cloud.sealos.io/maxReplicas": str(replicas),
+    }
+    if kubeblocks_fallback_reason:
+        annotations[KUBEBLOCKS_FALLBACK_ANNOTATION] = kubeblocks_fallback_reason
     return {
         "apiVersion": "apps/v1",
         "kind": kind,
         "metadata": {
             "name": workload_name,
-            "annotations": {
-                "originImageName": image,
-                "deploy.cloud.sealos.io/minReplicas": "1",
-                "deploy.cloud.sealos.io/maxReplicas": "1",
-            },
+            "annotations": annotations,
             "labels": {
                 "cloud.sealos.io/app-deploy-manager": workload_name,
-                TEMPLATE_DEPLOY_KEY: "${{ defaults.app_name }}",
                 "app": workload_name,
             },
         },
         "spec": spec,
     }
-
 
 def build_configmap(workload_name: str, config_mounts: Sequence[ConfigMount]) -> Dict[str, Any]:
     return {
@@ -2292,20 +3498,38 @@ def build_configmap(workload_name: str, config_mounts: Sequence[ConfigMount]) ->
     }
 
 
-def build_service(workload_name: str, ports: Sequence[int]) -> Optional[Dict[str, Any]]:
+def build_service(
+    workload_name: str,
+    ports: Sequence[int],
+    websocket_ports: Set[int],
+    kubeblocks_fallback_reason: str = "",
+) -> Optional[Dict[str, Any]]:
     if not ports:
         return None
-    service_ports = [{"name": f"tcp-{p}", "port": p, "targetPort": p, "protocol": "TCP"} for p in ports]
+    service_ports = [
+        {
+            "name": "websocket" if p in websocket_ports else f"tcp-{p}",
+            "port": p,
+            "targetPort": p,
+            "protocol": "TCP",
+        }
+        for p in ports
+    ]
+    metadata: Dict[str, Any] = {
+        "name": workload_name,
+        "labels": {
+            "app": workload_name,
+            "cloud.sealos.io/app-deploy-manager": workload_name,
+        },
+    }
+    if kubeblocks_fallback_reason:
+        metadata["annotations"] = {
+            KUBEBLOCKS_FALLBACK_ANNOTATION: kubeblocks_fallback_reason,
+        }
     return {
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": {
-            "name": workload_name,
-            "labels": {
-                "app": workload_name,
-                "cloud.sealos.io/app-deploy-manager": workload_name,
-            },
-        },
+        "metadata": metadata,
         "spec": {
             "ports": service_ports,
             "selector": {"app": workload_name},
@@ -2313,7 +3537,8 @@ def build_service(workload_name: str, ports: Sequence[int]) -> Optional[Dict[str
     }
 
 
-def build_ingress(primary_workload_name: str, port: int) -> Dict[str, Any]:
+def build_ingress(primary_workload_name: str, port: int, protocol: str = "HTTP") -> Dict[str, Any]:
+    annotations = WEBSOCKET_INGRESS_ANNOTATIONS if protocol.upper() == "WS" else HTTP_INGRESS_ANNOTATIONS
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "Ingress",
@@ -2324,7 +3549,7 @@ def build_ingress(primary_workload_name: str, port: int) -> Dict[str, Any]:
                 "cloud.sealos.io/app-deploy-manager-domain": "${{ defaults.app_host }}",
             },
             "annotations": {
-                **HTTP_INGRESS_ANNOTATIONS,
+                **annotations,
             },
         },
         "spec": {
@@ -2387,20 +3612,73 @@ def iter_services(compose_data: Mapping[str, Any]) -> Iterable[Tuple[str, Mappin
             yield str(name), service
 
 
-def validate_images(compose_data: Mapping[str, Any]) -> Dict[str, str]:
+def select_public_service(
+    app_services: Sequence[Tuple[str, Mapping[str, Any]]],
+    requested_service: str,
+) -> Optional[str]:
+    app_service_names = {name for name, _ in app_services}
+    if requested_service:
+        if requested_service not in app_service_names:
+            raise ValueError(
+                f"public service {requested_service!r} is not an application Compose service"
+            )
+        service = next(item for name, item in app_services if name == requested_service)
+        if not parse_ports(service):
+            raise ValueError(
+                f"public service {requested_service!r} must declare at least one Compose ports entry"
+            )
+        return requested_service
+
+    candidates = [name for name, service in app_services if parse_ports(service)]
+    if len(candidates) <= 1:
+        return candidates[0] if candidates else None
+    raise ValueError(
+        "multiple application services publish Compose ports: "
+        + ", ".join(candidates)
+        + "; select the public entry with --public-service SERVICE"
+    )
+
+
+def parse_image_overrides(raw_overrides: Sequence[str]) -> Dict[str, str]:
+    image_overrides: Dict[str, str] = {}
+    for raw_override in raw_overrides:
+        service_name, separator, image = raw_override.partition("=")
+        service_name = service_name.strip()
+        image = image.strip()
+        if not separator or not service_name or not image:
+            raise ValueError(
+                f"invalid image override {raw_override!r}; expected SERVICE=IMAGE"
+            )
+        if service_name in image_overrides:
+            raise ValueError(f"duplicate image override for service {service_name!r}")
+        image_overrides[service_name] = image
+    return image_overrides
+
+
+def validate_images(
+    compose_data: Mapping[str, Any],
+    image_overrides: Optional[Mapping[str, str]] = None,
+) -> Dict[str, str]:
+    image_overrides = image_overrides or {}
+    service_names = {service_name for service_name, _ in iter_services(compose_data)}
+    unknown_services = sorted(set(image_overrides) - service_names)
+    if unknown_services:
+        raise ValueError(
+            "image override references unknown Compose service(s): "
+            + ", ".join(unknown_services)
+        )
+
     normalized_images: Dict[str, str] = {}
     for service_name, service in iter_services(compose_data):
-        image = service.get("image")
+        override = image_overrides.get(service_name)
+        image = override if override is not None else service.get("image")
         if not isinstance(image, str) or not image.strip():
-            raise ValueError(f"service {service_name!r} must define image")
+            raise ValueError(
+                f"service {service_name!r} must define image or receive "
+                f"--image-override {service_name}=IMAGE"
+            )
         normalized = normalize_image_reference(image, service_name)
         normalized_images[service_name] = normalized
-        if is_latest_image(normalized):
-            raise ValueError(f"service {service_name!r} uses forbidden ':latest' tag")
-        if not has_pinned_image(normalized):
-            raise ValueError(
-                f"service {service_name!r} uses unpinned image {normalized!r}; provide a fixed tag or digest"
-            )
     return normalized_images
 
 
@@ -2409,57 +3687,396 @@ def render_index_yaml(documents: Sequence[Mapping[str, Any]]) -> str:
     return "\n---\n".join(parts) + "\n"
 
 
+def cluster_database_type(document: Mapping[str, Any]) -> Optional[str]:
+    if document.get("kind") != "Cluster":
+        return None
+    api_version = document.get("apiVersion")
+    if not isinstance(api_version, str) or not api_version.startswith("apps.kubeblocks.io/"):
+        return None
+
+    metadata = document.get("metadata")
+    labels = metadata.get("labels") if isinstance(metadata, dict) else None
+    candidates: List[str] = []
+    if isinstance(labels, dict):
+        for key in ("clusterdefinition.kubeblocks.io/name", "kb.io/database"):
+            value = labels.get(key)
+            if isinstance(value, str):
+                candidates.append(value.strip().lower())
+
+    spec = document.get("spec")
+    component_specs = spec.get("componentSpecs") if isinstance(spec, dict) else None
+    if isinstance(component_specs, list):
+        for component in component_specs:
+            if not isinstance(component, dict):
+                continue
+            for key in ("componentDef", "componentDefRef", "name"):
+                value = component.get(key)
+                if isinstance(value, str):
+                    candidates.append(value.strip().lower())
+
+    for db_type, patterns in DB_TYPE_PATTERNS.items():
+        for candidate in candidates:
+            if any(candidate == pattern or candidate.startswith(f"{pattern}-") for pattern in patterns):
+                return db_type
+    return None
+
+
+def validate_generated_database_contract(
+    documents: Sequence[Mapping[str, Any]],
+    database_plans: Sequence[DatabasePlan],
+) -> None:
+    actual_clusters: Dict[str, Optional[str]] = {}
+    for document in documents:
+        db_type = cluster_database_type(document)
+        if db_type not in SPECIAL_DB_RESOURCE_TYPES:
+            continue
+        metadata = document.get("metadata")
+        name = metadata.get("name") if isinstance(metadata, dict) else None
+        if isinstance(name, str):
+            actual_clusters[name] = db_type
+
+    missing_services: List[str] = []
+    mismatched_services: List[str] = []
+    for plan in database_plans:
+        if not plan.use_kubeblocks:
+            continue
+        actual_type = actual_clusters.get(plan.cluster_name)
+        if actual_type is None:
+            missing_services.append(
+                f"{plan.service_name} ({plan.cluster_name})"
+            )
+        elif actual_type != plan.db_type:
+            mismatched_services.append(
+                f"{plan.service_name} ({plan.cluster_name}: "
+                f"expected {plan.db_type}, got {actual_type})"
+            )
+    if missing_services:
+        raise ValueError(
+            "database conversion did not emit one required KubeBlocks Cluster per service: "
+            + ", ".join(missing_services)
+        )
+    if mismatched_services:
+        raise ValueError(
+            "database conversion emitted a KubeBlocks Cluster with the wrong engine: "
+            + ", ".join(mismatched_services)
+        )
+
+    document_by_kind_and_name: Dict[Tuple[str, str], Mapping[str, Any]] = {}
+    for document in documents:
+        metadata = document.get("metadata")
+        name = metadata.get("name") if isinstance(metadata, dict) else None
+        kind = document.get("kind")
+        if isinstance(kind, str) and isinstance(name, str):
+            document_by_kind_and_name[(kind, name)] = document
+
+    for plan in database_plans:
+        if plan.use_kubeblocks and plan.needs_bootstrap:
+            job = document_by_kind_and_name.get(
+                ("Job", f"{plan.cluster_name}-init")
+            )
+            if job is None:
+                raise ValueError(
+                    f"database service {plan.service_name!r} requires an idempotent "
+                    "bootstrap Job but none was generated"
+                )
+            metadata = job.get("metadata")
+            annotations = (
+                metadata.get("annotations")
+                if isinstance(metadata, dict)
+                else None
+            )
+            if (
+                not isinstance(annotations, dict)
+                or annotations.get(DB_CLUSTER_ANNOTATION) != plan.cluster_name
+            ):
+                raise ValueError(
+                    f"database bootstrap Job for {plan.service_name!r} is not linked "
+                    "to its KubeBlocks Cluster"
+                )
+            if plan.has_app_credentials and (
+                "Secret",
+                plan.app_secret_name,
+            ) not in document_by_kind_and_name:
+                raise ValueError(
+                    f"database service {plan.service_name!r} requires an application "
+                    "credential Secret but none was generated"
+                )
+            continue
+
+        if plan.use_kubeblocks:
+            continue
+        for kind in ("Deployment", "StatefulSet"):
+            raw_workload = document_by_kind_and_name.get(
+                (kind, plan.cluster_name)
+            )
+            if raw_workload is None:
+                continue
+            metadata = raw_workload.get("metadata")
+            annotations = (
+                metadata.get("annotations")
+                if isinstance(metadata, dict)
+                else None
+            )
+            if (
+                not isinstance(annotations, dict)
+                or annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
+                != plan.fallback_reason
+            ):
+                raise ValueError(
+                    f"raw database fallback for {plan.service_name!r} is missing "
+                    f"{KUBEBLOCKS_FALLBACK_ANNOTATION}"
+                )
+            break
+        else:
+            raise ValueError(
+                f"database service {plan.service_name!r} could not be converted "
+                "losslessly and its raw workload was not preserved"
+            )
+
+    for document in documents:
+        if document.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
+            continue
+        spec = document.get("spec")
+        if not isinstance(spec, dict):
+            continue
+        if document.get("kind") == "CronJob":
+            job_template = spec.get("jobTemplate")
+            job_spec = job_template.get("spec") if isinstance(job_template, dict) else None
+            template = job_spec.get("template") if isinstance(job_spec, dict) else None
+        else:
+            template = spec.get("template")
+        template_spec = template.get("spec") if isinstance(template, dict) else None
+        containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
+        if not isinstance(containers, list):
+            continue
+        metadata = document.get("metadata")
+        annotations = (
+            metadata.get("annotations")
+            if isinstance(metadata, dict)
+            else None
+        )
+        if isinstance(annotations, dict):
+            if annotations.get(DB_BOOTSTRAP_ANNOTATION):
+                continue
+            fallback_reason = annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
+            if isinstance(fallback_reason, str) and fallback_reason.strip():
+                continue
+        for container in containers:
+            image = container.get("image") if isinstance(container, dict) else None
+            db_type = detect_db_type(image) if isinstance(image, str) else None
+            if db_type in SPECIAL_DB_RESOURCE_TYPES:
+                raise ValueError(
+                    f"generated {document.get('kind')} contains {db_type} database image {image!r}; "
+                    "database services must remain KubeBlocks Cluster resources"
+                )
+
+
 def build_documents(
     compose_data: Mapping[str, Any],
     meta: MetadataOptions,
     kompose_shapes: Optional[Mapping[str, ServiceShape]] = None,
     compose_path: Optional[Path] = None,
+    image_overrides: Optional[Mapping[str, str]] = None,
+    public_service: str = "",
+    image_pull_secret_services: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
-    normalized_images = validate_images(compose_data)
+    normalized_images = validate_images(compose_data, image_overrides=image_overrides)
     service_items = list(iter_services(compose_data))
     if not service_items:
         raise ValueError("compose file has no services")
+    requested_pull_secret_services = {
+        str(name).strip()
+        for name in (image_pull_secret_services or ())
+        if str(name).strip()
+    }
+    service_names = {name for name, _ in service_items}
+    unknown_pull_secret_services = sorted(requested_pull_secret_services - service_names)
+    if unknown_pull_secret_services:
+        raise ValueError(
+            "image pull secret references unknown Compose service(s): "
+            + ", ".join(unknown_pull_secret_services)
+        )
+
+    database_plans: List[DatabasePlan] = []
+    app_services: List[Tuple[str, Mapping[str, Any]]] = []
+    for name, service in service_items:
+        declared_image = service.get("image")
+        classification_image = (
+            normalize_image_reference(declared_image, name)
+            if isinstance(declared_image, str) and declared_image.strip()
+            else normalized_images[name]
+        )
+        db_type = detect_db_type(classification_image)
+        if db_type in SPECIAL_DB_RESOURCE_TYPES:
+            database_plans.append(
+                plan_database_service(
+                    name,
+                    db_type,
+                    classification_image,
+                    service,
+                )
+            )
+        else:
+            app_services.append((name, service))
+
+    if not app_services:
+        if database_plans:
+            raise ValueError(
+                "compose contains database services but no application service; "
+                "refusing to convert a database into an application workload"
+            )
+        raise ValueError("compose contains no application services")
+
+    selected_public_service = select_public_service(app_services, public_service)
+    primary_service = selected_public_service or app_services[0][0]
+    primary_workload_name = "${{ defaults.app_name }}"
+    workload_names = {
+        service_name: (
+            primary_workload_name
+            if service_name == primary_service
+            else f"${{{{ defaults.app_name }}}}-{normalize_k8s_name(service_name)}"
+        )
+        for service_name, _ in app_services
+    }
+    service_hosts = {
+        service_name: f"{workload_name}.${{{{ SEALOS_NAMESPACE }}}}.svc.cluster.local"
+        for service_name, workload_name in workload_names.items()
+    }
+
+    db_type_counts: Dict[str, int] = {}
+    for plan in database_plans:
+        db_type_counts[plan.db_type] = db_type_counts.get(plan.db_type, 0) + 1
+    database_plans = [
+        replace(
+            plan,
+            cluster_name=database_cluster_name(
+                plan.db_type,
+                plan.service_name,
+                db_type_counts[plan.db_type],
+            ),
+        )
+        for plan in database_plans
+    ]
+    database_plans = [
+        replace(
+            plan,
+            connection_secret_name=database_secret_name(
+                plan.db_type,
+                plan.cluster_name,
+            ),
+            app_secret_name=(
+                database_app_secret_name(plan.cluster_name)
+                if plan.app_username
+                else ""
+            ),
+            password_default_name=(
+                database_password_default_name(
+                    plan.db_type,
+                    plan.service_name,
+                )
+                if plan.app_username
+                else ""
+            ),
+        )
+        for plan in database_plans
+    ]
+    database_plans_by_name = {
+        plan.service_name: plan for plan in database_plans
+    }
+    resource_limits_by_service = {
+        service_name: parse_service_resource_limits(
+            service,
+            minimum_limits=DEFAULT_RESOURCE_LIMITS,
+        )
+        for service_name, service in app_services
+    }
+    resource_limits_by_service.update(
+        {
+            plan.service_name: parse_service_resource_limits(
+                plan.service,
+                minimum_limits=DB_COMPONENT_RESOURCE_LIMITS,
+            )
+            for plan in database_plans
+        }
+    )
+    managed_db_services = {
+        plan.service_name: plan.db_type
+        for plan in database_plans
+        if plan.use_kubeblocks
+    }
+    database_pull_secret_services = sorted(
+        requested_pull_secret_services.intersection(managed_db_services)
+    )
+    if database_pull_secret_services:
+        raise ValueError(
+            "image pull secret cannot target database service(s) converted to KubeBlocks: "
+            + ", ".join(database_pull_secret_services)
+        )
+
+    db_hosts = {
+        plan.service_name: (
+            database_service_fqdn(plan.db_type, plan.cluster_name)
+            if plan.use_kubeblocks
+            else (
+                f"{plan.cluster_name}.${{{{ SEALOS_NAMESPACE }}}}."
+                "svc.cluster.local"
+            )
+        )
+        for plan in database_plans
+    }
+    db_secret_names = {
+        plan.service_name: plan.connection_secret_name
+        for plan in database_plans
+        if plan.use_kubeblocks
+    }
+    db_app_secret_names = {
+        plan.service_name: plan.app_secret_name
+        for plan in database_plans
+        if plan.use_kubeblocks and plan.has_app_credentials
+    }
 
     digest_cache: Dict[str, str] = {}
-    tag_cache: Dict[str, List[str]] = {}
     resolved_images: Dict[str, str] = {}
-    for service_name, service in service_items:
-        source_image = normalized_images.get(service_name, str(service.get("image", "")).strip())
-        if not source_image:
-            continue
-        if detect_db_type(source_image) in SPECIAL_DB_RESOURCE_TYPES:
-            resolved_images[service_name] = source_image
-            continue
+    for service_name, _ in app_services:
+        source_image = normalized_images[service_name]
         resolved_images[service_name] = resolve_image_reference(
             source_image,
             digest_cache=digest_cache,
-            tag_cache=tag_cache,
+        )
+    for plan in database_plans:
+        if plan.use_kubeblocks:
+            continue
+        resolved_images[plan.service_name] = resolve_image_reference(
+            normalized_images[plan.service_name],
+            digest_cache=digest_cache,
         )
 
-    db_services: Dict[str, str] = {}
-    app_services: List[Tuple[str, Mapping[str, Any]]] = []
-    gateway_services: List[Tuple[str, Mapping[str, Any]]] = []
-    for name, service in service_items:
-        image = resolved_images.get(name, str(service.get("image", "")))
-        db_type = detect_db_type(image)
-        if db_type in SPECIAL_DB_RESOURCE_TYPES:
-            db_services[name] = db_type
-        else:
-            if is_platform_edge_gateway_service(name, service, image):
-                gateway_services.append((name, service))
-            else:
-                app_services.append((name, service))
-
-    if not app_services:
-        if gateway_services:
-            app_services = gateway_services[:1]
-        else:
-            app_services = service_items[:1]
-
-    db_hosts = {name: DB_FQDN_BY_TYPE[db_type] for name, db_type in db_services.items() if db_type in DB_FQDN_BY_TYPE}
+    bootstrap_client_images: Dict[str, str] = {}
+    for plan in database_plans:
+        if not plan.needs_bootstrap:
+            continue
+        client_image = DB_BOOTSTRAP_CLIENT_IMAGE_BY_TYPE.get(plan.db_type)
+        if client_image is None:
+            raise ValueError(
+                f"database bootstrap is not implemented for {plan.db_type}"
+            )
+        if plan.db_type not in bootstrap_client_images:
+            bootstrap_client_images[plan.db_type] = resolve_image_reference(
+                client_image,
+                digest_cache=digest_cache,
+            )
 
     docs: List[Dict[str, Any]] = []
-    docs.append(build_template_resource(meta))
+    docs.append(
+        build_template_resource(
+            meta,
+            password_defaults=[
+                plan.password_default_name
+                for plan in database_plans
+                if plan.use_kubeblocks and plan.has_app_credentials
+            ],
+        )
+    )
 
     all_env_keys = set()
     for _, service in app_services:
@@ -2468,33 +4085,132 @@ def build_documents(
     if OBJECT_STORAGE_BUCKET_ENV_NAME in all_env_keys or OBJECT_STORAGE_BASE_ENV_NAMES.intersection(all_env_keys):
         docs.append(build_object_storage_bucket())
 
-    ordered_db_types: List[str] = []
-    for service_name, _ in service_items:
-        db_type = db_services.get(service_name)
-        if not isinstance(db_type, str):
+    for plan in database_plans:
+        if not plan.use_kubeblocks:
             continue
-        if db_type in ordered_db_types:
-            continue
-        ordered_db_types.append(db_type)
-
-    for db_type in ordered_db_types:
-        docs.extend(build_database_resources(db_type))
+        docs.extend(
+            build_database_resources(
+                plan.db_type,
+                plan.cluster_name,
+                resource_limits_by_service[plan.service_name],
+            )
+        )
+        if plan.has_app_credentials:
+            docs.append(build_database_app_secret(plan))
+        if plan.needs_bootstrap:
+            docs.append(
+                build_database_bootstrap_job(
+                    plan,
+                    bootstrap_client_images[plan.db_type],
+                )
+            )
 
     workload_docs: List[Dict[str, Any]] = []
     service_docs: List[Dict[str, Any]] = []
-    primary_port: Optional[int] = None
-    primary_workload_name = "${{ defaults.app_name }}"
     compose_dir = compose_path.parent if compose_path is not None else Path.cwd()
-    for index, (service_name, service) in enumerate(app_services):
-        workload_name = (
-            primary_workload_name
-            if index == 0
-            else f"${{{{ defaults.app_name }}}}-{normalize_k8s_name(service_name)}"
+    runtime_hosts = {**service_hosts, **db_hosts}
+
+    for plan in database_plans:
+        if plan.use_kubeblocks:
+            continue
+        service = plan.service
+        image = resolved_images[plan.service_name]
+        ports = merge_ports(
+            parse_ports(service),
+            parse_expose_ports(service),
+            [DB_DEFAULT_PORT_BY_TYPE[plan.db_type]],
         )
-        image = resolved_images.get(service_name, str(service["image"]).strip())
-        ports = parse_ports(service)
-        env_entries = build_env_entries(service, db_hosts, db_services)
+        mount_paths, bind_config_mounts = parse_database_fallback_mounts(
+            service,
+            compose_dir,
+            plan.db_type,
+        )
+        config_mounts = [
+            *parse_config_mounts(service, compose_data, compose_dir),
+            *bind_config_mounts,
+        ]
+        command_args = [
+            map_compose_service_reference(arg, runtime_hosts)
+            for arg in parse_command_args(service)
+        ]
+        entrypoint_command = [
+            map_compose_service_reference(arg, runtime_hosts)
+            for arg in parse_entrypoint_command(service)
+        ]
+        env_entries = [
+            {
+                "name": key,
+                "value": map_compose_env_value(
+                    value,
+                    db_hosts,
+                    service_hosts,
+                ),
+            }
+            for key, value in parse_env(service)
+        ]
+        websocket_ports: Set[int] = set()
+        probes = build_probe_pair(
+            service,
+            image,
+            ports,
+            command_args,
+        )
+        if config_mounts:
+            docs.append(build_configmap(plan.cluster_name, config_mounts))
+        docs.append(
+            build_workload(
+                workload_name=plan.cluster_name,
+                image=image,
+                replicas=parse_service_replicas(service),
+                ports=ports,
+                websocket_ports=websocket_ports,
+                env_entries=env_entries,
+                command_args=command_args,
+                entrypoint_command=entrypoint_command,
+                mount_paths=mount_paths,
+                config_mounts=config_mounts,
+                probes=probes,
+                image_pull_secret=(
+                    plan.service_name in requested_pull_secret_services
+                ),
+                allow_database_image=True,
+                kubeblocks_fallback_reason=plan.fallback_reason,
+                resource_limits=resource_limits_by_service[plan.service_name],
+            )
+        )
+        raw_service = build_service(
+            plan.cluster_name,
+            ports,
+            websocket_ports,
+            kubeblocks_fallback_reason=plan.fallback_reason,
+        )
+        if raw_service is not None:
+            docs.append(raw_service)
+
+    public_port: Optional[int] = None
+    public_ingress_protocol = "HTTP"
+    for service_name, service in app_services:
+        workload_name = workload_names[service_name]
+        image = resolved_images[service_name]
+        published_ports = parse_ports(service)
+        ports = merge_ports(published_ports, parse_expose_ports(service))
+        env_entries = build_env_entries(
+            service,
+            db_hosts,
+            managed_db_services,
+            db_secret_names,
+            db_app_secret_names,
+            service_hosts,
+        )
         command_args = parse_command_args(service)
+        command_args = [
+            map_compose_service_reference(arg, runtime_hosts)
+            for arg in command_args
+        ]
+        entrypoint_command = [
+            map_compose_service_reference(arg, runtime_hosts)
+            for arg in parse_entrypoint_command(service)
+        ]
         mount_paths = parse_mount_paths(service)
         config_mounts = parse_config_mounts(service, compose_data, compose_dir)
         if kompose_shapes:
@@ -2504,32 +4220,58 @@ def build_documents(
                     ports = list(shape.ports)
                 if not mount_paths:
                     mount_paths = list(shape.mount_paths)
-        ports = normalize_ports_for_gateway_tls_termination(ports)
+        websocket_ports = infer_websocket_ports(service)
         probes = build_probe_pair(service, image, ports, command_args)
+        database_dependencies = infer_service_database_dependencies(
+            service,
+            managed_db_services,
+        )
+        init_containers = [
+            build_database_ready_init_container(
+                database_plans_by_name[db_service_name],
+                bootstrap_client_images[
+                    database_plans_by_name[db_service_name].db_type
+                ],
+            )
+            for db_service_name in sorted(database_dependencies)
+            if database_plans_by_name[db_service_name].needs_bootstrap
+        ]
         workload = build_workload(
             workload_name=workload_name,
             image=image,
+            replicas=parse_service_replicas(service),
             ports=ports,
+            websocket_ports=websocket_ports,
             env_entries=env_entries,
             command_args=command_args,
+            entrypoint_command=entrypoint_command,
             mount_paths=mount_paths,
             config_mounts=config_mounts,
             probes=probes,
+            init_containers=init_containers,
+            image_pull_secret=service_name in requested_pull_secret_services,
+            resource_limits=resource_limits_by_service[service_name],
         )
         if config_mounts:
             workload_docs.append(build_configmap(workload_name, config_mounts))
         workload_docs.append(workload)
-        service_doc = build_service(workload_name, ports)
+        service_doc = build_service(workload_name, ports, websocket_ports)
         if service_doc is not None:
             service_docs.append(service_doc)
-            if index == 0 and ports:
-                primary_port = ports[0]
+            if service_name == selected_public_service and published_ports:
+                public_port = published_ports[0]
+                if service_requires_websocket_ingress(service_name, service, public_port):
+                    public_ingress_protocol = "WS"
 
     docs.extend(workload_docs)
     docs.extend(service_docs)
-    if primary_port is not None:
-        docs.append(build_ingress(primary_workload_name, primary_port))
+    if public_port is not None:
+        docs.append(build_ingress(primary_workload_name, public_port, public_ingress_protocol))
     docs.append(build_app_resource(meta))
+    validate_generated_database_contract(
+        docs,
+        database_plans,
+    )
     return docs
 
 
@@ -2539,6 +4281,9 @@ def convert_compose_to_template(
     output_root: Path,
     meta: MetadataOptions,
     kompose_shapes: Optional[Mapping[str, ServiceShape]] = None,
+    image_overrides: Optional[Mapping[str, str]] = None,
+    public_service: str = "",
+    image_pull_secret_services: Optional[Sequence[str]] = None,
     write_files: bool = True,
     fetch_logo: bool = True,
 ) -> Tuple[Path, str]:
@@ -2546,7 +4291,15 @@ def convert_compose_to_template(
     app_dir = output_root / meta.app_name
     if write_files:
         meta = prepare_logo_asset(meta, app_dir, fetch_logo)
-    documents = build_documents(compose_data, meta, kompose_shapes=kompose_shapes, compose_path=compose_path)
+    documents = build_documents(
+        compose_data,
+        meta,
+        kompose_shapes=kompose_shapes,
+        compose_path=compose_path,
+        image_overrides=image_overrides,
+        public_service=public_service,
+        image_pull_secret_services=image_pull_secret_services,
+    )
     index_path = app_dir / "index.yaml"
     rendered = render_index_yaml(documents)
     if write_files:
@@ -2582,6 +4335,35 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Disable default svgl.app SVG logo search and keep the fallback logo path",
     )
+    parser.add_argument(
+        "--image-override",
+        action="append",
+        default=[],
+        metavar="SERVICE=IMAGE",
+        help=(
+            "Use IMAGE for one Compose service without modifying the Compose file; "
+            "repeat for multiple services"
+        ),
+    )
+    parser.add_argument(
+        "--public-service",
+        default="",
+        metavar="SERVICE",
+        help=(
+            "Compose service to expose through the generated public Ingress; "
+            "required when multiple application services publish ports"
+        ),
+    )
+    parser.add_argument(
+        "--image-pull-secret-service",
+        action="append",
+        default=[],
+        metavar="SERVICE",
+        help=(
+            "Reference the app-scoped image pull Secret for one Compose service; "
+            "repeat for multiple services"
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print index.yaml content without writing files")
     return parser.parse_args(argv)
 
@@ -2597,12 +4379,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     output_root = Path(args.output_dir).resolve()
 
     try:
+        image_overrides = parse_image_overrides(args.image_override)
+        image_pull_secret_services = [item.strip() for item in args.image_pull_secret_service if item.strip()]
+        if len(image_pull_secret_services) != len(set(image_pull_secret_services)):
+            raise ValueError("duplicate image pull secret service")
         kompose_shapes = resolve_kompose_shapes(compose_path, args.kompose_mode)
         index_path, rendered = convert_compose_to_template(
             compose_path=compose_path,
             output_root=output_root,
             meta=meta,
             kompose_shapes=kompose_shapes,
+            image_overrides=image_overrides,
+            public_service=args.public_service,
+            image_pull_secret_services=image_pull_secret_services,
             write_files=not args.dry_run,
             fetch_logo=not args.no_fetch_logo,
         )

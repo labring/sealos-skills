@@ -1,70 +1,68 @@
 # Seakills
 
-Prepare [Sealos Cloud](https://gzg.sealos.run) deployment artifacts from your AI agent.
+Prepare validated [Sealos Cloud](https://sealos.io) deployment artifacts from a
+GitHub repository with a `skills.sh` compatible agent.
 
-Seakills is a `skills.sh` skill pack centered on `/sealos-deploy`, with adjacent Sealos database and S3 skills for development setup. It helps an agent inspect a project, reuse or build a container image in a sandbox workflow, generate Sealos template artifacts for a later deploy step, and connect projects to Sealos Cloud services.
+This branch is designed for the hosted Brain sandbox. The sandbox agent already
+has these skills, a current Kubernetes identity for image builds, and injected
+GitHub credentials.
 
 ## Quick Start
 
-Install Seakills:
-
-```bash
-npx skills add labring/seakills
+```text
+/sealos-deploy https://github.com/owner/repository
 ```
 
-Then run:
+The workflow:
+
+1. fully materializes and assesses the repository;
+2. reuses one safely verified exact official Template when possible;
+3. otherwise discovers the declared deployment source, complete service
+   topology, and exact image evidence;
+4. preserves or prepares each required Dockerfile;
+5. reuses images or builds missing services with Kaniko in the current sandbox
+   namespace;
+6. generates and validates a digest-pinned Sealos Template;
+7. writes a delivery manifest and stops for the downstream deployment system.
+
+A low readiness score is a warning, not an automatic rejection. The repository
+may contain a deployable child app, documentation site, Storybook, example, or
+static build even when the root is a library or monorepo.
+
+## Outputs
+
+Every completed handoff contains:
 
 ```text
-/sealos-deploy
-/sealos-database
-/sealos-s3
+.sealos/analysis.json
+.sealos/template-references.json
+.sealos/build-request.json
+.sealos/build-result.json
+.sealos/template/index.yaml
+.sealos/delivery-manifest.json
 ```
 
-Examples:
+The build files are aggregate multi-service artifacts. An exact official
+Template still produces the same stable contract with an empty request and a
+skipped result.
 
-```text
-/sealos-deploy
-/sealos-deploy /path/to/project
-/sealos-deploy https://github.com/labring-sigs/kite
-/sealos-database create a cloud Postgres database for this repo and wire DATABASE_URL
-/sealos-s3 create private object storage for uploads and wire env vars
-```
+Required application configuration remains in Template inputs for downstream
+collection. Private GHCR images add only an app-scoped pull-Secret reference;
+tokens and Docker auth are never embedded in the YAML.
 
-## How Setup Works
+## Prepare-Only Boundary
 
-You only need a `skills.sh` compatible AI agent and a project to prepare.
+`/sealos-deploy` does not ask the user to authenticate to GitHub or Sealos,
+choose a region/workspace, apply the final YAML, or verify a running URL. It
+finishes when the YAML and delivery artifacts pass their quality gates.
 
-During the prepare flow, Seakills will:
-
-- inspect the project and resolve GitHub metadata
-- detect reusable Docker Hub or GHCR images
-- reuse, repair, or generate a Dockerfile
-- write `.sealos/build-request.json`
-- run a sandbox kaniko build only when a reusable image is not available
-- generate `.sealos/template/index.yaml` and `.sealos/delivery-manifest.json`
-- create or reuse Sealos Cloud databases for local development
-- create or reuse Sealos S3-compatible object storage and wire env vars
-
-## What `/sealos-deploy` Handles
-
-On a typical prepare run, the agent will:
-
-1. Assess the project structure and runtime needs.
-2. Reuse an existing image or build one when needed.
-3. Generate a Sealos template.
-4. Write a delivery manifest listing the generated artifacts.
-
-## What `/sealos-database` Handles
-
-For a local project or Devbox that needs a cloud database, the agent will detect database signals, create or reuse a Sealos Cloud database through `sealos-cli database`, wire the expected local env key without printing secrets, and verify the app's real database path.
-
-## What `/sealos-s3` Handles
-
-For a project that needs S3-compatible object storage, the agent will detect storage signals, create or reuse a private bucket through `sealos-cli s3`, initialize credentials only when needed, wire the smallest safe env set, and verify upload/download or presigned URL behavior.
+Adjacent `/sealos-database` and `/sealos-s3` skills remain available for
+development-service workflows.
 
 ## Repository
 
-[`skills/`](./skills) contains `/sealos-deploy`, `/sealos-database`, `/sealos-s3`, and the supporting skills used during the prepare and development-service flows.
+[`skills/`](./skills) contains the source for `/sealos-deploy`,
+`/sealos-database`, `/sealos-s3`, and their internal dependencies.
 
 ## License
 

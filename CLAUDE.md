@@ -1,59 +1,52 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This branch is the prepare-only Seakills workflow for Sealos Cloud. Use the
+current shared Sealos assessment, exact official-template, topology, image,
+Dockerfile, conversion, security, and validation rules, while preserving the
+Brain environment boundary.
 
-## What This Project Is
+## Environment Boundary
 
-Seakills is a skills repository for Sealos Cloud in the `skills.sh` ecosystem. This repo contains the skills pack plus supporting helper scripts and eval fixtures. This branch keeps `/sealos-deploy` as a lite prepare-only workflow while also exposing database and S3 helper skills.
+- GitHub credentials are injected; never start browser authentication.
+- Missing images are built with `skills/k8s-kaniko-job/` using the active
+  sandbox namespace, kubeconfig, service account, and DevBox VersityGW.
+- No Docker daemon, Sealos OAuth, region selection, or workspace selection is
+  part of this branch.
+- Keep Template inputs unresolved for the downstream deployment system.
+- Stop after `.sealos/template/index.yaml` and the delivery artifacts validate.
+- Do not add deployment state, UPDATE mode, final apply/API calls,
+  rollout/rollback, runtime verification, or `sealos-canvas`.
 
-## Commands
+## Pipeline
 
-This repo does not have a single top-level app build.
-
-- Most work happens directly under `skills/**`
-- Run helper scripts with `node <path-to-script>.mjs`
-- Keep `skills/*/evals/` in sync when skill behavior changes
-
-## Architecture
-
-### Skill dependency graph
 ```text
-direct skills.sh entry points
-  ├→ sealos-deploy (prepare-only entry point: /sealos-deploy)
-  │   ├→ cloud-native-readiness   (Phase 1: score 0-12)
-  │   ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
-  │   ├→ k8s-kaniko-job           (Phase 4: sandbox kaniko build)
-  │   └→ docker-to-sealos         (Phase 5: Sealos template)
-  ├→ sealos-database (direct entry point: /sealos-database)
-  └→ sealos-s3       (direct entry point: /sealos-s3)
+Preflight -> Assess -> Exact official-template lookup
+  exact and safe -> copy official YAML -> validate -> finish
+  otherwise -> discover full topology and images
+            -> prepare per-service Dockerfiles
+            -> aggregate reuse/Kaniko builds
+            -> generate source-adapted Template
+            -> validate -> finish
 ```
 
-### Skill module pattern
-Each skill follows the same structure:
-- `SKILL.md` — entry point with YAML frontmatter (name, version, allowed-tools, compatibility)
-- `modules/*.md` — phased execution logic (preflight, assess, generate, build, template, finish)
-- `scripts/*.mjs` — Node.js executables (scoring, image detection, artifact validation, build helpers)
-- `knowledge/*.md` — error patterns, best practices, scoring criteria
-- `config.json` — runtime config for prepare/build defaults
+A low readiness score warns and continues. Stop at Phase 1 only when the
+repository certainly has no reasonable project-backed online form.
 
-Skills reference paths with `<SKILL_DIR>` for self and `<SKILL_DIR>/../other-skill/` for siblings.
+Final artifacts are:
 
-### Prepare pipeline (sealos-deploy)
 ```text
-Preflight → Assess → Detect Image → Dockerfile → Build/Reuse Image → Template → Finish
-
-Build/Reuse Image:
-  - reusable public image found → write build-result.json with status=skipped
-  - no reusable image → write build-request.json and delegate to k8s-kaniko-job
+.sealos/analysis.json
+.sealos/template-references.json
+.sealos/build-request.json
+.sealos/build-result.json
+.sealos/template/index.yaml
+.sealos/delivery-manifest.json
 ```
 
-State for the prepare workflow is tracked through `.sealos/analysis.json`, `.sealos/build-request.json`, `.sealos/build-result.json`, `.sealos/template/index.yaml`, and `.sealos/delivery-manifest.json`. `.sealos/config.json` remains an optional user override file. Database and S3 skills operate through `sealos-cli` and local env files, not through the prepare artifact state.
+Build request/result version `2.0` cover every final container service. Private
+image credentials never enter the Template; affected workloads reference only
+`${{ defaults.app_name }}`, and downstream creates the app-scoped pull Secret.
 
-## Key paths
-- `skills/sealos-deploy/SKILL.md` — primary entry point for the prepare workflow
-- `skills/sealos-deploy/config.json` — prepare/build defaults
-- `skills/sealos-deploy/scripts/` — scoring, image detection, and artifact validation scripts
-- `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
-- `skills/k8s-kaniko-job/` — sandbox kaniko executor used when a new image is required
-- `skills/sealos-database/SKILL.md` — cloud database development workflow
-- `skills/sealos-s3/SKILL.md` — S3-compatible object storage workflow
+Run changed Node tests, the deploy/Kaniko suites, and the
+`docker-to-sealos` quality gate. Preserve unrelated worktree changes and
+untracked files.

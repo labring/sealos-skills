@@ -97,8 +97,8 @@ if [ -f ".dockerignore" ]; then
   grep -E "node_modules|\.git|\.env" .dockerignore
 fi
 
-# Fixed base image version (not :latest)?
-grep "^FROM" Dockerfile | grep -v ":latest"
+# Base image declarations (floating tags are valid build input)
+grep "^FROM" Dockerfile
 
 # Uses COPY before RUN for cache optimization?
 grep -n "^COPY\|^RUN" Dockerfile | head -20
@@ -138,7 +138,7 @@ artifacts:
       multi_stage: true | false
       non_root_user: true | false
       health_check: true | false
-      fixed_versions: true | false
+      runtime_compatible_base: true | false
       cache_optimized: true | false
       score: "{good | acceptable | poor}"
 
@@ -206,4 +206,5 @@ Based on artifact inventory:
 
 **None** (`status: "none"`):
 - No Docker artifacts found
-→ Proceed to `dockerfile-skill` if readiness score permits
+→ Continue to `dockerfile-skill` with readiness warnings preserved when
+containerization or deployment was requested

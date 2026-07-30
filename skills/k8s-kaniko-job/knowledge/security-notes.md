@@ -34,7 +34,7 @@ Before appending command output to logs, redact exact values for:
 
 The context tarball may contain application source code. Keep it inside the DevBox-local VersityGW bucket directory and expose it only through the cluster-internal S3 endpoint.
 
-Do not package `.git` or `.sealos`.
+Do not package `.git`, `.sealos`, or local VersityGW runtime stores.
 
 Do not silently widen `build.context_path` when the Dockerfile is outside the context. That can expose unrelated local files.
 
@@ -44,8 +44,7 @@ Use only the sandbox-provided kubeconfig and mounted service account identity. D
 
 ## Secret Lifecycle
 
-The MVP may keep Secrets for debugging. If cleanup is added, delete temporary Secrets only after:
-
-1. Job status is known.
-2. logs are saved.
-3. `.sealos/build-result.json` is written.
+Use unique build-only Secret names. Never copy them into the generated
+Template. Manual Kubernetes deletion requires explicit user confirmation.
+Before proposing cleanup, ensure the Job status is known, private logs are
+saved, and the aggregate `.sealos/build-result.json` is complete.

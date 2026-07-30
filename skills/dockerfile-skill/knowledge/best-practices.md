@@ -2,20 +2,22 @@
 
 ## Base Image Selection
 
-### Version Pinning
+### Runtime Compatibility
 
 ```dockerfile
-# GOOD - Fixed patch version
+# All of these are valid when they match the project's runtime contract.
 FROM node:20.11.1-slim
 FROM python:3.11.7-slim
 FROM golang:1.21.6-alpine
-
-# BAD - Floating tags
 FROM node:latest
 FROM node:lts
 FROM node:20          # Minor version can change
 FROM python:3         # Major version only
 ```
+
+Prefer the project's documented runtime family and variant. A floating base
+tag is not a deployment blocker: the build consumes it, and the final
+application image is resolved to an immutable digest before deployment.
 
 ### Image Variants
 

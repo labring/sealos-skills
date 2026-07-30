@@ -5,24 +5,36 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "target_image": {
-      "type": "string",
-      "minLength": 1
-    },
-    "default_target_registry": {
-      "type": "string",
-      "enum": [
-        "ghcr.io"
-      ]
-    },
-    "default_image_tag_prefix": {
-      "type": "string",
-      "minLength": 1
-    },
     "port": {
       "type": "integer",
       "minimum": 1,
       "maximum": 65535
+    },
+    "public_service": {
+      "type": "string",
+      "minLength": 1
+    },
+    "deployment_source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "path"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "compose",
+            "helm",
+            "kubernetes"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
     },
     "node_version": {
       "type": "string",
@@ -67,8 +79,7 @@
           "detect-image",
           "dockerfile",
           "build",
-          "template",
-          "finish"
+          "template"
         ]
       },
       "uniqueItems": true

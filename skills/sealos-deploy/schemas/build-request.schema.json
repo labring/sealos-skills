@@ -1,26 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://skills.sh/sealos-deploy/schemas/build-request.schema.json",
-  "title": "Sealos Deploy Build Request Artifact",
+  "title": "Sealos Deploy Aggregate Build Request Artifact",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "version",
     "generated_at",
+    "route",
     "source",
-    "mode",
-    "image",
-    "build",
-    "runtime"
+    "services"
   ],
   "properties": {
     "version": {
       "type": "string",
-      "const": "1.0"
+      "const": "2.0"
     },
     "generated_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "route": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "official-template"
+      ]
     },
     "source": {
       "type": "object",
@@ -35,9 +40,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": [
-            "sandbox-context"
-          ]
+          "const": "sandbox-context"
         },
         "github_url": {
           "type": "string",
@@ -45,7 +48,7 @@
         },
         "repo": {
           "type": "string",
-          "minLength": 1
+          "pattern": "^[^/\\s]+/[^/\\s]+$"
         },
         "ref": {
           "type": "string",
@@ -57,75 +60,165 @@
         }
       }
     },
-    "mode": {
-      "type": "string",
-      "enum": [
-        "reuse-image",
-        "build-required"
-      ]
-    },
-    "image": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "image_ref",
-        "target_image"
-      ],
-      "properties": {
-        "image_ref": {
-          "anyOf": [
-            { "type": "string", "minLength": 1 },
-            { "type": "null" }
-          ]
-        },
-        "target_image": {
-          "anyOf": [
-            { "type": "string", "minLength": 1 },
-            { "type": "null" }
-          ]
-        }
-      }
-    },
-    "build": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "context_path",
-        "dockerfile_path",
-        "build_args"
-      ],
-      "properties": {
-        "context_path": {
-          "type": "string",
-          "minLength": 1
-        },
-        "dockerfile_path": {
-          "type": "string",
-          "minLength": 1
-        },
-        "build_args": {
-          "type": "object",
-          "additionalProperties": {
-            "anyOf": [
-              { "type": "string" },
-              { "type": "number" },
-              { "type": "boolean" }
+    "services": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "artifact_key",
+          "role",
+          "mode",
+          "image",
+          "build",
+          "runtime"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9_][a-z0-9_.-]*$"
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "reuse-image",
+              "build-required"
             ]
+          },
+          "image": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "image_ref",
+              "target_image",
+              "platforms",
+              "pull_access"
+            ],
+            "properties": {
+              "image_ref": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[^\\s@]+@sha256:[0-9a-fA-F]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "target_image": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+:[^\\s@]+$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "platforms": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "pull_access": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "anonymous",
+                      "ghcr_secret_required",
+                      "indeterminate"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "build": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "context_path",
+                  "dockerfile_path",
+                  "target",
+                  "build_arg_names"
+                ],
+                "properties": {
+                  "context_path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dockerfile_path": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "target": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.-]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "build_arg_names": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runtime": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "port"
+            ],
+            "properties": {
+              "port": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
           }
-        }
-      }
-    },
-    "runtime": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "port"
-      ],
-      "properties": {
-        "port": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
         }
       }
     }

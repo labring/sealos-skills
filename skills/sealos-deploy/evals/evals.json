@@ -3,135 +3,226 @@
   "evals": [
     {
       "id": 0,
-      "prompt": "我想把 uptime-kuma 部署到 sealos，GitHub: https://github.com/louislam/uptime-kuma",
-      "expected_output": "High readiness score (7+), identifies Node.js project with external services, recommends proceeding with deployment",
+      "prompt": "/sealos-deploy https://github.com/example/low-score-monorepo 。根目录是工具包，但 packages/docs 是一个可以构建的文档站点。",
+      "expected_output": "Runs the opening impossibility judgment, treats the repository as a source boundary, warns on a low score without stopping, and selects the project-backed docs application.",
       "files": [],
       "assertions": [
-        {"name": "identifies-nodejs", "description": "Correctly identifies the project as Node.js"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
-        {"name": "detects-external-db", "description": "Detects external database dependency (SQLite/MariaDB)"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report with dimensions and scores"},
-        {"name": "creates-log-file", "description": "Creates a deploy log file at ~/.sealos/logs/"}
+        {
+          "name": "low-score-continues",
+          "description": "A score below 4 produces a warning and does not itself stop the pipeline."
+        },
+        {
+          "name": "finds-child-application",
+          "description": "Inspects child applications and selects the repository-backed docs site instead of assuming the root is the only deployable unit."
+        },
+        {
+          "name": "writes-current-analysis",
+          "description": "Writes schema-valid analysis.json with honest open-vocabulary facts and no separate entry-classifier artifact."
+        }
       ]
     },
     {
       "id": 1,
-      "prompt": "/sealos-deploy https://github.com/sharkdp/bat",
-      "expected_output": "Low readiness score (0-3), identifies as CLI tool not suitable for cloud deployment, recommends STOP",
+      "prompt": "/sealos-deploy https://github.com/example/exact-official-app 。这是默认分支的干净 fresh clone，官方 catalog 中只有一个 spec.gitRepo 精确匹配。",
+      "expected_output": "Refreshes and verifies the official catalog, copies the exact official YAML verbatim, skips source image/build/template generation, writes empty official-route aggregate build artifacts, validates, and finishes.",
       "files": [],
       "assertions": [
-        {"name": "identifies-cli-tool", "description": "Correctly identifies bat as a CLI tool / non-web application"},
-        {"name": "score-below-4", "description": "Readiness score is < 4 (not suitable for cloud deployment)"},
-        {"name": "recommends-stop", "description": "Explicitly recommends NOT deploying / STOP"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {
+          "name": "verified-exact-only",
+          "description": "Fast path requires one exact spec.gitRepo match from a refreshed verified official catalog."
+        },
+        {
+          "name": "copies-verbatim",
+          "description": "Copies the selected official index.yaml verbatim and does not regenerate it."
+        },
+        {
+          "name": "stable-official-artifacts",
+          "description": "Writes route=official-template build-request.json with no services and a skipped aggregate build-result.json."
+        },
+        {
+          "name": "prepare-only-finish",
+          "description": "Validates the handoff and stops without cloud deployment or runtime verification."
+        }
       ]
     },
     {
       "id": 2,
-      "prompt": "/sealos-deploy",
-      "expected_output": "Low readiness score (0-3), identifies the current repository as a skills pack or tooling repo rather than a deployable web service, recommends STOP",
+      "prompt": "/sealos-deploy 当前 workspace。官方 catalog 有精确匹配，但当前是 feature 分支而且存在本地源代码修改。",
+      "expected_output": "Records the exact match for provenance but disables official reuse and continues the standard current-source pipeline.",
       "files": [],
       "assertions": [
-        {"name": "identifies-skill-pack", "description": "Identifies the current repository as a skills pack or tooling repo rather than a standalone web app"},
-        {"name": "score-below-4", "description": "Readiness score is < 4 (not suitable for direct cloud deployment)"},
-        {"name": "recommends-stop", "description": "Explicitly recommends NOT deploying / STOP"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {
+          "name": "protects-current-intent",
+          "description": "Does not replace custom-branch or locally modified source with official YAML."
+        },
+        {
+          "name": "decision-driven-route",
+          "description": "Reads template-references.json decision.route instead of inferring the route from file existence."
+        },
+        {
+          "name": "no-similar-reference-flow",
+          "description": "Does not select or consume a structurally similar catalog template."
+        }
       ]
     },
     {
       "id": 3,
-      "prompt": "帮我把 alist 部署到 sealos，项目地址 https://github.com/alist-org/alist",
-      "expected_output": "High readiness score (8+), identifies Go web application with REST API and WebDAV server, recommends CONTINUE",
+      "prompt": "/sealos-deploy 一个 Compose 项目：frontend 有可验证的公开 digest，api 只有 build，postgres 要转换为 KubeBlocks，worker 也只有 build。",
+      "expected_output": "Preserves the full topology, creates one aggregate standard build request for frontend/api/worker but not the managed database container, reuses frontend, builds api and worker independently, and aggregates results.",
       "files": [],
       "assertions": [
-        {"name": "identifies-go", "description": "Correctly identifies the project as Go language"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
-        {"name": "identifies-http-server", "description": "Identifies this as an HTTP server / web service"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {
+          "name": "complete-topology",
+          "description": "Retains frontend, API, database capability, and worker rather than stopping after the first image."
+        },
+        {
+          "name": "aggregate-request",
+          "description": "Writes one version 2.0 build-request.json containing every final container service with unique artifact keys."
+        },
+        {
+          "name": "managed-db-not-built",
+          "description": "Keeps PostgreSQL topology for KubeBlocks conversion without building the source database container."
+        },
+        {
+          "name": "aggregate-result",
+          "description": "Records reused and independently built services in one completed build-result.json."
+        }
       ]
     },
     {
       "id": 4,
-      "prompt": "I want to deploy lobe-chat to Sealos: https://github.com/lobehub/lobe-chat",
-      "expected_output": "High readiness score (10+), identifies Next.js monorepo with pnpm workspaces, recommends CONTINUE",
+      "prompt": "/sealos-deploy https://github.com/example/private-source-app 。没有 Docker daemon，需要构建镜像；环境已经注入 GITHUB_TOKEN、kubeconfig 和 VersityGW 配置。",
+      "expected_output": "Uses the injected token and current sandbox Kubernetes identity, packages the local context to VersityGW, builds with Kaniko, pushes GHCR, and records the immutable digest.",
       "files": [],
       "assertions": [
-        {"name": "identifies-nextjs", "description": "Correctly identifies the project as Next.js"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
-        {"name": "detects-monorepo-or-workspace", "description": "Detects pnpm monorepo / workspace structure"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {
+          "name": "no-browser-auth",
+          "description": "Does not start browser authentication or ask the user to log in to GitHub or Sealos."
+        },
+        {
+          "name": "current-sandbox-identity",
+          "description": "Uses the current namespace, kubeconfig, and service account without region/workspace selection or admin fallback."
+        },
+        {
+          "name": "kaniko-build",
+          "description": "Uses the k8s-kaniko-job path and never requires a Docker daemon."
+        },
+        {
+          "name": "immutable-result",
+          "description": "Extracts Kaniko's digest and records a linux/amd64 immutable image ref."
+        }
       ]
     },
     {
       "id": 5,
-      "prompt": "/sealos-deploy https://github.com/jgraph/drawio-desktop",
-      "expected_output": "Very low readiness score (0-1), identifies as Electron desktop GUI app unsuitable for cloud deployment, recommends STOP",
+      "prompt": "/sealos-deploy 一个多服务项目。api 的 Kaniko 构建因 Dockerfile COPY 路径错误失败，web 已经成功。",
+      "expected_output": "Classifies an api build-plan failure, minimally repairs only api through Phase 3, retries it within the per-service limit, and does not rebuild web.",
       "files": [],
       "assertions": [
-        {"name": "identifies-desktop-app", "description": "Correctly identifies drawio-desktop as an Electron / desktop GUI application"},
-        {"name": "score-below-4", "description": "Readiness score is < 4 (not suitable for cloud deployment)"},
-        {"name": "recommends-stop", "description": "Explicitly recommends NOT deploying / STOP"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {
+          "name": "service-scoped-repair",
+          "description": "Routes only the failed api service through the Phase 4 to Phase 3 repair loop."
+        },
+        {
+          "name": "bounded-retries",
+          "description": "Limits build-plan repairs to three attempts for the failing service."
+        },
+        {
+          "name": "preserves-successes",
+          "description": "Does not rerun or rewrite services that already succeeded."
+        },
+        {
+          "name": "failure-has-no-image",
+          "description": "A failed result does not expose a deployable digest."
+        }
       ]
     },
     {
       "id": 6,
-      "prompt": "部署 vaultwarden 到 sealos: https://github.com/dani-garcia/vaultwarden",
-      "expected_output": "Maximum readiness score (12/12), identifies Rust web application with Rocket framework and existing Dockerfile, recommends CONTINUE",
+      "prompt": "/sealos-deploy 一个需要构建的应用。推送到 GHCR 后匿名 pull 返回 403。",
+      "expected_output": "Keeps the digest, records ghcr_secret_required, adds only an app-scoped imagePullSecrets reference to the affected workload, and leaves credential materialization downstream.",
       "files": [],
       "assertions": [
-        {"name": "identifies-rust", "description": "Correctly identifies the project as Rust language"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
-        {"name": "identifies-web-service", "description": "Identifies this as a web service / HTTP server"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {
+          "name": "records-private-pull",
+          "description": "Records ghcr_secret_required while retaining the immutable built image."
+        },
+        {
+          "name": "reference-only",
+          "description": "Template contains the affected workload imagePullSecrets reference using defaults.app_name."
+        },
+        {
+          "name": "no-inline-credentials",
+          "description": "Template and delivery artifacts contain no Docker config, registry Secret payload, token, username, or password."
+        }
       ]
     },
     {
       "id": 7,
-      "prompt": "/sealos-deploy https://github.com/pallets/flask",
-      "expected_output": "Low score or STOP, correctly identifies Flask as a Python web framework library not a deployable application",
+      "prompt": "/sealos-deploy 一个应用需要 ADMIN_PASSWORD、SMTP_PASSWORD 和可选 LOG_LEVEL。",
+      "expected_output": "Classifies configuration accurately, retains required/optional Template inputs, validates string defaults, and does not collect or resolve values in the prepare workflow.",
       "files": [],
       "assertions": [
-        {"name": "identifies-library", "description": "Correctly identifies Flask as a framework/library, not a standalone deployable app"},
-        {"name": "score-below-7", "description": "Readiness score is < 7 (library should not be considered highly deployable)"},
-        {"name": "explains-not-standalone", "description": "Explains why this repository is not directly deployable as a service"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {
+          "name": "classifies-env-vars",
+          "description": "Records required, auto, and optional environment variable categories from project evidence."
+        },
+        {
+          "name": "keeps-template-inputs",
+          "description": "Preserves required and optional values as Template inputs/defaults for the downstream system."
+        },
+        {
+          "name": "no-interactive-config",
+          "description": "Does not run the user-facing interactive configuration phase."
+        }
       ]
     },
     {
       "id": 8,
-      "prompt": "帮我把 mealie (家庭食谱管理) 部署上去: https://github.com/mealie-recipes/mealie",
-      "expected_output": "High readiness score (8+), identifies Python FastAPI application with PostgreSQL support, recommends CONTINUE",
+      "prompt": "/sealos-deploy 一个 Helm 项目，包含 Deployment、worker、Service、Ingress、ConfigMap、RBAC 和一个受支持数据库。",
+      "expected_output": "Renders Helm in a temporary copy, preserves resource/container identity, uses the Kubernetes adapter directly, accounts for every source resource, and validates topology evidence.",
       "files": [],
       "assertions": [
-        {"name": "identifies-python", "description": "Correctly identifies the project as Python"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
-        {"name": "detects-external-db", "description": "Detects PostgreSQL database dependency"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {
+          "name": "safe-helm-render",
+          "description": "Uses Helm 3 in a temporary chart copy with no helm install and no source mutation."
+        },
+        {
+          "name": "kubernetes-adapter",
+          "description": "Uses kubernetes_to_template.py on rendered.yaml rather than collapsing topology into Compose."
+        },
+        {
+          "name": "resource-accounting",
+          "description": "Writes resource-map.json and validator-only topology evidence with no silently dropped resources."
+        },
+        {
+          "name": "database-semantics",
+          "description": "Uses KubeBlocks only if initialization and runtime semantics are preserved, otherwise retains an annotated raw fallback."
+        }
       ]
     },
     {
       "id": 9,
-      "prompt": "/sealos-deploy https://github.com/spring-projects/spring-petclinic",
-      "expected_output": "Good readiness score (6+), identifies Java Spring Boot application with port 8080 and Actuator endpoints, recommends CONTINUE",
+      "prompt": "/sealos-deploy 完成镜像和模板准备后，请直接把它部署到云端并确认 URL。",
+      "expected_output": "Finishes the validated Brain delivery artifacts but explicitly stops before deployment because downstream owns deployment and runtime feedback.",
       "files": [],
       "assertions": [
-        {"name": "identifies-java", "description": "Correctly identifies the project as Java / Spring Boot"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 (deployable threshold)"},
-        {"name": "identifies-web-service", "description": "Identifies this as a web application on port 8080"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
-      ]
-    },
-    {
-      "id": 10,
-      "prompt": "/sealos-deploy https://github.com/CorentinTh/it-tools",
-      "expected_output": "Detects the published IT Tools image without misclassifying ghcr.io as Docker Hub, prefers a verified concrete version tag when package metadata provides one, and generates a template from the reusable image path",
-      "files": [],
-      "assertions": [
-        {"name": "detects-ghcr-image", "description": "Detects ghcr.io/corentinth/it-tools as a reusable image candidate"},
-        {"name": "does-not-emit-fake-dockerhub-ghcr", "description": "Does not report docker.io/ghcr.io/corentinth or otherwise treat ghcr.io as a Docker Hub namespace"},
-        {"name": "prefers-concrete-tag", "description": "Uses a verified concrete version tag such as 2024.10.22-7ca5933 when package metadata provides that version, while allowing explicit floating tags only as fallback"},
-        {"name": "uses-reuse-image-path", "description": "Writes reuse-image build artifacts and skips unnecessary image build work"}
+        {
+          "name": "complete-delivery",
+          "description": "Writes analysis, template references, aggregate build request/result, Template YAML, and delivery manifest."
+        },
+        {
+          "name": "cross-validates",
+          "description": "Requires aligned routes, services, immutable images, pull-Secret references, existing manifest paths, and a passing YAML quality gate."
+        },
+        {
+          "name": "does-not-deploy",
+          "description": "Does not call Sealos auth, choose region/workspace, invoke the Template API, apply final YAML, or write deployment state."
+        },
+        {
+          "name": "honest-final-status",
+          "description": "Reports preparation complete and does not claim that the application is running or has a verified URL."
+        }
       ]
     }
   ]

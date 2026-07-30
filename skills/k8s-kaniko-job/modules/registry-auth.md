@@ -1,82 +1,58 @@
 # Registry And S3 Auth
 
-Prepare GHCR credentials for kaniko and S3 credentials for the VersityGW context endpoint.
-
-## GitHub Identity
-
-Use `GITHUB_TOKEN` to fetch the GitHub login:
-
-```bash
-GITHUB_LOGIN=$(curl -fsSL \
-  -H "Authorization: Bearer $GITHUB_TOKEN" \
-  -H "Accept: application/vnd.github+json" \
-  https://api.github.com/user | jq -r '.login')
-```
-
-If `jq` is unavailable, parse with Node.js or another structured JSON parser.
-
-Stop if the login cannot be resolved. Do not log the token.
-
-Preflight should already have verified that `GITHUB_TOKEN` includes `write:packages`. Do not defer that scope check to the push phase.
-
-## Secret Names
-
-Use unique names per build:
+Create unique, build-only Kubernetes Secrets in the current sandbox namespace:
 
 ```text
 seakills-ghcr-auth-<short-id>
 seakills-kaniko-s3-<short-id>
+seakills-build-args-<short-id>  # only when the selected service needs values
 ```
 
-## GHCR Docker Config Secret
-
-Generate Docker auth config:
+Resolve the GitHub login from the injected `GITHUB_TOKEN`. Build the Docker
+config in memory, write it to a mode-`0600` system temporary file outside
+`WORK_DIR`, and create the unique Secret without putting the payload in argv:
 
 ```bash
-DOCKER_AUTH=$(printf '%s:%s' "$GITHUB_LOGIN" "$GITHUB_TOKEN" | base64 | tr -d '\n')
-DOCKER_CONFIG_JSON=$(printf '{"auths":{"ghcr.io":{"auth":"%s"}}}' "$DOCKER_AUTH")
-```
-
-Create a Secret containing:
-
-```text
-config.json
-```
-
-```bash
+umask 077
+AUTH_TEMP_DIR="$(mktemp -d)"
+chmod 700 "$AUTH_TEMP_DIR"
+trap 'rm -rf -- "$AUTH_TEMP_DIR"' EXIT
+DOCKER_CONFIG_FILE="$AUTH_TEMP_DIR/config.json"
+printf '%s' "$DOCKER_CONFIG_JSON" > "$DOCKER_CONFIG_FILE"
 kubectl create secret generic "$REGISTRY_AUTH_SECRET" \
   -n "$NAMESPACE" \
-  --from-literal=config.json="$DOCKER_CONFIG_JSON" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --from-file=config.json="$DOCKER_CONFIG_FILE"
 ```
 
-The kaniko container mounts this Secret at:
-
-```text
-/kaniko/.docker/config.json
-```
-
-Do not write the rendered JSON to logs.
-
-## S3 Auth Secret
-
-Create a Secret containing:
-
-```text
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
-```
+Put the S3 values in a separate private env file and create the unique S3
+Secret the same way:
 
 ```bash
+S3_AUTH_FILE="$AUTH_TEMP_DIR/s3.env"
+printf 'AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\n' \
+  "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY" > "$S3_AUTH_FILE"
 kubectl create secret generic "$S3_AUTH_SECRET" \
   -n "$NAMESPACE" \
-  --from-literal=AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
-  --from-literal=AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --from-env-file="$S3_AUTH_FILE"
 ```
 
-Do not write the rendered Secret YAML to logs.
+Do not save or print any rendered Secret, raw token, auth base64 value, or S3
+secret. These Secrets authorize image building only. They are never copied
+into `.sealos/template/index.yaml`.
 
-## Cleanup
+For a selected service with `build_arg_names`, resolve values into a private
+mode-`0600` env file outside `WORK_DIR`, verify that its keys exactly equal the
+declared names, then create the unique build-args Secret without putting values
+in argv or stdout:
 
-It is acceptable for the MVP to keep Secrets while debugging. If cleanup is implemented, only delete Secrets after logs and `.sealos/build-result.json` are written.
+```bash
+kubectl create secret generic "$BUILD_ARGS_SECRET" \
+  -n "$NAMESPACE" \
+  --from-env-file="$PRIVATE_BUILD_ARGS_FILE"
+```
+
+Do not reuse one service's build-args Secret for another service.
+
+Temporary-resource deletion still requires explicit user confirmation under
+the repository safety policy. The generated Job has a TTL for controller
+cleanup; do not issue an unconfirmed manual `kubectl delete`.

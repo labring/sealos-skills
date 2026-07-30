@@ -1,9 +1,24 @@
 #!/usr/bin/env node
 
 import fs from 'fs'
-import path from 'path'
+import {
+  assertBuildRequiredService,
+  assertDigest,
+  digestFromImmutableRef,
+  imageRepository,
+  initialAggregateResult,
+  readJson,
+  selectService,
+  upsertServiceResult,
+  writeJsonAtomic,
+} from './build-contract.mjs'
 
 const STATUSES = new Set(['succeeded', 'failed', 'skipped'])
+const PULL_ACCESS = new Set([
+  'anonymous',
+  'ghcr_secret_required',
+  'indeterminate',
+])
 const ERROR_PHASES = new Set([
   'preflight',
   'build-request',
@@ -13,14 +28,14 @@ const ERROR_PHASES = new Set([
   'kaniko',
   'push',
   'kubernetes',
-  'timeout',
   'unknown',
 ])
 
 function usage() {
   console.error([
     'Usage:',
-    '  node write-result.mjs --request <file> --out <file> --status <succeeded|failed|skipped> [options]',
+    '  node write-result.mjs --request <file> --out <file> --initialize true',
+    '  node write-result.mjs --request <file> --out <file> --service <name-or-key> --status <succeeded|failed|skipped> [options]',
     '',
     'Options:',
     '  --namespace <namespace>',
@@ -28,6 +43,7 @@ function usage() {
     '  --pod <pod-name>',
     '  --log-file <path>',
     '  --digest <sha256:digest>',
+    '  --pull-access <anonymous|ghcr_secret_required|indeterminate>',
     '  --error-phase <phase>',
     '  --error-message <message>',
   ].join('\n'))
@@ -35,17 +51,17 @@ function usage() {
 
 function parseArgs(argv) {
   const args = {}
-  for (let i = 0; i < argv.length; i += 1) {
-    const key = argv[i]
+  for (let index = 0; index < argv.length; index += 1) {
+    const key = argv[index]
     if (!key.startsWith('--')) {
       throw new Error(`Unexpected argument: ${key}`)
     }
-    const value = argv[i + 1]
+    const value = argv[index + 1]
     if (!value || value.startsWith('--')) {
       throw new Error(`Missing value for ${key}`)
     }
     args[key.slice(2)] = value
-    i += 1
+    index += 1
   }
   return args
 }
@@ -55,110 +71,162 @@ function requireArg(args, key) {
   return args[key]
 }
 
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf-8'))
-}
-
-function resolveRegistry(request, status, imageRef) {
-  if (request.mode !== 'build-required' || status !== 'succeeded') {
-    return null
-  }
-
-  if (!imageRef.startsWith('ghcr.io/')) {
-    return null
-  }
-
+function buildEvidence(service) {
+  if (!service.build) return null
   return {
-    host: 'ghcr.io',
-    pull_auth_required: true,
-    pull_secret_name: '${{ defaults.app_name }}',
-    pull_auth_reason: 'built-and-pushed-private-ghcr',
-    inline_pull_secret: true,
+    context: service.build.context_path,
+    dockerfile: service.build.dockerfile_path,
+    target: service.build.target,
+    build_arg_names: service.build.build_arg_names,
   }
 }
 
-function resolveImage(request, status) {
-  if (request.mode === 'reuse-image') {
-    if (!request.image?.image_ref) {
-      throw new Error('image.image_ref is required for mode=reuse-image')
-    }
-    return request.image.image_ref
+function kubernetesEvidence(args, required) {
+  const namespace = args.namespace || null
+  const job = args.job || null
+  if (required && (!namespace || !job)) {
+    throw new Error('--namespace and --job are required for a successful Kaniko build')
   }
-
-  if (!request.image?.target_image) {
-    throw new Error('image.target_image is required for mode=build-required')
+  if ((namespace && !job) || (!namespace && job)) {
+    throw new Error('--namespace and --job must be provided together')
   }
-
-  if (status === 'skipped') {
-    throw new Error('status=skipped is only valid for mode=reuse-image')
+  if (!namespace) return null
+  return {
+    namespace,
+    job,
+    pod: args.pod || null,
   }
-
-  return request.image.target_image
 }
 
-function buildResult(request, args) {
+function logEvidence(args, required) {
+  if (required && !args['log-file']) {
+    throw new Error('--log-file is required for a successful Kaniko build')
+  }
+  return args['log-file']
+    ? { local_file: args['log-file'] }
+    : null
+}
+
+function buildServiceResult(request, service, args) {
   const status = requireArg(args, 'status')
   if (!STATUSES.has(status)) {
     throw new Error(`Invalid status: ${status}`)
   }
 
-  const imageRef = resolveImage(request, status)
-  const source = request.source || {}
-  const build = request.build || {}
-  const isReuseImage = request.mode === 'reuse-image'
+  const finishedAt = new Date().toISOString()
+  if (status === 'skipped') {
+    if (service.mode !== 'reuse-image') {
+      throw new Error('status=skipped is valid only for mode=reuse-image')
+    }
+    const imageRef = service.image?.image_ref
+    const digest = digestFromImmutableRef(imageRef)
+    const pullAccess = service.image?.pull_access
+    if (!PULL_ACCESS.has(pullAccess)) {
+      throw new Error('reused images must record pull access in build-request.json')
+    }
+    return {
+      name: service.name,
+      artifact_key: service.artifact_key,
+      outcome: 'reused',
+      image: {
+        remote_image: null,
+        digest,
+        image_ref: imageRef,
+        platforms: service.image.platforms || [],
+        pull_access: pullAccess,
+      },
+      build: buildEvidence(service),
+      kubernetes: null,
+      logs: null,
+      error: null,
+      finished_at: finishedAt,
+    }
+  }
 
-  if (!isReuseImage && !source.github_url) throw new Error('source.github_url is required')
-  if (!isReuseImage && !source.repo) throw new Error('source.repo is required')
-  if (!source.ref) throw new Error('source.ref is required')
-  if (!build.context_path) throw new Error('build.context_path is required')
-  if (!build.dockerfile_path) throw new Error('build.dockerfile_path is required')
+  assertBuildRequiredService(service)
+  const remoteImage = service.image.target_image
+  const build = buildEvidence(service)
 
-  const result = {
-    version: '1.0',
-    generated_at: new Date().toISOString(),
-    status,
-    mode: request.mode,
+  if (status === 'succeeded') {
+    const digest = assertDigest(requireArg(args, 'digest'))
+    const pullAccess = requireArg(args, 'pull-access')
+    if (!PULL_ACCESS.has(pullAccess)) {
+      throw new Error(`Invalid pull access: ${pullAccess}`)
+    }
+    return {
+      name: service.name,
+      artifact_key: service.artifact_key,
+      outcome: 'success',
+      image: {
+        remote_image: remoteImage,
+        digest,
+        image_ref: `${imageRepository(remoteImage)}@${digest}`,
+        platforms: ['linux/amd64'],
+        pull_access: pullAccess,
+      },
+      build,
+      kubernetes: kubernetesEvidence(args, true),
+      logs: logEvidence(args, true),
+      error: null,
+      finished_at: finishedAt,
+    }
+  }
+
+  const phase = args['error-phase'] || 'unknown'
+  if (!ERROR_PHASES.has(phase)) {
+    throw new Error(`Invalid error phase: ${phase}`)
+  }
+  return {
+    name: service.name,
+    artifact_key: service.artifact_key,
+    outcome: 'failed',
     image: {
-      image_ref: imageRef,
-      digest: args.digest || null,
+      remote_image: remoteImage,
+      digest: null,
+      image_ref: null,
+      platforms: [],
+      pull_access: null,
     },
-    source: {
-      github_url: source.github_url || null,
-      repo: source.repo || null,
-      ref: source.ref,
-      context_path: build.context_path,
-      dockerfile_path: build.dockerfile_path,
-    },
-    logs: {
-      local_file: requireArg(args, 'log-file'),
-    },
-  }
-
-  if (status !== 'skipped') {
-    result.kubernetes = {
-      namespace: requireArg(args, 'namespace'),
-      job: requireArg(args, 'job'),
-      pod: args.pod || null,
-    }
-  }
-
-  if (status === 'failed') {
-    const phase = args['error-phase'] || 'unknown'
-    if (!ERROR_PHASES.has(phase)) {
-      throw new Error(`Invalid error phase: ${phase}`)
-    }
-    result.error = {
+    build,
+    kubernetes: kubernetesEvidence(args, false),
+    logs: logEvidence(args, false),
+    error: {
       phase,
-      message: args['error-message'] || 'Build failed; see logs.local_file',
+      message: args['error-message'] || 'Kaniko build failed; see the private build log',
+    },
+    finished_at: finishedAt,
+  }
+}
+
+function loadAggregate(outFile, request) {
+  if (!fs.existsSync(outFile)) {
+    return initialAggregateResult(request)
+  }
+  const aggregate = readJson(outFile)
+  if (
+    aggregate.version !== '2.0'
+    || aggregate.route !== request.route
+    || aggregate.expected_services !== request.services.length
+  ) {
+    throw new Error('existing build-result.json does not match the current aggregate request')
+  }
+  if (!Array.isArray(aggregate.services)) {
+    throw new Error('existing build-result.json services must be an array')
+  }
+  const requestServices = new Map(
+    request.services.map((service) => [service.artifact_key, service.name]),
+  )
+  const seen = new Set()
+  for (const service of aggregate.services) {
+    if (
+      seen.has(service.artifact_key)
+      || requestServices.get(service.artifact_key) !== service.name
+    ) {
+      throw new Error('existing build-result.json contains services outside the current request')
     }
+    seen.add(service.artifact_key)
   }
-
-  const registry = resolveRegistry(request, status, imageRef)
-  if (registry) {
-    result.registry = registry
-  }
-
-  return result
+  return aggregate
 }
 
 function main() {
@@ -167,11 +235,19 @@ function main() {
     const requestFile = requireArg(args, 'request')
     const outFile = requireArg(args, 'out')
     const request = readJson(requestFile)
-    const result = buildResult(request, args)
 
-    fs.mkdirSync(path.dirname(outFile), { recursive: true })
-    fs.writeFileSync(outFile, `${JSON.stringify(result, null, 2)}\n`)
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    if (args.initialize === 'true') {
+      const aggregate = initialAggregateResult(request)
+      writeJsonAtomic(outFile, aggregate)
+      process.stdout.write(`${JSON.stringify(aggregate, null, 2)}\n`)
+      return
+    }
+
+    const service = selectService(request, requireArg(args, 'service'))
+    const serviceResult = buildServiceResult(request, service, args)
+    const aggregate = upsertServiceResult(loadAggregate(outFile, request), serviceResult)
+    writeJsonAtomic(outFile, aggregate)
+    process.stdout.write(`${JSON.stringify(aggregate, null, 2)}\n`)
   } catch (error) {
     usage()
     console.error(`\nError: ${error.message}`)

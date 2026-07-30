@@ -53,7 +53,7 @@ Action:
 - Confirm `build.context_path` and `build.dockerfile_path` are relative to `source.work_dir`.
 - Confirm the Dockerfile is inside the selected context.
 - If a subdirectory Dockerfile copies root files such as `pnpm-lock.yaml`, `package.json`, workspace manifests, `turbo.json`, or sibling packages, set `context_path="."` and keep `dockerfile_path` at the subdirectory Dockerfile.
-- Inspect `.sealos/kaniko-context.json` and `tar -tzf` output.
+- Inspect `.sealos/kaniko/<artifact-key>/context.json` and `tar -tzf` output.
 
 ## dockerfile
 
@@ -65,7 +65,7 @@ Signals:
 
 Action:
 
-- Confirm `.sealos/kaniko-context.json.kaniko.dockerfile` points to a file inside the tar root.
+- Confirm `.sealos/kaniko/<artifact-key>/context.json.kaniko.dockerfile` points to a file inside the tar root.
 - Confirm `build.context_path` contains all files referenced by Dockerfile `COPY` and `ADD`.
 
 ## kaniko
@@ -114,15 +114,3 @@ Action:
 - Confirm the cluster can pull the kaniko executor image.
 - If the wrong service account was used, re-run with the current sandbox service account wired to `serviceAccountName`.
 - Inspect pod events and kaniko logs.
-
-## timeout
-
-Signals:
-
-- Job remains active past timeout.
-- Build logs show no progress.
-
-Action:
-
-- Inspect pod events and kaniko logs.
-- Retry with a longer timeout only after confirming the build is still making progress.

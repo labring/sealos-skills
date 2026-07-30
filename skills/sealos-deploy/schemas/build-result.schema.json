@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills.sh/sealos-deploy/schemas/build-result.schema.json",
+  "title": "Sealos Deploy Aggregate Build Result Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "generated_at",
+    "route",
+    "status",
+    "expected_services",
+    "services"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "2.0"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "route": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "official-template"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed",
+        "in_progress",
+        "skipped"
+      ]
+    },
+    "expected_services": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "services": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "artifact_key",
+          "outcome",
+          "image",
+          "build",
+          "kubernetes",
+          "logs",
+          "error",
+          "finished_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "artifact_key": {
+            "type": "string",
+            "pattern": "^[a-z0-9_][a-z0-9_.-]*$"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "reused",
+              "success",
+              "failed"
+            ]
+          },
+          "image": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "remote_image",
+              "digest",
+              "image_ref",
+              "platforms",
+              "pull_access"
+            ],
+            "properties": {
+              "remote_image": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "digest": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-fA-F]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image_ref": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[^\\s@]+@sha256:[0-9a-fA-F]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "platforms": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "pull_access": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "anonymous",
+                      "ghcr_secret_required",
+                      "indeterminate"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "build": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "context",
+                  "dockerfile",
+                  "target",
+                  "build_arg_names"
+                ],
+                "properties": {
+                  "context": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "dockerfile": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "target": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_.-]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "build_arg_names": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kubernetes": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "namespace",
+                  "job",
+                  "pod"
+                ],
+                "properties": {
+                  "namespace": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "job": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "pod": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "logs": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "local_file"
+                ],
+                "properties": {
+                  "local_file": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "phase",
+                  "message"
+                ],
+                "properties": {
+                  "phase": {
+                    "type": "string",
+                    "enum": [
+                      "preflight",
+                      "build-request",
+                      "auth",
+                      "context",
+                      "dockerfile",
+                      "kaniko",
+                      "push",
+                      "kubernetes",
+                      "unknown"
+                    ]
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

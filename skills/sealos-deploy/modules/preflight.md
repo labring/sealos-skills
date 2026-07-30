@@ -1,179 +1,162 @@
 # Phase 0: Preflight
 
-Detect the sandbox environment, resolve the target repository, and determine whether the build-and-prepare workflow can complete.
+Resolve a complete, trustworthy source worktree and classify capabilities
+before creating project artifacts.
 
-## Step 1: Environment Detection
+## 1. Capability Scan
 
-Run these checks on every execution:
+Check on every run:
 
 ```bash
-git --version 2>/dev/null
-node --version 2>/dev/null
-python3 --version 2>/dev/null
-curl --version 2>/dev/null | head -1
-which jq 2>/dev/null
+git --version
+node --version
+
+PYTHON_BIN="$(command -v python3 || command -v python || true)"
+if [ -n "$PYTHON_BIN" ]; then
+  "$PYTHON_BIN" --version
+  "$PYTHON_BIN" -c 'import yaml'
+fi
+
+kompose version 2>/dev/null || true
+helm version --short 2>/dev/null || true
 kubectl version --client 2>/dev/null || true
-railpack --version 2>/dev/null || true
-printenv GITHUB_TOKEN >/dev/null
-printenv S3_ENDPOINT >/dev/null || printenv AWS_ENDPOINT_URL_S3 >/dev/null || printenv AWS_ENDPOINT_URL >/dev/null
-printenv AWS_SECRET_ACCESS_KEY >/dev/null || printenv SEALOS_DEVBOX_JWT_SECRET >/dev/null || printenv DEVBOX_JWT_SECRET >/dev/null
+
+test -n "${GITHUB_TOKEN:-}"
+test -n "${S3_ENDPOINT:-${AWS_ENDPOINT_URL_S3:-${AWS_ENDPOINT_URL:-}}}"
+test -n "${AWS_SECRET_ACCESS_KEY:-${SEALOS_DEVBOX_JWT_SECRET:-${DEVBOX_JWT_SECRET:-}}}"
 ```
 
-Record:
+Record booleans and versions without printing secret values.
 
-```text
-ENV.git
-ENV.node
-ENV.python
-ENV.curl
-ENV.jq
-ENV.kubectl
-ENV.railpack
-ENV.github_token
-ENV.s3_endpoint
-ENV.s3_secret
-```
+Immediate blockers:
 
-Notes:
+- `git` is missing
+- Node.js is missing or older than 18
+- neither a supplied GitHub URL nor the current Git worktree identifies a
+  GitHub repository
+- the exact current commit cannot be fully materialized
 
-- `git` is required because this workflow needs git metadata either from the current workspace or from the cloned GitHub repository.
-- `node` is recommended because helper scripts are written in Node.js.
-- `curl` and `jq` are optional accelerators.
-- `kubectl` may be available in the sandbox for a later kaniko phase, but it is not an entry prerequisite.
-- `GITHUB_TOKEN` may exist in the sandbox for a later source materialization or kaniko phase, but this skill does not prompt for or refresh GitHub auth.
-- `S3_ENDPOINT` and the S3 secret may exist in the DevBox runtime for a later kaniko phase, but they are conditional blockers only when a new image must be built.
-- `railpack` is an optional build-environment detector. It strengthens Dockerfile generation inputs when available, but it must not become an entry blocker.
+Conditional blockers:
 
-## Step 2: Capability Classification
+- Python 3.8+ or PyYAML is required only on the standard Template route
+- Kompose is required only for a selected Compose route
+- Helm 3+ is required only for a selected Helm route
+- kubectl, VersityGW settings, and `GITHUB_TOKEN` GHCR write access are required
+  only when at least one final container service must be built
 
-Classify findings into:
+No Docker daemon, Sealos authentication, region selection, workspace
+selection, or browser-based GitHub authentication belongs to preflight.
 
-- immediate stop conditions
-- conditional build capabilities
-- optional accelerators
+Invoking this skill authorizes installation of path-selected dependencies when
+the sandbox can install them safely. Install only after the source route or
+repository content mechanism establishes the need, then rerun the exact check.
+If installation would require a new external authorization or cannot be
+verified, stop with the unresolved capability.
 
-### 2.1 Immediate Stop Conditions
+## 2. Resolve the Worktree
 
-Stop before pipeline work only when one of these is true:
-
-- the user did not provide a GitHub URL and the current workspace cannot be resolved to a GitHub-backed git repository
-- `git` is unavailable
-- Node.js is unavailable and the environment cannot run the included helper scripts
-
-### 2.2 Conditional Build Capabilities
-
-Record these capabilities for Phase 4:
-
-- `kubectl` missing
-- `GITHUB_TOKEN` missing
-- `S3_ENDPOINT`, `AWS_ENDPOINT_URL_S3`, and `AWS_ENDPOINT_URL` missing
-- `AWS_SECRET_ACCESS_KEY`, `SEALOS_DEVBOX_JWT_SECRET`, and `DEVBOX_JWT_SECRET` missing
-
-`kubectl`, VersityGW S3 settings, and `GITHUB_TOKEN` are conditional blockers only if Phase 4 resolves to `mode=build-required`.
-
-`GITHUB_TOKEN` is used for GHCR push credentials, not for GitHub clone inside the kaniko job.
-
-### 2.3 Optional Accelerators
-
-Record but do not stop:
-
-- `python3` missing
-- `jq` missing
-- `railpack` missing
-
-## Step 3: Resolve Project Context
-
-Determine what repository the skill is preparing and where the build will run from.
-
-### 3.1 Resolve Working Directory
-
-Use this order:
-
-1. If the user explicitly provided a GitHub URL:
+For an explicit GitHub URL:
 
 ```bash
-WORK_DIR=$(mktemp -d)
-git clone --depth 1 "<github-url>" "$WORK_DIR"
-GITHUB_URL="<github-url>"
+WORK_DIR="$(mktemp -d)"
+WORK_DIR_IS_TEMP=true
+git clone --depth 1 --no-checkout "$GITHUB_URL" "$WORK_DIR"
 ```
 
-2. Otherwise, if the current directory is already a git worktree, use it directly:
+Use the injected token through the sandbox's existing credential helper or a
+private, process-local askpass mechanism when the repository needs
+authentication. Never embed the token in the clone URL, persist it in
+`.git/config`, or print it.
+
+Without a URL, use `${CODEX_GATEWAY_CWD:-$PWD}` only when it is the intended
+Git worktree and its origin resolves to GitHub. Preserve all tracked,
+untracked, and ignored user files.
+
+Resolve and record:
 
 ```bash
-WORK_DIR="${CODEX_GATEWAY_CWD:-$PWD}"
-GIT_CMD=(git -c safe.directory="$WORK_DIR")
+git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" rev-parse --is-inside-work-tree
+git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" remote get-url origin
+git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" branch --show-current
+git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" rev-parse HEAD
+git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" status --porcelain=v1 --untracked-files=all
 ```
 
-3. If the current directory is not a git worktree but `REPO_URL` exists and points at GitHub, use `REPO_URL` as `GITHUB_URL` and clone it.
+Normalize the repository as `owner/repo` and retain the exact source ref.
 
-Reject only when neither an explicit GitHub URL nor a current git workspace with resolvable GitHub metadata exists.
+## 3. Materialize the Current Commit
 
-### 3.2 Detect Git Metadata
+A successful clone does not prove that the checkout contains every tracked
+source input. Before reading the README or assessing the project:
 
-```bash
-git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" rev-parse --is-inside-work-tree 2>/dev/null
-git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" remote get-url origin 2>/dev/null
-git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" branch --show-current 2>/dev/null
-git -c safe.directory="$WORK_DIR" -C "$WORK_DIR" rev-parse HEAD 2>/dev/null
-```
+1. inspect repository-owned metadata and actual checkout state for content
+   mechanisms, placeholders, gitlinks, nested repositories, or missing objects;
+2. identify the required tool or built-in Git operation from that evidence;
+3. install a trustworthy missing tool only when this repository requires it;
+4. check out and materialize the exact current commit and recursive content
+   with the existing injected credentials;
+5. run the mechanism's integrity check.
 
-Record:
+Git LFS and submodules are examples, not an allowlist. For a local worktree,
+compare status before and after and never reset, clean, replace, or discard user
+changes.
 
-```text
-PROJECT.work_dir
-PROJECT.is_git
-PROJECT.github_url
-PROJECT.repo_name
-PROJECT.branch
-PROJECT.commit_sha
-PROJECT.source_mode
-```
+Stop before Phase 1 only when the source still cannot be materialized into a
+trustworthy analyzable worktree. This step creates no `.sealos` artifact.
 
-Resolve `PROJECT.github_url` from the explicit input first, then `REPO_URL`, then the local `origin` remote when it is a GitHub URL. Parse `owner/repo` from that GitHub URL. That metadata is reused in detect-image, image naming, and build traceability.
+## 4. Capture the Official-Reuse Snapshot
 
-### 3.3 Read README
+Before the pipeline creates any `.sealos` file, capture transient:
 
-Read the first matching README:
+- current branch and `HEAD`
+- upstream branch and upstream `HEAD`
+- tracked and untracked status
+- whether `.sealos/config.json` or pre-existing prepare artifacts exist
+- whether the user explicitly requested current/custom source
 
-```bash
-ls "$WORK_DIR"/README* "$WORK_DIR"/readme* 2>/dev/null | head -1
-```
+Phase 1.5 may reuse official YAML only for a clean repository-root checkout on
+its tracked default branch with `HEAD` equal to upstream, or for an equivalent
+fresh unqualified GitHub clone. Never recompute this decision from a status
+made dirty by generated artifacts.
 
-Extract:
+## 5. Select Conditional Source Dependencies
 
-- project description
-- language and framework clues
-- run/build instructions
-- Docker image references
-- env var references
+Perform a read-only source-shape check:
 
-Store the key findings in `PROJECT.readme_summary`.
+1. honor a valid `.sealos/config.json` `deployment_source`;
+2. otherwise select the first canonical root Compose file;
+3. otherwise select one parent Helm chart;
+4. otherwise select one supported Kubernetes manifest root/file;
+5. otherwise select `implicit-single-service`.
 
-## Step 4: Ready Summary
+The implicit route means only that no directly usable declared topology was
+found. It does not prove that the repository root is one application.
 
-At the end of preflight, present:
+Independent multiple Helm charts or Kubernetes roots require explicit project
+configuration; do not guess. Install only the chosen adapter dependency.
+Python with PyYAML remains required for every standard Phase 5 route.
 
-- resolved working directory
-- source mode: current workspace or cloned GitHub URL
-- detected GitHub repository and ref
-- whether assessment and image detection can run
-- whether sandbox helpers like `kubectl` and `GITHUB_TOKEN` are present
-- whether VersityGW S3 settings appear to be present
-- whether Railpack build-environment probing is available
-- whether a later kaniko phase would use the active sandbox namespace and current service account
-- whether a later sandbox kaniko phase would be able to run if the project needs a new image
+## 6. Read Project Evidence
 
-Example:
+Read the first matching README plus dependency manifests, workspace metadata,
+CI workflows, Dockerfiles, and selected deployment-source files. Extract:
 
-```text
-Preflight summary:
-  - Project: /path/to/repo
-  - Source mode: current-workspace
-  - GitHub repo: owner/repo
-  - Source ref: <commit sha>
-  - Node.js: ready
-  - kubectl: available in sandbox
-  - GITHUB_TOKEN: injected
-  - Build identity: active sandbox namespace + current service account
-  - kaniko readiness: kubectl, VersityGW S3 settings, and GITHUB_TOKEN will only matter if no reusable image is found
-```
+- project purpose and reasonable online form
+- language, framework, package manager, and runtime
+- service boundaries and ports
+- exact build/run instructions
+- declared images
+- required environment variables and dependencies
+
+## 7. Ready Summary
+
+Report briefly:
+
+- worktree, GitHub repository, branch/ref, and source mode
+- whether the current commit is fully materialized
+- selected source route and adapter readiness
+- Node/Python readiness
+- whether build-only kubectl, token, and VersityGW capabilities are present
+
+Do not describe missing conditional build capabilities as blockers until Phase
+2 proves that a build is necessary.

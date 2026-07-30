@@ -7,6 +7,15 @@ Evaluate a project against 6 cloud-native dimensions to produce a readiness scor
 **Data source**: Patterns derived from 164 production-deployed Sealos Cloud templates.
 See [knowledge/sealos-patterns.md](../knowledge/sealos-patterns.md) for the full dataset.
 
+## Phase 1 Entry Check
+
+This is one internal AI question: if you are certain the selected project cannot run
+on Sealos in any reasonable form, report the short concrete reason and STOP.
+Otherwise, continue silently.
+
+Do not classify the result, score it, create an evidence object, add it to the
+readiness report, or write an artifact.
+
 ## Pre-Assessment: Fast-Track Rules
 
 Before running the full 6-dimension assessment, check these fast-track rules derived
@@ -30,15 +39,13 @@ Apply if ANY of these match:
 
 ### Needs Full Assessment
 - Projects with SQLite as primary database
-- Desktop/Electron apps that also have a web component
 - Projects with heavy local file processing or GPU requirements
-- CLI tools that may or may not expose HTTP
-
-### Likely Fail (Preliminary Score 0-3)
-- Pure CLI tools with no HTTP server
-- Desktop-only GUI applications (Electron without web API)
-- Embedded systems or hardware-specific code
 - Projects requiring persistent local state with no external DB
+
+Desktop/mobile, CLI, library, browser-extension, embedded, and unknown signals are
+review warnings rather than automatic rejections. Continue scoring whatever can be
+observed, record uncertainty explicitly, and let later build/runtime checks establish
+whether the selected unit actually works.
 
 ## Execution Steps
 
@@ -333,7 +340,7 @@ assessment:
   project_type: "monorepo | single-app"
   overall_score: {0-12}
   rating: "Excellent | Good | Fair | Poor"
-  verdict: "Ready | Ready with caveats | Needs work | Not recommended"
+  verdict: "Ready | Ready with caveats | Needs work | High risk"
 
   dimensions:
     statelessness:

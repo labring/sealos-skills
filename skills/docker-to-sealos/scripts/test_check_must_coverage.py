@@ -25,7 +25,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Emitted images must use immutable digests.
                 - `revisionHistoryLimit: 1`
                 ## Validation Commands
                 """,
@@ -35,7 +35,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Emitted images must use immutable digests."
                     enforcement:
                       type: rule
                       target: R001
@@ -73,7 +73,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Emitted images must use immutable digests.
                 - `revisionHistoryLimit: 1`
                 ## Validation Commands
                 """,
@@ -83,7 +83,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Emitted images must use immutable digests."
                     enforcement:
                       type: rule
                       target: R001
@@ -117,7 +117,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Emitted images must use immutable digests.
                 ## Validation Commands
                 """,
             )
@@ -126,7 +126,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Emitted images must use immutable digests."
                     enforcement:
                       type: rule
                       target: R999
@@ -157,7 +157,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Emitted images must use immutable digests.
                 ## Validation Commands
                 """,
             )
@@ -166,7 +166,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Emitted images must use immutable digests."
                     enforcement:
                       type: rule
                       target: R001
@@ -204,7 +204,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 skill_file,
                 """
                 ## MUST Rules (Condensed)
-                - Do not use `:latest`.
+                - Emitted images must use immutable digests.
                 ## Validation Commands
                 """,
             )
@@ -213,7 +213,7 @@ class CheckMustCoverageTests(unittest.TestCase):
                 """
                 version: 1
                 must_rules:
-                  - must: "Do not use `:latest`."
+                  - must: "Emitted images must use immutable digests."
                     enforcement:
                       type: rule
                       target: R001

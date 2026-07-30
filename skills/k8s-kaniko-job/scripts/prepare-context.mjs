@@ -3,11 +3,16 @@
 import fs from 'fs'
 import path from 'path'
 import { spawnSync } from 'child_process'
+import {
+  assertBuildRequiredService,
+  readJson,
+  selectService,
+} from './build-contract.mjs'
 
 function usage() {
   console.error([
     'Usage:',
-    '  node prepare-context.mjs --request <file> --context-root <posix-dir> --bucket <bucket> [--prefix <s3-prefix>] --devbox <name> --build-id <id> --out <file>',
+    '  node prepare-context.mjs --request <file> --service <name-or-key> --context-root <posix-dir> --bucket <bucket> [--prefix <s3-prefix>] --devbox <name> --build-id <id> --out <file>',
   ].join('\n'))
 }
 
@@ -31,10 +36,6 @@ function parseArgs(argv) {
 function requireArg(args, key) {
   if (!args[key]) throw new Error(`Missing required argument --${key}`)
   return args[key]
-}
-
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf-8'))
 }
 
 function normalizeRelativePath(value, field) {
@@ -90,23 +91,11 @@ function toPosixPath(value) {
   return value.split(path.sep).join('/')
 }
 
-function assertBuildRequest(request) {
-  if (request.mode !== 'build-required') {
-    throw new Error(`prepare-context only supports mode=build-required, got ${request.mode}`)
-  }
-  if (request.source?.type !== 'sandbox-context') {
-    throw new Error(`Only source.type=sandbox-context is supported, got ${request.source?.type}`)
-  }
-  if (!request.image?.target_image) {
-    throw new Error('image.target_image is required')
-  }
-  if (!String(request.image.target_image).startsWith('ghcr.io/')) {
-    throw new Error(`Only ghcr.io target images are supported, got ${request.image.target_image}`)
-  }
-
+function assertBuildRequest(request, serviceSelector) {
+  const service = assertBuildRequiredService(selectService(request, serviceSelector))
   const workDir = normalizeAbsolutePath(request.source?.work_dir, 'source.work_dir')
-  const contextPath = normalizeRelativePath(request.build?.context_path, 'build.context_path')
-  const dockerfilePath = normalizeRelativePath(request.build?.dockerfile_path, 'build.dockerfile_path')
+  const contextPath = normalizeRelativePath(service.build?.context_path, 'build.context_path')
+  const dockerfilePath = normalizeRelativePath(service.build?.dockerfile_path, 'build.dockerfile_path')
   const contextDir = path.resolve(workDir, contextPath)
   const dockerfileFile = path.resolve(workDir, dockerfilePath)
 
@@ -128,6 +117,7 @@ function assertBuildRequest(request) {
 
   return {
     workDir,
+    service,
     contextPath,
     dockerfilePath,
     contextDir,
@@ -199,7 +189,7 @@ function createContextTar({ contextDir, contextRoot, targetFile }) {
 }
 
 function buildMetadata({ args, request }) {
-  const build = assertBuildRequest(request)
+  const build = assertBuildRequest(request, requireArg(args, 'service'))
   const contextRoot = normalizeAbsolutePath(requireArg(args, 'context-root'), 'context-root')
   const bucket = normalizeBucketName(requireArg(args, 'bucket'))
   const prefix = args.prefix ? normalizeObjectPath(args.prefix, 'prefix') : ''
@@ -217,6 +207,10 @@ function buildMetadata({ args, request }) {
   return {
     version: '1.0',
     generated_at: new Date().toISOString(),
+    service: {
+      name: build.service.name,
+      artifact_key: build.service.artifact_key,
+    },
     source: {
       work_dir: build.workDir,
       context_path: build.contextPath,

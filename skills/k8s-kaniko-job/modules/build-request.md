@@ -1,65 +1,69 @@
 # Build Request
 
-Read and validate `.sealos/build-request.json`.
+Read `<WORK_DIR>/.sealos/build-request.json` and validate it with the owning
+`sealos-deploy` schema and semantic validator.
 
-## Location
+The request is aggregate version `2.0`:
 
-Default path:
-
-```text
-<WORK_DIR>/.sealos/build-request.json
+```json
+{
+  "version": "2.0",
+  "route": "standard",
+  "source": {
+    "type": "sandbox-context",
+    "work_dir": "/absolute/repository/path"
+  },
+  "services": [
+    {
+      "name": "web",
+      "artifact_key": "web",
+      "mode": "build-required",
+      "image": {
+        "target_image": "ghcr.io/example/app-web:build-id"
+      },
+      "build": {
+        "context_path": ".",
+        "dockerfile_path": "Dockerfile",
+        "target": null,
+        "build_arg_names": []
+      }
+    }
+  ]
+}
 ```
 
-If missing, stop and ask the user to run `/sealos-deploy <github-url>` first.
+Initialize the matching aggregate result before processing services:
 
-## Supported Modes
-
-### reuse-image
-
-If `mode` is `reuse-image`:
-
-1. Do not create a Kubernetes Job.
-2. Write `.sealos/build-result.json` with `status=skipped`.
-3. Use `image.image_ref` as the result image.
-
-### build-required
-
-If `mode` is `build-required`, require:
-
-- `source.type = "sandbox-context"`
-- `source.work_dir`
-- `image.target_image`
-- `build.context_path`
-- `build.dockerfile_path`
-
-Stop if any required field is missing.
-
-## Source Constraint
-
-This MVP only supports sandbox-local Dockerfile builds. The skill packages files from `source.work_dir` and exposes the tarball through the DevBox VersityGW S3 endpoint.
-
-`source.github_url`, `source.repo`, and `source.ref` may be present for traceability, but the build does not clone from them. Generated files such as `Dockerfile` are expected to be present under `source.work_dir`.
-
-Stop if `source.work_dir` is missing, not absolute, or not readable from the sandbox process.
-
-## Registry Constraint
-
-This MVP supports `ghcr.io` output only.
-
-If `image.target_image` does not start with `ghcr.io/`, stop and explain that other registries need additional auth handling.
-
-## Dockerfile Path Semantics
-
-`build.dockerfile_path` must point to a file inside `build.context_path`.
-
-Examples:
-
-```text
-context_path=.        dockerfile_path=Dockerfile          -> --dockerfile=Dockerfile
-context_path=apps/web dockerfile_path=apps/web/Dockerfile -> --dockerfile=Dockerfile
-context_path=.        dockerfile_path=apps/web/Dockerfile -> --dockerfile=apps/web/Dockerfile
+```bash
+node "$SKILL_DIR/scripts/write-result.mjs" \
+  --request "$WORK_DIR/.sealos/build-request.json" \
+  --out "$WORK_DIR/.sealos/build-result.json" \
+  --initialize true
 ```
 
-If the Dockerfile is outside the selected context, stop. Do not silently widen the context because that can package unrelated local files into the S3 tarball.
+For `route=official-template`, this writes a complete skipped result. Return to
+the caller immediately; do not run Kubernetes or registry preflight.
 
-If a subdirectory Dockerfile reads repository-root workspace files, use the repository root as `context_path`. For example, a monorepo Dockerfile under `apps/www/Dockerfile` that copies `pnpm-lock.yaml`, `package.json`, `pnpm-workspace.yaml`, `turbo.json`, or sibling packages must use `context_path="."` rather than `context_path="apps/www"`.
+For `route=standard`, require at least one service. Service names and
+`artifact_key` values must each be unique.
+
+## Service Modes
+
+`reuse-image` requires an immutable `image_ref`, known `platforms`, recorded
+`pull_access`, and no build plan or target image. Record it immediately:
+
+```bash
+node "$SKILL_DIR/scripts/write-result.mjs" \
+  --request "$WORK_DIR/.sealos/build-request.json" \
+  --out "$WORK_DIR/.sealos/build-result.json" \
+  --service "$SERVICE" \
+  --status skipped
+```
+
+`build-required` requires a tagged GHCR target and a build plan. The
+Dockerfile must be inside its context. Build arguments are names only; values
+must come from a private runtime file and must never enter the request.
+
+If every service is reusable, skip all Kubernetes, S3, and GHCR write
+preflight. The aggregate result should become `succeeded` after each service
+is recorded.

@@ -1,65 +1,40 @@
 # Run And Watch
 
-Wait for the kaniko Job and collect logs.
-
-## Wait For Job
-
-Run:
+Wait for the selected Job and always collect failure evidence:
 
 ```bash
-BUILD_WAIT_SECONDS="$((${BUILD_DEADLINE_SECONDS:-1800} + 60))"
 kubectl wait --for=condition=Complete job/"$JOB_NAME" \
   -n "$NAMESPACE" \
-  --timeout="${BUILD_WAIT_SECONDS}s"
+  --timeout=30m
 ```
 
-The extra 60 seconds are only for Kubernetes condition propagation and
-failure/log collection. The Job itself cannot execute past
-`spec.activeDeadlineSeconds`.
+If the wait does not complete, inspect the Job conditions before classifying
+the result. A nonzero wait alone is not proof that the build failed.
 
-If this exits non-zero, check whether the Job failed:
+Resolve the selected Pod by the generated Job label, then append redacted Job,
+Pod, and Kaniko log evidence to the service-private log. Never persist token,
+S3 secret, Docker auth, Kubernetes Secret data, or build-arg values.
+
+On success, read the digest written by Kaniko:
 
 ```bash
-kubectl get job "$JOB_NAME" -n "$NAMESPACE" -o json
+DIGEST="$(kubectl get pod "$POD_NAME" -n "$NAMESPACE" \
+  -o jsonpath='{.status.containerStatuses[?(@.name=="kaniko")].state.terminated.message}')"
 ```
 
-Treat a failed Job as a build failure and continue to log collection before writing `.sealos/build-result.json`.
-
-## Collect Pod Name
+Require `sha256:` plus 64 hexadecimal characters. Then classify downstream
+pull behavior without credentials:
 
 ```bash
-POD_NAME=$(kubectl get pods -n "$NAMESPACE" \
-  -l "seakills.dev/kaniko-job=$JOB_NAME" \
-  -o jsonpath='{.items[0].metadata.name}')
+node "$SKILL_DIR/scripts/check-image-pull.mjs" \
+  --image "$TARGET_IMAGE" \
+  --digest "$DIGEST" \
+  > "$SERVICE_DIR/pull-check.json"
 ```
 
-## Collect Logs
+The classification is `anonymous`, `ghcr_secret_required`, or
+`indeterminate`. This records the deployment requirement but does not create
+an application pull Secret.
 
-Append these to `LOG_FILE`:
-
-```bash
-kubectl get job "$JOB_NAME" -n "$NAMESPACE" -o yaml
-kubectl describe pod "$POD_NAME" -n "$NAMESPACE"
-kubectl logs "$POD_NAME" -n "$NAMESPACE" -c kaniko
-```
-
-Before writing logs, redact:
-
-- `GITHUB_TOKEN`
-- `AWS_SECRET_ACCESS_KEY`
-- Docker auth base64 values
-- Kubernetes Secret data
-
-## Failure Handling
-
-Read `knowledge/failure-patterns.md` when the build fails. Classify the failure as one of:
-
-- preflight
-- context
-- dockerfile
-- kaniko
-- push
-- kubernetes
-- timeout
-
-Use the classification in `.sealos/build-result.json`.
+Classify build failures as `preflight`, `build-request`, `auth`, `context`,
+`dockerfile`, `kaniko`, `push`, `kubernetes`, or `unknown`.

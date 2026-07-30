@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 
-import fs from 'fs'
+import {
+  assertBuildRequiredService,
+  readJson,
+  selectService,
+} from './build-contract.mjs'
 
 const DEFAULT_KANIKO_IMAGE = 'gcr.io/kaniko-project/executor:v1.24.0'
 const DEFAULT_PLATFORM = 'linux/amd64'
-const DEFAULT_ACTIVE_DEADLINE_SECONDS = 1800
 
 function usage() {
   console.error([
     'Usage:',
-    '  node generate-job.mjs --request <file> --context <file> --namespace <namespace> --job-name <name> --registry-secret <name> --s3-secret <name> --s3-endpoint <url> [--active-deadline-seconds <seconds>] [--aws-region <region>] [--service-account <name>]',
+    '  node generate-job.mjs --request <file> --service <name-or-key> --context <file> --namespace <namespace> --job-name <name> --registry-secret <name> --s3-secret <name> --s3-endpoint <url> --service-account <name> [--build-args-secret <name>] [--aws-region <region>]',
   ].join('\n'))
 }
 
@@ -33,10 +36,6 @@ function parseArgs(argv) {
 function requireArg(args, key) {
   if (!args[key]) throw new Error(`Missing required argument --${key}`)
   return args[key]
-}
-
-function readJson(file) {
-  return JSON.parse(fs.readFileSync(file, 'utf-8'))
 }
 
 function validateDnsName(value, field, maxLength = 253) {
@@ -70,33 +69,27 @@ function validateBuildArgKey(value) {
   }
 }
 
-function positiveInteger(value, field, max = Number.MAX_SAFE_INTEGER) {
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > max) {
-    throw new Error(`${field} must be an integer from 1 to ${max}`)
+function validateBuildTarget(value) {
+  if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
+    throw new Error(`build target contains unsupported characters: ${value}`)
   }
-  return parsed
 }
 
-function validateBuildRequest(request) {
-  if (request.mode !== 'build-required') {
-    throw new Error(`generate-job only supports mode=build-required, got ${request.mode}`)
-  }
-  if (!request.image?.target_image) {
-    throw new Error('image.target_image is required')
-  }
-  const targetImage = String(request.image.target_image)
+function validateBuildRequest(request, serviceSelector) {
+  const service = assertBuildRequiredService(selectService(request, serviceSelector))
+  const targetImage = String(service.image.target_image)
   validateEnvValue(targetImage, 'image.target_image')
-  if (!targetImage.startsWith('ghcr.io/')) {
-    throw new Error(`Only ghcr.io target images are supported, got ${targetImage}`)
-  }
+  const buildArgNames = service.build.build_arg_names || []
+  for (const name of buildArgNames) validateBuildArgKey(name)
   return {
+    service,
     targetImage,
-    buildArgs: request.build?.build_args || {},
+    buildArgNames,
+    target: service.build.target || null,
   }
 }
 
-function validateContextMetadata(metadata) {
+function validateContextMetadata(metadata, service) {
   const contextUri = metadata.context?.uri
   const dockerfile = metadata.kaniko?.dockerfile
   if (typeof contextUri !== 'string' || !contextUri.startsWith('s3://')) {
@@ -107,6 +100,12 @@ function validateContextMetadata(metadata) {
     throw new Error('kaniko.dockerfile is required')
   }
   validateEnvValue(dockerfile, 'kaniko.dockerfile')
+  if (
+    metadata.service?.name !== service.name
+    || metadata.service?.artifact_key !== service.artifact_key
+  ) {
+    throw new Error('context metadata service does not match the selected build service')
+  }
   return {
     contextUri,
     dockerfile,
@@ -117,46 +116,73 @@ function yamlSingleQuote(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
 
-function renderBuildArgs(buildArgs) {
-  return Object.entries(buildArgs)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => {
-      validateBuildArgKey(key)
-      validateEnvValue(String(value), `build arg ${key}`)
-      return `        - --build-arg=${key}=${String(value)}`
-    })
+function buildArgEnvName(name) {
+  return `SEALOS_BUILD_ARG_${name}`
+}
+
+function renderBuildArgs(buildArgNames) {
+  return [...buildArgNames]
+    .sort((left, right) => left.localeCompare(right))
+    .map((name) => (
+      `        - ${yamlSingleQuote(`--build-arg=${name}=$(${buildArgEnvName(name)})`)}`
+    ))
+    .join('\n')
+}
+
+function renderBuildArgEnv(buildArgNames, secretName) {
+  return [...buildArgNames]
+    .sort((left, right) => left.localeCompare(right))
+    .map((name) => `        - name: ${buildArgEnvName(name)}
+          valueFrom:
+            secretKeyRef:
+              name: ${secretName}
+              key: ${name}`)
     .join('\n')
 }
 
 function renderManifest({ request, context, args }) {
-  const build = validateBuildRequest(request)
-  const contextMetadata = validateContextMetadata(context)
+  const build = validateBuildRequest(
+    request,
+    requireArg(args, 'service'),
+  )
+  const contextMetadata = validateContextMetadata(context, build.service)
   const namespace = requireArg(args, 'namespace')
   const jobName = requireArg(args, 'job-name')
   const registrySecret = requireArg(args, 'registry-secret')
   const s3Secret = requireArg(args, 's3-secret')
   const s3Endpoint = requireArg(args, 's3-endpoint')
   const awsRegion = args['aws-region'] || 'sealos-internal'
-  const serviceAccount = args['service-account'] || null
+  const serviceAccount = requireArg(args, 'service-account')
+  const buildArgsSecret = args['build-args-secret'] || null
   const kanikoImage = args['kaniko-image'] || DEFAULT_KANIKO_IMAGE
   const platform = args.platform || DEFAULT_PLATFORM
-  const activeDeadlineSeconds = positiveInteger(
-    args['active-deadline-seconds'] || DEFAULT_ACTIVE_DEADLINE_SECONDS,
-    'active-deadline-seconds',
-    DEFAULT_ACTIVE_DEADLINE_SECONDS,
-  )
 
   validateDnsName(namespace, 'namespace')
   validateDnsName(jobName, 'job-name', 63)
   validateDnsName(registrySecret, 'registry-secret')
   validateDnsName(s3Secret, 's3-secret')
-  if (serviceAccount) validateDnsName(serviceAccount, 'service-account')
+  validateDnsName(serviceAccount, 'service-account')
+  if (buildArgsSecret) validateDnsName(buildArgsSecret, 'build-args-secret')
   validateJobReachableS3Endpoint(s3Endpoint)
   validateEnvValue(awsRegion, 'aws-region')
   validateEnvValue(kanikoImage, 'kaniko-image')
   validateEnvValue(platform, 'platform')
 
-  const buildArgYaml = renderBuildArgs(build.buildArgs)
+  if (build.buildArgNames.length > 0 && !buildArgsSecret) {
+    throw new Error('--build-args-secret is required when build_arg_names are declared')
+  }
+  if (build.buildArgNames.length === 0 && buildArgsSecret) {
+    throw new Error('--build-args-secret is not allowed when no build_arg_names are declared')
+  }
+  const buildArgYaml = renderBuildArgs(build.buildArgNames)
+  const buildArgEnvYaml = renderBuildArgEnv(
+    build.buildArgNames,
+    buildArgsSecret,
+  )
+  if (build.target) {
+    validateEnvValue(build.target, 'build.target')
+    validateBuildTarget(build.target)
+  }
 
   return `apiVersion: batch/v1
 kind: Job
@@ -172,7 +198,6 @@ metadata:
     seakills.dev/dockerfile: ${yamlSingleQuote(contextMetadata.dockerfile)}
     seakills.dev/target-image: ${yamlSingleQuote(build.targetImage)}
 spec:
-  activeDeadlineSeconds: ${activeDeadlineSeconds}
   backoffLimit: 0
   ttlSecondsAfterFinished: 3600
   template:
@@ -183,8 +208,8 @@ spec:
         seakills.dev/kaniko-job: ${jobName}
     spec:
       restartPolicy: Never
-${serviceAccount ? `      serviceAccountName: ${serviceAccount}
-` : ''}      containers:
+      serviceAccountName: ${serviceAccount}
+      containers:
       - name: kaniko
         image: ${kanikoImage}
         resources:
@@ -197,14 +222,18 @@ ${serviceAccount ? `      serviceAccountName: ${serviceAccount}
             memory: "8Gi"
             ephemeral-storage: "10Gi"
         args:
-        - --dockerfile=${contextMetadata.dockerfile}
-        - --context=${contextMetadata.contextUri}
-        - --destination=${build.targetImage}
-        - --custom-platform=${platform}
-        - --cleanup
-        - --verbosity=info
+        - ${yamlSingleQuote(`--dockerfile=${contextMetadata.dockerfile}`)}
+        - ${yamlSingleQuote(`--context=${contextMetadata.contextUri}`)}
+        - ${yamlSingleQuote(`--destination=${build.targetImage}`)}
+        - ${yamlSingleQuote(`--custom-platform=${platform}`)}
+        - '--digest-file=/dev/termination-log'
+${build.target ? `        - ${yamlSingleQuote(`--target=${build.target}`)}
+` : ''}        - '--cleanup'
+        - '--verbosity=info'
 ${buildArgYaml ? `${buildArgYaml}
 ` : ''}        env:
+${buildArgEnvYaml ? `${buildArgEnvYaml}
+` : ''}
         - name: S3_ENDPOINT
           value: ${yamlSingleQuote(s3Endpoint)}
         - name: S3_FORCE_PATH_STYLE

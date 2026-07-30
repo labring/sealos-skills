@@ -1,183 +1,93 @@
-# Lessons Learned from Real Deployments
+# Prepare Workflow Lessons
 
-This document captures patterns and solutions from actual Sealos deployment experiences to prevent repeated mistakes.
+These rules come from failures observed while preparing Sealos deployments.
 
----
+## Repository Is The Source Boundary
 
-## Case Study: EverShop (Public URL + Image Detection)
+A root library, CLI, or monorepo is not automatically impossible to deploy.
+Inspect project-backed child apps, docs, Storybook, examples, static builds,
+APIs, and workers before stopping. A low readiness score is a warning, not a
+rejection rule.
 
-**Project**: EverShop - Node.js e-commerce platform using node-config
-**GitHub**: `evershopcommerce/evershop`
-**Issues Encountered**: 2 (public URL misconfiguration, image detection miss)
+## Image Evidence Must Be Declared
 
-### Issue 1: Hardcoded localhost Base URL
+Do not guess an image from GitHub owner/repository names or registry search.
+Use README remote pull/run instructions, CI publish destinations, Compose,
+rendered Helm, or Kubernetes declarations. Resolve the exact selector to a
+digest and retain all source evidence.
 
-- **Symptom**: App deployed successfully but all frontend API calls failed (404/CORS errors)
-- **Root Cause**: App uses node-config with `getConfig('shop.homeUrl', 'http://localhost:3000')` — when no config override exists, all generated URLs point to localhost
-- **Detection Signal**: `packages/evershop/src/lib/util/getBaseUrl.ts` contains fallback to `http://localhost:3000`
-- **Fix**: Created ConfigMap with `config/default.json` containing `{"shop":{"homeUrl":"https://<public-url>"}}`, mounted via `subPath` to avoid overwriting other config files
-- **Generalized Pattern**: **Public URL via file-based config** — many apps (especially Node.js with node-config, PHP with config files) read their public URL from config files rather than env vars. When `localhost` fallback is detected in source code, a ConfigMap override is required.
-- **Status**: Pattern added to `conversion-mappings.md` (Strategy B: ConfigMap)
+A Dockerfile base image is not a published image of the project. One resolved
+image also does not authorize dropping the other services in a declared
+topology.
 
-### Issue 2: Docker Hub Image Not Found
+## Preserve Complete Topology
 
-- **Symptom**: `detect-image.mjs` returned `{ "found": false }`, triggering unnecessary Docker build
-- **Root Cause**: Script only checked `<github-owner>/<github-repo>` (i.e., `evershopcommerce/evershop`), but official Docker image is at `evershop/evershop`
-- **Detection Signal**: Docker Hub namespace differs from GitHub org — common when project name is shorter than org name
-- **Fix**: Added fallback check for `<repo-name>/<repo-name>` pattern in `detect-image.mjs`
-- **Other Known Examples**:
-  - GitHub `nextcloud/server` → Docker Hub `nextcloud/nextcloud`
-  - GitHub `gogs/gogs` → Docker Hub `gogs/gogs` (same, but org ≠ repo in other cases)
-- **Status**: Fallback added to `detect-image.mjs`
+Application, database, worker, proxy, gateway, queue, cache, search, and
+storage capabilities remain accounted for. A Sealos-native transformation may
+change a resource kind only when runtime behavior and dependency wiring remain
+equivalent.
 
-### Generalized Lessons
+Before replacing a source database with KubeBlocks, account for database names,
+users, password sources, grants, initialization, scripts, mounts, commands,
+data paths, variants, replicas, and consumers. Retain an annotated raw workload
+when the transformation is not lossless.
 
-1. **Public URL Detection is Critical**: Always scan source code for `localhost` fallback patterns during Phase 5.2. Missing this causes subtle runtime failures (app loads but API calls fail).
-2. **Image Detection Needs Multiple Strategies**: Don't assume Docker Hub namespace matches GitHub org. Check `<repo>/<repo>` as fallback.
-3. **Config File Overrides via ConfigMap**: When an app uses file-based config (not env vars) for its public URL, use a ConfigMap with `subPath` mount to inject only the needed override without replacing the entire config directory.
+## Public URL Configuration
 
----
+Scan for `BASE_URL`, `SITE_URL`, `APP_URL`, `NEXTAUTH_URL`, `PUBLIC_URL`,
+`EXTERNAL_URL`, and file-based localhost fallbacks. Use a normal Template env
+value when the app supports one. When it reads a config file, mount the smallest
+ConfigMap override with `subPath` rather than replacing the whole directory.
 
-## Consolidated Patterns
+## Per-Service Build Plans
 
-### GHCR Push Succeeds but Cluster Pull Fails (Prevents `ImagePullBackOff`)
+Every final container service owns its exact context, context-relative
+Dockerfile, optional target, and build-argument names. A root Dockerfile is not
+a checkpoint for every service.
 
-```yaml
-detection:
-  trigger:
-    - "Phase 4 built a ghcr.io/<user>/<repo>:<tag> image locally"
-    - "Deployment later stalls with ImagePullBackOff or ErrImagePull"
-  root_causes:
-    - "GitHub Container Registry package visibility is still private"
-    - "Cluster has no imagePullSecret for ghcr.io"
+Preserve working Dockerfiles and `.dockerignore` files. Repair only a proven
+blocker, and retry only the failing service. A monorepo child Dockerfile may
+still need repository root as context for lockfiles and sibling packages.
 
-decision:
-  if_local_gh_cli_is_available:
-    require: "create or refresh the namespace image pull Secret automatically before deploy/update"
-  else:
-    fallback: "package must be public, or the operator must provide registry pull credentials another way"
-  skip_when:
-    - "Phase 2 reused an existing public image"
+## Sandbox Kaniko Identity
 
-verification:
-  visibility_check: "gh api /user/packages/container/<repo> -q .visibility"
-  anonymous_pull_check: "GET ghcr token, then HEAD/GET manifest from ghcr.io/v2/.../manifests/<tag>"
+Resolve namespace in this order:
 
-fixes:
-  preferred: "create/update the app-scoped imagePullSecret from gh auth token during deploy"
-  fallback_1: "make the GHCR package public"
-  fallback_2: "push to Docker Hub instead"
-```
+1. explicit sandbox override
+2. active kube context namespace
+3. mounted service-account namespace
 
-### Public URL Misconfiguration (Prevents Runtime API Failures)
+Carry the current service account onto the temporary Job. Never assume
+`default`, query with an admin kubeconfig, or require cluster-scoped namespace
+read access.
 
-```yaml
-detection:
-  # Scan source code for these patterns
-  env_var_patterns:
-    - "BASE_URL"
-    - "SITE_URL"
-    - "APP_URL"
-    - "NEXTAUTH_URL"
-    - "PUBLIC_URL"
-    - "EXTERNAL_URL"
-  config_file_patterns:
-    - "getConfig(.*[Uu]rl"
-    - "homeUrl"
-    - "baseUrl"
-    - "siteUrl"
-    - "http://localhost"
+## Kaniko Context Boundary
 
-  # Decision
-  strategy:
-    env_var_supported: "Strategy A — add env var with public URL"
-    config_file_only: "Strategy B — create ConfigMap with minimal config override"
-```
+Kaniko sees the S3 tarball, not the DevBox filesystem. Package exactly
+`source.work_dir + context_path`; require the Dockerfile inside that context;
+exclude repository metadata, `.sealos`, and local VersityGW stores.
 
-### Docker Hub Namespace Mismatch (Prevents Unnecessary Builds)
+A loopback VersityGW endpoint works only for the DevBox process. The separate
+Job needs a Pod- or Service-reachable endpoint.
 
-```yaml
-detection:
-  # Primary: <github-owner>/<github-repo>
-  primary: "${github_owner}/${github_repo}"
+## GHCR Preflight And Pull Handoff
 
-  # Fallback 1: <repo-name>/<repo-name> (when owner ≠ repo)
-  fallback_repo_repo: "${github_repo}/${github_repo}"
+Validate the injected token identity and `write:packages` scope before a long
+build. GHCR repository path components are lowercase.
 
-  # Fallback 2: README scan for docker pull/run references
-  fallback_readme: "scan README.md for image references"
-```
+After push, read the Kaniko digest and test anonymous pull against that digest.
+Keep the immutable image for `anonymous`, `ghcr_secret_required`, and
+`indeterminate`. For the latter two, put only the app-scoped
+`${{ defaults.app_name }}` pull-Secret reference on affected workloads.
+Credential materialization belongs to the downstream deployment system.
 
-### Sandbox Namespace And Service Account Detection (Prevents False kubectl Failures)
+## Aggregate Build Contract
 
-```yaml
-detection:
-  trigger:
-    - "Build preflight claims kubectl or BuildKit is unavailable even though kubectl works inside the devbox pod"
-    - "Logs mention the default namespace even though the sandbox is namespaced"
-    - "Temporary BuildKit Job silently runs as the namespace default service account"
-  root_causes:
-    - "The workflow assumed namespace=default instead of resolving the active sandbox namespace"
-    - "The workflow checked cluster-scoped namespace access instead of namespaced permissions"
-    - "The generated Job omitted serviceAccountName, so Kubernetes used the namespace default service account"
+One version `2.0` build request covers all final container services. One
+version `2.0` result records every reuse or build independently. A failed
+service exposes no deployable image; the aggregate succeeds only when every
+expected service is resolved.
 
-decision:
-  namespace_resolution_order:
-    - "explicit NAMESPACE override"
-    - "kubectl current-context namespace"
-    - "mounted serviceaccount namespace file"
-  service_account_resolution_order:
-    - "explicit SERVICE_ACCOUNT_NAME"
-    - "mounted serviceaccount token claims"
-    - "current pod spec"
-
-fixes:
-  preferred:
-    - "Use the sandbox-provided kubeconfig only"
-    - "Run permission checks against the resolved namespace"
-    - "Set Job spec.serviceAccountName to the current sandbox service account"
-  avoid:
-    - "sudo kubectl --kubeconfig /etc/kubernetes/admin.conf"
-    - "assuming namespace=default"
-```
-
-### GHCR Scope Preflight (Prevents Late Push Failures)
-
-```yaml
-detection:
-  trigger:
-    - "Build completes most layers but push to ghcr.io fails with denied or insufficient_scope"
-  root_causes:
-    - "GITHUB_TOKEN exists but lacks write:packages"
-
-verification:
-  github_api: "GET https://api.github.com/user and inspect x-oauth-scopes"
-  required_scopes:
-    - "write:packages"
-
-fixes:
-  preferred:
-    - "Fail in BuildKit preflight before creating the Job when scopes are missing"
-
-### Kaniko Context Must Be Explicit (Prevents S3 Tarball Drift)
-
-- "Problem":
-    - "kaniko Job cannot read the DevBox filesystem directly"
-    - "S3 context tarball omits the generated Dockerfile or packages too much local state"
-    - "Dockerfile path works in local tools but fails once kaniko extracts context.tar.gz"
-- "Root cause":
-    - "kaniko sees only the tarball root, not the original repository root"
-    - "Dockerfile must be inside build.context_path"
-    - "S3_ENDPOINT is a DevBox-local VersityGW endpoint, not stable project config"
-    - "If S3_ENDPOINT is loopback, the separate kaniko Job needs KANIKO_JOB_S3_ENDPOINT or a current Pod IP endpoint"
-- "Fix":
-    - "Package source.work_dir + build.context_path into context.tar.gz"
-    - "Reject dockerfile_path values outside context_path instead of silently widening context"
-    - "Resolve S3_ENDPOINT or AWS_ENDPOINT_URL_S3 and AWS_SECRET_ACCESS_KEY from runtime env during kaniko preflight"
-    - "Resolve KANIKO_CONTEXT_S3_BUCKET, KANIKO_CONTEXT_S3_PREFIX, and KANIKO_CONTEXT_POSIX_DIR from the runtime defaults"
-- "Prevention":
-    - "Keep .sealos/build-request.json as the source contract"
-    - "Record .sealos/kaniko-context.json before creating the Job"
-    - "Do not query Sealos internal CRs from the skill to synthesize S3 endpoints"
-    - "Replace the token with a PAT that can publish to GHCR"
-```
+The final delivery validator aligns routes, service identities, digests,
+Template image refs, pull-Secret requirements, and manifest paths before
+handoff.

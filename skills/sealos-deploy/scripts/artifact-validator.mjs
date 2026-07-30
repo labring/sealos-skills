@@ -6,14 +6,17 @@ import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SCHEMA_DIR = path.join(__dirname, '..', 'schemas')
-const KANIKO_SCHEMA_DIR = path.join(__dirname, '..', '..', 'k8s-kaniko-job', 'schemas')
+const OFFICIAL_TEMPLATE_CATALOG = 'https://github.com/labring-actions/templates.git'
+const OFFICIAL_TEMPLATE_CATALOG_REF = 'kb-0.9'
+const DEPLOYMENT_TEMPLATE_PATH = '.sealos/template/index.yaml'
 
 const SCHEMA_FILES = {
   config: 'config.schema.json',
   analysis: 'analysis.schema.json',
   'build-request': 'build-request.schema.json',
-  'build-result': { dir: KANIKO_SCHEMA_DIR, file: 'build-result.schema.json' },
+  'build-result': 'build-result.schema.json',
   'delivery-manifest': 'delivery-manifest.schema.json',
+  'template-references': 'template-references.schema.json',
 }
 
 function isPlainObject(value) {
@@ -24,87 +27,12 @@ function isIsoDateTime(value) {
   return typeof value === 'string' && !Number.isNaN(Date.parse(value))
 }
 
-function isCommitSha(value) {
-  return typeof value === 'string' && /^[a-f0-9]{40}$/i.test(value)
-}
-
-function isSafeRelativePath(value) {
-  if (typeof value !== 'string' || value.length === 0) return false
-  if (path.isAbsolute(value)) return false
-  const normalized = path.posix.normalize(value.replaceAll('\\', '/'))
-  return normalized !== '..' && !normalized.startsWith('../')
-}
-
-function normalizeRelativePath(value) {
-  return path.posix.normalize(String(value).replaceAll('\\', '/'))
-}
-
-function pathContains(parent, child) {
-  const relative = path.relative(parent, child)
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
-}
-
 function formatPath(pointer, suffix = '') {
   return `${pointer}${suffix}`
 }
 
 function pushError(errors, pointer, message) {
   errors.push({ path: pointer, message })
-}
-
-function stripInlineComment(line) {
-  let quote = null
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index]
-    if ((char === '"' || char === "'") && line[index - 1] !== '\\') {
-      quote = quote === char ? null : quote || char
-    }
-    if (char === '#' && quote === null && (index === 0 || /\s/.test(line[index - 1]))) {
-      return line.slice(0, index)
-    }
-  }
-  return line
-}
-
-function tokenizeDockerInstruction(value) {
-  const tokens = []
-  const pattern = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|(\S+)/g
-  let match
-  while ((match = pattern.exec(value)) !== null) {
-    tokens.push(match[1] ?? match[2] ?? match[3])
-  }
-  return tokens
-}
-
-function parseDockerCopySources(dockerfileContent) {
-  const sources = []
-
-  for (const line of dockerfileContent.split(/\r?\n/)) {
-    const trimmed = stripInlineComment(line).trim()
-    const match = trimmed.match(/^(COPY|ADD)\s+(.+)$/i)
-    if (!match) continue
-
-    const rest = match[2].trim()
-    if (rest.startsWith('[')) {
-      try {
-        const values = JSON.parse(rest)
-        if (Array.isArray(values) && values.length >= 2) {
-          sources.push(...values.slice(0, -1).filter((value) => typeof value === 'string'))
-        }
-      } catch {
-        // Complex or invalid Dockerfile JSON array syntax is left to the build executor.
-      }
-      continue
-    }
-
-    const tokens = tokenizeDockerInstruction(rest)
-      .filter((token) => !token.startsWith('--'))
-    if (tokens.length >= 2) {
-      sources.push(...tokens.slice(0, -1))
-    }
-  }
-
-  return sources
 }
 
 function validateType(expectedType, value) {
@@ -291,244 +219,558 @@ function validateNumberSchema(schema, value, pointer, errors) {
   }
 }
 
+function resolveLocalRefs(schema, rootSchema) {
+  if (Array.isArray(schema)) {
+    return schema.map((item) => resolveLocalRefs(item, rootSchema))
+  }
+  if (!isPlainObject(schema)) {
+    return schema
+  }
+
+  if (typeof schema.$ref === 'string') {
+    if (!schema.$ref.startsWith('#/')) {
+      throw new Error(`Unsupported schema reference: ${schema.$ref}`)
+    }
+
+    const target = schema.$ref
+      .slice(2)
+      .split('/')
+      .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'))
+      .reduce((current, segment) => current?.[segment], rootSchema)
+
+    if (!isPlainObject(target)) {
+      throw new Error(`Unresolved schema reference: ${schema.$ref}`)
+    }
+
+    const siblings = Object.fromEntries(
+      Object.entries(schema).filter(([key]) => key !== '$ref'),
+    )
+    return resolveLocalRefs({ ...target, ...siblings }, rootSchema)
+  }
+
+  return Object.fromEntries(
+    Object.entries(schema).map(([key, value]) => [key, resolveLocalRefs(value, rootSchema)]),
+  )
+}
+
 function loadSchema(kind) {
-  const schemaRef = SCHEMA_FILES[kind]
-  if (!schemaRef) {
+  const fileName = SCHEMA_FILES[kind]
+  if (!fileName) {
     throw new Error(`Unknown artifact kind: ${kind}`)
   }
 
-  if (typeof schemaRef === 'string') {
-    return JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, schemaRef), 'utf-8'))
-  }
+  const schema = JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, fileName), 'utf-8'))
+  return resolveLocalRefs(schema, schema)
+}
 
-  return JSON.parse(fs.readFileSync(path.join(schemaRef.dir, schemaRef.file), 'utf-8'))
+function isImmutableImageRef(value) {
+  return typeof value === 'string' && /@sha256:[a-fA-F0-9]{64}$/.test(value)
+}
+
+function hasImageSelector(value) {
+  if (isImmutableImageRef(value)) return true
+  if (typeof value !== 'string') return false
+  return value.lastIndexOf(':') > value.lastIndexOf('/')
+}
+
+function imageRepository(value) {
+  const withoutDigest = value.split('@', 1)[0]
+  const lastSlash = withoutDigest.lastIndexOf('/')
+  const lastColon = withoutDigest.lastIndexOf(':')
+  return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
+}
+
+function supportsLinuxAmd64(platforms) {
+  return Array.isArray(platforms) && platforms.some((platform) => (
+    typeof platform === 'string'
+    && (platform === 'linux/amd64' || platform.startsWith('linux/amd64/'))
+  ))
 }
 
 function validateAnalysisSemantics(data, errors) {
-  if (!data.all_languages.includes(data.language)) {
-    pushError(errors, '$.all_languages', 'must include the primary language')
-  }
-
   const dimensionTotal = Object.values(data.score.dimensions).reduce((sum, value) => sum + value, 0)
-  if (data.score.total !== dimensionTotal) {
-    pushError(errors, '$.score.total', `must equal the sum of score.dimensions (${dimensionTotal})`)
+  const rawScore = data.score.raw_score ?? dimensionTotal
+  const bonus = data.score.bonus ?? 0
+  if (rawScore !== dimensionTotal) {
+    pushError(errors, '$.score.raw_score', `must equal the sum of score.dimensions (${dimensionTotal})`)
+  }
+  const expectedTotal = Math.min(12, rawScore + bonus)
+  if (data.score.total !== expectedTotal) {
+    pushError(
+      errors,
+      '$.score.total',
+      `must equal min(12, score.raw_score + score.bonus) (${expectedTotal})`,
+    )
   }
 
-  if (!Object.prototype.hasOwnProperty.call(data.runtime_version, data.language)) {
-    pushError(errors, '$.runtime_version', `must include a version field for primary language ${data.language}`)
+  if (typeof data.image_ref === 'string' && !hasImageSelector(data.image_ref)) {
+    pushError(errors, '$.image_ref', 'must include a tag or immutable digest')
   }
 
-  if (typeof data.image_ref === 'string' && !data.image_ref.includes(':')) {
-    pushError(errors, '$.image_ref', 'must include an explicit image tag')
-  }
+  const verifiedApplicationRefs = new Set()
+  for (let index = 0; index < data.image_inventory.length; index += 1) {
+    const image = data.image_inventory[index]
+    const pointer = `$.image_inventory[${index}]`
 
-  if (data.build_environment) {
-    validateBuildEnvironmentSemantics(data.build_environment, errors)
-  }
-}
-
-function validateBuildEnvironmentSemantics(buildEnvironment, errors) {
-  if (buildEnvironment.status === 'detected') {
-    const hasSignal = [
-      buildEnvironment.project_type,
-      buildEnvironment.package_manager,
-      buildEnvironment.port,
-      buildEnvironment.install_command,
-      buildEnvironment.build_command,
-      buildEnvironment.start_command,
-      buildEnvironment.providers?.length > 0,
-      buildEnvironment.system_packages?.length > 0,
-      buildEnvironment.runtime_versions && Object.keys(buildEnvironment.runtime_versions).length > 0,
-      buildEnvironment.env_vars && Object.keys(buildEnvironment.env_vars).length > 0,
-    ].some(Boolean)
-
-    if (!hasSignal) {
-      pushError(errors, '$.build_environment', 'detected Railpack output must include at least one build signal')
-    }
-
-    if (!buildEnvironment.evidence_paths || buildEnvironment.evidence_paths.length === 0) {
-      pushError(errors, '$.build_environment.evidence_paths', 'detected Railpack output must include evidence paths')
+    if (image.status === 'verified') {
+      if (!isImmutableImageRef(image.image_ref)) {
+        pushError(errors, `${pointer}.image_ref`, 'verified images must use an immutable sha256 digest')
+      }
+      if (image.digest === null || image.image_ref !== `${image.image}@${image.digest}`) {
+        pushError(errors, `${pointer}.digest`, 'must match the immutable image_ref')
+      }
+      if (image.error !== null) {
+        pushError(errors, `${pointer}.error`, 'must be null for a verified image')
+      }
+      if (image.role === 'application' && image.image_ref !== null) {
+        verifiedApplicationRefs.add(image.image_ref)
+      }
+    } else {
+      if (image.digest !== null || image.image_ref !== null) {
+        pushError(errors, pointer, 'unverified images must not expose a deployable digest reference')
+      }
+      if (image.error === null) {
+        pushError(errors, `${pointer}.error`, 'must explain why the image is not verified')
+      }
     }
   }
 
   if (
-    (buildEnvironment.status === 'skipped' || buildEnvironment.status === 'failed') &&
-    (typeof buildEnvironment.reason !== 'string' || buildEnvironment.reason.length === 0)
+    typeof data.image_ref === 'string'
+    && verifiedApplicationRefs.size > 0
+    && !verifiedApplicationRefs.has(data.image_ref)
   ) {
-    pushError(errors, '$.build_environment.reason', 'must explain skipped or failed Railpack probes')
+    pushError(errors, '$.image_ref', 'must match a verified application image from image_inventory')
+  }
+  if (data.image_ref === null && verifiedApplicationRefs.size === 1) {
+    pushError(errors, '$.image_ref', 'must record the single verified application image')
   }
 
-  for (const [key, command] of [
-    ['install_command', buildEnvironment.install_command],
-    ['build_command', buildEnvironment.build_command],
-    ['start_command', buildEnvironment.start_command],
-  ]) {
-    if (typeof command === 'string' && /\r|\n|\0/.test(command)) {
-      pushError(errors, `$.build_environment.${key}`, 'must be a single-line command')
+  const serviceNames = new Set()
+  for (let index = 0; index < data.service_inventory.length; index += 1) {
+    const service = data.service_inventory[index]
+    const pointer = `$.service_inventory[${index}]`
+    if (serviceNames.has(service.name)) {
+      pushError(errors, `${pointer}.name`, 'must be unique')
+    }
+    serviceNames.add(service.name)
+
+    if (service.image_status === 'verified' || service.image_status === 'built') {
+      if (!isImmutableImageRef(service.image_ref)) {
+        pushError(errors, `${pointer}.image_ref`, 'deployable service images must use an immutable sha256 digest')
+      }
+      if (service.digest === null || service.image_ref !== `${service.image_ref?.split('@')[0]}@${service.digest}`) {
+        pushError(errors, `${pointer}.digest`, 'must match the immutable image_ref')
+      }
+      if (service.image_status === 'built' && !supportsLinuxAmd64(service.platforms || [])) {
+        pushError(errors, `${pointer}.platforms`, 'locally built service images must target linux/amd64')
+      }
+    }
+
+    if (service.image_status === 'build_required' && service.build === null) {
+      pushError(errors, `${pointer}.build`, 'must define the per-service build plan when image_status is build_required')
+    }
+    if (
+      service.image_status === 'built'
+      && (service.build === null || service.build.origin === null)
+    ) {
+      pushError(errors, `${pointer}.build`, 'built services must retain the effective build plan and its origin')
     }
   }
+}
+
+function isSafeRelativePath(value) {
+  if (typeof value !== 'string' || value.length === 0 || path.isAbsolute(value)) {
+    return false
+  }
+  const normalized = path.posix.normalize(value.replaceAll('\\', '/'))
+  return normalized !== '..' && !normalized.startsWith('../')
 }
 
 function validateBuildRequestSemantics(data, errors) {
-  const { mode, image, build, source } = data
+  if (!path.isAbsolute(data.source.work_dir)) {
+    pushError(errors, '$.source.work_dir', 'must be an absolute sandbox-local path')
+  }
 
-  if (mode === 'reuse-image') {
-    if (typeof image.image_ref !== 'string' || image.image_ref.length === 0) {
-      pushError(errors, '$.image.image_ref', 'must be a non-empty image reference when mode is reuse-image')
+  if (data.route === 'official-template' && data.services.length !== 0) {
+    pushError(errors, '$.services', 'must be empty for the official-template route')
+  }
+  if (data.route === 'standard' && data.services.length === 0) {
+    pushError(errors, '$.services', 'must contain every final container service on the standard route')
+  }
+
+  const names = new Set()
+  const keys = new Set()
+  for (let index = 0; index < data.services.length; index += 1) {
+    const service = data.services[index]
+    const pointer = `$.services[${index}]`
+    if (names.has(service.name)) {
+      pushError(errors, `${pointer}.name`, 'must be unique')
+    }
+    if (keys.has(service.artifact_key)) {
+      pushError(errors, `${pointer}.artifact_key`, 'must be unique')
+    }
+    names.add(service.name)
+    keys.add(service.artifact_key)
+
+    if (service.mode === 'reuse-image') {
+      if (!isImmutableImageRef(service.image.image_ref)) {
+        pushError(errors, `${pointer}.image.image_ref`, 'reused images must use an immutable sha256 digest')
+      }
+      if (service.image.target_image !== null) {
+        pushError(errors, `${pointer}.image.target_image`, 'must be null for mode=reuse-image')
+      }
+      if (service.image.pull_access === null) {
+        pushError(errors, `${pointer}.image.pull_access`, 'must record downstream pull behavior for a reused image')
+      }
+      continue
     }
 
-    if (image.target_image !== null) {
-      pushError(errors, '$.image.target_image', 'must be null when mode is reuse-image')
+    if (service.image.image_ref !== null) {
+      pushError(errors, `${pointer}.image.image_ref`, 'must be null until a build succeeds')
     }
-  }
-
-  if (mode === 'build-required') {
-    if (typeof image.target_image !== 'string' || image.target_image.length === 0) {
-      pushError(errors, '$.image.target_image', 'must be a non-empty image reference when mode is build-required')
+    if (service.image.platforms.length !== 0 || service.image.pull_access !== null) {
+      pushError(errors, `${pointer}.image`, 'unbuilt services must not claim platforms or pull access')
     }
-  }
-
-  for (const [pointer, imageRef] of [
-    ['$.image.image_ref', image.image_ref],
-    ['$.image.target_image', image.target_image],
-  ]) {
-    if (typeof imageRef === 'string' && !imageRef.includes(':')) {
-      pushError(errors, pointer, 'must include an explicit image tag')
-    }
-  }
-
-  if (!isSafeRelativePath(build.context_path)) {
-    pushError(errors, '$.build.context_path', 'must be a safe relative path inside the repository')
-  }
-
-  if (!isSafeRelativePath(build.dockerfile_path)) {
-    pushError(errors, '$.build.dockerfile_path', 'must be a safe relative path inside the repository')
-  }
-
-  if (source.type !== 'sandbox-context') {
-    pushError(errors, '$.source.type', 'must be sandbox-context for the current k8s sandbox kaniko workflow')
-  }
-
-  if (typeof source.github_url !== 'string' || source.github_url.length === 0) {
-    pushError(errors, '$.source.github_url', 'must be set so the build remains traceable to a GitHub repository')
-  }
-
-  if (typeof source.repo !== 'string' || source.repo.length === 0) {
-    pushError(errors, '$.source.repo', 'must be set so image naming and build traceability can use owner/repo metadata')
-  }
-
-  if (source.ref === 'HEAD') {
-    pushError(errors, '$.source.ref', 'must be resolved to a concrete commit SHA')
-  }
-
-  if (!isCommitSha(source.ref)) {
-    pushError(errors, '$.source.ref', 'must be a full 40-character commit SHA')
-  }
-
-  if (!path.isAbsolute(source.work_dir)) {
-    pushError(errors, '$.source.work_dir', 'must be an absolute sandbox path')
-  }
-
-  validateBuildContextSemantics({ mode, build, source }, errors)
-}
-
-function validateBuildContextSemantics({ mode, build, source }, errors) {
-  if (mode !== 'build-required') return
-  if (!path.isAbsolute(source.work_dir)) return
-  if (!isSafeRelativePath(build.context_path) || !isSafeRelativePath(build.dockerfile_path)) return
-
-  const workDir = path.resolve(source.work_dir)
-  if (!fs.existsSync(workDir) || !fs.statSync(workDir).isDirectory()) return
-
-  const contextPath = normalizeRelativePath(build.context_path)
-  const dockerfilePath = normalizeRelativePath(build.dockerfile_path)
-  const contextDir = path.resolve(workDir, contextPath)
-  const dockerfileFile = path.resolve(workDir, dockerfilePath)
-
-  if (!fs.existsSync(contextDir) || !fs.statSync(contextDir).isDirectory()) {
-    pushError(errors, '$.build.context_path', 'must exist as a directory under source.work_dir')
-    return
-  }
-  if (!fs.existsSync(dockerfileFile) || !fs.statSync(dockerfileFile).isFile()) {
-    pushError(errors, '$.build.dockerfile_path', 'must exist as a file under source.work_dir')
-    return
-  }
-  if (!pathContains(contextDir, dockerfileFile)) {
-    pushError(errors, '$.build.dockerfile_path', 'must be inside build.context_path')
-    return
-  }
-
-  const dockerfileContent = fs.readFileSync(dockerfileFile, 'utf-8')
-  for (const sourcePath of parseDockerCopySources(dockerfileContent)) {
     if (
-      sourcePath.startsWith('--') ||
-      sourcePath.includes('$') ||
-      /^[a-z][a-z0-9+.-]*:\/\//i.test(sourcePath)
+      typeof service.image.target_image !== 'string'
+      || !service.image.target_image.startsWith('ghcr.io/')
     ) {
+      pushError(errors, `${pointer}.image.target_image`, 'must be a tagged GHCR target for mode=build-required')
+    }
+    if (service.build === null) {
+      pushError(errors, `${pointer}.build`, 'must contain the exact per-service build plan')
       continue
     }
 
-    const normalizedSourcePath = normalizeRelativePath(sourcePath)
+    if (!isSafeRelativePath(service.build.context_path)) {
+      pushError(errors, `${pointer}.build.context_path`, 'must be a relative path inside source.work_dir')
+    }
+    if (!isSafeRelativePath(service.build.dockerfile_path)) {
+      pushError(errors, `${pointer}.build.dockerfile_path`, 'must be a relative path inside source.work_dir')
+    }
     if (
-      normalizedSourcePath === '..' ||
-      normalizedSourcePath.startsWith('../') ||
-      path.posix.isAbsolute(normalizedSourcePath)
+      isSafeRelativePath(service.build.context_path)
+      && isSafeRelativePath(service.build.dockerfile_path)
     ) {
-      continue
-    }
-
-    const contextCopySource = path.resolve(contextDir, normalizedSourcePath)
-    if (fs.existsSync(contextCopySource) && pathContains(contextDir, contextCopySource)) {
-      continue
-    }
-
-    const workspaceCopySource = path.resolve(workDir, normalizedSourcePath)
-    if (fs.existsSync(workspaceCopySource) && !pathContains(contextDir, workspaceCopySource)) {
-      pushError(errors, '$.build.context_path', `must include Dockerfile COPY source ${sourcePath}`)
-      return
+      const relativeDockerfile = path.posix.relative(
+        path.posix.normalize(service.build.context_path.replaceAll('\\', '/')),
+        path.posix.normalize(service.build.dockerfile_path.replaceAll('\\', '/')),
+      )
+      if (
+        relativeDockerfile === ''
+        || relativeDockerfile === '..'
+        || relativeDockerfile.startsWith('../')
+      ) {
+        pushError(
+          errors,
+          `${pointer}.build.dockerfile_path`,
+          'must identify a Dockerfile inside build.context_path',
+        )
+      }
     }
   }
 }
 
 function validateBuildResultSemantics(data, errors) {
-  if (typeof data.image?.image_ref === 'string' && !data.image.image_ref.includes(':')) {
-    pushError(errors, '$.image.image_ref', 'must include an explicit image tag')
+  if (data.route === 'official-template') {
+    if (data.status !== 'skipped') {
+      pushError(errors, '$.status', 'must be skipped for the official-template route')
+    }
+    if (data.services.length !== 0) {
+      pushError(errors, '$.services', 'must be empty for the official-template route')
+    }
+    if (data.expected_services !== 0) {
+      pushError(errors, '$.expected_services', 'must be zero for the official-template route')
+    }
+    return
+  }
+
+  if (data.expected_services <= 0) {
+    pushError(errors, '$.expected_services', 'must be positive on the standard route')
+  }
+  if (data.services.length > data.expected_services) {
+    pushError(errors, '$.services', 'must not exceed expected_services')
+  }
+
+  const names = new Set()
+  const keys = new Set()
+  let failed = false
+  for (let index = 0; index < data.services.length; index += 1) {
+    const service = data.services[index]
+    const pointer = `$.services[${index}]`
+    if (names.has(service.name)) {
+      pushError(errors, `${pointer}.name`, 'must be unique')
+    }
+    if (keys.has(service.artifact_key)) {
+      pushError(errors, `${pointer}.artifact_key`, 'must be unique')
+    }
+    names.add(service.name)
+    keys.add(service.artifact_key)
+
+    if (service.outcome === 'failed') {
+      failed = true
+      if (service.error === null) {
+        pushError(errors, `${pointer}.error`, 'must explain a failed service result')
+      }
+      if (
+        service.image.image_ref !== null
+        || service.image.digest !== null
+        || service.image.pull_access !== null
+      ) {
+        pushError(errors, `${pointer}.image`, 'failed services must not expose a deployable image')
+      }
+      continue
+    }
+
+    if (!isImmutableImageRef(service.image.image_ref)) {
+      pushError(errors, `${pointer}.image.image_ref`, 'must use an immutable sha256 digest')
+    }
+    if (
+      service.image.digest === null
+      || service.image.image_ref !== `${imageRepository(service.image.image_ref)}@${service.image.digest}`
+    ) {
+      pushError(errors, `${pointer}.image.digest`, 'must match image.image_ref')
+    }
+    if (service.image.pull_access === null) {
+      pushError(errors, `${pointer}.image.pull_access`, 'must record downstream pull behavior')
+    }
+    if (service.error !== null) {
+      pushError(errors, `${pointer}.error`, 'must be null for a resolved service result')
+    }
+
+    if (service.outcome === 'success') {
+      if (
+        typeof service.image.remote_image !== 'string'
+        || !service.image.remote_image.startsWith('ghcr.io/')
+      ) {
+        pushError(errors, `${pointer}.image.remote_image`, 'must be the tagged GHCR push target')
+      } else if (
+        service.image.image_ref
+        !== `${imageRepository(service.image.remote_image)}@${service.image.digest}`
+      ) {
+        pushError(errors, `${pointer}.image.image_ref`, 'must match remote_image repository and digest')
+      }
+      if (!supportsLinuxAmd64(service.image.platforms)) {
+        pushError(errors, `${pointer}.image.platforms`, 'must include linux/amd64')
+      }
+      if (service.build === null || service.kubernetes === null || service.logs === null) {
+        pushError(errors, pointer, 'successful Kaniko builds must retain build, Kubernetes, and log evidence')
+      }
+    } else if (service.kubernetes !== null) {
+      pushError(errors, `${pointer}.kubernetes`, 'must be null when an existing image was reused')
+    }
+  }
+
+  const expectedStatus = failed
+    ? 'failed'
+    : data.services.length === data.expected_services
+      ? 'succeeded'
+      : 'in_progress'
+  if (data.status !== expectedStatus) {
+    pushError(errors, '$.status', `must equal ${expectedStatus} for the recorded service outcomes`)
   }
 }
 
 function validateDeliveryManifestSemantics(data, errors) {
-  const artifactSet = new Set(data.artifacts)
+  const requiredArtifacts = [
+    data.analysis_path,
+    data.build_request_path,
+    data.build_result_path,
+    data.template_path,
+    '.sealos/delivery-manifest.json',
+  ]
+  for (const artifact of requiredArtifacts) {
+    if (!data.artifacts.includes(artifact)) {
+      pushError(errors, '$.artifacts', `must include ${artifact}`)
+    }
+  }
+  if (!data.artifacts.includes(data.template_references_path)) {
+    pushError(errors, '$.artifacts', 'must include template_references_path')
+  }
+  for (let index = 0; index < data.artifacts.length; index += 1) {
+    const artifact = data.artifacts[index]
+    const portable = artifact.replaceAll('\\', '/')
+    const normalized = path.posix.normalize(portable)
+    if (
+      normalized !== portable
+      || artifact.includes('\\')
+      || !normalized.startsWith('.sealos/')
+      || normalized === '.sealos/..'
+      || normalized.startsWith('.sealos/../')
+    ) {
+      pushError(errors, `$.artifacts[${index}]`, 'must be a safe project-relative .sealos path')
+    }
+    if (
+      normalized.startsWith('.sealos/kaniko/')
+      || normalized === '.sealos/kube-context.json'
+      || normalized.endsWith('/context.tar.gz')
+      || normalized.endsWith('/job.yaml')
+      || normalized.includes('/logs/')
+    ) {
+      pushError(errors, `$.artifacts[${index}]`, 'must not expose private build execution evidence')
+    }
+  }
+}
 
-  for (const requiredArtifact of [
-    '.sealos/analysis.json',
-    '.sealos/build-request.json',
-    '.sealos/build-result.json',
-    '.sealos/template/index.yaml',
-  ]) {
-    if (!artifactSet.has(requiredArtifact)) {
-      pushError(errors, '$.artifacts', `must include ${requiredArtifact}`)
+function validateTemplateReferencesSemantics(data, errors) {
+  const exactReferences = data.references.filter((reference) => reference.match === 'exact')
+  const exactCount = exactReferences.length
+  const similarCount = data.references.filter((reference) => reference.match === 'similar').length
+
+  if (data.summary.exact_count !== exactCount) {
+    pushError(errors, '$.summary.exact_count', `must equal the number of exact references (${exactCount})`)
+  }
+  if (data.summary.similar_count !== similarCount) {
+    pushError(errors, '$.summary.similar_count', `must equal the number of similar references (${similarCount})`)
+  }
+  if (similarCount !== 0) {
+    pushError(errors, '$.references', 'version 2.0 does not select similar template references')
+  }
+
+  let sawSimilar = false
+  const catalogPaths = new Set()
+  const referencePaths = new Set()
+
+  for (let index = 0; index < data.references.length; index++) {
+    const reference = data.references[index]
+    const pointer = `$.references[${index}]`
+
+    if (reference.match === 'similar') {
+      sawSimilar = true
+      if (reference.score >= 100) {
+        pushError(errors, `${pointer}.score`, 'must be below 100 for a similar reference')
+      }
+    } else {
+      if (sawSimilar) {
+        pushError(errors, `${pointer}.match`, 'exact references must appear before similar references')
+      }
+      if (reference.score !== 100) {
+        pushError(errors, `${pointer}.score`, 'must equal 100 for an exact reference')
+      }
+      if (reference.git_repo === null) {
+        pushError(errors, `${pointer}.git_repo`, 'must identify a repository for an exact reference')
+      }
+    }
+
+    if (catalogPaths.has(reference.catalog_path)) {
+      pushError(errors, `${pointer}.catalog_path`, 'must be unique')
+    }
+    catalogPaths.add(reference.catalog_path)
+
+    if (referencePaths.has(reference.reference_path)) {
+      pushError(errors, `${pointer}.reference_path`, 'must be unique')
+    }
+    referencePaths.add(reference.reference_path)
+  }
+
+  if (!data.catalog.available) {
+    if (data.catalog.source !== 'unavailable') {
+      pushError(errors, '$.catalog.source', 'must be unavailable when the catalog is unavailable')
+    }
+    if (data.catalog.template_count !== 0) {
+      pushError(errors, '$.catalog.template_count', 'must be zero when the catalog is unavailable')
+    }
+    if (data.catalog.skipped_templates !== 0) {
+      pushError(errors, '$.catalog.skipped_templates', 'must be zero when the catalog is unavailable')
+    }
+    if (data.references.length !== 0) {
+      pushError(errors, '$.references', 'must be empty when the catalog is unavailable')
+    }
+  } else if (data.catalog.source === 'unavailable') {
+    pushError(errors, '$.catalog.source', 'must not be unavailable when the catalog is available')
+  }
+
+  if (data.catalog.stale && data.catalog.source !== 'cache') {
+    pushError(errors, '$.catalog.stale', 'may only be true for a cached catalog')
+  }
+
+  if (data.project.repo_reference === null && exactCount > 0) {
+    pushError(errors, '$.summary.exact_count', 'must be zero when the project repository is unknown')
+  }
+
+  if (data.references.length > data.catalog.template_count) {
+    pushError(errors, '$.references', 'cannot contain more references than parsed catalog templates')
+  }
+
+  const officialCatalog = (
+    data.catalog.repository === OFFICIAL_TEMPLATE_CATALOG
+    && data.catalog.ref === OFFICIAL_TEMPLATE_CATALOG_REF
+  )
+  if (
+    data.catalog.verified_for_reuse
+    && (
+      !data.catalog.available
+      || data.catalog.source !== 'refreshed'
+      || data.catalog.commit === null
+      || !officialCatalog
+    )
+  ) {
+    pushError(
+      errors,
+      '$.catalog.verified_for_reuse',
+      'may be true only for a refreshed official catalog with a concrete commit',
+    )
+  }
+  const shouldUseOfficialTemplate = (
+    data.decision.reuse_requested
+    && data.catalog.available
+    && officialCatalog
+    && data.catalog.source === 'refreshed'
+    && data.catalog.verified_for_reuse
+    && data.catalog.commit !== null
+    && data.project.repo_subdir === null
+    && exactCount === 1
+  )
+
+  if (shouldUseOfficialTemplate) {
+    if (data.decision.route !== 'deploy_official_template') {
+      pushError(
+        errors,
+        '$.decision.route',
+        'must select the unique exact official template when reuse was requested',
+      )
+    }
+    if (data.decision.reference_name !== exactReferences[0].name) {
+      pushError(
+        errors,
+        '$.decision.reference_name',
+        'must identify the unique exact official template',
+      )
+    }
+    if (data.decision.template_path !== DEPLOYMENT_TEMPLATE_PATH) {
+      pushError(
+        errors,
+        '$.decision.template_path',
+        `must equal ${DEPLOYMENT_TEMPLATE_PATH} for official-template reuse`,
+      )
+    }
+  } else {
+    if (data.decision.route !== 'continue_standard_pipeline') {
+      pushError(
+        errors,
+        '$.decision.route',
+        'must continue the standard pipeline when official-template reuse is not eligible',
+      )
+    }
+    if (data.decision.reference_name !== null) {
+      pushError(
+        errors,
+        '$.decision.reference_name',
+        'must be null when continuing the standard pipeline',
+      )
+    }
+    if (data.decision.template_path !== null) {
+      pushError(
+        errors,
+        '$.decision.template_path',
+        'must be null when continuing the standard pipeline',
+      )
     }
   }
 
-  if (!artifactSet.has(data.template_path)) {
-    pushError(errors, '$.template_path', 'must be present in artifacts')
-  }
-
-  if (!artifactSet.has(data.build_request_path)) {
-    pushError(errors, '$.build_request_path', 'must be present in artifacts')
-  }
-
-  if (!artifactSet.has(data.build_result_path)) {
-    pushError(errors, '$.build_result_path', 'must be present in artifacts')
-  }
-
-  for (const artifact of data.artifacts) {
-    if (artifact.includes('railpack') && ![
-      '.sealos/railpack-info.json',
-      '.sealos/railpack-plan.json',
-    ].includes(artifact)) {
-      pushError(errors, '$.artifacts', `unsupported Railpack artifact path ${artifact}`)
-    }
+  if (data.reason !== data.decision.reason) {
+    pushError(errors, '$.reason', 'must match decision.reason')
   }
 }
 
@@ -538,6 +780,7 @@ const SEMANTIC_VALIDATORS = {
   'build-request': validateBuildRequestSemantics,
   'build-result': validateBuildResultSemantics,
   'delivery-manifest': validateDeliveryManifestSemantics,
+  'template-references': validateTemplateReferencesSemantics,
 }
 
 export function inferArtifactKind(filePath) {
@@ -553,6 +796,8 @@ export function inferArtifactKind(filePath) {
       return 'build-result'
     case 'delivery-manifest.json':
       return 'delivery-manifest'
+    case 'template-references.json':
+      return 'template-references'
     default:
       return null
   }

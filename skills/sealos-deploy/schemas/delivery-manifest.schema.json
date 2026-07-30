@@ -7,28 +7,42 @@
   "required": [
     "version",
     "generated_at",
+    "route",
     "artifacts",
+    "analysis_path",
     "template_path",
     "build_request_path",
-    "build_result_path"
+    "build_result_path",
+    "template_references_path"
   ],
   "properties": {
     "version": {
       "type": "string",
-      "const": "1.0"
+      "const": "2.0"
     },
     "generated_at": {
       "type": "string",
       "format": "date-time"
     },
+    "route": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "official-template"
+      ]
+    },
     "artifacts": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 6,
       "uniqueItems": true,
       "items": {
         "type": "string",
         "minLength": 1
       }
+    },
+    "analysis_path": {
+      "type": "string",
+      "const": ".sealos/analysis.json"
     },
     "template_path": {
       "type": "string",
@@ -41,6 +55,10 @@
     "build_result_path": {
       "type": "string",
       "const": ".sealos/build-result.json"
+    },
+    "template_references_path": {
+      "type": "string",
+      "const": ".sealos/template-references.json"
     }
   }
 }

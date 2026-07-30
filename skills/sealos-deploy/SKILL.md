@@ -1,134 +1,159 @@
 ---
 name: sealos-deploy
-description: Prepare and build the current workspace or a GitHub project for Sealos Cloud inside a sandboxed workflow. The skill assesses readiness, optionally uses Railpack to strengthen build-environment detection, detects reusable images, reuses or generates Dockerfiles, resolves image builds through a sandbox kaniko Job when needed, and creates Sealos templates. Use when user says "deploy to sealos", "prepare this project for sealos", or asks to containerize a project for Sealos. Also triggers on "/sealos-deploy".
-compatibility: git is required. Node.js 18+ is recommended for helper scripts. railpack is an optional build-environment detector. kubectl, VersityGW S3 settings, and GITHUB_TOKEN are required when the pipeline needs a Kubernetes kaniko build. Build-time Kubernetes access uses the sandbox-provided kubeconfig and current service account in the active namespace.
+description: Prepare a GitHub repository or the current sandbox workspace for Sealos Cloud. Apply the current assessment, official-template, topology, per-service image, Dockerfile, and Template-generation rules; build missing images through Kaniko in the active sandbox namespace; validate the final YAML; and stop with prepare artifacts for the downstream deployment system. Use when the user asks to deploy a repository to Sealos or another cloud platform, asks to prepare or containerize it for Sealos, or invokes "/sealos-deploy".
+compatibility: Git and Node.js 18+ are required. Python 3.8+ with PyYAML is required for standard Template generation. Kompose or Helm 3 is conditional on the selected deployment source. Kaniko builds additionally require the sandbox-provided kubectl context and service account, DevBox VersityGW S3 settings, and an injected GITHUB_TOKEN with GHCR write access. No Docker daemon, browser authentication, Sealos login, region selection, or workspace selection is used.
 metadata:
   author: labring
 ---
 
 # Sealos Deploy
 
-Prepare the current workspace or a GitHub project for Sealos Cloud.
+Prepare a project for deployment to Sealos Cloud. This Brain branch follows
+the same repository analysis, service routing, image, Dockerfile, and Template
+rules as the current user-facing workflow, with one environment boundary:
+after the final YAML and delivery artifacts are validated, this skill stops.
+Another system performs the later deployment.
 
-Workflow:
+The repository is a source boundary, not necessarily one deployable root
+application. A reasonable project-backed online form may be a child
+application, static site, documentation site, Storybook, example, API, worker,
+or a multi-service topology.
 
-1. inspect and score the project
-2. optionally run Railpack to strengthen build environment detection
-3. detect reusable container images
-4. reuse, repair, or generate a Dockerfile
-5. write `.sealos/build-request.json`
-6. either reuse an existing image or run a sandbox kaniko build through `k8s-kaniko-job`
-7. generate `.sealos/template/index.yaml`
+## Brain Environment Contract
 
-## kubectl Safety Rules
-
-Build phases that use `kubectl` use the sandbox-provided permissions, kubeconfig, namespace, and current service account.
+- A GitHub token is injected. Never start browser authentication or ask the
+  user to authenticate GitHub interactively.
+- Image builds use `k8s-kaniko-job` because the sandbox has no Docker daemon.
+- Build-time Kubernetes operations use the current kubeconfig, namespace, and
+  service account. Never ask the user to select a Sealos region or workspace.
+- The skill produces and validates `.sealos/template/index.yaml` and the same
+  Brain delivery artifacts, then stops.
+- Template inputs remain unresolved in the YAML for the downstream system.
+- Private-image requirements are represented by workload
+  `imagePullSecrets` references. Do not put registry credentials or a Secret
+  payload in the Template.
+- Do not create `.sealos/state.json`, detect DEPLOY/UPDATE mode, call the
+  Template API, apply the final YAML, verify rollout/runtime, or perform
+  rollback.
 
 ## Usage
 
 ```text
-/sealos-deploy [github-url]
+/sealos-deploy <github-url>
+/sealos-deploy
 ```
 
-If the argument is omitted, resolve the current workspace first. When the current workspace is already the target git repository, build from that sandbox-local path instead of recloning. If a GitHub URL is provided explicitly, clone it to a temporary working directory and continue from there.
+When no URL is supplied, use the current sandbox repository if it has
+resolvable GitHub metadata. A provided URL is materialized into a temporary
+worktree. Kaniko always packages that sandbox-local worktree; it does not clone
+source inside the build Job.
 
-The downstream kaniko executor packages the sandbox-local Docker context from `source.work_dir` and exposes it through the DevBox VersityGW S3 endpoint. GitHub URL, repo, and ref fields are still recorded for traceability and image naming, but the build does not pull Dockerfiles from GitHub at execution time.
+## Execution
 
-## Quick Start
+Run in order:
 
-Execute the modules in order:
+1. `modules/preflight.md`
+2. `modules/pipeline.md`
 
-1. `modules/preflight.md` — environment checks and project resolution
-2. `modules/pipeline.md` — build-and-prepare pipeline (Phase 1–6)
+The pipeline is:
+
+```text
+Preflight
+  -> Assess
+  -> Exact official-template lookup
+     -> safe unique exact match: copy official YAML and finish
+     -> otherwise: discover source/topology/images
+          -> prepare every required per-service build plan
+          -> reuse images or build with Kaniko
+          -> generate a source-adapted, digest-pinned Template
+          -> validate and finish
+```
+
+Phase 1 stops only when the agent is certain that the repository has no
+reasonable Sealos-compatible online form. A low readiness score warns and
+continues. A failed candidate image, Dockerfile, adapter, or build rejects that
+route or service attempt, not the whole repository; follow the bounded
+Phase 4 → Phase 3 → Phase 4 repair loop when project-backed source remains.
+
+## Artifacts
+
+Delivery artifacts live under `<WORK_DIR>/.sealos/`:
+
+```text
+analysis.json
+template-references.json
+template-references/
+deployment-source/rendered.yaml
+deployment-source/resource-map.json
+topology-evidence/<app>.yaml
+build-request.json
+build-result.json
+template/index.yaml
+delivery-manifest.json
+```
+
+Explicit-source and topology evidence files exist only when their route
+requires them. Service-private Kaniko files under `.sealos/kaniko/` and private
+logs under `~/.sealos/logs/` are execution evidence, not final delivery
+artifacts.
+
+The final handoff always includes these six invariant paths:
+
+- `.sealos/analysis.json`
+- `.sealos/template-references.json`
+- `.sealos/build-request.json`
+- `.sealos/build-result.json`
+- `.sealos/template/index.yaml`
+- `.sealos/delivery-manifest.json`
+
+`.sealos/template-references.json` records the Phase 1.5 decision on both
+routes. The official-template route writes an empty aggregate build request
+and a skipped aggregate build result so downstream consumers receive one
+stable artifact contract.
 
 ## Logging
 
-Every run should write a log file at `~/.sealos/logs/deploy-<YYYYMMDD-HHmmss>.log`.
-
-At the start of execution:
+Create one private log per run:
 
 ```bash
 mkdir -p ~/.sealos/logs
-LOG_FILE=~/.sealos/logs/deploy-$(date +%Y%m%d-%H%M%S).log
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Prepare run started" > "$LOG_FILE"
+LOG_FILE=~/.sealos/logs/prepare-$(date +%Y%m%d-%H%M%S).log
+umask 077
+printf '[%s] Prepare started\n' "$(date '+%Y-%m-%d %H:%M:%S')" > "$LOG_FILE"
 ```
 
-Append phase boundaries and key decisions to the same file with `>>`.
+Append phase boundaries and safe decisions to that file. Never log tokens,
+kubeconfig content, S3 credentials, Docker auth, `.env` values, build-argument
+values, or resolved Template secrets.
 
 ## Scripts
 
-Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
+| Script | Purpose |
+| --- | --- |
+| `score-model.mjs` | Deterministic readiness scoring |
+| `find-template-references.mjs` | Verified exact official-template decision |
+| `inspect-deployment-source.mjs` | Select and render Compose, Helm, Kubernetes, or implicit source |
+| `detect-image.mjs` | Inventory declared images and complete source topology; resolve exact selectors to digests |
+| `validate-artifacts.mjs` | Validate all governed JSON artifacts and cross-artifact semantics |
 
-| Script | Usage | Purpose |
-|--------|-------|---------|
-| `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
-| `run-railpack-probe.mjs` | `node run-railpack-probe.mjs --work-dir <repo-dir> --analysis <repo-dir>/.sealos/analysis.json` | Optional Railpack build-environment probe and normalized `analysis.json.build_environment` writer |
-| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker Hub or GHCR images |
-| `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
-| `patch-template-pull-secret.mjs` | `node patch-template-pull-secret.mjs --template <index.yaml> --build-result <build-result.json>` | POC: inline GHCR pull Secret and `imagePullSecrets` into the Sealos template |
+All helpers emit structured JSON on stdout and human diagnostics on stderr.
 
-All scripts output JSON. Run via Bash and parse the result.
-
-## Internal Skill Dependencies
-
-This skill references co-installed internal skills on demand:
+## Internal Dependencies
 
 ```text
-<SKILL_DIR>/../
-├── sealos-deploy/           ← this skill (user entry point)
-├── dockerfile-skill/        ← Phase 3: Dockerfile generation knowledge
-├── k8s-kaniko-job/        ← Phase 4: sandbox kaniko execution
-├── cloud-native-readiness/  ← Phase 1: assessment criteria
-└── docker-to-sealos/        ← Phase 5: Sealos template rules
+sealos-deploy
+├── cloud-native-readiness
+├── dockerfile-skill
+├── k8s-kaniko-job
+└── docker-to-sealos
 ```
 
-## Phase Overview
+`modules/dockerfile-integration.md` is the restricted Phase 3 boundary. It
+overrides the standalone Dockerfile skill's build/report workflow.
 
-| Phase | Action | Skip When |
-|-------|--------|-----------|
-| 0 — Preflight | Capability scan, project resolution, sandbox assumptions | Entry blockers resolved |
-| 1 — Assess | Analyze deployability and write `analysis.json` | Score too low → stop |
-| 1.5 — Railpack Probe | Optional build environment detection | Railpack missing or Phase 1 stopped |
-| 2 — Detect | Find reusable amd64 image | Found → build job can be skipped later |
-| 3 — Dockerfile | Reuse or generate Dockerfile | Existing valid Dockerfile can be reused |
-| 4 — Build | Write `build-request.json` and resolve `build-result.json` | Existing image writes `status=skipped` without a Job |
-| 5 — Template | Generate `.sealos/template/index.yaml` from the resolved image | Existing valid template can be reused |
-| 6 — Finish | Write `delivery-manifest.json` and present outputs | — |
+## Safety
 
-## Decision Flow
-
-```text
-Input (current workspace or GitHub URL)
-  │
-  ▼
-[Phase 0] Preflight ── fail → explain blocker and STOP
-  │ pass
-  ▼
-[Phase 1] Assess ── not suitable → STOP with reason
-  │ suitable
-  ▼
-[Phase 1.5] Railpack build environment probe ── unavailable → continue with existing heuristics
-  │
-  ▼
-[Phase 2] Detect existing image
-  │
-  ├── found reusable image ───────────────┐
-  │                                       │
-  ▼                                       │
-[Phase 3] Dockerfile                      │
-  │                                       │
-  ▼                                       │
-[Phase 4] Build / reuse image             │
-  ◄───────────────────────────────────────┘
-  │
-  ▼
-[Phase 5] Generate Sealos template
-  │
-  ▼
-[Phase 6] Finish with .sealos artifacts
-  │
-  ▼
-Done — build artifacts and template ready for a later deploy step
-```
-
-Execution rule: `kubectl`, VersityGW S3 settings, and `GITHUB_TOKEN` are required only when `mode=build-required`. When that happens, use the active sandbox namespace and current service account instead of assuming `default`.
+The final Template is read-only output in this workflow. Any manual deletion
+of Kubernetes resources still requires explicit user confirmation. Build
+credentials are temporary execution inputs and must never enter repository
+artifacts or user-facing output.
