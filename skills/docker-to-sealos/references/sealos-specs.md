@@ -1006,9 +1006,12 @@ spec:
 
 All managed workload containers must use the fixed Sealos resource ladder. Do
 not invent intermediate values during template generation or resource tuning.
-Application main containers, workers, sidecars, initContainers, and Job
-containers must use at least `cpu=200m` and `memory=256Mi`. Every KubeBlocks
-database component must use at least `cpu=500m` and `memory=512Mi`.
+The primary container in every application or dedicated worker Deployment,
+StatefulSet, or DaemonSet must use limits of at least `cpu=500m` and
+`memory=2048Mi`, with requests of at least `cpu=50m` and `memory=512Mi`.
+Sidecars, initContainers, Job containers, and CronJob containers must use
+limits of at least `cpu=200m` and `memory=256Mi`. Every KubeBlocks database
+component must use limits of at least `cpu=500m` and `memory=512Mi`.
 
 Allowed `limits.cpu` values use canonical Kubernetes quantities:
 
@@ -1032,7 +1035,8 @@ Allowed `limits.memory` values:
 - `8192Mi`
 - `16384Mi`
 
-`requests` must be derived from `limits` by dropping the last numeric digit:
+CPU requests and auxiliary-container or database memory requests are derived
+from limits by dropping the last numeric digit:
 
 | limits | requests |
 |--------|----------|
@@ -1053,7 +1057,24 @@ Allowed `limits.memory` values:
 | `memory: 8192Mi` | `memory: 819Mi` |
 | `memory: 16384Mi` | `memory: 1638Mi` |
 
+For a primary application or dedicated worker container,
+`requests.memory` must be at least `512Mi`. This makes the request `512Mi` for
+both the `2048Mi` and `4096Mi` limit tiers; higher tiers keep the larger derived
+request.
+
 **Application hard floor:**
+
+```yaml
+resources:
+  requests:
+    cpu: 50m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 2048Mi
+```
+
+**Auxiliary container hard floor:**
 
 ```yaml
 resources:
@@ -1065,25 +1086,13 @@ resources:
     memory: 256Mi
 ```
 
-**Standard backend or broker quota after validation:**
-
-```yaml
-resources:
-  requests:
-    cpu: 50m
-    memory: 51Mi
-  limits:
-    cpu: 500m
-    memory: 512Mi
-```
-
 **Heavy workload quota:**
 
 ```yaml
 resources:
   requests:
     cpu: 200m
-    memory: 204Mi
+    memory: 512Mi
   limits:
     cpu: 2
     memory: 2048Mi
@@ -1122,8 +1131,8 @@ resources:
 
 **Sizing guidance:**
 
-1. Move only between allowed `limits` ladder values and recompute `requests` from the selected limits.
-2. Select CPU and memory independently for every component. Start from the applicable application or database floor.
+1. Move only between allowed `limits` ladder values. Recompute CPU requests and auxiliary/database memory requests from the selected limits; keep primary application memory requests at or above `512Mi`.
+2. Select CPU and memory independently for every component. Start from the applicable primary application, auxiliary-container, or database floor.
 3. Treat source Compose/Helm/Kubernetes resources and documented minimums as lower bounds that conversion must not reduce.
 4. Before deployment, let the AI raise either dimension based on runtime type, heap, worker/process count, browser or desktop stacks, caches, data held in memory, and initialization or migration work.
 5. The selected value is the greatest of the role floor, explicit source requirement, and AI runtime estimate, rounded up to the next ladder tier.
@@ -1138,7 +1147,7 @@ resources:
 - Langflow at `limits.memory=2048Mi` with an observed peak of `1851Mi` keeps `2048Mi` after cold start, login or registration, two representative actions, and the 60-second stability window all pass without failure signals.
 - A candidate that OOMs, restarts, loses readiness, or times out moves to a higher memory or CPU ladder tier. The selected tier receives a fresh validation.
 - A high utilization ratio remains eligible when the complete acceptance flow passes. The ratio stays in the runtime evidence for future tuning.
-- For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` and derived `requests(cpu=20m,memory=102Mi)`, then raise either dimension when project or runtime evidence requires it.
+- For Chrome + Xvfb + Selkies with a 4K maximum display, a primary application container follows the `limits(cpu=500m,memory=2048Mi)` and `requests(cpu=50m,memory=512Mi)` application floor. An auxiliary browser sidecar uses at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`. Raise either dimension when project or runtime evidence requires it.
 
 ## Image Configuration Specification
 

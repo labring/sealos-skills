@@ -269,8 +269,9 @@ For managed or private object storage, live validation must upload known bytes t
 - MySQL cluster must follow upgraded structure (`kb.io/database: ac-mysql-8.0.30-1`, `clusterDefinitionRef: apecloud-mysql`, `clusterVersionRef: ac-mysql-8.0.30-1`, `tolerations: []`).
 - Redis cluster must follow upgraded structure (`componentDef: redis-7`, `componentDef: redis-sentinel-7`, `serviceVersion: 7.2.7`, main data PVC `1Gi`, topology `replication`).
 - Every KubeBlocks database component must use limits of at least `cpu=500m` and `memory=512Mi`. Higher source requirements or AI-selected runtime estimates are valid; requests must be derived from the selected limits.
-- Every managed application main container, worker, sidecar, initContainer, and Job container must use limits of at least `cpu=200m` and `memory=256Mi`.
-- All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0.
+- Every primary container in a managed Deployment, StatefulSet, or DaemonSet, including a dedicated worker workload, must use limits of at least `cpu=500m` and `memory=2048Mi`, with requests of at least `cpu=50m` and `memory=512Mi`.
+- Every managed sidecar, initContainer, Job container, and CronJob container must use limits of at least `cpu=200m` and `memory=256Mi`.
+- All managed workload container limits must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8` and `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`. CPU requests and auxiliary-container memory requests must be derived from limits by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`); primary application memory requests use at least `512Mi`. Do not invent non-ladder limits, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0.
 - Do not add, delete, or change existing `ephemeral-storage` resource fields during existing-template updates unless runtime evidence identifies ephemeral storage pressure; preserve the original requests/limits values while tuning CPU and memory.
 - Secret naming:
   - MongoDB: `<cluster-name>-mongodb-account-root`; the single-service default is `${{ defaults.app_name }}-mongo-mongodb-account-root`
@@ -280,10 +281,15 @@ For managed or private object storage, live validation must upload known bytes t
 
 ### Resource sizing
 
-Use these application limits as hard floors, not as fixed defaults:
+Use these primary application and dedicated worker resources as hard floors, not
+as fixed defaults:
 
-- container limits: `cpu=200m`, `memory=256Mi`
-- container requests: `cpu=20m`, `memory=25Mi`
+- container limits: `cpu=500m`, `memory=2048Mi`
+- container requests: `cpu=50m`, `memory=512Mi`
+
+Use `limits(cpu=200m,memory=256Mi)` with derived
+`requests(cpu=20m,memory=25Mi)` as the floor for sidecars, initContainers,
+Jobs, and CronJobs.
 - `revisionHistoryLimit: 1`
 - `automountServiceAccountToken: false` by default; set it to `true` only when the application has explicit Kubernetes API/service account token requirements, evidenced by Kubernetes integration settings, `serviceAccountName`, or a `sealos.io/service-account-token-reason` workload annotation.
 - If a workload emits PodSecurity admission warnings and the image runs as a non-root user, add the restricted-compatible security context before reporting the template ready.
@@ -301,8 +307,10 @@ initialization or migration work. Source limits and documented minimums must
 never be reduced. When those signals show that the floor is insufficient, the
 AI must select a higher tier directly; the deterministic adapter output is a
 baseline and may be raised in the canonical template before the quality gate.
-Record the selected tier and a short reason in the existing deploy log without
-creating another lifecycle artifact.
+For primary application containers, keep `requests.memory` at or above
+`512Mi`; CPU requests and auxiliary-container memory requests remain derived
+from the selected limits. Record the selected tier and a short reason in the
+existing deploy log without creating another lifecycle artifact.
 
 Do not repeatedly lower resources to find a theoretical minimum. A
 long-running workload still must complete cold start, become Ready, complete
@@ -318,7 +326,7 @@ from the final limits.
 
 - Apply browser-specific validation only to containers that run Chrome, Chromium, VNC, WebRTC desktop, Xvfb, Selkies, noVNC, Kasm, or a similar remote-desktop stack; browser-accessed web applications such as Langflow use the general resource sizing policy.
 - Exercise cold start through readiness, a lightweight page, a real or medium page, an interactive or search action, and the 60-second stability window.
-- For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, and select a higher tier when project or runtime evidence requires it.
+- For Chrome + Xvfb + Selkies with a 4K maximum display, a primary application container follows the `limits(cpu=500m,memory=2048Mi)` and `requests(cpu=50m,memory=512Mi)` application floor; an auxiliary browser sidecar uses at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`. Select a higher tier when project or runtime evidence requires it.
 
 ### Defaults vs inputs
 

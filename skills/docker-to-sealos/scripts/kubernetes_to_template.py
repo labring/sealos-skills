@@ -21,6 +21,7 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 import yaml
 
 from compose_to_template import (
+    CORE_APP_RESOURCE_LIMITS,
     DB_COMPONENT_RESOURCE_LIMITS,
     DEFAULT_RESOURCE_LIMITS,
     HTTP_INGRESS_ANNOTATIONS,
@@ -32,6 +33,7 @@ from compose_to_template import (
     build_database_resources,
     build_db_url_composed_env_entries,
     build_template_resource,
+    core_app_resource_requirements,
     database_cluster_name,
     database_secret_name,
     database_service_fqdn,
@@ -40,6 +42,7 @@ from compose_to_template import (
     normalize_resource_limits,
     normalize_k8s_name,
     render_index_yaml,
+    resource_requirements,
 )
 
 
@@ -450,6 +453,7 @@ def _normalise_resources(
     container: MutableMapping[str, Any],
     *,
     minimum_limits: Mapping[str, str] = DEFAULT_RESOURCE_LIMITS,
+    core_application: bool = False,
 ) -> None:
     resources = container.setdefault("resources", {})
     if not isinstance(resources, dict):
@@ -468,12 +472,13 @@ def _normalise_resources(
         resources,
         minimum_limits=minimum_limits,
     )
-    cpu = selected["cpu"]
-    memory = selected["memory"]
-    limits["cpu"] = cpu
-    limits["memory"] = memory
-    requests["cpu"] = SEALOS_CPU_REQUEST_BY_LIMIT[cpu]
-    requests["memory"] = SEALOS_MEMORY_REQUEST_BY_LIMIT[memory]
+    normalized = (
+        core_app_resource_requirements(selected)
+        if core_application
+        else resource_requirements(selected)
+    )
+    limits.update(normalized["limits"])
+    requests.update(normalized["requests"])
 
 
 def _replace_service_reference(value: str, mapping: Mapping[str, str]) -> str:
@@ -585,11 +590,7 @@ def _normalise_workload(
         annotations = {}
         metadata["annotations"] = annotations
     fallback_reason = annotations.get(KUBEBLOCKS_FALLBACK_ANNOTATION)
-    resource_floor = (
-        DB_COMPONENT_RESOURCE_LIMITS
-        if isinstance(fallback_reason, str) and fallback_reason.strip()
-        else DEFAULT_RESOURCE_LIMITS
-    )
+    database_fallback = isinstance(fallback_reason, str) and fallback_reason.strip()
 
     template = document.setdefault("spec", {}).setdefault("template", {})
     template_metadata = template.setdefault("metadata", {})
@@ -613,6 +614,10 @@ def _normalise_workload(
 
     service_keys: List[str] = []
     main_images: List[str] = []
+    primary_container = next(
+        (container for container, role in containers if role == "main"),
+        None,
+    )
     total = len(containers)
     needs_pull_secret = False
     for index, (container, role) in enumerate(containers):
@@ -631,7 +636,24 @@ def _normalise_workload(
         if role == "main" and not main_images:
             main_images.append(image)
         container["imagePullPolicy"] = "IfNotPresent"
-        _normalise_resources(container, minimum_limits=resource_floor)
+        core_application = (
+            not database_fallback
+            and document.get("kind") in {"Deployment", "StatefulSet", "DaemonSet"}
+            and container is primary_container
+        )
+        _normalise_resources(
+            container,
+            minimum_limits=(
+                DB_COMPONENT_RESOURCE_LIMITS
+                if database_fallback
+                else (
+                    CORE_APP_RESOURCE_LIMITS
+                    if core_application
+                    else DEFAULT_RESOURCE_LIMITS
+                )
+            ),
+            core_application=core_application,
+        )
         if key in pull_secret_services:
             needs_pull_secret = True
 

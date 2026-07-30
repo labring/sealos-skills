@@ -202,6 +202,8 @@ DEFAULT_RESOURCE_REQUESTS = {
     "cpu": SEALOS_CPU_REQUEST_BY_LIMIT[DEFAULT_RESOURCE_LIMITS["cpu"]],
     "memory": SEALOS_MEMORY_REQUEST_BY_LIMIT[DEFAULT_RESOURCE_LIMITS["memory"]],
 }
+CORE_APP_RESOURCE_LIMITS = {"cpu": "500m", "memory": "2048Mi"}
+CORE_APP_MINIMUM_MEMORY_REQUEST = "512Mi"
 DB_COMPONENT_RESOURCE_LIMITS = {"cpu": "500m", "memory": "512Mi"}
 DB_COMPONENT_RESOURCE_REQUESTS = {
     "cpu": SEALOS_CPU_REQUEST_BY_LIMIT[DB_COMPONENT_RESOURCE_LIMITS["cpu"]],
@@ -510,6 +512,17 @@ def resource_requirements(limits: Mapping[str, str]) -> Dict[str, Dict[str, str]
             "memory": SEALOS_MEMORY_REQUEST_BY_LIMIT[memory],
         },
     }
+
+
+def core_app_resource_requirements(
+    limits: Mapping[str, str],
+) -> Dict[str, Dict[str, str]]:
+    resources = resource_requirements(limits)
+    if _parse_memory_quantity(resources["requests"]["memory"]) < _parse_memory_quantity(
+        CORE_APP_MINIMUM_MEMORY_REQUEST
+    ):
+        resources["requests"]["memory"] = CORE_APP_MINIMUM_MEMORY_REQUEST
+    return resources
 
 
 def parse_service_resource_limits(
@@ -3359,6 +3372,7 @@ def build_workload(
     allow_database_image: bool = False,
     kubeblocks_fallback_reason: str = "",
     resource_limits: Optional[Mapping[str, str]] = None,
+    core_application: bool = True,
 ) -> Dict[str, Any]:
     db_type = detect_db_type(image)
     if db_type in SPECIAL_DB_RESOURCE_TYPES and not allow_database_image:
@@ -3376,8 +3390,14 @@ def build_workload(
                 "name": workload_name,
                 "image": image,
                 "imagePullPolicy": "IfNotPresent",
-                "resources": resource_requirements(
-                    resource_limits or DEFAULT_RESOURCE_LIMITS
+                "resources": (
+                    core_app_resource_requirements(
+                        resource_limits or CORE_APP_RESOURCE_LIMITS
+                    )
+                    if core_application
+                    else resource_requirements(
+                        resource_limits or DEFAULT_RESOURCE_LIMITS
+                    )
                 ),
             }
         ],
@@ -3986,7 +4006,7 @@ def build_documents(
     resource_limits_by_service = {
         service_name: parse_service_resource_limits(
             service,
-            minimum_limits=DEFAULT_RESOURCE_LIMITS,
+            minimum_limits=CORE_APP_RESOURCE_LIMITS,
         )
         for service_name, service in app_services
     }
@@ -4176,6 +4196,7 @@ def build_documents(
                 allow_database_image=True,
                 kubeblocks_fallback_reason=plan.fallback_reason,
                 resource_limits=resource_limits_by_service[plan.service_name],
+                core_application=False,
             )
         )
         raw_service = build_service(

@@ -654,7 +654,10 @@ At minimum enforce:
 
 - hardcoded lowercase Template `metadata.name`
 - immutable digest image refs
-- application resource floor of `limits 200m/256Mi` and derived requests
+- primary application and dedicated worker floor of
+  `limits 500m/2048Mi`, `requests 50m/512Mi`
+- sidecar, init-container, Job, and CronJob floor of `limits 200m/256Mi`
+  with derived requests
 - KubeBlocks floor of `limits 500m/512Mi` and derived requests
 - PVC requests no greater than `1Gi`
 - explicit init-container resources

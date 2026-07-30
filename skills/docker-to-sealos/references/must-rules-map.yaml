@@ -416,11 +416,15 @@ must_rules:
     enforcement:
       type: rule
       target: R019
-  - must: "Every managed application main container, worker, sidecar, initContainer, and Job container must use limits of at least `cpu=200m` and `memory=256Mi`."
+  - must: "Every primary container in a managed Deployment, StatefulSet, or DaemonSet, including a dedicated worker workload, must use limits of at least `cpu=500m` and `memory=2048Mi`, with requests of at least `cpu=50m` and `memory=512Mi`."
     enforcement:
       type: rule
       target: R038
-  - must: "All managed workload container resources must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8`, `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`, and `requests` must be derived from `limits` by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`). Do not invent non-ladder values, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0."
+  - must: "Every managed sidecar, initContainer, Job container, and CronJob container must use limits of at least `cpu=200m` and `memory=256Mi`."
+    enforcement:
+      type: rule
+      target: R038
+  - must: "All managed workload container limits must use the Sealos resource ladder: `limits.cpu` only `100m/200m/500m/1/2/3/4/8` and `limits.memory` only `128Mi/256Mi/512Mi/1024Mi/2048Mi/4096Mi/8192Mi/16384Mi`. CPU requests and auxiliary-container memory requests must be derived from limits by dropping the last numeric digit (`500m→50m`, `512Mi→51Mi`, `1→100m`, `1024Mi→102Mi`, `4096Mi→409Mi`); primary application memory requests use at least `512Mi`. Do not invent non-ladder limits, and never use `2G/4G/8G/16G` because Sealos Template API quota preview can parse bare `G` memory as 0."
     enforcement:
       type: rule
       target: R038
@@ -432,7 +436,7 @@ must_rules:
     enforcement:
       type: manual
       note: "Requires browser or remote-desktop interaction evidence."
-  - must: "For Chrome + Xvfb + Selkies with a 4K maximum display, use at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`, and select a higher tier when project or runtime evidence requires it."
+  - must: "For Chrome + Xvfb + Selkies with a 4K maximum display, a primary application container follows the `limits(cpu=500m,memory=2048Mi)` and `requests(cpu=50m,memory=512Mi)` application floor; an auxiliary browser sidecar uses at least `limits(cpu=200m,memory=1024Mi)` with derived `requests(cpu=20m,memory=102Mi)`. Select a higher tier when project or runtime evidence requires it."
     enforcement:
       type: manual
       note: "Requires browser-specific runtime assessment and validation."
@@ -452,11 +456,11 @@ must_rules:
     enforcement:
       type: rule
       target: R007
-  - must: "container limits: `cpu=200m`, `memory=256Mi`"
+  - must: "container limits: `cpu=500m`, `memory=2048Mi`"
     enforcement:
       type: rule
       target: R038
-  - must: "container requests: `cpu=20m`, `memory=25Mi`"
+  - must: "container requests: `cpu=50m`, `memory=512Mi`"
     enforcement:
       type: rule
       target: R038

@@ -7401,10 +7401,10 @@ __MOUNTS__
             resource_messages = [
                 item.message for item in violations if item.rule_id == "R038"
             ]
-            self.assertTrue(any("at least 200m" in message for message in resource_messages))
-            self.assertTrue(any("at least 256Mi" in message for message in resource_messages))
+            self.assertTrue(any("at least 500m" in message for message in resource_messages))
+            self.assertTrue(any("at least 2048Mi" in message for message in resource_messages))
 
-    def test_detects_request_not_derived_from_limits(self):
+    def test_detects_primary_memory_request_below_floor(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -7441,11 +7441,11 @@ __MOUNTS__
                           imagePullPolicy: IfNotPresent
                           resources:
                             requests:
-                              cpu: 100m
-                              memory: 256Mi
+                              cpu: 200m
+                              memory: 204Mi
                             limits:
-                              cpu: 1
-                              memory: 1024Mi
+                              cpu: 2
+                              memory: 2048Mi
                 """,
             )
 
@@ -7488,6 +7488,17 @@ __MOUNTS__
                       automountServiceAccountToken: false
                       imagePullSecrets:
                         - name: demo
+                      initContainers:
+                        - name: setup
+                          image: busybox:1.36
+                          imagePullPolicy: IfNotPresent
+                          resources:
+                            requests:
+                              cpu: 20m
+                              memory: 25Mi
+                            limits:
+                              cpu: 200m
+                              memory: 256Mi
                       containers:
                         - name: demo
                           image: nginx:1.27.2
@@ -7495,10 +7506,20 @@ __MOUNTS__
                           resources:
                             requests:
                               cpu: 50m
-                              memory: 51Mi
+                              memory: 512Mi
                             limits:
                               cpu: 500m
-                              memory: 512Mi
+                              memory: 2048Mi
+                        - name: metrics
+                          image: busybox:1.36
+                          imagePullPolicy: IfNotPresent
+                          resources:
+                            requests:
+                              cpu: 20m
+                              memory: 25Mi
+                            limits:
+                              cpu: 200m
+                              memory: 256Mi
                 """,
             )
 
@@ -7510,7 +7531,7 @@ __MOUNTS__
             )
             self.assertFalse(any(item.rule_id == "R038" for item in violations))
 
-    def test_passes_1024mi_managed_workload_resource_ladder(self):
+    def test_rejects_1024mi_primary_container_below_resource_floor(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             skill = root / "SKILL.md"
@@ -7561,7 +7582,7 @@ __MOUNTS__
                 rules_file,
                 additional_include_paths=["template/demo/index.yaml"],
             )
-            self.assertFalse(any(item.rule_id == "R038" for item in violations))
+            self.assertTrue(any(item.rule_id == "R038" for item in violations))
 
 
     def test_rejects_bare_g_memory_limit_for_template_api_quota_preview(self):
@@ -7655,7 +7676,7 @@ __MOUNTS__
                           resources:
                             requests:
                               cpu: 50m
-                              memory: 409Mi
+                              memory: 512Mi
                             limits:
                               cpu: 500m
                               memory: 4096Mi

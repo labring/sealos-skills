@@ -8,6 +8,9 @@ from typing import Dict, List, Set, Tuple
 
 from check_consistency_models import (
     APP_COMPONENT_RESOURCE_LIMITS,
+    APP_WORKLOAD_KINDS,
+    AUXILIARY_COMPONENT_RESOURCE_LIMITS,
+    CORE_APP_MEMORY_REQUEST_BY_LIMIT,
     DB_COMPONENT_RESOURCE_LIMITS,
     MAX_PVC_STORAGE_BYTES,
     Rule,
@@ -135,6 +138,15 @@ def _resource_line(doc, key: str, value) -> int:
     )
 
 
+def _primary_application_container(data):
+    if data.get("kind") not in APP_WORKLOAD_KINDS:
+        return None
+    template = data.get("spec", {}).get("template", {})
+    pod_spec = template.get("spec", {}) if isinstance(template, dict) else {}
+    containers = pod_spec.get("containers") if isinstance(pod_spec, dict) else None
+    return containers[0] if isinstance(containers, list) and containers else None
+
+
 def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violation]:
     violations: List[Violation] = []
     for doc in context.yaml_documents:
@@ -145,6 +157,19 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
         if doc.data.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
             continue
 
+        primary_container = _primary_application_container(doc.data)
+        annotations = doc.data.get("metadata", {}).get("annotations", {})
+        database_fallback = (
+            isinstance(annotations, dict)
+            and bool(
+                str(
+                    annotations.get(
+                        "docker-to-sealos.kubeblocks-fallback-reason",
+                        "",
+                    )
+                ).strip()
+            )
+        )
         for container in iter_containers(doc.data):
             image = container.get("image")
             if not isinstance(image, str) or not image.strip():
@@ -188,6 +213,15 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
 
             cpu_limit = str(limits.get("cpu", "")).strip()
             memory_limit = str(limits.get("memory", "")).strip()
+            minimum_limits = (
+                DB_COMPONENT_RESOURCE_LIMITS
+                if database_fallback
+                else (
+                    APP_COMPONENT_RESOURCE_LIMITS
+                    if container is primary_container
+                    else AUXILIARY_COMPONENT_RESOURCE_LIMITS
+                )
+            )
             if cpu_limit not in SEALOS_CPU_REQUEST_BY_LIMIT:
                 violations.append(
                     Violation(
@@ -216,7 +250,7 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                 cpu_limit in SEALOS_CPU_REQUEST_BY_LIMIT
                 and not _resource_at_or_above(
                     cpu_limit,
-                    APP_COMPONENT_RESOURCE_LIMITS["cpu"],
+                    minimum_limits["cpu"],
                     SEALOS_CPU_REQUEST_BY_LIMIT,
                 )
             ):
@@ -227,7 +261,7 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                         line=_resource_line(doc, "cpu", limits.get("cpu")),
                         message=(
                             f"container {name} limits.cpu must be at least "
-                            f"{APP_COMPONENT_RESOURCE_LIMITS['cpu']}"
+                            f"{minimum_limits['cpu']}"
                         ),
                     )
                 )
@@ -235,7 +269,7 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                 memory_limit in SEALOS_MEMORY_REQUEST_BY_LIMIT
                 and not _resource_at_or_above(
                     memory_limit,
-                    APP_COMPONENT_RESOURCE_LIMITS["memory"],
+                    minimum_limits["memory"],
                     SEALOS_MEMORY_REQUEST_BY_LIMIT,
                 )
             ):
@@ -246,13 +280,17 @@ def check_managed_workload_resource_ladder(context: ScanContext) -> List[Violati
                         line=_resource_line(doc, "memory", limits.get("memory")),
                         message=(
                             f"container {name} limits.memory must be at least "
-                            f"{APP_COMPONENT_RESOURCE_LIMITS['memory']}"
+                            f"{minimum_limits['memory']}"
                         ),
                     )
                 )
 
             expected_cpu_request = SEALOS_CPU_REQUEST_BY_LIMIT.get(cpu_limit)
-            expected_memory_request = SEALOS_MEMORY_REQUEST_BY_LIMIT.get(memory_limit)
+            expected_memory_request = (
+                CORE_APP_MEMORY_REQUEST_BY_LIMIT.get(memory_limit)
+                if container is primary_container and not database_fallback
+                else SEALOS_MEMORY_REQUEST_BY_LIMIT.get(memory_limit)
+            )
             actual_cpu_request = str(requests.get("cpu", "")).strip()
             actual_memory_request = str(requests.get("memory", "")).strip()
             if expected_cpu_request is not None and actual_cpu_request != expected_cpu_request:

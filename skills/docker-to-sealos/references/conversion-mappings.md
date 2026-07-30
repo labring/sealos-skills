@@ -769,7 +769,7 @@ env:
 
 ## Resource Limits Mapping
 
-Compose resource values must be normalized to the Sealos ladder. Use Compose limits only to choose the nearest allowed `limits` tier. Normalize 1G-class memory to `1024Mi`; normalize higher GiB classes to Mi values such as `2048Mi`, `4096Mi`, `8192Mi`, or `16384Mi`. Never emit bare `2G/4G/8G/16G` limits because the Sealos Template API quota preview can parse them as 0. Ignore Compose reservations for `requests`; Sealos `requests` are derived from the selected `limits` by dropping the last numeric digit, so `1024Mi` maps to `102Mi` and `4096Mi` maps to `409Mi`.
+Compose resource values must be normalized to the Sealos ladder. Use Compose limits only to choose the nearest allowed `limits` tier. Normalize 1G-class memory to `1024Mi`; normalize higher GiB classes to Mi values such as `2048Mi`, `4096Mi`, `8192Mi`, or `16384Mi`. Never emit bare `2G/4G/8G/16G` limits because the Sealos Template API quota preview can parse them as 0. Ignore Compose reservations when calculating output `requests`. CPU requests and auxiliary/database memory requests are derived from the selected limits by dropping the last numeric digit, so `1024Mi` maps to `102Mi` and `4096Mi` maps to `409Mi`; primary application memory requests remain at or above `512Mi`.
 
 ### Docker Compose
 ```yaml
@@ -1172,7 +1172,7 @@ metadata:
 - Docker volumes → StatefulSet + volumeClaimTemplates
 
 ### Resource Sizing
-- Keep every application main container, worker, sidecar, initContainer, and Job container at or above `200m/256Mi`; keep every KubeBlocks component at or above `500m/512Mi`.
+- Keep the primary container in every application or dedicated worker Deployment, StatefulSet, or DaemonSet at or above `limits=500m/2048Mi` and `requests=50m/512Mi`. Keep sidecars, initContainers, Job containers, and CronJob containers at or above `limits=200m/256Mi` with derived requests. Keep every KubeBlocks component at or above `limits=500m/512Mi` with derived requests.
 - Preserve explicit Compose/Helm/Kubernetes requirements and official minimums, rounding each CPU and memory value up to the next Sealos ladder tier.
 - Let the AI select a higher tier before deployment when runtime type, heap, process or worker count, browser/desktop execution, cache/data usage, or initialization work indicates that a floor value is unsafe.
 - Promote the affected dimension when OOM kills, resource-related restarts, readiness flaps, allocation failures, or timeouts occur, then redeploy and validate from a fresh runtime baseline.
