@@ -66,6 +66,7 @@ function request(route = 'standard') {
       ref: '0123456789abcdef0123456789abcdef01234567',
       work_dir: '/tmp/web',
     },
+    primary_service: route === 'official-template' ? null : 'web',
     services: route === 'official-template' ? [] : [
       {
         name: 'proxy',
@@ -110,6 +111,21 @@ function result(route = 'standard') {
     generated_at: '2026-07-24T00:01:00.000Z',
     route,
     status: route === 'official-template' ? 'skipped' : 'succeeded',
+    primary_service: route === 'official-template' ? null : 'web',
+    mode: route === 'official-template' ? null : 'build-required',
+    image: route === 'official-template'
+      ? null
+      : {
+          image_ref: `ghcr.io/acme/web@${secondDigest}`,
+          digest: secondDigest,
+        },
+    kubernetes: route === 'official-template'
+      ? null
+      : {
+          namespace: 'ns-acme',
+          job: 'kaniko-web',
+          pod: 'kaniko-web-pod',
+        },
     expected_services: route === 'official-template' ? 0 : 2,
     services: route === 'official-template' ? [] : [
       {
@@ -275,6 +291,15 @@ test('rejects service-bearing official-template requests', () => {
   assert.ok(validation.errors.some((error) => error.path === '$.services'))
 })
 
+test('requires a standard request to identify one primary service', () => {
+  const invalid = request()
+  invalid.primary_service = 'missing'
+  const validation = validateArtifactData('build-request', invalid)
+
+  assert.equal(validation.valid, false)
+  assert.ok(validation.errors.some((error) => error.path === '$.primary_service'))
+})
+
 test('accepts aggregate standard and official build results', () => {
   for (const route of ['standard', 'official-template']) {
     const validation = validateArtifactData('build-result', result(route))
@@ -289,6 +314,15 @@ test('requires successful Kaniko results to be immutable amd64 images', () => {
 
   assert.equal(validation.valid, false)
   assert.ok(validation.errors.some((error) => error.path.includes('platforms')))
+})
+
+test('requires the Brain compatibility image to match the primary service', () => {
+  const invalid = result()
+  invalid.image.image_ref = `ghcr.io/acme/other@${secondDigest}`
+  const validation = validateArtifactData('build-result', invalid)
+
+  assert.equal(validation.valid, false)
+  assert.ok(validation.errors.some((error) => error.path === '$.image'))
 })
 
 test('requires failed services to omit deployable image claims', () => {

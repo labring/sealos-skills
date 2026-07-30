@@ -28,6 +28,11 @@ export function assertAggregateRequest(request) {
   if (!Array.isArray(request.services) || request.services.length === 0) {
     throw new Error('build request services must contain at least one service')
   }
+  if (
+    request.services.filter((service) => service?.name === request.primary_service).length !== 1
+  ) {
+    throw new Error('build request primary_service must match exactly one service name')
+  }
   return request
 }
 
@@ -93,23 +98,34 @@ export function initialAggregateResult(request) {
       generated_at: new Date().toISOString(),
       route: 'official-template',
       status: 'skipped',
+      primary_service: null,
+      mode: null,
+      image: null,
+      kubernetes: null,
       expected_services: 0,
       services: [],
     }
   }
 
   assertAggregateRequest(request)
+  const primaryService = request.services.find(
+    (service) => service.name === request.primary_service,
+  )
   return {
     version: '2.0',
     generated_at: new Date().toISOString(),
     route: 'standard',
     status: 'in_progress',
+    primary_service: primaryService.name,
+    mode: primaryService.mode,
+    image: null,
+    kubernetes: null,
     expected_services: request.services.length,
     services: [],
   }
 }
 
-export function upsertServiceResult(aggregate, result) {
+export function upsertServiceResult(aggregate, result, request) {
   const services = Array.isArray(aggregate.services) ? [...aggregate.services] : []
   const index = services.findIndex((entry) => entry.artifact_key === result.artifact_key)
   if (index >= 0) {
@@ -127,5 +143,23 @@ export function upsertServiceResult(aggregate, result) {
   } else {
     aggregate.status = 'in_progress'
   }
+
+  const primaryRequest = request.services.find(
+    (service) => service.name === request.primary_service,
+  )
+  const primaryResult = services.find(
+    (service) => service.artifact_key === primaryRequest.artifact_key,
+  )
+  if (primaryResult && primaryResult.outcome !== 'failed') {
+    aggregate.image = {
+      image_ref: primaryResult.image.image_ref,
+      digest: primaryResult.image.digest,
+    }
+    aggregate.kubernetes = primaryResult.kubernetes
+  } else {
+    aggregate.image = null
+    aggregate.kubernetes = null
+  }
+
   return aggregate
 }

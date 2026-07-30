@@ -280,6 +280,15 @@ function imageRepository(value) {
   return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
 }
 
+function sameKubernetesEvidence(left, right) {
+  if (left === null || right === null) return left === right
+  return (
+    left.namespace === right.namespace
+    && left.job === right.job
+    && left.pod === right.pod
+  )
+}
+
 function supportsLinuxAmd64(platforms) {
   return Array.isArray(platforms) && platforms.some((platform) => (
     typeof platform === 'string'
@@ -395,8 +404,17 @@ function validateBuildRequestSemantics(data, errors) {
   if (data.route === 'official-template' && data.services.length !== 0) {
     pushError(errors, '$.services', 'must be empty for the official-template route')
   }
+  if (data.route === 'official-template' && data.primary_service !== null) {
+    pushError(errors, '$.primary_service', 'must be null for the official-template route')
+  }
   if (data.route === 'standard' && data.services.length === 0) {
     pushError(errors, '$.services', 'must contain every final container service on the standard route')
+  }
+  if (
+    data.route === 'standard'
+    && data.services.filter((service) => service.name === data.primary_service).length !== 1
+  ) {
+    pushError(errors, '$.primary_service', 'must match exactly one service name')
   }
 
   const names = new Set()
@@ -483,9 +501,20 @@ function validateBuildResultSemantics(data, errors) {
     if (data.expected_services !== 0) {
       pushError(errors, '$.expected_services', 'must be zero for the official-template route')
     }
+    for (const field of ['primary_service', 'mode', 'image', 'kubernetes']) {
+      if (data[field] !== null) {
+        pushError(errors, `$.${field}`, 'must be null for the official-template route')
+      }
+    }
     return
   }
 
+  if (data.primary_service === null) {
+    pushError(errors, '$.primary_service', 'must identify the Brain compatibility service')
+  }
+  if (data.mode === null) {
+    pushError(errors, '$.mode', 'must record the primary service mode')
+  }
   if (data.expected_services <= 0) {
     pushError(errors, '$.expected_services', 'must be positive on the standard route')
   }
@@ -569,6 +598,43 @@ function validateBuildResultSemantics(data, errors) {
       : 'in_progress'
   if (data.status !== expectedStatus) {
     pushError(errors, '$.status', `must equal ${expectedStatus} for the recorded service outcomes`)
+  }
+
+  const primaryResult = data.services.find(
+    (service) => service.name === data.primary_service,
+  )
+  if (!primaryResult) {
+    if (data.status === 'succeeded') {
+      pushError(errors, '$.primary_service', 'must match one completed service result')
+    }
+    if (data.image !== null || data.kubernetes !== null) {
+      pushError(errors, '$.image', 'must remain null until the primary service is resolved')
+    }
+    return
+  }
+
+  const expectedMode = primaryResult.outcome === 'reused'
+    ? 'reuse-image'
+    : 'build-required'
+  if (data.mode !== expectedMode) {
+    pushError(errors, '$.mode', `must equal ${expectedMode} for the primary service result`)
+  }
+
+  if (primaryResult.outcome === 'failed') {
+    if (data.image !== null || data.kubernetes !== null) {
+      pushError(errors, '$.image', 'must be null when the primary service failed')
+    }
+    return
+  }
+
+  if (
+    data.image?.image_ref !== primaryResult.image.image_ref
+    || data.image?.digest !== primaryResult.image.digest
+  ) {
+    pushError(errors, '$.image', 'must project the primary service immutable image')
+  }
+  if (!sameKubernetesEvidence(data.kubernetes, primaryResult.kubernetes)) {
+    pushError(errors, '$.kubernetes', 'must project the primary service Kubernetes evidence')
   }
 }
 

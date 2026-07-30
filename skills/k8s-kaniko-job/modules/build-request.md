@@ -13,6 +13,7 @@ The request is aggregate version `2.0`:
     "type": "sandbox-context",
     "work_dir": "/absolute/repository/path"
   },
+  "primary_service": "web",
   "services": [
     {
       "name": "web",
@@ -41,11 +42,14 @@ node "$SKILL_DIR/scripts/write-result.mjs" \
   --initialize true
 ```
 
-For `route=official-template`, this writes a complete skipped result. Return to
+For `route=official-template`, require `primary_service: null`; initialization
+writes a complete skipped result with a null top-level projection. Return to
 the caller immediately; do not run Kubernetes or registry preflight.
 
 For `route=standard`, require at least one service. Service names and
-`artifact_key` values must each be unique.
+`artifact_key` values must each be unique. `primary_service` must match exactly
+one service name and identifies the service projected into Brain's top-level
+build summary.
 
 ## Service Modes
 

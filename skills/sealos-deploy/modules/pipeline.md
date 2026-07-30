@@ -272,6 +272,7 @@ Write aggregate build-request version `2.0` with:
 
 - `route: "official-template"`
 - the resolved sandbox source identity
+- `primary_service: null`
 - `services: []`
 
 Initialize the result without running Kubernetes:
@@ -433,6 +434,11 @@ standalone Dockerfile report.
 Create one version `2.0` `.sealos/build-request.json` covering every final
 container service on the standard route.
 
+Set top-level `primary_service` to the requested service that represents the
+application in Brain's build summary. Prefer the proven public entry; otherwise
+use the principal application workload. It must match exactly one
+`services[].name`. This does not remove or deprioritize any other service.
+
 Resolve the injected token's GitHub login through the GitHub API without
 printing the token. Lowercase the GHCR namespace. Each service gets a unique
 tagged build target:
@@ -493,6 +499,9 @@ Unlike `analysis.json`, `dockerfile_path` in the request is relative to
 normalize it, and verify it stays inside `context_path`.
 
 Initialize `.sealos/build-result.json` with the Kaniko result writer.
+The writer keeps `services[]` as the complete image authority and also projects
+the selected primary service to top-level `mode`, `image`, and `kubernetes`
+fields for Brain ingestion.
 
 ### 4.1 Record Reused Services
 
@@ -543,6 +552,9 @@ Failed entries expose no deployable digest.
 
 Require aggregate `status: "succeeded"` and one result per request service
 before Phase 5.
+
+Require the top-level Brain projection to match the completed
+`primary_service` result exactly.
 
 For each built service, update the matching `analysis.json` entry:
 
@@ -702,9 +714,11 @@ This phase writes delivery metadata; it does not deploy.
 Verify:
 
 - official route: copied official YAML is intact, build request has no
-  services, and build result is skipped
+  services, `primary_service` and its result projection are null, and build
+  result is skipped
 - standard route: build request/result cover every final container service,
-  aggregate result succeeded, Template images and pull-Secret references match
+  aggregate result succeeded, the top-level Brain projection matches the
+  requested primary service, Template images and pull-Secret references match
   those results, explicit topology is fully accounted for, and the quality
   gate passed
 

@@ -33,6 +33,7 @@ function sampleRequest(workDir, serviceOverrides = {}) {
       ref: '0123456789abcdef0123456789abcdef01234567',
       work_dir: workDir,
     },
+    primary_service: 'web',
     services: [{
       name: 'web',
       artifact_key: 'web',

@@ -203,9 +203,14 @@ function loadAggregate(outFile, request) {
     return initialAggregateResult(request)
   }
   const aggregate = readJson(outFile)
+  const primaryService = request.services.find(
+    (service) => service.name === request.primary_service,
+  )
   if (
     aggregate.version !== '2.0'
     || aggregate.route !== request.route
+    || aggregate.primary_service !== request.primary_service
+    || aggregate.mode !== primaryService.mode
     || aggregate.expected_services !== request.services.length
   ) {
     throw new Error('existing build-result.json does not match the current aggregate request')
@@ -245,7 +250,11 @@ function main() {
 
     const service = selectService(request, requireArg(args, 'service'))
     const serviceResult = buildServiceResult(request, service, args)
-    const aggregate = upsertServiceResult(loadAggregate(outFile, request), serviceResult)
+    const aggregate = upsertServiceResult(
+      loadAggregate(outFile, request),
+      serviceResult,
+      request,
+    )
     writeJsonAtomic(outFile, aggregate)
     process.stdout.write(`${JSON.stringify(aggregate, null, 2)}\n`)
   } catch (error) {

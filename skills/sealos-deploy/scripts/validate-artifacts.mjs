@@ -57,6 +57,15 @@ function imageRepository(value) {
   return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
 }
 
+function sameKubernetesEvidence(left, right) {
+  if (!left || !right) return left === right
+  return (
+    left.namespace === right.namespace
+    && left.job === right.job
+    && left.pod === right.pod
+  )
+}
+
 function expectedRoute(templateReferences) {
   return templateReferences?.decision?.route === 'deploy_official_template'
     ? 'official-template'
@@ -181,6 +190,18 @@ function validateArtifactSet(workDir, { requireComplete = false } = {}) {
         message: 'official-template route must have no services and a skipped result',
       })
     }
+    if (
+      request.primary_service !== null
+      || result.primary_service !== null
+      || result.mode !== null
+      || result.image !== null
+      || result.kubernetes !== null
+    ) {
+      errors.push({
+        path: '.sealos/build-result.json',
+        message: 'official-template route must have an empty Brain compatibility projection',
+      })
+    }
     const selectedReference = references.references?.find((reference) => (
       reference.match === 'exact'
       && reference.name === references.decision.reference_name
@@ -216,6 +237,52 @@ function validateArtifactSet(workDir, { requireComplete = false } = {}) {
     const analysisByName = new Map(
       (analysis?.service_inventory || []).map((service) => [service.name, service]),
     )
+    const primaryRequest = request.services.find(
+      (service) => service.name === request.primary_service,
+    )
+
+    if (result.primary_service !== request.primary_service) {
+      errors.push({
+        path: '.sealos/build-result.json.primary_service',
+        message: 'must match build-request.json.primary_service',
+      })
+    }
+    if (!primaryRequest) {
+      errors.push({
+        path: '.sealos/build-request.json.primary_service',
+        message: 'must identify one requested service',
+      })
+    } else {
+      const primaryResult = resultsByKey.get(primaryRequest.artifact_key)
+      if (result.mode !== primaryRequest.mode) {
+        errors.push({
+          path: '.sealos/build-result.json.mode',
+          message: 'must match the primary request service mode',
+        })
+      }
+      if (!primaryResult || primaryResult.name !== primaryRequest.name) {
+        errors.push({
+          path: '.sealos/build-result.json.primary_service',
+          message: 'must identify one resolved primary service',
+        })
+      } else {
+        if (
+          result.image?.image_ref !== primaryResult.image.image_ref
+          || result.image?.digest !== primaryResult.image.digest
+        ) {
+          errors.push({
+            path: '.sealos/build-result.json.image',
+            message: 'must project the primary service immutable image',
+          })
+        }
+        if (!sameKubernetesEvidence(result.kubernetes, primaryResult.kubernetes)) {
+          errors.push({
+            path: '.sealos/build-result.json.kubernetes',
+            message: 'must project the primary service Kubernetes evidence',
+          })
+        }
+      }
+    }
 
     for (let index = 0; index < analysis.service_inventory.length; index += 1) {
       const analyzed = analysis.service_inventory[index]

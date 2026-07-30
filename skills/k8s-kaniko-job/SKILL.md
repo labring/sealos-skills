@@ -28,6 +28,8 @@ Template generation. This skill owns only the sandbox-to-GHCR build boundary.
 - Run only for `route=standard`; `route=official-template` initializes a
   `status=skipped` aggregate result and performs no Kubernetes work.
 - Select each service explicitly with `--service <name-or-artifact-key>`.
+- Preserve `services[]` as the complete result and project the requested
+  `primary_service` to top-level `mode`, `image`, and `kubernetes` for Brain.
 - Skip Kaniko for `mode=reuse-image`, but still record that service in the
   aggregate result.
 - Use the current namespace, kubeconfig, and service account. Never select a

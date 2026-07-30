@@ -9,6 +9,10 @@
     "generated_at",
     "route",
     "status",
+    "primary_service",
+    "mode",
+    "image",
+    "kubernetes",
     "expected_services",
     "services"
   ],
@@ -35,6 +39,93 @@
         "failed",
         "in_progress",
         "skipped"
+      ]
+    },
+    "primary_service": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "mode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "reuse-image",
+            "build-required"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "image": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image_ref",
+            "digest"
+          ],
+          "properties": {
+            "image_ref": {
+              "type": "string",
+              "pattern": "^[^\\s@]+@sha256:[0-9a-fA-F]{64}$"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-fA-F]{64}$"
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "kubernetes": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "namespace",
+            "job",
+            "pod"
+          ],
+          "properties": {
+            "namespace": {
+              "type": "string",
+              "minLength": 1
+            },
+            "job": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pod": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
       ]
     },
     "expected_services": {

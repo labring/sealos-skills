@@ -48,10 +48,17 @@ Failed services have no deployable `image_ref`. The aggregate becomes failed
 if any service fails, succeeded only when every expected service has either
 been reused or built, and remains in progress while services are outstanding.
 
+`services[]` remains the complete result. After every update, the writer copies
+the requested `primary_service` result to top-level `mode`, `image`, and
+`kubernetes`. Before that service is resolved, `image` and `kubernetes` are
+null. The official-template route keeps the entire projection null.
+
 Before returning to `sealos-deploy`, validate:
 
 - schema version and route match the request
 - `expected_services` equals the request service count
+- `primary_service`, `mode`, `image`, and `kubernetes` match the requested
+  primary service
 - each request service appears exactly once
 - every usable image is immutable
 - successful built images record Kaniko Job, digest, platform, log path, and

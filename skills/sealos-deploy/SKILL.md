@@ -109,7 +109,9 @@ The final handoff always includes these six invariant paths:
 `.sealos/template-references.json` records the Phase 1.5 decision on both
 routes. The official-template route writes an empty aggregate build request
 and a skipped aggregate build result so downstream consumers receive one
-stable artifact contract.
+stable artifact contract. Standard aggregate build results also expose the
+selected `primary_service` through top-level `mode`, `image`, and `kubernetes`
+fields required by Brain, while `services[]` remains the complete authority.
 
 ## Logging
 

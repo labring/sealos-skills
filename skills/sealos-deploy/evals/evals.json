@@ -37,7 +37,7 @@
         },
         {
           "name": "stable-official-artifacts",
-          "description": "Writes route=official-template build-request.json with no services and a skipped aggregate build-result.json."
+          "description": "Writes route=official-template build-request.json with no services or primary service and a skipped aggregate build-result.json with a null Brain projection."
         },
         {
           "name": "prepare-only-finish",
@@ -77,7 +77,7 @@
         },
         {
           "name": "aggregate-request",
-          "description": "Writes one version 2.0 build-request.json containing every final container service with unique artifact keys."
+          "description": "Writes one version 2.0 build-request.json containing every final container service with unique artifact keys and an explicit primary_service."
         },
         {
           "name": "managed-db-not-built",
@@ -85,7 +85,7 @@
         },
         {
           "name": "aggregate-result",
-          "description": "Records reused and independently built services in one completed build-result.json."
+          "description": "Records reused and independently built services in one completed build-result.json and projects the requested primary service to Brain's top-level fields."
         }
       ]
     },
@@ -109,7 +109,7 @@
         },
         {
           "name": "immutable-result",
-          "description": "Extracts Kaniko's digest and records a linux/amd64 immutable image ref."
+          "description": "Extracts Kaniko's digest, records a linux/amd64 immutable image ref, and exposes the primary result through top-level image and Kubernetes fields."
         }
       ]
     },
@@ -213,7 +213,7 @@
         },
         {
           "name": "cross-validates",
-          "description": "Requires aligned routes, services, immutable images, pull-Secret references, existing manifest paths, and a passing YAML quality gate."
+          "description": "Requires aligned routes, services, primary Brain projection, immutable images, pull-Secret references, existing manifest paths, and a passing YAML quality gate."
         },
         {
           "name": "does-not-deploy",
