@@ -64,7 +64,8 @@ Preflight
   -> Assess
   -> Exact official-template lookup
      -> verified unique exact repository match: copy official YAML
-          -> repair the delivery copy if validation requires it
+          -> apply only schema-driven field repairs
+          -> preserve the complete resource set
           -> local + target validation and finish
      -> otherwise: discover source/topology/images
           -> prepare every required per-service build plan
@@ -115,10 +116,12 @@ The final handoff always includes these six invariant paths:
 routes. The official-template route writes an empty aggregate build request
 and a skipped aggregate build result so downstream consumers receive one
 stable artifact contract. Its materialized reference is immutable provenance;
-the delivery copy may contain the smallest validation-driven compatibility
-repairs. Standard aggregate build results also expose the selected
-`primary_service` through top-level `mode`, `image`, and `kubernetes` fields
-required by Brain, while `services[]` remains the complete authority.
+the delivery copy may contain only schema-driven field repairs and must retain
+the same resource set. Sandbox authorization failures are target-validation
+warnings and never authorize YAML changes. Standard aggregate build results
+also expose the selected `primary_service` through top-level `mode`, `image`,
+and `kubernetes` fields required by Brain, while `services[]` remains the
+complete authority.
 
 ## Logging
 

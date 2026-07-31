@@ -299,14 +299,53 @@ test('accepts a repaired official delivery copy while retaining its source refer
   const delivery = JSON.parse(fs.readFileSync(deliveryFile, 'utf8'))
   delivery.route = 'official-template'
   write(root, '.sealos/delivery-manifest.json', delivery)
-  const officialTemplate = 'apiVersion: app.sealos.io/v1\nkind: Template\n'
+  const roleDocument = `---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: \${{ defaults.app_name }}-mysql
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+`
+  const officialTemplate = `apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: web
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: \${{ defaults.app_name }}-mysql
+${roleDocument}---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: \${{ defaults.app_name }}-mysql
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: \${{ defaults.app_name }}-mysql
+spec:
+  componentSpecs:
+    - name: mysql
+      noCreatePDB: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: \${{ defaults.app_name }}-mysql-init
+`
   write(root, '.sealos/template-references/web.yaml', officialTemplate)
   write(root, '.sealos/template/index.yaml', officialTemplate)
 
   const validation = validateArtifactSet(root, { requireComplete: true })
   assert.equal(validation.valid, true, JSON.stringify(validation.errors))
 
-  write(root, '.sealos/template/index.yaml', `${officialTemplate}metadata:\n  name: changed\n`)
+  const repairedTemplate = officialTemplate.replace('      noCreatePDB: false\n', '')
+  write(root, '.sealos/template/index.yaml', repairedTemplate)
   const changedValidation = validateArtifactSet(root, { requireComplete: true })
   assert.equal(changedValidation.valid, true, JSON.stringify(changedValidation.errors))
   assert.equal(
@@ -314,6 +353,43 @@ test('accepts a repaired official delivery copy while retaining its source refer
     officialTemplate,
   )
 
+  write(root, '.sealos/template/index.yaml', repairedTemplate.replace(roleDocument, ''))
+  const removedResourceValidation = validateArtifactSet(root, { requireComplete: true })
+  assert.equal(removedResourceValidation.valid, false)
+  assert.ok(
+    removedResourceValidation.errors.some(
+      (error) => error.message.includes('must preserve its resource set'),
+    ),
+  )
+
+  write(
+    root,
+    '.sealos/template/index.yaml',
+    repairedTemplate.replace('-mysql-init', '-mysql-init-renamed'),
+  )
+  const renamedResourceValidation = validateArtifactSet(root, { requireComplete: true })
+  assert.equal(renamedResourceValidation.valid, false)
+  assert.ok(
+    renamedResourceValidation.errors.some(
+      (error) => error.message.includes('must preserve its resource set'),
+    ),
+  )
+
+  write(root, '.sealos/template/index.yaml', `${repairedTemplate}---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: unexpected
+`)
+  const addedResourceValidation = validateArtifactSet(root, { requireComplete: true })
+  assert.equal(addedResourceValidation.valid, false)
+  assert.ok(
+    addedResourceValidation.errors.some(
+      (error) => error.message.includes('must preserve its resource set'),
+    ),
+  )
+
+  write(root, '.sealos/template/index.yaml', repairedTemplate)
   fs.unlinkSync(path.join(root, '.sealos/template-references/web.yaml'))
   const missingReferenceValidation = validateArtifactSet(root, { requireComplete: true })
   assert.equal(missingReferenceValidation.valid, false)

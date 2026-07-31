@@ -72,6 +72,87 @@ function expectedRoute(templateReferences) {
     : 'standard'
 }
 
+function yamlScalar(value) {
+  const scalar = String(value || '').replace(/\s+#.*$/, '').trim()
+  if (
+    scalar.length >= 2
+    && (
+      (scalar.startsWith('"') && scalar.endsWith('"'))
+      || (scalar.startsWith("'") && scalar.endsWith("'"))
+    )
+  ) {
+    return scalar.slice(1, -1)
+  }
+  return scalar
+}
+
+function templateResourceInventory(source) {
+  const resources = []
+  const documents = source.split(/^---[ \t]*(?:#.*)?$/m)
+
+  for (const document of documents) {
+    let kind = null
+    let name = null
+    let generateName = null
+    let section = null
+    let metadataIndent = null
+
+    for (const line of document.split(/\r?\n/)) {
+      if (/^\s*(?:#.*)?$/.test(line) || /^\s*\${{.*}}\s*$/.test(line)) {
+        continue
+      }
+      const indent = line.match(/^ */)[0].length
+      const mapping = line.trim().match(/^([A-Za-z][A-Za-z0-9_.-]*)\s*:\s*(.*)$/)
+
+      if (indent === 0) {
+        metadataIndent = null
+        section = mapping?.[1] === 'metadata' ? 'metadata' : null
+        if (mapping?.[1] === 'kind') {
+          kind = yamlScalar(mapping[2])
+        }
+        continue
+      }
+      if (section !== 'metadata' || !mapping) {
+        continue
+      }
+      if (metadataIndent === null) {
+        metadataIndent = indent
+      }
+      if (indent !== metadataIndent) {
+        continue
+      }
+      if (mapping[1] === 'name') {
+        name = yamlScalar(mapping[2])
+      } else if (mapping[1] === 'generateName') {
+        generateName = yamlScalar(mapping[2])
+      }
+    }
+
+    if (kind && kind !== 'Template') {
+      resources.push(`${kind}/${name || generateName || '<unnamed>'}`)
+    }
+  }
+
+  return resources.sort()
+}
+
+function inventoryDifference(left, right) {
+  const remaining = new Map()
+  for (const item of right) {
+    remaining.set(item, (remaining.get(item) || 0) + 1)
+  }
+  const difference = []
+  for (const item of left) {
+    const count = remaining.get(item) || 0
+    if (count === 0) {
+      difference.push(item)
+    } else {
+      remaining.set(item, count - 1)
+    }
+  }
+  return difference
+}
+
 function validateArtifactSet(workDir, { requireComplete = false } = {}) {
   const errors = []
   const absoluteWorkDir = path.resolve(workDir)
@@ -219,6 +300,19 @@ function validateArtifactSet(workDir, { requireComplete = false } = {}) {
         path: '.sealos/template/index.yaml',
         message: 'official delivery must retain its selected materialized reference and final Template',
       })
+    } else {
+      const officialResources = templateResourceInventory(
+        fs.readFileSync(referenceFile, 'utf8'),
+      )
+      const deliveryResources = templateResourceInventory(template)
+      const removed = inventoryDifference(officialResources, deliveryResources)
+      const added = inventoryDifference(deliveryResources, officialResources)
+      if (removed.length > 0 || added.length > 0) {
+        errors.push({
+          path: '.sealos/template/index.yaml',
+          message: `official delivery must preserve its resource set; removed=${JSON.stringify(removed)} added=${JSON.stringify(added)}`,
+        })
+      }
     }
   } else {
     if (result.status !== 'succeeded') {

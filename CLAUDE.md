@@ -25,7 +25,8 @@ Brain environment boundary.
 ```text
 Preflight -> Assess -> Exact official-template lookup
   unique verified repository match -> copy official YAML
-                  -> repair the delivery copy if needed
+                  -> apply schema-only field repairs
+                  -> preserve the complete resource set
                   -> local + target validation -> finish
   otherwise -> discover full topology and images
             -> prepare per-service Dockerfiles

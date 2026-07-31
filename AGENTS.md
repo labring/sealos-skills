@@ -74,7 +74,8 @@ Preflight
   -> Assess
   -> exact official-template lookup
      -> verified unique exact repository match:
-          copy YAML -> repair the delivery copy if needed
+          copy YAML -> apply schema-only field repairs if needed
+          -> preserve the complete resource set
           -> validate -> finish
      -> otherwise:
           source/topology/image discovery

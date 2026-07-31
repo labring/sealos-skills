@@ -95,11 +95,25 @@ record = {
 with Path(os.environ["MOCK_KUBECTL_LOG"]).open("a", encoding="utf-8") as handle:
     handle.write(json.dumps(record) + "\\n")
 
-if document["kind"] == os.environ.get("MOCK_FAIL_KIND"):
-    sys.stderr.write(
-        'Error from server (BadRequest): strict decoding error: '
-        'unknown field "spec.componentSpecs[0].noCreatePDB"\\n'
-    )
+fail_kinds = set(filter(None, os.environ.get("MOCK_FAIL_KINDS", "").split(",")))
+if document["kind"] in fail_kinds:
+    if os.environ.get("MOCK_FAIL_MODE") == "authorization":
+        action = "escalate" if document["kind"] == "Role" else "bind"
+        status = "BadRequest" if document["kind"] == "Role" else "Forbidden"
+        sys.stderr.write(
+            "Error from server (" + status + "): current identity cannot "
+            + action + " this RBAC resource\\n"
+        )
+    elif os.environ.get("MOCK_FAIL_MODE") == "admission":
+        sys.stderr.write(
+            'Error from server: admission webhook "policy.example.invalid" '
+            "denied the request\\n"
+        )
+    else:
+        sys.stderr.write(
+            'Error from server (BadRequest): strict decoding error: '
+            'unknown field "spec.componentSpecs[0].noCreatePDB"\\n'
+        )
     raise SystemExit(1)
 
 sys.stdout.write(document["kind"].lower() + "/" + document["metadata"]["name"] + "\\n")
@@ -107,7 +121,7 @@ sys.stdout.write(document["kind"].lower() + "/" + document["metadata"]["name"] +
 
 
 class ServerDryRunTests(unittest.TestCase):
-    def run_gate(self, template_text, fail_kind=None):
+    def run_gate(self, template_text, fail_kinds=None, fail_mode=None):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             template = root / "index.yaml"
@@ -120,8 +134,10 @@ class ServerDryRunTests(unittest.TestCase):
             private_log = root / "private.log"
             environment = dict(os.environ)
             environment["MOCK_KUBECTL_LOG"] = str(log)
-            if fail_kind:
-                environment["MOCK_FAIL_KIND"] = fail_kind
+            if fail_kinds:
+                environment["MOCK_FAIL_KINDS"] = ",".join(fail_kinds)
+            if fail_mode:
+                environment["MOCK_FAIL_MODE"] = fail_mode
             result = subprocess.run(
                 [
                     sys.executable,
@@ -186,7 +202,7 @@ spec:
       noCreatePDB: false
 """
         result, payload, records, private_log = self.run_gate(
-            cluster, fail_kind="Cluster"
+            cluster, fail_kinds=["Cluster"]
         )
 
         self.assertEqual(1, result.returncode)
@@ -194,6 +210,7 @@ spec:
         self.assertEqual(1, len(payload["failures"]))
         failure = payload["failures"][0]
         self.assertEqual("schema", failure["category"])
+        self.assertTrue(failure["repairable"])
         self.assertEqual(
             ["spec.componentSpecs[0].noCreatePDB"], failure["field_paths"]
         )
@@ -202,6 +219,71 @@ spec:
         self.assertEqual(
             {"Deployment", "Service", "Cluster"}, {item["kind"] for item in records}
         )
+
+    def test_reports_rbac_authorization_failures_as_non_blocking_warnings(self):
+        rbac = TEMPLATE + """\
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{ defaults.app_name }}
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{ defaults.app_name }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}
+subjects:
+  - kind: ServiceAccount
+    name: ${{ SEALOS_SERVICE_ACCOUNT }}
+"""
+        result, payload, records, private_log = self.run_gate(
+            rbac,
+            fail_kinds=["Role", "RoleBinding"],
+            fail_mode="authorization",
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("passed", payload["status"])
+        self.assertEqual([], payload["failures"])
+        authorization_warnings = [
+            warning
+            for warning in payload["warnings"]
+            if warning["category"] == "authorization"
+        ]
+        self.assertEqual(
+            {"Role", "RoleBinding"},
+            {warning["kind"] for warning in authorization_warnings},
+        )
+        self.assertTrue(
+            all(not warning["repairable"] for warning in authorization_warnings)
+        )
+        self.assertIn("status=warning category=authorization", private_log)
+        self.assertEqual(
+            {"Deployment", "Service", "Role", "RoleBinding"},
+            {item["kind"] for item in records},
+        )
+
+    def test_marks_non_schema_failures_as_not_repairable(self):
+        result, payload, _, _ = self.run_gate(
+            TEMPLATE,
+            fail_kinds=["Deployment"],
+            fail_mode="admission",
+        )
+
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("failed", payload["status"])
+        self.assertEqual(1, len(payload["failures"]))
+        failure = payload["failures"][0]
+        self.assertEqual("admission", failure["category"])
+        self.assertFalse(failure["repairable"])
 
 
 if __name__ == "__main__":

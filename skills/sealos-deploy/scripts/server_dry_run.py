@@ -4,6 +4,7 @@
 The delivery Template remains untouched. This helper renders validation-only
 scenarios into a private temporary directory, skips the Sealos Template
 metadata document, and sends each runtime document through server-side dry-run.
+Schema failures are repairable; sandbox authorization failures are warnings.
 """
 
 from __future__ import annotations
@@ -1040,7 +1041,6 @@ def classify_failure(stderr: str) -> Tuple[str, List[str], str]:
     if (
         field_paths
         or "strict decoding error" in lowered
-        or "badrequest" in lowered
         or "validationerror" in lowered
     ):
         return "schema", field_paths, "target API schema rejected the document"
@@ -1049,10 +1049,14 @@ def classify_failure(stderr: str) -> Tuple[str, List[str], str]:
         or "the server could not find the requested resource" in lowered
     ):
         return "api-capability", [], "required API or CRD is unavailable"
-    if "forbidden" in lowered or "unauthorized" in lowered:
-        return "authorization", [], "target identity is not authorized for dry-run"
     if "admission webhook" in lowered or "denied the request" in lowered:
         return "admission", [], "target admission policy rejected the document"
+    if (
+        "forbidden" in lowered
+        or "unauthorized" in lowered
+        or re.search(r"\b(?:bind|escalate)\b", lowered)
+    ):
+        return "authorization", [], "target identity is not authorized for dry-run"
     if (
         "unable to connect" in lowered
         or "connection refused" in lowered
@@ -1115,6 +1119,28 @@ def run_server_dry_run(
                     )
                 if result.returncode != 0:
                     category, paths, detail = classify_failure(result.stderr)
+                    if category == "authorization":
+                        warnings.append(
+                            {
+                                "scenario": document.scenario,
+                                "kind": document.kind,
+                                "name": document.name,
+                                "category": category,
+                                "detail": detail,
+                                "repairable": False,
+                            }
+                        )
+                        append_private_log(
+                            private_log,
+                            "[server-dry-run] scenario={} {}/{} status=warning "
+                            "category=authorization warnings={}".format(
+                                document.scenario,
+                                document.kind,
+                                document.name,
+                                ",".join(document_warnings) or "none",
+                            ),
+                        )
+                        continue
                     append_private_log(
                         private_log,
                         "[server-dry-run] scenario={} {}/{} status=failed "
@@ -1135,6 +1161,7 @@ def run_server_dry_run(
                             "category": category,
                             "field_paths": paths,
                             "detail": detail,
+                            "repairable": category == "schema",
                         }
                     )
                 else:
@@ -1162,6 +1189,7 @@ def run_server_dry_run(
                         "category": "cluster",
                         "field_paths": [],
                         "detail": "target API server dry-run timed out",
+                        "repairable": False,
                     }
                 )
     finally:
@@ -1265,6 +1293,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "category": "setup",
                 "detail": str(error),
                 "field_paths": [],
+                "repairable": False,
             }
         ]
         print(json.dumps(result, ensure_ascii=False, indent=2))

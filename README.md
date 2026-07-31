@@ -17,8 +17,8 @@ The workflow:
 
 1. fully materializes and assesses the repository;
 2. reuses the unique remotely verified official Template whose normalized
-   `spec.gitRepo` matches the GitHub `owner/repo`, repairing only its delivery
-   copy when target validation requires a compatibility fix;
+   `spec.gitRepo` matches the GitHub `owner/repo`, allowing only schema-driven
+   field repairs while preserving every resource;
 3. otherwise discovers the declared deployment source, complete service
    topology, and exact image evidence;
 4. preserves or prepares each required Dockerfile;
@@ -26,7 +26,8 @@ The workflow:
    namespace;
 6. generates and locally validates a digest-pinned Sealos Template;
 7. privately renders its runtime documents and validates each one against the
-   target API server with strict server-side dry-run;
+   target API server with strict server-side dry-run; sandbox authorization
+   failures are warnings and never cause YAML changes;
 8. writes a delivery manifest and stops for the downstream deployment system.
 
 A low readiness score is a warning, not an automatic rejection. The repository

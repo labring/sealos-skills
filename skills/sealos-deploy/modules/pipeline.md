@@ -285,21 +285,19 @@ node "<SKILL_DIR>/../k8s-kaniko-job/scripts/write-result.mjs" \
   --initialize true
 ```
 
-Validate the delivery copy. If the local quality gate or target server-side
-dry-run reports a repairable YAML, CRD-schema, or admission error, make the
-smallest correct compatibility repair in `.sealos/template/index.yaml`, then
-repeat the complete local and target validation loop. Keep the route
-`official-template`; the immutable materialized reference and catalog commit
-remain the official provenance while the final Template is the validated
-delivery copy.
+Validate the delivery copy. Repair local quality-gate errors according to that
+gate. For target server-side dry-run feedback, only a failure with
+`category: "schema"` and `repairable: true` authorizes the smallest correct
+field-level compatibility repair in `.sealos/template/index.yaml`. Then repeat
+the complete local and target validation loop.
 
-Repairs must preserve the selected application's repository identity,
-topology, images, inputs, and runtime intent. A change that actually requires
-building a new image, selecting different project source, or redesigning the
-application topology is not an official-template compatibility repair and
-uses the standard route. Target authorization, connectivity, missing-context,
-or missing-capability failures block the run rather than changing project
-YAML.
+Keep the route `official-template`; the immutable materialized reference and
+catalog commit remain the official provenance. The final delivery copy must
+preserve the complete resource identity multiset from that reference. Never
+add, remove, or rename a ServiceAccount, Role, RoleBinding, Cluster, Job, or
+any other resource to pass validation. Authorization failures, including
+`Forbidden`, `bind`, and `escalate`, are warnings caused by the sandbox
+identity and never authorize YAML changes.
 
 Then continue to Phase 6.
 
@@ -731,7 +729,7 @@ Verify:
 
 - official route: the materialized official reference is intact, build request
   has no services, `primary_service` and its result projection are null, and
-  build result is skipped
+  build result is skipped; the delivery copy retains the same resource set
 - standard route: build request/result cover every final container service,
   aggregate result succeeded, the top-level Brain projection matches the
   requested primary service, Template images and pull-Secret references match
@@ -808,33 +806,36 @@ renderer needs a safe fallback.
 
 Do not use `--warnings-as-errors`. Ordinary PodSecurity and deprecated-API
 warnings are reported but do not block this gate unless an existing quality
-rule already forbids the condition. A nonzero API response, strict-decoding
-error, unknown field, BadRequest, missing required CRD/API, authorization
-failure, or admission denial blocks delivery.
+rule already forbids the condition. A sandbox authorization rejection,
+including `Forbidden`, `bind`, or `escalate`, is also a warning: it means the
+validation identity cannot simulate that operation, not that the YAML is
+invalid. Strict-decoding, unknown-field, and other schema failures block and
+are repairable. Missing required CRD/API, connectivity/setup failure, and
+admission denial block but are not repairable from this feedback.
 
 ### API Feedback Repair Loop
 
-When the gate reports a blocking error:
+When the gate reports feedback:
 
-1. distinguish a repairable manifest/schema problem from missing target
-   capability, authorization, connectivity, or unresolved sandbox context;
-2. for a repairable problem on either route, use the API feedback to make the
-   smallest correct change in the canonical unresolved
-   `.sealos/template/index.yaml`; on the official route, never edit the
-   materialized reference under `.sealos/template-references/`;
-3. preserve application identity, topology, images, inputs, and runtime intent
-   when repairing an official delivery copy; switch to the standard route only
-   when the required change is genuinely a source build or topology redesign;
-4. rerun the complete local Phase 5 quality gate;
-5. discard every previous temporary render, render all scenarios again from
+1. treat only `category: "schema"` with `repairable: true` as permission to
+   change the canonical unresolved `.sealos/template/index.yaml`;
+2. record authorization results as warnings, do not change YAML for them, and
+   do not let them block handoff;
+3. stop on every other failure category without changing YAML from that
+   feedback;
+4. on the official route, never edit the materialized reference and require
+   the delivery copy to retain the same resource identities;
+5. after a schema repair, rerun the complete local Phase 5 quality gate;
+6. discard every previous temporary render, render all scenarios again from
    the canonical unresolved Template, and rerun server-side dry-run for every
    runtime document, not only the document that previously failed; and
-6. repeat until the complete target gate has no blocking errors.
+7. repeat until no blocking failure remains.
 
-Never treat one successful document, a warning-only result, or a previously
-successful attempt as proof for the current Template. If the remaining failure
-cannot be fixed in YAML, stop with the classified blocker. Do not apply
-resources to test a repair.
+Never treat one successful document or a previously successful attempt as
+proof for the current Template. A complete current run with only warnings is
+acceptable; retain those warnings without changing YAML. If a remaining
+failure is not a repairable schema error, stop with the classified blocker. Do
+not apply resources to test a repair.
 
 Write `.sealos/delivery-manifest.json` version `2.0`:
 
@@ -885,5 +886,6 @@ The final response reports:
   manifest, and private log
 
 State clearly that local validation and target-cluster server-side dry-run
-passed, preparation is complete, and deployment is delegated to the downstream
-system. Do not claim that the application is running.
+passed, report any authorization warnings, and say that preparation is
+complete and deployment is delegated to the downstream system. Do not claim
+that the application is running.

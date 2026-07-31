@@ -24,7 +24,7 @@
     {
       "id": 1,
       "prompt": "/sealos-deploy https://github.com/example/exact-official-app 。官方 catalog 中只有一个 spec.gitRepo 精确匹配。",
-      "expected_output": "Selects the verified exact official Template solely from the GitHub repository match, keeps the materialized official YAML as immutable provenance, validates and minimally repairs only the delivery copy if needed, writes empty official-route aggregate build artifacts, and finishes.",
+      "expected_output": "Selects the verified exact official Template solely from the GitHub repository match, keeps the materialized official YAML as immutable provenance, permits only schema-driven field repairs in the delivery copy, preserves every resource identity, writes empty official-route aggregate build artifacts, and finishes.",
       "files": [],
       "assertions": [
         {
@@ -37,7 +37,7 @@
         },
         {
           "name": "preserves-official-provenance",
-          "description": "Keeps the materialized official reference unchanged while allowing the delivery copy to receive the smallest validation-driven compatibility repair."
+          "description": "Keeps the materialized official reference unchanged while allowing only schema-driven field repairs that preserve the complete resource set."
         },
         {
           "name": "stable-official-artifacts",
@@ -232,7 +232,7 @@
     {
       "id": 10,
       "prompt": "/sealos-deploy 一个模板已通过本地质量门，但目标集群对其中一个 KubeBlocks Cluster 返回 strict decoding unknown field。",
-      "expected_output": "Keeps the delivery Template unresolved, privately renders validation scenarios, dry-runs each runtime document separately, repairs the canonical standard-route YAML from safe API feedback, reruns the full local and target gates, and writes the delivery manifest only after every document passes.",
+      "expected_output": "Keeps the delivery Template unresolved, privately renders validation scenarios, dry-runs each runtime document separately, repairs only the schema-invalid field in the canonical YAML, reruns the full local and target gates, and writes the delivery manifest after no blocking failure remains.",
       "files": [],
       "assertions": [
         {
@@ -245,11 +245,31 @@
         },
         {
           "name": "complete-repair-loop",
-          "description": "Repairs the canonical unresolved YAML, reruns the complete local quality gate, rerenders all scenarios, and rechecks every document until no blocking API or admission error remains."
+          "description": "Uses only category=schema with repairable=true to edit YAML, reruns the complete local quality gate, rerenders all scenarios, and rechecks every document."
         },
         {
           "name": "manifest-after-target-pass",
           "description": "Does not write or confirm delivery-manifest.json before the complete target-cluster gate passes and never performs a persistent apply."
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "prompt": "/sealos-deploy 官方 Matomo 模板。Cluster 的 noCreatePDB 被目标 Schema 拒绝，同时 Role 和 RoleBinding 因 sandbox 身份缺少 bind/escalate 权限而返回授权错误。",
+      "expected_output": "Removes only the schema-invalid noCreatePDB field, records RBAC authorization results as non-blocking warnings, preserves the ServiceAccount, Role, RoleBinding, Cluster, Job, and every other official resource, and completes the prepare handoff.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "schema-only-repair",
+          "description": "Only the unknown noCreatePDB field is eligible for automatic YAML repair."
+        },
+        {
+          "name": "authorization-is-warning",
+          "description": "Forbidden, bind, and escalate results are warnings caused by the sandbox identity and never authorize YAML changes."
+        },
+        {
+          "name": "official-resource-set-invariant",
+          "description": "The validator rejects any official delivery copy that adds, removes, or renames a resource relative to the immutable materialized reference."
         }
       ]
     }
