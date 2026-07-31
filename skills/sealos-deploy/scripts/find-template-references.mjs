@@ -26,6 +26,7 @@ const DEFAULT_CATALOG = Object.freeze({
 const MAX_TEMPLATE_BYTES = 1024 * 1024
 const MAX_PROJECT_FILE_BYTES = 2 * 1024 * 1024
 const DEPLOYMENT_TEMPLATE_PATH = '.sealos/template/index.yaml'
+const SCHEMA_REPAIR_AUTHORIZATION_PATH = '.sealos/schema-repair-authorization.json'
 const DATABASES = ['postgres', 'mysql', 'mongodb', 'redis', 'kafka', 'sqlite']
 const ROLE_WORDS = ['web', 'frontend', 'backend', 'api', 'gateway', 'worker', 'scheduler', 'cron', 'realtime']
 const PROJECT_FILES = [
@@ -1225,6 +1226,10 @@ function copyTemplateAtomically(workDir, sourcePath) {
   try {
     fs.copyFileSync(sourcePath, temporary, fs.constants.COPYFILE_EXCL)
     fs.renameSync(temporary, destination)
+    fs.rmSync(
+      resolveSafeWorkspaceOutput(workDir, SCHEMA_REPAIR_AUTHORIZATION_PATH),
+      { force: true },
+    )
   } finally {
     fs.rmSync(temporary, { force: true })
   }

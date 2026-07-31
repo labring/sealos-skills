@@ -261,7 +261,7 @@
       "assertions": [
         {
           "name": "schema-only-repair",
-          "description": "Only the unknown noCreatePDB field is eligible for automatic YAML repair."
+          "description": "Only the unknown noCreatePDB field is eligible for automatic YAML repair, backed by a target-gate authorization scoped to the original official Template digest."
         },
         {
           "name": "authorization-is-warning",
@@ -269,7 +269,27 @@
         },
         {
           "name": "official-resource-set-invariant",
-          "description": "The validator rejects any official delivery copy that adds, removes, or renames a resource relative to the immutable materialized reference."
+          "description": "The validator rejects any official delivery copy that adds, removes, or renames a resource, or changes images, digests, or resource quotas outside a server-authorized Schema field."
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "prompt": "/sealos-deploy 官方 Mastodon 模板。它在 env 数组中使用 ${{ if(...) }} 条件块，并用 random(128).toLowerCase().replace(/[^0-9a-f]/g, 'a') 生成密钥。",
+      "expected_output": "Keeps the official Template unresolved for handoff, privately expands every reachable conditional-array scenario before YAML parsing and target dry-run, supports the template's bounded random expression, and never changes its image digest or resource quotas without a Schema rejection.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "conditional-array-render-before-parse",
+          "description": "Removes Sealos if/elif/else/endif control lines for each private scenario before parsing YAML arrays, so collection keys are never stringified."
+        },
+        {
+          "name": "mastodon-random-expression",
+          "description": "Safely renders the official 128-character lowercase hexadecimal random expression without raw eval."
+        },
+        {
+          "name": "unresolved-delivery-preserved",
+          "description": "Leaves the official delivery Template unresolved and rejects image-digest or resource-quota drift that lacks server-side Schema authorization."
         }
       ]
     }

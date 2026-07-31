@@ -2,6 +2,7 @@
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -13,6 +14,10 @@ import { validateArtifactSet } from './validate-artifacts.mjs'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const validatorScript = path.join(__dirname, 'validate-artifacts.mjs')
 const digest = `sha256:${'c'.repeat(64)}`
+
+function sha256(source) {
+  return createHash('sha256').update(source).digest('hex')
+}
 
 function write(root, relative, content) {
   const file = path.join(root, relative)
@@ -337,6 +342,19 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: \${{ defaults.app_name }}-mysql-init
+spec:
+  template:
+    spec:
+      containers:
+        - name: init
+          image: postgres:16.4-alpine
+          resources:
+            limits:
+              cpu: 500m
+              memory: 2048Mi
+            requests:
+              cpu: 50m
+              memory: 512Mi
 `
   write(root, '.sealos/template-references/web.yaml', officialTemplate)
   write(root, '.sealos/template/index.yaml', officialTemplate)
@@ -346,11 +364,73 @@ metadata:
 
   const repairedTemplate = officialTemplate.replace('      noCreatePDB: false\n', '')
   write(root, '.sealos/template/index.yaml', repairedTemplate)
+  const unauthorizedRepair = validateArtifactSet(root, { requireComplete: true })
+  assert.equal(unauthorizedRepair.valid, false)
+  assert.ok(
+    unauthorizedRepair.errors.some(
+      (error) => error.message.includes('server dry-run schema authorization'),
+    ),
+  )
+
+  write(root, '.sealos/schema-repair-authorization.json', {
+    version: '1.0',
+    template_sha256: sha256(officialTemplate),
+    repairs: [{
+      category: 'schema',
+      repairable: true,
+      kind: 'Cluster',
+      name: 'web-mysql',
+      field_paths: ['spec.componentSpecs[0].noCreatePDB'],
+    }],
+  })
   const changedValidation = validateArtifactSet(root, { requireComplete: true })
   assert.equal(changedValidation.valid, true, JSON.stringify(changedValidation.errors))
   assert.equal(
     fs.readFileSync(path.join(root, '.sealos/template-references/web.yaml'), 'utf8'),
     officialTemplate,
+  )
+
+  write(
+    root,
+    '.sealos/template/index.yaml',
+    repairedTemplate.replace('postgres:16.4-alpine', 'postgres:17-alpine'),
+  )
+  const changedImageValidation = validateArtifactSet(root, { requireComplete: true })
+  assert.equal(changedImageValidation.valid, false)
+  assert.ok(
+    changedImageValidation.errors.some(
+      (error) => error.message.includes('outside server-authorized schema repairs'),
+    ),
+  )
+
+  write(
+    root,
+    '.sealos/template/index.yaml',
+    officialTemplate.replace('noCreatePDB: false', 'noCreatePDB: true'),
+  )
+  const changedAuthorizedValueValidation = validateArtifactSet(root, {
+    requireComplete: true,
+  })
+  assert.equal(changedAuthorizedValueValidation.valid, false)
+  assert.ok(
+    changedAuthorizedValueValidation.errors.some(
+      (error) => error.message.includes('outside server-authorized schema repairs'),
+    ),
+  )
+
+  write(
+    root,
+    '.sealos/template/index.yaml',
+    repairedTemplate.replace('memory: 2048Mi', 'memory: 4096Mi'),
+  )
+  const changedResourcesValidation = validateArtifactSet(root, {
+    requireComplete: true,
+  })
+  assert.equal(changedResourcesValidation.valid, false)
+  assert.ok(
+    changedResourcesValidation.errors.some(
+      (error) => error.message.includes('outside server-authorized schema repairs'),
+    ),
   )
 
   write(root, '.sealos/template/index.yaml', repairedTemplate.replace(roleDocument, ''))

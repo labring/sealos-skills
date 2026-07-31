@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { createHash } from 'node:crypto'
 import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
@@ -16,6 +17,7 @@ const FINAL_ARTIFACTS = [
   '.sealos/template/index.yaml',
   '.sealos/delivery-manifest.json',
 ]
+const SCHEMA_REPAIR_AUTHORIZATION_PATH = '.sealos/schema-repair-authorization.json'
 
 function collectProjectArtifacts(workDir) {
   const sealosDir = path.join(workDir, '.sealos')
@@ -151,6 +153,116 @@ function inventoryDifference(left, right) {
     }
   }
   return difference
+}
+
+function sha256(source) {
+  return createHash('sha256').update(source).digest('hex')
+}
+
+function authorizedFieldNames(report, referenceSource, errors) {
+  if (
+    report?.version !== '1.0'
+    || report.template_sha256 !== sha256(referenceSource)
+    || !Array.isArray(report.repairs)
+    || report.repairs.length === 0
+  ) {
+    errors.push({
+      path: SCHEMA_REPAIR_AUTHORIZATION_PATH,
+      message: 'official template repairs require a matching server dry-run schema authorization',
+    })
+    return null
+  }
+
+  const fieldNames = new Set()
+  for (const repair of report.repairs) {
+    if (
+      repair?.category !== 'schema'
+      || repair.repairable !== true
+      || !Array.isArray(repair.field_paths)
+      || repair.field_paths.length === 0
+    ) {
+      errors.push({
+        path: SCHEMA_REPAIR_AUTHORIZATION_PATH,
+        message: 'repair entries must contain only repairable schema field paths',
+      })
+      return null
+    }
+    for (const fieldPath of repair.field_paths) {
+      const match = String(fieldPath).match(/(?:^|\.)([A-Za-z_][A-Za-z0-9_-]*)$/)
+      if (!match) {
+        errors.push({
+          path: SCHEMA_REPAIR_AUTHORIZATION_PATH,
+          message: `cannot enforce schema repair field path ${JSON.stringify(fieldPath)}`,
+        })
+        return null
+      }
+      fieldNames.add(match[1])
+    }
+  }
+  return fieldNames
+}
+
+function partitionAuthorizedFieldBlocks(source, fieldNames) {
+  const lines = source.replace(/\r\n/g, '\n').split('\n')
+  const blocks = []
+  const output = []
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    const mapping = line.match(/^([ ]*)([A-Za-z_][A-Za-z0-9_.-]*)\s*:/)
+    if (!mapping || !fieldNames.has(mapping[2])) {
+      output.push(line)
+      continue
+    }
+
+    const fieldIndent = mapping[1].length
+    const block = [line]
+    while (index + 1 < lines.length) {
+      const next = lines[index + 1]
+      if (/^\s*$/.test(next)) {
+        break
+      }
+      const nextIndent = next.match(/^ */)[0].length
+      if (nextIndent <= fieldIndent) {
+        break
+      }
+      index += 1
+      block.push(next)
+    }
+    blocks.push(block.join('\n'))
+  }
+
+  return { blocks, remainder: output.join('\n') }
+}
+
+function validateOfficialTemplateDrift(
+  referenceSource,
+  deliverySource,
+  authorization,
+  errors,
+) {
+  if (deliverySource === referenceSource) {
+    return
+  }
+  const fieldNames = authorizedFieldNames(
+    authorization,
+    referenceSource,
+    errors,
+  )
+  if (fieldNames) {
+    const reference = partitionAuthorizedFieldBlocks(referenceSource, fieldNames)
+    const delivery = partitionAuthorizedFieldBlocks(deliverySource, fieldNames)
+    const changedOutsideAuthorizedFields =
+      reference.remainder !== delivery.remainder
+    const changedAuthorizedField =
+      inventoryDifference(delivery.blocks, reference.blocks).length > 0
+    if (changedOutsideAuthorizedFields || changedAuthorizedField) {
+      errors.push({
+        path: '.sealos/template/index.yaml',
+        message: 'official delivery changed fields outside server-authorized schema repairs',
+      })
+    }
+  }
 }
 
 function validateArtifactSet(workDir, { requireComplete = false } = {}) {
@@ -301,9 +413,8 @@ function validateArtifactSet(workDir, { requireComplete = false } = {}) {
         message: 'official delivery must retain its selected materialized reference and final Template',
       })
     } else {
-      const officialResources = templateResourceInventory(
-        fs.readFileSync(referenceFile, 'utf8'),
-      )
+      const referenceSource = fs.readFileSync(referenceFile, 'utf8')
+      const officialResources = templateResourceInventory(referenceSource)
       const deliveryResources = templateResourceInventory(template)
       const removed = inventoryDifference(officialResources, deliveryResources)
       const added = inventoryDifference(deliveryResources, officialResources)
@@ -313,6 +424,20 @@ function validateArtifactSet(workDir, { requireComplete = false } = {}) {
           message: `official delivery must preserve its resource set; removed=${JSON.stringify(removed)} added=${JSON.stringify(added)}`,
         })
       }
+      const authorizationFile = artifactPath(SCHEMA_REPAIR_AUTHORIZATION_PATH)
+      const authorization = template === referenceSource
+        ? null
+        : readJsonIfPresent(
+            authorizationFile,
+            SCHEMA_REPAIR_AUTHORIZATION_PATH,
+            errors,
+          )
+      validateOfficialTemplateDrift(
+        referenceSource,
+        template,
+        authorization,
+        errors,
+      )
     }
   } else {
     if (result.status !== 'succeeded') {

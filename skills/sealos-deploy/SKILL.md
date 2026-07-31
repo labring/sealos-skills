@@ -112,6 +112,12 @@ The final handoff always includes these six invariant paths:
 - `.sealos/template/index.yaml`
 - `.sealos/delivery-manifest.json`
 
+`.sealos/schema-repair-authorization.json` is private validation state, not a
+handoff artifact. The target dry-run writes it only when a concrete
+server-side Schema rejection identifies repairable field paths. The final
+artifact validator consumes it to reject every other change to an official
+Template, including image and resource-limit drift.
+
 `.sealos/template-references.json` records the Phase 1.5 decision on both
 routes. The official-template route writes an empty aggregate build request
 and a skipped aggregate build result so downstream consumers receive one
@@ -146,8 +152,8 @@ values, or resolved Template secrets.
 | `find-template-references.mjs` | Verified exact official-template decision |
 | `inspect-deployment-source.mjs` | Select and render Compose, Helm, Kubernetes, or implicit source |
 | `detect-image.mjs` | Inventory declared images and complete source topology; resolve exact selectors to digests |
-| `validate-artifacts.mjs` | Validate all governed JSON artifacts and cross-artifact semantics |
-| `server_dry_run.py` | Privately render Template scenarios and run strict per-document target API dry-runs |
+| `validate-artifacts.mjs` | Validate governed artifacts, cross-artifact semantics, and official-Template repair boundaries |
+| `server_dry_run.py` | Privately render Template scenarios, run strict per-document target API dry-runs, and record Schema-only repair authorization |
 
 All helpers emit structured JSON on stdout and human diagnostics on stderr.
 

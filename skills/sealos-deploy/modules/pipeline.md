@@ -761,6 +761,8 @@ Run the target gate before creating `delivery-manifest.json`:
   --service-account "$TARGET_SERVICE_ACCOUNT" \
   --cloud-domain "$SEALOS_CLOUD_DOMAIN" \
   --cert-secret-name "$SEALOS_CERT_SECRET_NAME" \
+  --repair-authorization \
+    "$WORK_DIR/.sealos/schema-repair-authorization.json" \
   --private-log "$LOG_FILE"
 ```
 
@@ -794,7 +796,14 @@ The helper must:
 7. aggregate and privately log only safe `kind`/`name`, error category, and
    field paths; never print or log the raw admission body because it may echo
    rendered values; and
-8. remove all rendered files even on failure.
+8. write `.sealos/schema-repair-authorization.json` only for concrete
+   `category: "schema"` failures with repairable field paths, using the
+   original Template digest as its scope; and
+9. remove all rendered files even on failure.
+
+The Schema-repair authorization file is private validation state. Do not add
+it to `delivery-manifest.json` or otherwise hand it to the downstream deployer.
+Materializing a fresh official Template clears any stale authorization.
 
 The bundled safe expression evaluator is an implementation aid, not a project
 eligibility rule. If a valid Template uses syntax outside its supported subset,
@@ -824,7 +833,9 @@ When the gate reports feedback:
 3. stop on every other failure category without changing YAML from that
    feedback;
 4. on the official route, never edit the materialized reference and require
-   the delivery copy to retain the same resource identities;
+   the delivery copy to retain the same resource identities; the final
+   artifact validator must also reject every change outside the field names
+   authorized by the matching target-gate report;
 5. after a schema repair, rerun the complete local Phase 5 quality gate;
 6. discard every previous temporary render, render all scenarios again from
    the canonical unresolved Template, and rerun server-side dry-run for every

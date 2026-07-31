@@ -29,6 +29,10 @@ import yaml
 
 
 EXPRESSION_RE = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
+RANDOM_HEX_EXPRESSION_RE = re.compile(
+    r"""^random\((\d+)\)\.toLowerCase\(\)\.replace\("""
+    r"""/\[\^0-9a-f\]/g,\s*(?:'a'|"a")\)$"""
+)
 DOCUMENT_SEPARATOR_RE = re.compile(r"^---[ \t]*(?:#.*)?(?:\r?\n)?$")
 DNS_LABEL_RE = re.compile(r"^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$")
 DNS_SUBDOMAIN_RE = re.compile(
@@ -101,6 +105,17 @@ def strict_equal(left: Any, right: Any) -> bool:
     if isinstance(left, (int, float)) and isinstance(right, (int, float)):
         return float(left) == float(right)
     return type(left) is type(right) and left == right
+
+
+def random_string(length_value: Any) -> str:
+    try:
+        length = int(length_value)
+    except (TypeError, ValueError):
+        raise ExpressionError("random() length must be an integer")
+    if length < 1 or length > 256:
+        raise ExpressionError("random() length must be between 1 and 256")
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def tokenize(expression: str) -> List[Token]:
@@ -357,14 +372,7 @@ def evaluate_ast(node: Tuple[Any, ...], resolver: "ValueResolver") -> Any:
         name = node[1]
         arguments = [evaluate_ast(argument, resolver) for argument in node[2]]
         if name == "random" and len(arguments) == 1:
-            try:
-                length = int(arguments[0])
-            except (TypeError, ValueError):
-                raise ExpressionError("random() length must be an integer")
-            if length < 1 or length > 256:
-                raise ExpressionError("random() length must be between 1 and 256")
-            alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
-            return "".join(secrets.choice(alphabet) for _ in range(length))
+            return random_string(arguments[0])
         if name == "base64" and len(arguments) == 1:
             return base64.b64encode(js_string(arguments[0]).encode("utf-8")).decode(
                 "ascii"
@@ -427,6 +435,13 @@ def parse_expression(expression: str) -> Tuple[Any, ...]:
 
 def evaluate_expression(expression: str, resolver: "ValueResolver") -> Any:
     try:
+        random_hex = RANDOM_HEX_EXPRESSION_RE.fullmatch(expression.strip())
+        if random_hex:
+            return re.sub(
+                r"[^0-9a-f]",
+                "a",
+                random_string(random_hex.group(1)).lower(),
+            )
         return evaluate_ast(parse_expression(expression), resolver)
     except GateSetupError:
         raise
@@ -999,6 +1014,68 @@ def private_write(path: Path, content: str) -> None:
             os.chmod(path, 0o600)
 
 
+def write_schema_repair_authorization(
+    path: Optional[Path],
+    template_digest: str,
+    failures: Sequence[Mapping[str, Any]],
+) -> None:
+    if path is None:
+        return
+    repairs = [
+        {
+            "category": "schema",
+            "repairable": True,
+            "kind": failure.get("kind"),
+            "name": failure.get("name"),
+            "field_paths": sorted(
+                {
+                    str(field_path)
+                    for field_path in failure.get("field_paths", [])
+                    if isinstance(field_path, str) and field_path
+                }
+            ),
+        }
+        for failure in failures
+        if failure.get("category") == "schema"
+        and failure.get("repairable") is True
+        and failure.get("field_paths")
+    ]
+    if not repairs:
+        return
+
+    source_digest = template_digest
+    existing_repairs: List[Mapping[str, Any]] = []
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                isinstance(existing, Mapping)
+                and existing.get("version") == "1.0"
+                and isinstance(existing.get("template_sha256"), str)
+                and isinstance(existing.get("repairs"), list)
+            ):
+                source_digest = str(existing["template_sha256"])
+                existing_repairs = [
+                    repair
+                    for repair in existing["repairs"]
+                    if isinstance(repair, Mapping)
+                ]
+        except (OSError, ValueError):
+            pass
+
+    combined: Dict[str, Mapping[str, Any]] = {}
+    for repair in [*existing_repairs, *repairs]:
+        marker = json.dumps(repair, sort_keys=True, separators=(",", ":"))
+        combined[marker] = repair
+    payload = {
+        "version": "1.0",
+        "template_sha256": source_digest,
+        "repairs": [combined[key] for key in sorted(combined)],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    private_write(path, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
 def append_private_log(path: Optional[Path], content: str) -> None:
     if path is None:
         return
@@ -1217,6 +1294,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--cert-secret-name", required=True)
     parser.add_argument("--kubectl", default="kubectl")
     parser.add_argument("--private-log", type=Path)
+    parser.add_argument("--repair-authorization", type=Path)
     parser.add_argument("--max-scenarios", type=int, default=64)
     parser.add_argument("--timeout", type=int, default=60)
     return parser.parse_args(argv)
@@ -1276,6 +1354,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.namespace,
             args.private_log,
             args.timeout,
+        )
+        write_schema_repair_authorization(
+            args.repair_authorization,
+            template_digest,
+            failures,
         )
         result["warnings"] = warnings
         result["failures"] = failures
