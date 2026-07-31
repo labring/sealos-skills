@@ -73,7 +73,7 @@ The prepare pipeline is:
 Preflight
   -> Assess
   -> exact official-template lookup
-     -> safe unique exact match:
+     -> verified unique exact repository match:
           copy YAML -> repair the delivery copy if needed
           -> validate -> finish
      -> otherwise:

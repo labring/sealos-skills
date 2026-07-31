@@ -16,9 +16,9 @@ non-persistent target validation, and injected GitHub credentials.
 The workflow:
 
 1. fully materializes and assesses the repository;
-2. automatically reuses one safely verified exact official Template when
-   possible, repairing only its delivery copy when target validation requires
-   a compatibility fix;
+2. reuses the unique remotely verified official Template whose normalized
+   `spec.gitRepo` matches the GitHub `owner/repo`, repairing only its delivery
+   copy when target validation requires a compatibility fix;
 3. otherwise discovers the declared deployment source, complete service
    topology, and exact image evidence;
 4. preserves or prepares each required Dockerfile;

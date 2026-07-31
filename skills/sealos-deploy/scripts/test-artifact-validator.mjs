@@ -223,7 +223,6 @@ function standardReferences() {
     },
     decision: {
       route: 'continue_standard_pipeline',
-      reuse_requested: false,
       reference_name: null,
       template_path: null,
       reason: 'official catalog unavailable',
@@ -231,6 +230,55 @@ function standardReferences() {
     reference_dir: '.sealos/template-references',
     reason: 'official catalog unavailable',
   }
+}
+
+function exactOfficialReferences() {
+  const artifact = standardReferences()
+  const commit = 'f'.repeat(40)
+  artifact.catalog = {
+    available: true,
+    repository: 'https://github.com/labring-actions/templates.git',
+    ref: 'kb-0.9',
+    commit,
+    source: 'refreshed',
+    stale: false,
+    verified_for_reuse: true,
+    template_count: 1,
+    skipped_templates: 0,
+    reason: 'catalog cache refreshed',
+  }
+  artifact.project.repo_subdir = 'packages/web'
+  artifact.references = [{
+    name: 'web',
+    title: 'Web',
+    git_repo: 'https://github.com/acme/web',
+    match: 'exact',
+    score: 100,
+    reasons: ['same GitHub repository'],
+    warnings: [],
+    catalog_path: 'web/index.yaml',
+    reference_path: '.sealos/template-references/web.yaml',
+    source_url: `https://raw.githubusercontent.com/labring-actions/templates/${commit}/template/web/index.yaml`,
+    features: {
+      categories: [],
+      databases: [],
+      kinds: { StatefulSet: 1 },
+      images: [],
+      object_storage: false,
+      persistent: true,
+      roles: ['web'],
+      websocket: false,
+    },
+  }]
+  artifact.summary.exact_count = 1
+  artifact.decision = {
+    route: 'deploy_official_template',
+    reference_name: 'web',
+    template_path: '.sealos/template/index.yaml',
+    reason: 'one exact official template match was selected as the initial delivery template',
+  }
+  artifact.reason = artifact.decision.reason
+  return artifact
 }
 
 test('accepts current Phase 1 facts and open vocabulary', () => {
@@ -247,7 +295,7 @@ test('accepts current Phase 1 facts and open vocabulary', () => {
   assert.equal(staticProject.valid, true, JSON.stringify(staticProject.errors))
 })
 
-test('enables automatic official-template reuse when the option is omitted', () => {
+test('does not expose a reuse-request switch in the decision artifact', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sealos-template-reuse-'))
   const skillDir = path.join(root, 'skill')
   const analysisPath = path.join(root, '.sealos', 'analysis.json')
@@ -273,7 +321,7 @@ test('enables automatic official-template reuse when the option is omitted', () 
     fs.readFileSync(path.join(root, '.sealos', 'template-references.json'), 'utf8'),
   )
 
-  assert.equal(references.decision.reuse_requested, true)
+  assert.equal(Object.hasOwn(references.decision, 'reuse_requested'), false)
 })
 
 test('enforces the score arithmetic contract', () => {
@@ -382,6 +430,24 @@ test('accepts the standard unavailable-catalog decision', () => {
     standardReferences(),
   )
   assert.equal(validation.valid, true, JSON.stringify(validation.errors))
+})
+
+test('requires the unique verified repository match to use the official route', () => {
+  const official = exactOfficialReferences()
+  const valid = validateArtifactData('template-references', official)
+  assert.equal(valid.valid, true, JSON.stringify(valid.errors))
+
+  const invalid = structuredClone(official)
+  invalid.decision = {
+    route: 'continue_standard_pipeline',
+    reference_name: null,
+    template_path: null,
+    reason: 'workspace contains local changes',
+  }
+  invalid.reason = invalid.decision.reason
+  const rejected = validateArtifactData('template-references', invalid)
+  assert.equal(rejected.valid, false)
+  assert.ok(rejected.errors.some((error) => error.path === '$.decision.route'))
 })
 
 test('delivery manifest requires canonical final paths and rejects private evidence', () => {

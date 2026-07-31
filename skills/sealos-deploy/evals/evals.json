@@ -23,8 +23,8 @@
     },
     {
       "id": 1,
-      "prompt": "/sealos-deploy https://github.com/example/exact-official-app 。这是默认分支的干净 fresh clone，官方 catalog 中只有一个 spec.gitRepo 精确匹配。",
-      "expected_output": "Automatically selects the verified exact official Template without requiring an explicit reuse request, keeps the materialized official YAML as immutable provenance, validates and minimally repairs only the delivery copy if needed, writes empty official-route aggregate build artifacts, and finishes.",
+      "prompt": "/sealos-deploy https://github.com/example/exact-official-app 。官方 catalog 中只有一个 spec.gitRepo 精确匹配。",
+      "expected_output": "Selects the verified exact official Template solely from the GitHub repository match, keeps the materialized official YAML as immutable provenance, validates and minimally repairs only the delivery copy if needed, writes empty official-route aggregate build artifacts, and finishes.",
       "files": [],
       "assertions": [
         {
@@ -32,8 +32,8 @@
           "description": "Fast path requires one exact spec.gitRepo match from a refreshed verified official catalog."
         },
         {
-          "name": "automatic-reuse",
-          "description": "A safe fresh unqualified GitHub source enables exact official-template reuse without asking the user to request or confirm it."
+          "name": "repository-identity-only",
+          "description": "The normalized GitHub owner/repo is the only project-side input to the exact official-template reuse decision."
         },
         {
           "name": "preserves-official-provenance",
@@ -51,13 +51,13 @@
     },
     {
       "id": 2,
-      "prompt": "/sealos-deploy 当前 workspace。官方 catalog 有精确匹配，但当前是 feature 分支而且存在本地源代码修改。",
-      "expected_output": "Records the exact match for provenance but disables official reuse and continues the standard current-source pipeline.",
+      "prompt": "/sealos-deploy https://github.com/example/exact-official-app/tree/feature 。官方 catalog 有唯一精确匹配；sandbox 中还有本地文件。",
+      "expected_output": "Normalizes the URL to example/exact-official-app and selects the unique verified official Template regardless of branch or sandbox checkout state.",
       "files": [],
       "assertions": [
         {
-          "name": "protects-current-intent",
-          "description": "Does not replace custom-branch or locally modified source with official YAML."
+          "name": "ignores-worktree-state",
+          "description": "Branch, checkout cleanliness, local files, and selected subdirectories do not gate a repository-identity match."
         },
         {
           "name": "decision-driven-route",

@@ -130,7 +130,6 @@ function createCompleteProject() {
     },
     decision: {
       route: 'continue_standard_pipeline',
-      reuse_requested: false,
       reference_name: null,
       template_path: null,
       reason: 'catalog unavailable',

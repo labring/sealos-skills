@@ -169,7 +169,6 @@
       "additionalProperties": false,
       "required": [
         "route",
-        "reuse_requested",
         "reference_name",
         "template_path",
         "reason"
@@ -181,10 +180,6 @@
             "deploy_official_template",
             "continue_standard_pipeline"
           ]
-        },
-        "reuse_requested": {
-          "type": "boolean",
-          "description": "Compatibility field: true when automatic official-template reuse is enabled for the current source intent; no explicit user request is required."
         },
         "reference_name": {
           "anyOf": [

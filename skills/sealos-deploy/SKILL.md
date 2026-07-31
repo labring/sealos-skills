@@ -63,7 +63,7 @@ The pipeline is:
 Preflight
   -> Assess
   -> Exact official-template lookup
-     -> safe unique exact match: copy official YAML
+     -> verified unique exact repository match: copy official YAML
           -> repair the delivery copy if validation requires it
           -> local + target validation and finish
      -> otherwise: discover source/topology/images

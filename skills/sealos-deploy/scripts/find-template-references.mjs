@@ -3,10 +3,9 @@
 /**
  * Discover exact Sealos templates.
  *
- * Official-template reuse is automatic unless the caller explicitly disables
- * it because the current source intent is incompatible. A unique exact match
- * is copied byte-for-byte as the initial delivery template. This script never
- * renders, applies, or executes a catalog template.
+ * A unique exact repository match in the verified official catalog is copied
+ * byte-for-byte as the initial delivery template. This script never renders,
+ * applies, or executes a catalog template.
  */
 
 import crypto from 'node:crypto'
@@ -48,7 +47,7 @@ function compareCodepoints(left, right) {
 
 function usage() {
   console.error(
-    'Usage: node find-template-references.mjs --work-dir <dir> --skill-dir <dir> --analysis <analysis.json> [--github-url <url>] [--catalog-dir <dir>] [--reuse-official-template true|false]',
+    'Usage: node find-template-references.mjs --work-dir <dir> --skill-dir <dir> --analysis <analysis.json> [--github-url <url>] [--catalog-dir <dir>]',
   )
 }
 
@@ -60,7 +59,6 @@ function parseArgs(argv) {
     'analysis',
     'github-url',
     'catalog-dir',
-    'reuse-official-template',
   ])
 
   for (let index = 0; index < argv.length; index += 2) {
@@ -82,19 +80,6 @@ function parseArgs(argv) {
     }
   }
   return result
-}
-
-function parseBooleanOption(value, optionName, defaultValue = false) {
-  if (value === undefined) {
-    return defaultValue
-  }
-  if (value === 'true') {
-    return true
-  }
-  if (value === 'false') {
-    return false
-  }
-  throw new Error(`--${optionName} must be true or false`)
 }
 
 function sortedUnique(values) {
@@ -1037,10 +1022,11 @@ function inferProjectRepo(workDir, requestedUrl) {
 }
 
 function isExactRepoMatch(projectRepo, entryRepo) {
-  if (!projectRepo || !entryRepo || projectRepo.fullName !== entryRepo.fullName) {
-    return false
-  }
-  return (projectRepo.subdir ?? null) === (entryRepo.subdir ?? null)
+  return Boolean(
+    projectRepo
+    && entryRepo
+    && projectRepo.fullName === entryRepo.fullName,
+  )
 }
 
 function sourceUrl(catalog, commit, catalogPath) {
@@ -1066,10 +1052,7 @@ function selectReferences(entries, projectRepo) {
         entry,
         match: 'exact',
         score: 100,
-        reasons: [
-          'same GitHub repository',
-          projectRepo.subdir ? `same repository subtree: ${projectRepo.subdir}` : 'same repository root',
-        ],
+        reasons: ['same GitHub repository'],
       })
     }
   }
@@ -1185,25 +1168,13 @@ function isOfficialCatalog(catalog) {
 function decideRoute({
   catalog,
   catalogVerifiedForReuse,
-  project,
   references,
-  reuseEnabled,
 }) {
   const exactReferences = references.filter((reference) => reference.match === 'exact')
 
-  if (!reuseEnabled) {
-    return {
-      route: 'continue_standard_pipeline',
-      reuse_requested: false,
-      reference_name: null,
-      template_path: null,
-      reason: 'official template reuse was explicitly disabled for the current source intent',
-    }
-  }
   if (exactReferences.length === 0) {
     return {
       route: 'continue_standard_pipeline',
-      reuse_requested: true,
       reference_name: null,
       template_path: null,
       reason: 'no exact official template match was found',
@@ -1212,7 +1183,6 @@ function decideRoute({
   if (exactReferences.length !== 1) {
     return {
       route: 'continue_standard_pipeline',
-      reuse_requested: true,
       reference_name: null,
       template_path: null,
       reason: `found ${exactReferences.length} exact template matches; automatic reuse requires exactly one`,
@@ -1221,25 +1191,14 @@ function decideRoute({
   if (!isOfficialCatalog(catalog)) {
     return {
       route: 'continue_standard_pipeline',
-      reuse_requested: true,
       reference_name: null,
       template_path: null,
       reason: 'the configured catalog is not the supported official template catalog',
     }
   }
-  if (project.repo_subdir !== null) {
-    return {
-      route: 'continue_standard_pipeline',
-      reuse_requested: true,
-      reference_name: null,
-      template_path: null,
-      reason: 'repository subdirectory selections are not eligible for automatic official-template reuse',
-    }
-  }
   if (!catalogVerifiedForReuse) {
     return {
       route: 'continue_standard_pipeline',
-      reuse_requested: true,
       reference_name: null,
       template_path: null,
       reason: 'the official template catalog was not verified from its remote source in this run',
@@ -1248,7 +1207,6 @@ function decideRoute({
 
   return {
     route: 'deploy_official_template',
-    reuse_requested: true,
     reference_name: exactReferences[0].name,
     template_path: DEPLOYMENT_TEMPLATE_PATH,
     reason: 'one exact official template match was selected as the initial delivery template',
@@ -1316,7 +1274,6 @@ function emitArtifactSummary(workDir, artifact) {
     exact_references: artifact.summary.exact_count,
     similar_references: artifact.summary.similar_count,
     route: artifact.decision.route,
-    reuse_requested: artifact.decision.reuse_requested,
     reference_name: artifact.decision.reference_name,
     template_path: artifact.decision.template_path,
     reason: artifact.reason,
@@ -1344,7 +1301,7 @@ function writeArtifact(workDir, artifact, emitSummary = true) {
   }
 }
 
-function baseArtifact(catalog, project, reuseEnabled, reason) {
+function baseArtifact(catalog, project, reason) {
   return {
     version: '2.0',
     generated_at: new Date().toISOString(),
@@ -1370,7 +1327,6 @@ function baseArtifact(catalog, project, reuseEnabled, reason) {
     },
     decision: {
       route: 'continue_standard_pipeline',
-      reuse_requested: reuseEnabled,
       reference_name: null,
       template_path: null,
       reason,
@@ -1392,18 +1348,6 @@ try {
 const workDir = path.resolve(args['work-dir'])
 const skillDir = path.resolve(args['skill-dir'])
 const analysisPath = path.resolve(args.analysis)
-let reuseEnabled
-try {
-  reuseEnabled = parseBooleanOption(
-    args['reuse-official-template'],
-    'reuse-official-template',
-    true,
-  )
-} catch (error) {
-  usage()
-  console.error(error.message)
-  process.exit(1)
-}
 
 let analysis
 try {
@@ -1453,7 +1397,7 @@ function writeUnavailable(reason) {
   if (previousOfficialMaterialization) {
     fs.rmSync(previousOfficialMaterialization, { force: true })
   }
-  writeArtifact(workDir, baseArtifact(catalog, publicProject, reuseEnabled, reason))
+  writeArtifact(workDir, baseArtifact(catalog, publicProject, reason))
 }
 
 if (configReadError || configErrors.length > 0) {
@@ -1467,7 +1411,7 @@ if (!catalog.enabled) {
 
 let resolved
 try {
-  resolved = resolveCatalog(catalog, args['catalog-dir'], reuseEnabled)
+  resolved = resolveCatalog(catalog, args['catalog-dir'], true)
 } catch (error) {
   writeUnavailable(`template catalog could not be prepared: ${error.message}`)
   process.exit(0)
@@ -1507,9 +1451,7 @@ const similarCount = references.filter((reference) => reference.match === 'simil
 const decision = decideRoute({
   catalog,
   catalogVerifiedForReuse: resolved.verifiedForReuse,
-  project: publicProject,
   references,
-  reuseEnabled,
 })
 let selectedExact = null
 if (decision.route === 'deploy_official_template') {

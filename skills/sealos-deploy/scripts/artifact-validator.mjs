@@ -779,13 +779,11 @@ function validateTemplateReferencesSemantics(data, errors) {
     )
   }
   const shouldUseOfficialTemplate = (
-    data.decision.reuse_requested
-    && data.catalog.available
+    data.catalog.available
     && officialCatalog
     && data.catalog.source === 'refreshed'
     && data.catalog.verified_for_reuse
     && data.catalog.commit !== null
-    && data.project.repo_subdir === null
     && exactCount === 1
   )
 
@@ -794,7 +792,7 @@ function validateTemplateReferencesSemantics(data, errors) {
       pushError(
         errors,
         '$.decision.route',
-        'must select the unique exact official template when automatic reuse is enabled',
+        'must select the unique exact verified official template',
       )
     }
     if (data.decision.reference_name !== exactReferences[0].name) {

@@ -112,22 +112,7 @@ changes.
 Stop before Phase 1 only when the source still cannot be materialized into a
 trustworthy analyzable worktree. This step creates no `.sealos` artifact.
 
-## 4. Capture the Official-Reuse Snapshot
-
-Before the pipeline creates any `.sealos` file, capture transient:
-
-- current branch and `HEAD`
-- upstream branch and upstream `HEAD`
-- tracked and untracked status
-- whether `.sealos/config.json` or pre-existing prepare artifacts exist
-- whether the user explicitly requested current/custom source
-
-Phase 1.5 may reuse official YAML only for a clean repository-root checkout on
-its tracked default branch with `HEAD` equal to upstream, or for an equivalent
-fresh unqualified GitHub clone. Never recompute this decision from a status
-made dirty by generated artifacts.
-
-## 5. Select Conditional Source Dependencies
+## 4. Select Conditional Source Dependencies
 
 Perform a read-only source-shape check:
 
@@ -144,7 +129,7 @@ Independent multiple Helm charts or Kubernetes roots require explicit project
 configuration; do not guess. Install only the chosen adapter dependency.
 Python with PyYAML remains required for every standard Phase 5 route.
 
-## 6. Read Project Evidence
+## 5. Read Project Evidence
 
 Read the first matching README plus dependency manifests, workspace metadata,
 CI workflows, Dockerfiles, and selected deployment-source files. Extract:
@@ -156,7 +141,7 @@ CI workflows, Dockerfiles, and selected deployment-source files. Extract:
 - declared images
 - required environment variables and dependencies
 
-## 7. Ready Summary
+## 6. Ready Summary
 
 Report briefly:
 

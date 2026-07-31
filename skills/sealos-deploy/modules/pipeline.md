@@ -234,32 +234,20 @@ Present only a concise analysis summary and continue.
 
 ## Phase 1.5: Exact Official Template
 
-Automatically determine whether one official Template can be reused. The
-configured catalog is `labring-actions/templates` at its configured ref.
-The user does not need to request or confirm official-template reuse.
+Match the normalized repository from the supplied GitHub URL against
+`spec.gitRepo` in the configured `labring-actions/templates` catalog. The user
+does not need to request or confirm official-template reuse.
 
 An automatic fast path requires all of:
 
 1. the official remote is refreshed in this run and its origin, commit, and
    clean sparse checkout are verified;
-2. exactly one Template `spec.gitRepo` matches the normalized repository;
-3. the selected deployable target is the repository root;
-4. reuse does not discard current source intent.
+2. exactly one Template `spec.gitRepo` matches the normalized `owner/repo`.
 
-For a local checkout, the pre-artifact snapshot must be clean on its tracked
-default branch with `HEAD` equal to upstream. Custom branches, local changes,
-detached or unknown upstream, pre-existing prepare artifacts, project config
-overrides, a selected subtree, or an explicit request for current source
-disable reuse. An explicit user refusal also disables reuse. A fresh
-unqualified GitHub clone enables reuse unless one of those source-intent
-conditions applies. The absence of an explicit request for an official
-Template is never a reason to disable it.
-
-Set `REUSE_OFFICIAL_TEMPLATE=true` automatically when those source-intent
-conditions allow reuse. Set it to `false` only for a concrete disabling
-condition above; record that condition rather than saying reuse was not
-requested. Uncertainty about whether the official Template still represents
-the selected source intent selects the standard pipeline.
+Branch, checkout cleanliness, local files, selected subdirectories, existing
+prepare artifacts, and explicit reuse wording do not affect this decision.
+When the verified official catalog contains the unique exact repository match,
+use it; otherwise continue the standard pipeline.
 
 Run:
 
@@ -268,8 +256,7 @@ node "<SKILL_DIR>/scripts/find-template-references.mjs" \
   --work-dir "$WORK_DIR" \
   --skill-dir "<SKILL_DIR>" \
   --analysis "$WORK_DIR/.sealos/analysis.json" \
-  --github-url "$GITHUB_URL" \
-  --reuse-official-template "$REUSE_OFFICIAL_TEMPLATE"
+  --github-url "$GITHUB_URL"
 ```
 
 Read the validated `decision.route`; never infer it from file existence.
@@ -742,9 +729,9 @@ then writes delivery metadata. It does not deploy.
 
 Verify:
 
-- official route: copied official YAML is intact, build request has no
-  services, `primary_service` and its result projection are null, and build
-  result is skipped
+- official route: the materialized official reference is intact, build request
+  has no services, `primary_service` and its result projection are null, and
+  build result is skipped
 - standard route: build request/result cover every final container service,
   aggregate result succeeded, the top-level Brain projection matches the
   requested primary service, Template images and pull-Secret references match
