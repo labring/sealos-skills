@@ -1,7 +1,7 @@
 ---
 name: sealos
 description: "Deploy projects to Sealos Cloud, prepare Docker artifacts, convert Compose files, assess cloud readiness, build Sealos Desktop apps, connect databases, or use Sealos S3 object storage."
-argument-hint: "[deploy|database|s3|app|assess|dockerfile|compose] [path-or-url]"
+argument-hint: "[deploy|database|s3|canvas|app|assess|dockerfile|compose] [path-or-url]"
 parameters:
   - name: task
     type: string
@@ -18,6 +18,7 @@ Use this command as the Claude Code and compatible plugin entry point for Sealos
 - Deploy, update, or publish a local/GitHub project to Sealos Cloud → `sealos-deploy`
 - Create, connect, or manage a Sealos Cloud database for local development or Devbox → `sealos-database`
 - Create, connect, or operate Sealos S3-compatible object storage → `sealos-s3`
+- View resources created by a previous deployment in a local read-only canvas → `sealos-canvas`
 - Build or adapt a Sealos Desktop app with the Sealos app SDK → `sealos-app-builder`
 - Assess whether a project is cloud-native/container-ready → `cloud-native-readiness`
 - Generate or fix Docker packaging → `dockerfile-skill`

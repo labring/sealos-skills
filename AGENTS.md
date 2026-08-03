@@ -93,18 +93,21 @@ Root `skills/**` is the only skill source for every host. Do not add a second pa
 - `.codex-plugin/plugin.json` — Codex plugin manifest pointing to root `skills/`.
 - `.agents/plugins/marketplace.json` — local Codex marketplace entry for the Sealos plugin.
 - `.claude-plugin/plugin.json` — Claude Code-compatible plugin manifest.
+- `.qoder-plugin/plugin.json` — Qoder plugin manifest pointing to the complete root skill inventory.
 - `marketplace.json` and `.claude-plugin/marketplace.json` — Claude-compatible marketplace entries.
 - `.codebuddy-plugin/marketplace.json` — CodeBuddy marketplace entry.
 - `commands/sealos.md` — `/sealos` plugin command entry for Claude-compatible hosts.
+- `qoder.md` — Qoder plugin-level routing and safety instructions.
 - `gemini-extension.json` — Gemini CLI extension manifest using `CLAUDE.md` as context.
 - `qwen-extension.json` — Qwen Code extension manifest using `CLAUDE.md` as context.
 - `openclaw.plugin.json` — OpenClaw / ClawHub bundle pointer.
 - `distribution/platforms.json` — platform support registry and support-claim scope.
 - `marketplaces/README.md` — maintainer notes for marketplace files.
 - `scripts/validate-codex-plugin.py` — Codex plugin validation script.
+- `scripts/package-qoder-plugin.py` — Qoder plugin ZIP packager.
 - `CLAUDE.md` — shared context file for Claude-compatible and context-only hosts.
 
-Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts. Keep `/sealos-deploy`, `/sealos-database`, and `/sealos-s3` examples only in direct `skills.sh` sections.
+Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts and Qoder. Keep `/sealos-deploy`, `/sealos-database`, and `/sealos-s3` examples only in direct `skills.sh` sections.
 
 ### Deployment pipeline (sealos-deploy)
 
@@ -131,10 +134,13 @@ State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.j
 - `.codex-plugin/plugin.json` — Codex plugin manifest pointing to root `skills/`
 - `.agents/plugins/marketplace.json` — local Codex marketplace entry for the Sealos plugin
 - `.claude-plugin/plugin.json` — Claude Code-compatible plugin manifest
+- `.qoder-plugin/plugin.json` — Qoder plugin manifest
 - `commands/sealos.md` — `/sealos` command route for plugin hosts
+- `qoder.md` — Qoder plugin routing and safety instructions
 - `distribution/platforms.json` — platform support registry and evidence
 - `marketplaces/README.md` — marketplace ownership and support-claim rules
 - `scripts/validate-codex-plugin.py` — Codex plugin validation script
+- `scripts/package-qoder-plugin.py` — Qoder plugin ZIP packager
 
 ## Engineering Rules
 
