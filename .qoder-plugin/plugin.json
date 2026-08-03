@@ -1,0 +1,39 @@
+{
+  "name": "sealos",
+  "version": "1.2.0",
+  "description": "Deploy projects to Sealos Cloud, connect databases and S3 object storage, inspect deployed resources, and build Sealos Desktop apps.",
+  "displayName": "Sealos",
+  "author": {
+    "name": "Sealos"
+  },
+  "keywords": [
+    "sealos",
+    "sealos-cloud",
+    "deployment",
+    "docker",
+    "kubernetes",
+    "database",
+    "object-storage",
+    "s3"
+  ],
+  "homepage": "https://sealos.io/",
+  "repository": "https://github.com/labring/sealos-skills",
+  "license": "MIT",
+  "skills": [
+    "./skills/sealos-deploy",
+    "./skills/sealos-database",
+    "./skills/sealos-s3",
+    "./skills/sealos-canvas",
+    "./skills/sealos-app-builder",
+    "./skills/cloud-native-readiness",
+    "./skills/dockerfile-skill",
+    "./skills/docker-to-sealos"
+  ],
+  "commands": {
+    "sealos": {
+      "source": "./commands/sealos.md",
+      "description": "Deploy to Sealos Cloud or use Sealos databases, object storage, canvas, and app-building workflows.",
+      "argumentHint": "[deploy|database|s3|canvas|app|assess|dockerfile|compose] [path-or-url]"
+    }
+  }
+}

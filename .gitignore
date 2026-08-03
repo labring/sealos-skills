@@ -7,6 +7,9 @@ skills/sealos-deploy-workspace/
 
 docs
 
+# Local plugin packages
+dist/
+
 # Local agent install artifacts; keep repo marketplace metadata tracked
 .agents/*
 !.agents/plugins/

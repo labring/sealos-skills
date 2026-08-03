@@ -29,6 +29,17 @@
       "lastVerified": "2026-06-16"
     },
     {
+      "id": "qoder",
+      "name": "Qoder",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "Run python3 scripts/package-qoder-plugin.py, then import dist/sealos-1.2.0.zip in Qoder",
+      "invoke": "/sealos or ask Qoder to use a specific Sealos skill",
+      "commands": "supported",
+      "evidence": ".qoder-plugin/plugin.json + qoder.md + commands/sealos.md + root skills/** + local package validation",
+      "lastVerified": "2026-08-03"
+    },
+    {
       "id": "clawhub-openclaw",
       "name": "OpenClaw / ClawHub",
       "claim": "install-target",
