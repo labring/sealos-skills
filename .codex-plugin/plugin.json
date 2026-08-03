@@ -1,7 +1,7 @@
 {
   "name": "sealos",
   "version": "1.2.0",
-  "description": "Sealos deployment, database, object storage, and app-building skills for Codex.",
+  "description": "Sealos deployment-YAML preparation, database, object storage, and app-building skills for Codex.",
   "author": {
     "name": "Sealos",
     "url": "https://sealos.io/"
@@ -26,8 +26,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Sealos",
-    "shortDescription": "Deploy apps and connect Sealos cloud services",
-    "longDescription": "Use Sealos in Codex to assess cloud-native readiness, generate production Dockerfiles, build or reuse container images, convert Docker Compose services into Sealos templates, deploy and update workloads on Sealos Cloud, connect cloud databases, configure S3-compatible object storage, and build Sealos Desktop apps with SDK integration guidance. The plugin bundles Sealos Agent Skills under ./skills/ and is invoked as $sealos in Codex or /sealos in Claude Code-compatible hosts.",
+    "shortDescription": "Prepare app YAML and connect Sealos cloud services",
+    "longDescription": "Use Sealos in Codex to assess cloud-native readiness, generate production Dockerfiles, build or reuse container images, and convert project topology into validated Sealos deployment YAML. The sealos-deploy skill stops after Phase 4 and does not deploy or update workloads. The plugin can also connect cloud databases, configure S3-compatible object storage, and build Sealos Desktop apps with SDK integration guidance. The plugin bundles Sealos Agent Skills under ./skills/ and is invoked as $sealos in Codex or /sealos in Claude Code-compatible hosts.",
     "developerName": "Sealos",
     "category": "Coding",
     "capabilities": [
@@ -39,8 +39,8 @@
     "privacyPolicyURL": "https://sealos.io/docs/msa/privacy-policy/",
     "termsOfServiceURL": "https://sealos.io/docs/msa/terms-of-service/",
     "defaultPrompt": [
-      "Deploy this repo to Sealos Cloud.",
-      "Containerize this app and deploy it to Sealos.",
+      "Prepare a Sealos deployment YAML for this repo.",
+      "Containerize this app and prepare its Sealos YAML.",
       "Create private S3 object storage and wire env vars."
     ],
     "brandColor": "#15B8A6",

@@ -1,821 +1,223 @@
 #!/usr/bin/env node
 
-import fs from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const SCHEMA_DIR = path.join(__dirname, '..', 'schemas')
-const OFFICIAL_TEMPLATE_CATALOG = 'https://github.com/labring-actions/templates.git'
-const OFFICIAL_TEMPLATE_CATALOG_REF = 'kb-0.9'
-const DEPLOYMENT_TEMPLATE_PATH = '.sealos/template/index.yaml'
+const scriptDir = path.dirname(fileURLToPath(import.meta.url))
+const schemaDir = path.join(scriptDir, '..', 'schemas')
 
-const SCHEMA_FILES = {
-  config: 'config.schema.json',
+const schemaFiles = {
+  'analysis-phase-0': 'analysis-phase-0.schema.json',
+  'analysis-phase-1': 'analysis-phase-1.schema.json',
   analysis: 'analysis.schema.json',
+  config: 'config.schema.json',
+  'deployment-plan': 'deployment-plan.schema.json',
   'build-result': 'build-result.schema.json',
-  state: 'state.schema.json',
-  'template-references': 'template-references.schema.json',
 }
 
-function isPlainObject(value) {
+const stages = {
+  'phase-0': { analysisKind: 'analysis-phase-0', requirePlan: false, requireBuild: false },
+  'phase-1': { analysisKind: 'analysis-phase-1', requirePlan: false, requireBuild: false },
+  'phase-2': { analysisKind: 'analysis', requirePlan: true, requireBuild: false },
+  'phase-3': { analysisKind: 'analysis', requirePlan: true, requireBuild: true },
+}
+
+const officialTemplatePointer = '.sealos/phase-1/official-template.yaml'
+
+function isPlainObject (value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function isIsoDateTime(value) {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value))
-}
-
-function formatPath(pointer, suffix = '') {
-  return `${pointer}${suffix}`
-}
-
-function pushError(errors, pointer, message) {
+function addError (errors, pointer, message) {
   errors.push({ path: pointer, message })
 }
 
-function validateType(expectedType, value) {
-  switch (expectedType) {
-    case 'object':
-      return isPlainObject(value)
-    case 'array':
-      return Array.isArray(value)
-    case 'string':
-      return typeof value === 'string'
-    case 'integer':
-      return Number.isInteger(value)
-    case 'number':
-      return typeof value === 'number' && Number.isFinite(value)
-    case 'boolean':
-      return typeof value === 'boolean'
-    case 'null':
-      return value === null
-    default:
-      return false
-  }
+function valueMatchesType (expected, value) {
+  if (Array.isArray(expected)) return expected.some(type => valueMatchesType(type, value))
+  if (expected === 'null') return value === null
+  if (expected === 'array') return Array.isArray(value)
+  if (expected === 'object') return isPlainObject(value)
+  if (expected === 'string') return typeof value === 'string'
+  if (expected === 'integer') return Number.isInteger(value)
+  if (expected === 'number') return typeof value === 'number' && Number.isFinite(value)
+  if (expected === 'boolean') return typeof value === 'boolean'
+  return false
 }
 
-function validateAgainstSchema(schema, value, pointer = '$', errors = []) {
+function resolveReference (reference, rootSchema) {
+  if (!reference.startsWith('#/')) throw new Error(`Unsupported schema reference: ${reference}`)
+  const target = reference.slice(2).split('/').reduce((current, key) => (
+    current?.[key.replaceAll('~1', '/').replaceAll('~0', '~')]
+  ), rootSchema)
+  if (!isPlainObject(target)) throw new Error(`Unresolved schema reference: ${reference}`)
+  return target
+}
+
+function validateSchema (schema, value, pointer, errors, rootSchema) {
+  if (schema.$ref) {
+    validateSchema(resolveReference(schema.$ref, rootSchema), value, pointer, errors, rootSchema)
+    return
+  }
+
   if (schema.anyOf) {
-    const branches = schema.anyOf.map((candidate) => {
-      const branchErrors = []
-      validateAgainstSchema(candidate, value, pointer, branchErrors)
-      return branchErrors
+    const matches = schema.anyOf.some(candidate => {
+      const candidateErrors = []
+      validateSchema(candidate, value, pointer, candidateErrors, rootSchema)
+      return candidateErrors.length === 0
     })
-
-    if (!branches.some((branchErrors) => branchErrors.length === 0)) {
-      pushError(errors, pointer, 'does not match any allowed schema')
-    }
-    return errors
+    if (!matches) addError(errors, pointer, 'does not match an allowed schema')
+    return
   }
 
-  if (schema.oneOf) {
-    const branches = schema.oneOf.map((candidate) => {
-      const branchErrors = []
-      validateAgainstSchema(candidate, value, pointer, branchErrors)
-      return branchErrors
-    })
-    const validCount = branches.filter((branchErrors) => branchErrors.length === 0).length
-    if (validCount !== 1) {
-      pushError(errors, pointer, `expected exactly one schema match, got ${validCount}`)
-    }
-    return errors
-  }
-
-  if (Object.prototype.hasOwnProperty.call(schema, 'const') && value !== schema.const) {
-    pushError(errors, pointer, `must equal ${JSON.stringify(schema.const)}`)
-    return errors
+  if (Object.hasOwn(schema, 'const') && value !== schema.const) {
+    addError(errors, pointer, `must equal ${JSON.stringify(schema.const)}`)
+    return
   }
 
   if (schema.enum && !schema.enum.includes(value)) {
-    pushError(errors, pointer, `must be one of ${schema.enum.join(', ')}`)
-    return errors
+    addError(errors, pointer, `must be one of ${schema.enum.join(', ')}`)
+    return
   }
 
-  if (schema.type && !validateType(schema.type, value)) {
-    pushError(errors, pointer, `must be of type ${schema.type}`)
-    return errors
+  if (schema.type && !valueMatchesType(schema.type, value)) {
+    addError(errors, pointer, `must be of type ${Array.isArray(schema.type) ? schema.type.join(' or ') : schema.type}`)
+    return
   }
 
-  switch (schema.type) {
-    case 'object':
-      validateObjectSchema(schema, value, pointer, errors)
-      break
-    case 'array':
-      validateArraySchema(schema, value, pointer, errors)
-      break
-    case 'string':
-      validateStringSchema(schema, value, pointer, errors)
-      break
-    case 'integer':
-    case 'number':
-      validateNumberSchema(schema, value, pointer, errors)
-      break
-    default:
-      break
-  }
-
-  return errors
+  if (isPlainObject(value)) validateObject(schema, value, pointer, errors, rootSchema)
+  if (Array.isArray(value)) validateArray(schema, value, pointer, errors, rootSchema)
+  if (typeof value === 'string') validateString(schema, value, pointer, errors)
+  if (typeof value === 'number') validateNumber(schema, value, pointer, errors)
 }
 
-function validateObjectSchema(schema, value, pointer, errors) {
+function validateObject (schema, value, pointer, errors, rootSchema) {
   const keys = Object.keys(value)
-
-  if (schema.required) {
-    for (const requiredKey of schema.required) {
-      if (!Object.prototype.hasOwnProperty.call(value, requiredKey)) {
-        pushError(errors, pointer, `missing required property ${requiredKey}`)
-      }
-    }
+  for (const key of schema.required || []) {
+    if (!Object.hasOwn(value, key)) addError(errors, pointer, `missing required property ${key}`)
   }
-
   if (typeof schema.minProperties === 'number' && keys.length < schema.minProperties) {
-    pushError(errors, pointer, `must have at least ${schema.minProperties} properties`)
+    addError(errors, pointer, `must have at least ${schema.minProperties} properties`)
   }
 
   const properties = schema.properties || {}
-  const patternProperties = schema.patternProperties || {}
-  const compiledPatterns = Object.entries(patternProperties).map(([pattern, childSchema]) => ({
-    regex: new RegExp(pattern),
-    schema: childSchema,
+  const patterns = Object.entries(schema.patternProperties || {}).map(([pattern, child]) => ({
+    expression: new RegExp(pattern),
+    schema: child,
   }))
 
-  for (const [key, childValue] of Object.entries(value)) {
-    const childPointer = formatPath(pointer, `.${key}`)
-
-    if (Object.prototype.hasOwnProperty.call(properties, key)) {
-      validateAgainstSchema(properties[key], childValue, childPointer, errors)
+  for (const [key, child] of Object.entries(value)) {
+    const childPointer = `${pointer}.${key}`
+    if (Object.hasOwn(properties, key)) {
+      validateSchema(properties[key], child, childPointer, errors, rootSchema)
       continue
     }
-
-    const matched = compiledPatterns.filter(({ regex }) => regex.test(key))
-    if (matched.length > 0) {
-      for (const candidate of matched) {
-        validateAgainstSchema(candidate.schema, childValue, childPointer, errors)
-      }
+    const matches = patterns.filter(pattern => pattern.expression.test(key))
+    if (matches.length > 0) {
+      for (const match of matches) validateSchema(match.schema, child, childPointer, errors, rootSchema)
       continue
     }
-
-    if (schema.additionalProperties === false) {
-      pushError(errors, childPointer, 'is not allowed')
-      continue
-    }
-
+    if (schema.additionalProperties === false) addError(errors, childPointer, 'is not allowed')
     if (isPlainObject(schema.additionalProperties)) {
-      validateAgainstSchema(schema.additionalProperties, childValue, childPointer, errors)
+      validateSchema(schema.additionalProperties, child, childPointer, errors, rootSchema)
     }
   }
 }
 
-function validateArraySchema(schema, value, pointer, errors) {
+function validateArray (schema, value, pointer, errors, rootSchema) {
   if (typeof schema.minItems === 'number' && value.length < schema.minItems) {
-    pushError(errors, pointer, `must contain at least ${schema.minItems} items`)
+    addError(errors, pointer, `must contain at least ${schema.minItems} items`)
   }
-
-  if (typeof schema.maxItems === 'number' && value.length > schema.maxItems) {
-    pushError(errors, pointer, `must contain at most ${schema.maxItems} items`)
-  }
-
-  if (schema.uniqueItems) {
-    const seen = new Set()
-    for (let index = 0; index < value.length; index++) {
-      const encoded = JSON.stringify(value[index])
-      if (seen.has(encoded)) {
-        pushError(errors, formatPath(pointer, `[${index}]`), 'must be unique')
-      }
-      seen.add(encoded)
-    }
-  }
-
   if (schema.items) {
-    for (let index = 0; index < value.length; index++) {
-      validateAgainstSchema(schema.items, value[index], formatPath(pointer, `[${index}]`), errors)
-    }
+    value.forEach((item, index) => validateSchema(schema.items, item, `${pointer}[${index}]`, errors, rootSchema))
   }
 }
 
-function validateStringSchema(schema, value, pointer, errors) {
+function validateString (schema, value, pointer, errors) {
   if (typeof schema.minLength === 'number' && value.length < schema.minLength) {
-    pushError(errors, pointer, `must be at least ${schema.minLength} characters long`)
+    addError(errors, pointer, `must be at least ${schema.minLength} characters long`)
   }
-
-  if (schema.pattern && !(new RegExp(schema.pattern).test(value))) {
-    pushError(errors, pointer, `must match pattern ${schema.pattern}`)
+  if (schema.pattern && !new RegExp(schema.pattern).test(value)) {
+    addError(errors, pointer, `must match pattern ${schema.pattern}`)
   }
-
-  if (schema.format === 'date-time' && !isIsoDateTime(value)) {
-    pushError(errors, pointer, 'must be a valid ISO 8601 date-time')
+  if (schema.format === 'date-time' && Number.isNaN(Date.parse(value))) {
+    addError(errors, pointer, 'must be a valid ISO 8601 date-time')
   }
 }
 
-function validateNumberSchema(schema, value, pointer, errors) {
+function validateNumber (schema, value, pointer, errors) {
   if (typeof schema.minimum === 'number' && value < schema.minimum) {
-    pushError(errors, pointer, `must be >= ${schema.minimum}`)
+    addError(errors, pointer, `must be >= ${schema.minimum}`)
   }
-
   if (typeof schema.maximum === 'number' && value > schema.maximum) {
-    pushError(errors, pointer, `must be <= ${schema.maximum}`)
+    addError(errors, pointer, `must be <= ${schema.maximum}`)
   }
 }
 
-function resolveLocalRefs(schema, rootSchema) {
-  if (Array.isArray(schema)) {
-    return schema.map((item) => resolveLocalRefs(item, rootSchema))
-  }
-  if (!isPlainObject(schema)) {
-    return schema
-  }
-
-  if (typeof schema.$ref === 'string') {
-    if (!schema.$ref.startsWith('#/')) {
-      throw new Error(`Unsupported schema reference: ${schema.$ref}`)
-    }
-
-    const target = schema.$ref
-      .slice(2)
-      .split('/')
-      .map((segment) => segment.replaceAll('~1', '/').replaceAll('~0', '~'))
-      .reduce((current, segment) => current?.[segment], rootSchema)
-
-    if (!isPlainObject(target)) {
-      throw new Error(`Unresolved schema reference: ${schema.$ref}`)
-    }
-
-    const siblings = Object.fromEntries(
-      Object.entries(schema).filter(([key]) => key !== '$ref'),
-    )
-    return resolveLocalRefs({ ...target, ...siblings }, rootSchema)
-  }
-
-  return Object.fromEntries(
-    Object.entries(schema).map(([key, value]) => [key, resolveLocalRefs(value, rootSchema)]),
-  )
+function loadSchema (kind) {
+  const file = schemaFiles[kind]
+  if (!file) throw new Error(`Unknown artifact kind: ${kind}`)
+  return JSON.parse(fs.readFileSync(path.join(schemaDir, file), 'utf8'))
 }
 
-function loadSchema(kind) {
-  const fileName = SCHEMA_FILES[kind]
-  if (!fileName) {
-    throw new Error(`Unknown artifact kind: ${kind}`)
+function validateAnalysisSemantics (data, errors) {
+  if (!path.isAbsolute(data.work_dir)) addError(errors, '$.work_dir', 'must be an absolute path')
+  if (typeof data.github_url === 'string' && !/^https:\/\/github\.com\/[^/]+\/[^/]+\/?$/i.test(data.github_url)) {
+    addError(errors, '$.github_url', 'must be a GitHub repository URL or null')
   }
-
-  const schema = JSON.parse(fs.readFileSync(path.join(SCHEMA_DIR, fileName), 'utf-8'))
-  return resolveLocalRefs(schema, schema)
-}
-
-function isImmutableImageRef(value) {
-  return typeof value === 'string' && /@sha256:[a-fA-F0-9]{64}$/.test(value)
-}
-
-function hasImageSelector(value) {
-  if (isImmutableImageRef(value)) return true
-  if (typeof value !== 'string') return false
-  return value.lastIndexOf(':') > value.lastIndexOf('/')
-}
-
-function imageRepository(value) {
-  const withoutDigest = value.split('@', 1)[0]
-  const lastSlash = withoutDigest.lastIndexOf('/')
-  const lastColon = withoutDigest.lastIndexOf(':')
-  return lastColon > lastSlash ? withoutDigest.slice(0, lastColon) : withoutDigest
-}
-
-function supportsLinuxAmd64(platforms) {
-  return Array.isArray(platforms) && platforms.some((platform) => (
-    typeof platform === 'string'
-    && (platform === 'linux/amd64' || platform.startsWith('linux/amd64/'))
-  ))
-}
-
-function validateAnalysisSemantics(data, errors) {
-  const dimensionTotal = Object.values(data.score.dimensions).reduce((sum, value) => sum + value, 0)
-  const rawScore = data.score.raw_score ?? dimensionTotal
-  const bonus = data.score.bonus ?? 0
-  if (rawScore !== dimensionTotal) {
-    pushError(errors, '$.score.raw_score', `must equal the sum of score.dimensions (${dimensionTotal})`)
-  }
-  const expectedTotal = Math.min(12, rawScore + bonus)
-  if (data.score.total !== expectedTotal) {
-    pushError(
-      errors,
-      '$.score.total',
-      `must equal min(12, score.raw_score + score.bonus) (${expectedTotal})`,
-    )
-  }
-
-  if (typeof data.image_ref === 'string' && !hasImageSelector(data.image_ref)) {
-    pushError(errors, '$.image_ref', 'must include a tag or immutable digest')
-  }
-
-  const verifiedApplicationRefs = new Set()
-  for (let index = 0; index < data.image_inventory.length; index += 1) {
-    const image = data.image_inventory[index]
-    const pointer = `$.image_inventory[${index}]`
-
-    if (image.status === 'verified') {
-      if (!isImmutableImageRef(image.image_ref)) {
-        pushError(errors, `${pointer}.image_ref`, 'verified images must use an immutable sha256 digest')
-      }
-      if (image.digest === null || image.image_ref !== `${image.image}@${image.digest}`) {
-        pushError(errors, `${pointer}.digest`, 'must match the immutable image_ref')
-      }
-      if (image.error !== null) {
-        pushError(errors, `${pointer}.error`, 'must be null for a verified image')
-      }
-      if (image.role === 'application' && image.image_ref !== null) {
-        verifiedApplicationRefs.add(image.image_ref)
-      }
-    } else {
-      if (image.digest !== null || image.image_ref !== null) {
-        pushError(errors, pointer, 'unverified images must not expose a deployable digest reference')
-      }
-      if (image.error === null) {
-        pushError(errors, `${pointer}.error`, 'must explain why the image is not verified')
-      }
-    }
-  }
-
-  if (
-    typeof data.image_ref === 'string'
-    && verifiedApplicationRefs.size > 0
-    && !verifiedApplicationRefs.has(data.image_ref)
-  ) {
-    pushError(errors, '$.image_ref', 'must match a verified application image from image_inventory')
-  }
-  if (data.image_ref === null && verifiedApplicationRefs.size === 1) {
-    pushError(errors, '$.image_ref', 'must record the single verified application image')
-  }
-
-  const serviceNames = new Set()
-  for (let index = 0; index < data.service_inventory.length; index += 1) {
-    const service = data.service_inventory[index]
-    const pointer = `$.service_inventory[${index}]`
-    if (serviceNames.has(service.name)) {
-      pushError(errors, `${pointer}.name`, 'must be unique')
-    }
-    serviceNames.add(service.name)
-
-    if (service.image_status === 'verified' || service.image_status === 'built') {
-      if (!isImmutableImageRef(service.image_ref)) {
-        pushError(errors, `${pointer}.image_ref`, 'deployable service images must use an immutable sha256 digest')
-      }
-      if (service.digest === null || service.image_ref !== `${service.image_ref?.split('@')[0]}@${service.digest}`) {
-        pushError(errors, `${pointer}.digest`, 'must match the immutable image_ref')
-      }
-      if (service.image_status === 'built' && !supportsLinuxAmd64(service.platforms || [])) {
-        pushError(errors, `${pointer}.platforms`, 'locally built service images must target linux/amd64')
-      }
-    }
-
-    if (service.image_status === 'build_required' && service.build === null) {
-      pushError(errors, `${pointer}.build`, 'must define the per-service build plan when image_status is build_required')
-    }
-    if (
-      service.image_status === 'built'
-      && (service.build === null || service.build.origin === null)
-    ) {
-      pushError(errors, `${pointer}.build`, 'built services must retain the effective build plan and its origin')
-    }
+  if (typeof data.official_template === 'string' && data.official_template !== officialTemplatePointer) {
+    addError(errors, '$.official_template', 'must point to the saved official template or be null')
   }
 }
 
-function validateBuildResultSemantics(data, errors) {
-  const startedAt = Date.parse(data.build.started_at)
-  const finishedAt = Date.parse(data.finished_at)
-
-  if (!Number.isNaN(startedAt) && !Number.isNaN(finishedAt) && finishedAt < startedAt) {
-    pushError(errors, '$.finished_at', 'must not be earlier than build.started_at')
+function validateBuildResultSemantics (data, errors) {
+  const digestKeys = Object.keys(data.digests)
+  const accessKeys = Object.keys(data.pull_access)
+  if (digestKeys.length !== accessKeys.length || digestKeys.some(key => !Object.hasOwn(data.pull_access, key))) {
+    addError(errors, '$.pull_access', 'must contain exactly the digest service keys')
   }
-
-  if (!data.push.remote_image.startsWith('ghcr.io/')) {
-    pushError(errors, '$.push.remote_image', 'must be a GHCR image')
-  }
-
-  if (data.push.remote_image.lastIndexOf(':') <= data.push.remote_image.lastIndexOf('/')) {
-    pushError(errors, '$.push.remote_image', 'must include an explicit image tag')
-  }
-
-  if (data.outcome === 'success') {
-    if (!isImmutableImageRef(data.push.image_ref)) {
-      pushError(errors, '$.push.image_ref', 'must use an immutable sha256 digest')
-    }
-    if (data.push.image_ref !== `${imageRepository(data.push.remote_image)}@${data.push.digest}`) {
-      pushError(errors, '$.push.image_ref', 'must match remote_image repository and push.digest')
-    }
-    if (!supportsLinuxAmd64(data.push.platforms)) {
-      pushError(errors, '$.push.platforms', 'must include linux/amd64')
-    }
+  for (const [service, image] of Object.entries(data.digests)) {
+    if (!image.startsWith('ghcr.io/')) addError(errors, `$.digests.${service}`, 'must use GHCR')
   }
 }
 
-function validateStateSemantics(data, errors) {
-  const { last_deploy: lastDeploy, history } = data
-  const hasServiceMap = Array.isArray(lastDeploy.services)
-  const services = hasServiceMap ? lastDeploy.services : []
-  const legacyHistoryCount = data.version === '1.1'
-    ? (data.legacy_history_count || 0)
-    : 0
-  const targetKey = (value) => [
-    value.workload_kind,
-    value.workload_name,
-    value.container_name,
-  ].join('/')
-
-  if (data.version === '1.1' && !hasServiceMap) {
-    pushError(errors, '$.last_deploy.services', 'state version 1.1 must include its updateable service target map, which may be empty')
-  }
-  if (
-    data.version === '1.1'
-    && legacyHistoryCount > history.length
-  ) {
-    pushError(errors, '$.legacy_history_count', 'must not exceed the number of preserved history entries')
-  }
-  if (
-    data.version === '1.0'
-    && Object.prototype.hasOwnProperty.call(data, 'legacy_history_count')
-  ) {
-    pushError(errors, '$.legacy_history_count', 'is valid only on a version 1.1 state migrated from version 1.0')
-  }
-  if (
-    data.version === '1.1'
-    && Object.prototype.hasOwnProperty.call(lastDeploy, 'docker_hub_user')
-  ) {
-    pushError(errors, '$.last_deploy.docker_hub_user', 'is accepted only when reading legacy version 1.0 state')
-  }
-
-  if (data.version === '1.0') {
-    for (const field of ['app_host', 'image', 'url']) {
-      if (lastDeploy[field] === null) {
-        pushError(errors, `$.last_deploy.${field}`, 'must not be null in version 1.0 state')
-      }
-    }
-  }
-
-  if (hasServiceMap) {
-    const primaryServices = services.filter(service => service.primary === true)
-    if (primaryServices.length > 1) {
-      pushError(errors, '$.last_deploy.services', `must contain at most one primary service, got ${primaryServices.length}`)
-    } else if (primaryServices.length === 0) {
-      if (data.version === '1.1' && lastDeploy.image !== null) {
-        pushError(errors, '$.last_deploy.image', 'must be null when the version 1.1 service map has no primary target')
-      }
-    } else if (lastDeploy.image !== primaryServices[0].image) {
-      pushError(errors, '$.last_deploy.image', 'must match the image of the primary service')
-    }
-
-    const seenTargets = new Set()
-    const authenticatedGhcrNamespaces = new Set()
-    for (let index = 0; index < services.length; index++) {
-      const service = services[index]
-      const key = targetKey(service)
-      if (seenTargets.has(key)) {
-        pushError(errors, `$.last_deploy.services[${index}]`, 'workload kind/name/container target must be unique')
-      }
-      seenTargets.add(key)
-
-      if (!isImmutableImageRef(service.image)) {
-        pushError(errors, `$.last_deploy.services[${index}].image`, 'must use an immutable sha256 digest')
-      }
-      if (service.pull_access !== 'anonymous') {
-        const repository = service.image.split('@', 1)[0]
-        const parts = repository.split('/')
-        if (parts[0]?.toLowerCase() !== 'ghcr.io' || !parts[1] || !parts[2]) {
-          pushError(errors, `$.last_deploy.services[${index}].pull_access`, 'authenticated or indeterminate Phase 4 pull access requires a namespaced GHCR image')
-        } else {
-          authenticatedGhcrNamespaces.add(parts[1].toLowerCase())
-        }
-      }
-    }
-    if (authenticatedGhcrNamespaces.size > 1) {
-      pushError(errors, '$.last_deploy.services', 'all authenticated or indeterminate GHCR images must use one normalized namespace for the app-scoped pull Secret')
-    }
-  }
-
-  if (history[0]?.action !== 'deploy') {
-    pushError(errors, '$.history[0].action', 'the first history entry must be deploy')
-  }
-
-  if (history[0]?.status !== 'success') {
-    pushError(errors, '$.history[0].status', 'the first history entry must be successful')
-  }
-
-  const deployedAt = Date.parse(lastDeploy.deployed_at)
-  const updatedAt = Date.parse(lastDeploy.last_updated_at)
-  if (!Number.isNaN(deployedAt) && !Number.isNaN(updatedAt) && updatedAt < deployedAt) {
-    pushError(errors, '$.last_deploy.last_updated_at', 'must not be earlier than deployed_at')
-  }
-
-  if (lastDeploy.url !== null) {
-    try {
-      const host = new URL(lastDeploy.url).hostname
-      if (!host.endsWith(`.${lastDeploy.region}`)) {
-        pushError(errors, '$.last_deploy.url', 'hostname must end with .<region>')
-      }
-    } catch {
-      pushError(errors, '$.last_deploy.url', 'must be a valid https URL')
-    }
-  }
-
-  let previousAt = null
-  let latestSuccessfulImage = null
-  const latestSuccessfulTargetImages = new Map()
-  for (let index = 0; index < history.length; index++) {
-    const entry = history[index]
-    const at = Date.parse(entry.at)
-
-    if (previousAt !== null && !Number.isNaN(at) && at < previousAt) {
-      pushError(errors, `$.history[${index}].at`, 'must be in non-decreasing chronological order')
-    }
-    if (!Number.isNaN(at)) {
-      previousAt = at
-    }
-
-    if (entry.action === 'set-image' && entry.image === entry.previous_image) {
-      pushError(errors, `$.history[${index}].image`, 'must differ from previous_image for set-image actions')
-    }
-    const usesVersion11HistoryContract = (
-      data.version === '1.1'
-      && index >= legacyHistoryCount
-    )
-    if (
-      usesVersion11HistoryContract
-      && (entry.action === 'deploy' || entry.action === 'set-image')
-      && entry.image !== null
-      && !isImmutableImageRef(entry.image)
-    ) {
-      pushError(errors, `$.history[${index}].image`, 'must use an immutable sha256 digest in version 1.1 history')
-    }
-    if (
-      usesVersion11HistoryContract
-      && entry.action === 'set-image'
-      && !isImmutableImageRef(entry.previous_image)
-    ) {
-      pushError(errors, `$.history[${index}].previous_image`, 'must use an immutable sha256 digest in version 1.1 history')
-    }
-
-    if (
-      usesVersion11HistoryContract
-      && (entry.action === 'set-image' || entry.action === 'restart')
-    ) {
-      for (const field of ['service', 'workload_kind', 'workload_name', 'container_name']) {
-        if (!entry[field]) {
-          pushError(errors, `$.history[${index}].${field}`, `is required for a version 1.1 ${entry.action} entry`)
-        }
-      }
-      if (
-        entry.action === 'set-image'
-        && entry.status === 'success'
-        && entry.workload_kind
-        && entry.workload_name
-        && entry.container_name
-      ) {
-        latestSuccessfulTargetImages.set(targetKey(entry), entry.image)
-      }
-    }
-
-    if (
-      data.version === '1.0'
-      && (entry.action === 'deploy' || entry.action === 'set-image')
-      && entry.status === 'success'
-    ) {
-      if (entry.image === null) {
-        pushError(errors, `$.history[${index}].image`, 'must not be null in version 1.0 state')
-      } else {
-        latestSuccessfulImage = entry.image
-      }
-    }
-
-  }
-
-  if (
-    data.version === '1.0'
-    && latestSuccessfulImage
-    && latestSuccessfulImage !== lastDeploy.image
-  ) {
-    pushError(errors, '$.last_deploy.image', 'must match the latest successful image-changing history entry')
-  }
-
-  if (data.version === '1.1') {
-    const currentTargets = new Map(services.map(service => [targetKey(service), service]))
-    for (const [key, image] of latestSuccessfulTargetImages) {
-      const current = currentTargets.get(key)
-      if (!current) {
-        pushError(errors, '$.last_deploy.services', `must retain updated target ${key}`)
-      } else if (current.image !== image) {
-        const index = services.indexOf(current)
-        pushError(errors, `$.last_deploy.services[${index}].image`, 'must match the latest successful set-image history entry for this target')
-      }
-    }
+function validateDeploymentPlanSemantics (data, errors) {
+  const value = data.deployment_source
+  if (path.isAbsolute(value) || value.split(/[\\/]+/).includes('..')) {
+    addError(errors, '$.deployment_source', 'must be a work-directory-relative path')
   }
 }
 
-function validateTemplateReferencesSemantics(data, errors) {
-  const exactReferences = data.references.filter((reference) => reference.match === 'exact')
-  const exactCount = exactReferences.length
-  const similarCount = data.references.filter((reference) => reference.match === 'similar').length
-
-  if (data.summary.exact_count !== exactCount) {
-    pushError(errors, '$.summary.exact_count', `must equal the number of exact references (${exactCount})`)
-  }
-  if (data.summary.similar_count !== similarCount) {
-    pushError(errors, '$.summary.similar_count', `must equal the number of similar references (${similarCount})`)
-  }
-  if (similarCount !== 0) {
-    pushError(errors, '$.references', 'version 2.0 does not select similar template references')
-  }
-
-  let sawSimilar = false
-  const catalogPaths = new Set()
-  const referencePaths = new Set()
-
-  for (let index = 0; index < data.references.length; index++) {
-    const reference = data.references[index]
-    const pointer = `$.references[${index}]`
-
-    if (reference.match === 'similar') {
-      sawSimilar = true
-      if (reference.score >= 100) {
-        pushError(errors, `${pointer}.score`, 'must be below 100 for a similar reference')
-      }
-    } else {
-      if (sawSimilar) {
-        pushError(errors, `${pointer}.match`, 'exact references must appear before similar references')
-      }
-      if (reference.score !== 100) {
-        pushError(errors, `${pointer}.score`, 'must equal 100 for an exact reference')
-      }
-      if (reference.git_repo === null) {
-        pushError(errors, `${pointer}.git_repo`, 'must identify a repository for an exact reference')
-      }
-    }
-
-    if (catalogPaths.has(reference.catalog_path)) {
-      pushError(errors, `${pointer}.catalog_path`, 'must be unique')
-    }
-    catalogPaths.add(reference.catalog_path)
-
-    if (referencePaths.has(reference.reference_path)) {
-      pushError(errors, `${pointer}.reference_path`, 'must be unique')
-    }
-    referencePaths.add(reference.reference_path)
-  }
-
-  if (!data.catalog.available) {
-    if (data.catalog.source !== 'unavailable') {
-      pushError(errors, '$.catalog.source', 'must be unavailable when the catalog is unavailable')
-    }
-    if (data.catalog.template_count !== 0) {
-      pushError(errors, '$.catalog.template_count', 'must be zero when the catalog is unavailable')
-    }
-    if (data.catalog.skipped_templates !== 0) {
-      pushError(errors, '$.catalog.skipped_templates', 'must be zero when the catalog is unavailable')
-    }
-    if (data.references.length !== 0) {
-      pushError(errors, '$.references', 'must be empty when the catalog is unavailable')
-    }
-  } else if (data.catalog.source === 'unavailable') {
-    pushError(errors, '$.catalog.source', 'must not be unavailable when the catalog is available')
-  }
-
-  if (data.catalog.stale && data.catalog.source !== 'cache') {
-    pushError(errors, '$.catalog.stale', 'may only be true for a cached catalog')
-  }
-
-  if (data.project.repo_reference === null && exactCount > 0) {
-    pushError(errors, '$.summary.exact_count', 'must be zero when the project repository is unknown')
-  }
-
-  if (data.references.length > data.catalog.template_count) {
-    pushError(errors, '$.references', 'cannot contain more references than parsed catalog templates')
-  }
-
-  const officialCatalog = (
-    data.catalog.repository === OFFICIAL_TEMPLATE_CATALOG
-    && data.catalog.ref === OFFICIAL_TEMPLATE_CATALOG_REF
-  )
-  if (
-    data.catalog.verified_for_reuse
-    && (
-      !data.catalog.available
-      || data.catalog.source !== 'refreshed'
-      || data.catalog.commit === null
-      || !officialCatalog
-    )
-  ) {
-    pushError(
-      errors,
-      '$.catalog.verified_for_reuse',
-      'may be true only for a refreshed official catalog with a concrete commit',
-    )
-  }
-  const shouldDeployOfficialTemplate = (
-    data.decision.reuse_requested
-    && data.catalog.available
-    && officialCatalog
-    && data.catalog.source === 'refreshed'
-    && data.catalog.verified_for_reuse
-    && data.catalog.commit !== null
-    && data.project.repo_subdir === null
-    && exactCount === 1
-  )
-
-  if (shouldDeployOfficialTemplate) {
-    if (data.decision.route !== 'deploy_official_template') {
-      pushError(
-        errors,
-        '$.decision.route',
-        'must deploy the unique exact official template when reuse was requested',
-      )
-    }
-    if (data.decision.reference_name !== exactReferences[0].name) {
-      pushError(
-        errors,
-        '$.decision.reference_name',
-        'must identify the unique exact official template',
-      )
-    }
-    if (data.decision.template_path !== DEPLOYMENT_TEMPLATE_PATH) {
-      pushError(
-        errors,
-        '$.decision.template_path',
-        `must equal ${DEPLOYMENT_TEMPLATE_PATH} for official-template deployment`,
-      )
-    }
-  } else {
-    if (data.decision.route !== 'continue_standard_pipeline') {
-      pushError(
-        errors,
-        '$.decision.route',
-        'must continue the standard pipeline when official-template reuse is not eligible',
-      )
-    }
-    if (data.decision.reference_name !== null) {
-      pushError(
-        errors,
-        '$.decision.reference_name',
-        'must be null when continuing the standard pipeline',
-      )
-    }
-    if (data.decision.template_path !== null) {
-      pushError(
-        errors,
-        '$.decision.template_path',
-        'must be null when continuing the standard pipeline',
-      )
-    }
-  }
-
-  if (data.reason !== data.decision.reason) {
-    pushError(errors, '$.reason', 'must match decision.reason')
-  }
-}
-
-const SEMANTIC_VALIDATORS = {
-  config: () => {},
+const semanticValidators = {
+  'analysis-phase-0': validateAnalysisSemantics,
+  'analysis-phase-1': validateAnalysisSemantics,
   analysis: validateAnalysisSemantics,
+  config: () => {},
+  'deployment-plan': validateDeploymentPlanSemantics,
   'build-result': validateBuildResultSemantics,
-  state: validateStateSemantics,
-  'template-references': validateTemplateReferencesSemantics,
 }
 
-export function inferArtifactKind(filePath) {
-  const baseName = path.basename(filePath)
-  switch (baseName) {
-    case 'config.json':
-      return 'config'
-    case 'analysis.json':
-      return 'analysis'
-    case 'build-result.json':
-      return 'build-result'
-    case 'state.json':
-      return 'state'
-    case 'template-references.json':
-      return 'template-references'
-    default:
-      return null
-  }
+export function inferArtifactKind (filePath) {
+  const normalized = filePath.split(path.sep).join('/')
+  if (normalized.endsWith('/phase-2/deployment-plan.json')) return 'deployment-plan'
+  if (normalized.endsWith('/phase-3/build-result.json')) return 'build-result'
+  if (normalized.endsWith('/analysis.json')) return 'analysis'
+  if (normalized.endsWith('/config.json')) return 'config'
+  return null
 }
 
-export function validateArtifactData(kind, data) {
+export function validateArtifactData (kind, data) {
   const schema = loadSchema(kind)
   const errors = []
-
-  validateAgainstSchema(schema, data, '$', errors)
-  if (errors.length === 0) {
-    SEMANTIC_VALIDATORS[kind](data, errors)
-  }
-
-  return {
-    kind,
-    valid: errors.length === 0,
-    errors,
-  }
+  validateSchema(schema, data, '$', errors, schema)
+  if (errors.length === 0) semanticValidators[kind](data, errors)
+  return { kind, valid: errors.length === 0, errors }
 }
 
-export function validateArtifactFile(kind, filePath) {
-  const raw = fs.readFileSync(filePath, 'utf-8')
+export function validateArtifactFile (kind, filePath) {
   let data
   try {
-    data = JSON.parse(raw)
+    data = JSON.parse(fs.readFileSync(filePath, 'utf8'))
   } catch (error) {
     return {
       kind,
@@ -823,6 +225,115 @@ export function validateArtifactFile(kind, filePath) {
       errors: [{ path: '$', message: `invalid JSON: ${error.message}` }],
     }
   }
-
   return validateArtifactData(kind, data)
+}
+
+function withinDirectory (root, candidate) {
+  const relative = path.relative(root, candidate)
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
+
+function resultForFile (kind, filePath) {
+  if (!fs.existsSync(filePath)) {
+    return { kind, file: filePath, valid: false, errors: [{ path: '$', message: 'file does not exist' }] }
+  }
+  return { kind, file: filePath, ...validateArtifactFile(kind, filePath) }
+}
+
+function resultForOfficialTemplate (workDir) {
+  const filePath = path.resolve(workDir, officialTemplatePointer)
+  if (!withinDirectory(workDir, filePath)) {
+    return {
+      kind: 'official-template',
+      file: filePath,
+      valid: false,
+      errors: [{ path: '$.official_template', message: 'must stay inside work_dir' }],
+    }
+  }
+  if (!fs.existsSync(filePath)) {
+    return {
+      kind: 'official-template',
+      file: filePath,
+      valid: false,
+      errors: [{ path: '$.official_template', message: 'saved official template does not exist' }],
+    }
+  }
+  if (!fs.statSync(filePath).isFile()) {
+    return {
+      kind: 'official-template',
+      file: filePath,
+      valid: false,
+      errors: [{ path: '$.official_template', message: 'saved official template must be a file' }],
+    }
+  }
+  if (!fs.readFileSync(filePath, 'utf8').trim()) {
+    return {
+      kind: 'official-template',
+      file: filePath,
+      valid: false,
+      errors: [{ path: '$.official_template', message: 'saved official template must not be empty' }],
+    }
+  }
+  return { kind: 'official-template', file: filePath, valid: true, errors: [] }
+}
+
+export function validateProjectArtifacts (workDir, stage) {
+  const contract = stages[stage]
+  if (!contract) throw new Error(`Unknown stage: ${stage}`)
+  const absoluteWorkDir = path.resolve(workDir)
+  const sealosDir = path.join(absoluteWorkDir, '.sealos')
+  const analysisPath = path.join(sealosDir, 'analysis.json')
+  const results = [resultForFile(contract.analysisKind, analysisPath)]
+  let analysis = null
+
+  try {
+    analysis = JSON.parse(fs.readFileSync(analysisPath, 'utf8'))
+  } catch {
+    analysis = null
+  }
+
+  if (stage !== 'phase-0' && typeof analysis?.official_template === 'string') {
+    results.push(resultForOfficialTemplate(absoluteWorkDir))
+  }
+
+  if (contract.requirePlan) {
+    const planPath = path.join(sealosDir, 'phase-2', 'deployment-plan.json')
+    const planResult = resultForFile('deployment-plan', planPath)
+    results.push(planResult)
+    if (planResult.valid) {
+      const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'))
+      const sourcePath = path.resolve(absoluteWorkDir, plan.deployment_source)
+      if (!withinDirectory(absoluteWorkDir, sourcePath) || !fs.existsSync(sourcePath)) {
+        planResult.valid = false
+        planResult.errors.push({ path: '$.deployment_source', message: 'must point to an existing path inside work_dir' })
+      }
+      const composeNames = new Set(['compose.yaml', 'compose.yml', 'docker-compose.yaml', 'docker-compose.yml'])
+      if (
+        composeNames.has(path.basename(plan.deployment_source))
+        && plan.deployment_source !== '.sealos/phase-2/docker-compose.yml'
+      ) {
+        planResult.valid = false
+        planResult.errors.push({ path: '$.deployment_source', message: 'must use the canonical Phase 2 Compose path' })
+      }
+    }
+    if (analysis?.deployment_plan !== '.sealos/phase-2/deployment-plan.json') {
+      results[0].valid = false
+      results[0].errors.push({ path: '$.deployment_plan', message: 'must point to the Phase 2 plan' })
+    }
+  }
+
+  if (contract.requireBuild) {
+    const buildPath = path.join(sealosDir, 'phase-3', 'build-result.json')
+    results.push(resultForFile('build-result', buildPath))
+    if (analysis?.build_result !== '.sealos/phase-3/build-result.json') {
+      results[0].valid = false
+      results[0].errors.push({ path: '$.build_result', message: 'must point to the Phase 3 result' })
+    }
+  }
+
+  return {
+    stage,
+    valid: results.every(result => result.valid),
+    results,
+  }
 }

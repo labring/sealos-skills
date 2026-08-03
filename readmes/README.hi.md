@@ -6,9 +6,9 @@
 
 <!-- README-I18N:END -->
 
-अपने AI एजेंट से प्रोजेक्ट को [Sealos Cloud](https://sealos.io) पर डिप्लॉय करें।
+अपने AI एजेंट से [Sealos Cloud](https://sealos.io) डिप्लॉयमेंट YAML तैयार करें।
 
-Sealos Skills एक प्लगइन-प्रथम स्किल पैक है जो Sealos Cloud डेवलपमेंट और डिप्लॉयमेंट पर केंद्रित है। यह AI एजेंट को प्रोजेक्ट का निरीक्षण करने, अनुपलब्ध डिप्लॉयमेंट आर्टिफ़ैक्ट तैयार करने, डेवलपमेंट के लिए Sealos Cloud डेटाबेस और ऑब्जेक्ट स्टोरेज जोड़ने, कंटेनर इमेज बनाने या दोबारा उपयोग करने, ऐप को Sealos Cloud पर प्रकाशित करने और डिप्लॉय किए गए संसाधनों को स्थानीय केवल-पढ़ने योग्य कैनवास में देखने में मदद करता है।
+Sealos Skills एक प्लगइन-प्रथम स्किल पैक है जो Sealos Cloud डेवलपमेंट पर केंद्रित है। यह AI एजेंट को प्रोजेक्ट का निरीक्षण करने, डिप्लॉयमेंट आर्टिफ़ैक्ट और YAML तैयार करने, डेवलपमेंट के लिए Sealos Cloud डेटाबेस और ऑब्जेक्ट स्टोरेज जोड़ने, कंटेनर इमेज बनाने या दोबारा उपयोग करने और डिप्लॉय किए गए संसाधनों को स्थानीय केवल-पढ़ने योग्य कैनवास में देखने में मदद करता है। `sealos-deploy` केवल YAML तैयार करता है। यह Phase 4 के बाद रुकता है और वर्कलोड को डिप्लॉय या अपडेट नहीं करता।
 
 Codex के लिए अनुशंसित तरीका मूल Codex प्लगइन इंस्टॉल करना है। अलग-अलग होस्ट पर प्लगइन इंस्टॉलेशन, `skills.sh`, और Gemini CLI तथा Qwen Code जैसे केवल-कॉन्टेक्स्ट एक्सटेंशन होस्ट एक ही रूट `skills/**` स्रोत का उपयोग करते हैं।
 
@@ -41,9 +41,9 @@ Codex में इंस्टॉल करने के बाद प्लग
 Codex उदाहरण:
 
 ```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
+$sealos prepare a Sealos deployment YAML for this repo
+$sealos prepare a Sealos deployment YAML for /path/to/project
+$sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -72,9 +72,9 @@ npx plugins add https://github.com/labring/sealos-skills
 Claude Code में इंस्टॉल करने के बाद `/sealos` का उपयोग करें:
 
 ```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
+/sealos prepare a Sealos deployment YAML for this repo
+/sealos prepare a Sealos deployment YAML for /path/to/project
+/sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -152,29 +152,29 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## सेटअप कैसे काम करता है
 
-आपको केवल प्लगइन या `skills.sh`-संगत AI एजेंट और डिप्लॉय करने के लिए एक प्रोजेक्ट चाहिए।
+आपको केवल प्लगइन या skills.sh के साथ संगत AI एजेंट और YAML तैयार करने के लिए एक प्रोजेक्ट चाहिए।
 
-डिप्लॉयमेंट, डेटाबेस और ऑब्जेक्ट स्टोरेज प्रवाह के दौरान Sealos Skills:
+YAML तैयारी, डेटाबेस और ऑब्जेक्ट स्टोरेज कार्यों में Sealos Skills यह करता है:
 
-- Docker और `kubectl` जैसे टूल की उपलब्धता जाँचता है
+- Docker और kubectl जैसे टूल को सत्यापित करता है
 - आवश्यकता होने पर उपयोगकर्ता को Sealos लॉगिन में मार्गदर्शन देता है
-- Sealos Cloud डेटाबेस बनाने, कनेक्शन विवरण लेने और डेटाबेस ऑपरेशन चलाने के लिए `sealos-cli` का उपयोग करता है
-- Sealos ऑब्जेक्ट स्टोरेज बकेट, क्रेडेंशियल, कोटा जाँच, ऑब्जेक्ट ऑपरेशन और पहले से साइन किए गए URL के लिए `sealos-cli s3` का उपयोग करता है
-- स्थानीय रूप से बनी `linux/amd64` इमेज को मौजूदा GitHub खाते के GHCR namespace में पुश करता है और Buildx digest तथा pull-access परिणाम को डिप्लॉयमेंट तक पहुँचाता है
+- Sealos Cloud डेटाबेस के लिए sealos-cli उपयोग करता है
+- Sealos ऑब्जेक्ट स्टोरेज के लिए sealos-cli s3 उपयोग करता है
+- आवश्यक linux/amd64 इमेज को GHCR में भेजता है और उनके digest को YAML में उपयोग करता है
 
-वास्तविक डिप्लॉयमेंट के लिए Sealos Cloud खाता चाहिए। GHCR package access वाला प्रमाणित GitHub CLI session केवल तब चाहिए जब चुने गए रास्ते में नई इमेज बनाकर पुश करनी हो। Docker Hub पर मौजूद घोषित इमेज सहित मौजूदा इमेज को immutable digest से फिर भी उपयोग किया जा सकता है। डेटाबेस और ऑब्जेक्ट स्टोरेज कार्य के लिए Sealos Cloud खाता और अनुरोधित संसाधन बनाने में सक्षम workspace चाहिए।
+स्थानीय YAML तैयारी के लिए Sealos Cloud खाता चाहिए। नई इमेज बनाने और भेजने पर ही GitHub CLI प्रमाणीकरण चाहिए। बाद का स्वीकृत डिप्लॉयमेंट वर्कफ़्लो YAML लागू करता है।
 
 ## Sealos Deploy क्या संभालता है
 
-सामान्य डिप्लॉयमेंट में एजेंट:
+YAML तैयारी अनुरोध के लिए एजेंट यह करता है:
 
-- प्रोजेक्ट संरचना और रनटाइम आवश्यकताओं का आकलन करता है
-- मौजूदा इमेज का दोबारा उपयोग करता है या आवश्यकता होने पर नई इमेज बनाता है
-- Sealos टेम्पलेट बनाता है
-- डिप्लॉय करता है और rollout सत्यापित करता है
-- ऐप को उपयोग योग्य बताने से पहले वास्तविक Sealos App URL, लॉग, वेब ऐप के लॉगिन या सेटअप प्रवाह और पूरे संसाधन क्षेत्र की पुष्टि करता है
+- केवल Phase 0 से Phase 4 चलाता है
+- स्रोत को तैयार करता है और चरण अनुबंध लिखता है
+- वर्तमान kb-0.9 निर्देशिका में सटीक आधिकारिक मिलान खोजता है
+- Phase 4 में YAML बनाता या materialize करता है और deployment gate चलाता है
+- .sealos/template/index.yaml लिखकर रुकता है
 
-मौजूदा डिप्लॉयमेंट मिलने पर बाद के रन उसी स्थान पर अपडेट करने वाले प्रवाह पर जा सकते हैं।
+Sealos Deploy डिप्लॉयमेंट इनपुट नहीं लेता। यह क्लस्टर dry-run नहीं चलाता। यह संसाधन डिप्लॉय नहीं करता, workloads अपडेट नहीं करता और runtime जाँच नहीं करता।
 
 ## Sealos Database क्या संभालता है
 
@@ -199,20 +199,20 @@ S3-संगत ऑब्जेक्ट स्टोरेज की आवश�
 
 ## Sealos Canvas क्या संभालता है
 
-Sealos Deploy से पहले ही डिप्लॉय की गई रिपॉज़िटरी के लिए एजेंट:
+Sealos पर पहले से डिप्लॉय किए गए रिपॉज़िटरी के लिए एजेंट यह करता है:
 
-1. डिप्लॉय किए गए ऐप को खोजने के लिए `.sealos/state.json` पढ़ता है।
-2. केवल-पढ़ने योग्य `kubectl get` कमांड से Sealos namespace क्वेरी करता है।
-3. अस्थायी `127.0.0.1` कैनवास UI शुरू करता है।
+1. डिप्लॉय किए गए ऐप को खोजने के लिए .sealos/state.json पढ़ता है।
+2. केवल-पठन kubectl get कमांड से Sealos namespace पढ़ता है।
+3. 127.0.0.1 पर अस्थायी canvas UI चलाता है।
 4. निरीक्षण के लिए स्थानीय UI पता दिखाता और खोलता है।
 
-अगर प्रोजेक्ट अभी डिप्लॉय नहीं हुआ है, तो Sealos Canvas रुकता है और उपयोगकर्ता को पहले प्रोजेक्ट डिप्लॉय करने का निर्देश देता है।
+डिप्लॉयमेंट स्थिति न होने पर Sealos Canvas रुकता है। YAML लागू करने के लिए स्वीकृत डिप्लॉयमेंट वर्कफ़्लो उपयोग करें। sealos-deploy केवल YAML तैयार करता है।
 
 ## शामिल स्किल
 
 प्लगइन और `skills.sh` पैक एक ही स्किल स्रोत उपलब्ध कराते हैं:
 
-- `sealos-deploy` — स्थानीय या GitHub प्रोजेक्ट को Sealos Cloud पर डिप्लॉय करता है
+- `sealos-deploy` — स्थानीय या GitHub प्रोजेक्ट से Sealos डिप्लॉयमेंट YAML तैयार करता है
 - `sealos-database` — डेवलपमेंट के लिए Sealos Cloud डेटाबेस बनाता, जोड़ता और संचालित करता है
 - `sealos-s3` — बकेट बनाता, क्रेडेंशियल जोड़ता, कोटा जाँचता और Sealos S3-संगत ऑब्जेक्ट स्टोरेज संचालित करता है
 - `sealos-canvas` — स्थानीय केवल-पढ़ने योग्य कैनवास UI में डिप्लॉय किए गए Sealos संसाधन दिखाता है

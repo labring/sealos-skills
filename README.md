@@ -6,9 +6,11 @@
 
 <!-- README-I18N:END -->
 
-Deploy projects to [Sealos Cloud](https://sealos.io) from your AI agent.
+Prepare [Sealos Cloud](https://sealos.io) deployment YAML from your AI agent.
 
-Sealos Skills is a plugin-first skill pack centered on Sealos Cloud development and deployment. It helps an AI agent inspect a project, prepare missing deployment artifacts, connect Sealos Cloud databases and object storage for development, build or reuse a container image, ship the app to Sealos Cloud, and view deployed resources in a local read-only canvas.
+Sealos Skills is a plugin-first skill pack for Sealos Cloud development. It helps an AI agent inspect a project, prepare deployment artifacts and YAML, connect Sealos Cloud databases and object storage, build or reuse a container image, and view deployed resources in a local read-only canvas.
+
+`sealos-deploy` prepares YAML only. It stops after Phase 4 and does not deploy or update workloads.
 
 The recommended Codex path is native Codex plugin installation. Cross-host plugin installs, `skills.sh`, and context-only extension hosts such as Gemini CLI and Qwen Code use the same root `skills/**` source.
 
@@ -41,9 +43,9 @@ After installation in Codex, use the plugin from Codex:
 Codex examples:
 
 ```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
+$sealos prepare a Sealos deployment YAML for this repo
+$sealos prepare a Sealos deployment YAML for /path/to/project
+$sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -72,9 +74,9 @@ npx plugins add https://github.com/labring/sealos-skills
 After installation in Claude Code, use `/sealos`:
 
 ```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
+/sealos prepare a Sealos deployment YAML for this repo
+/sealos prepare a Sealos deployment YAML for /path/to/project
+/sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -102,7 +104,7 @@ If your agent uses `skills.sh` directly, install the same skills pack with:
 npx skills add labring/sealos-skills
 ```
 
-Then run the deploy skill directly:
+Then run the deployment-YAML preparation skill directly:
 
 ```text
 /sealos-deploy
@@ -112,7 +114,7 @@ Then run the deploy skill directly:
 /sealos-s3 create private object storage for uploads and wire env vars
 ```
 
-After a project has been deployed, use the `sealos-canvas` skill through your installed plugin entry point.
+Use the `sealos-canvas` skill to inspect a deployment that already exists.
 
 `/sealos-deploy`, `/sealos-database`, and `/sealos-s3` are direct `skills.sh` skill entries. Plugin usage should go through `$sealos` in Codex or `/sealos` in Claude Code.
 
@@ -152,41 +154,41 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## How Setup Works
 
-You only need a plugin-compatible or `skills.sh` compatible AI agent and a project to deploy.
+You only need a plugin-compatible or `skills.sh` compatible AI agent and a project for YAML preparation.
 
-During the deploy, database, and object-storage flows, Sealos Skills will:
+During YAML preparation, database, and object-storage flows, Sealos Skills will:
 
-- check whether tools such as Docker and `kubectl` are available
+- validate tools such as Docker and `kubectl`
 - guide the user through Sealos login when needed
 - use `sealos-cli` for Sealos Cloud database creation, connection details, and database operations
 - use `sealos-cli s3` for Sealos object storage buckets, credentials, quota checks, object operations, and presigned URLs
 - push locally built `linux/amd64` images to the current GitHub account
-  namespace on GHCR and carry the Buildx digest and pull-access result into deployment
+  namespace on GHCR and use their digests in the YAML
 
-For an actual deployment, you need a Sealos Cloud account. An authenticated
+For local YAML preparation, you need a Sealos Cloud account. An authenticated
 GitHub CLI session with GHCR package access is required only when the selected
 route builds and pushes a new image. Existing declared images, including images
-hosted on Docker Hub, can still be reused by immutable digest.
+hosted on Docker Hub, can still be reused by immutable digest. A later approved
+deployment workflow applies the YAML.
 For database and object-storage work, you need a Sealos Cloud account and a
 workspace that can create the requested resources.
 
 ## What Sealos Deploy Handles
 
-On a typical deploy, the agent will:
+For a YAML-preparation request, the agent will:
 
-- assess the project structure and runtime needs
-- look for a unique exact project match in the official
-  `labring-actions/templates@kb-0.9` catalog
-- reuse that official template verbatim and go directly to deployment when the
-  source is aligned; otherwise preserve the project's complete service
-  topology, pin reusable third-party images by digest, build missing images
-  for AMD64, and generate a Sealos template from the current project
-- collect required template inputs and dry-run every template before deployment
-- deploy and verify rollout
-- verify the actual Sealos App URL, logs, login/setup flow for web apps, and resource footprint before reporting the app as usable
+- run Phase 0 through Phase 4 only
+- materialize the source and prepare the phase contracts
+- read the current `kb-0.9` directory in the official
+  `labring-actions/templates` catalog for a unique exact project match
+- save the matched official YAML, then materialize and gate it in Phase 4 when
+  the source is aligned
+- otherwise preserve the full service topology, pin images by digest, build
+  required AMD64 images, and generate a Sealos template
+- write `.sealos/template/index.yaml` and stop after the deployment gate
 
-Later runs can switch to an in-place update flow when an existing deployment is
-detected.
+Sealos Deploy does not collect deployment inputs, run a cluster dry-run, deploy
+resources, update workloads, or verify runtime behavior.
 
 ## What Sealos Database Handles
 
@@ -211,20 +213,20 @@ For a local project or Devbox that needs S3-compatible object storage, the agent
 
 ## What Sealos Canvas Handles
 
-For a repository already deployed by Sealos Deploy, the agent will:
+For a repository already deployed to Sealos, the agent will:
 
 1. Read `.sealos/state.json` to locate the deployed app.
 2. Query the Sealos namespace with read-only `kubectl get` commands.
 3. Start a temporary `127.0.0.1` canvas UI.
 4. Output and open the local UI address for inspection.
 
-If the project has not been deployed yet, Sealos Canvas stops and directs the user to deploy the project first.
+If the project has no existing deployment, Sealos Canvas stops and directs the user to an approved deployment workflow.
 
 ## Included Skills
 
 The plugin and `skills.sh` pack expose the same skill source:
 
-- `sealos-deploy` — deploy a local or GitHub project to Sealos Cloud
+- `sealos-deploy` — prepare a Sealos deployment YAML from a local or GitHub project
 - `sealos-database` — create, connect, and operate Sealos Cloud databases for development
 - `sealos-s3` — create buckets, connect credentials, check quota, and operate Sealos S3-compatible object storage
 - `sealos-canvas` — view deployed Sealos resources in a local read-only canvas UI
@@ -235,7 +237,7 @@ The plugin and `skills.sh` pack expose the same skill source:
 
 ## Repository
 
-[`skills/`](./skills) is the single source of truth for Sealos deploy, Sealos canvas, and the supporting skills used during the deploy flow. The same root-level skills directory serves `skills.sh` installs and every plugin or extension manifest in this repository.
+[`skills/`](./skills) is the single source of truth for Sealos YAML preparation, Sealos canvas, and supporting skills. The same root-level skills directory serves `skills.sh` installs and every plugin or extension manifest in this repository.
 
 Important distribution files:
 

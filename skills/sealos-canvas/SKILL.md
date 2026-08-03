@@ -1,6 +1,6 @@
 ---
 name: sealos-canvas
-description: Run a local read-only HTML topology UI for a project already deployed by Sealos Skills and return a localhost URL. Use when the user asks to view, inspect, visualize, render, open, or run a local canvas for deployed Sealos resources, mentions ".sealos", Sealos deployment state, Kubernetes resources, topology, resource graph, localhost UI, or invokes "/sealos-canvas".
+description: Run a local read-only HTML topology UI for a project already deployed to Sealos and return a localhost URL. Use when the user asks to view, inspect, visualize, render, open, or run a local canvas for deployed Sealos resources, mentions ".sealos", Sealos deployment state, Kubernetes resources, topology, resource graph, localhost UI, or invokes "/sealos-canvas".
 ---
 
 # Sealos Canvas
@@ -15,7 +15,7 @@ Render the current repository's deployed Sealos resources as a locally hosted HT
 2. Only use read commands such as `kubectl get` and `kubectl config view`.
 3. Use the Sealos kubeconfig at `~/.sealos/kubeconfig`.
 4. Do not display Secret data or full ConfigMap contents.
-5. If the project has no `.sealos/state.json` with `last_deploy`, stop and tell the user to deploy first with `/sealos-deploy`.
+5. If the project has no `.sealos/state.json` with `last_deploy`, stop and tell the user that this canvas needs a completed deployment from a workflow that writes deployment state. `sealos-deploy` only prepares YAML.
 6. If kubeconfig or live resource access is unavailable, report the script message and stop.
 
 ## Workflow
@@ -82,7 +82,7 @@ Stop condition:
 {
   "ok": false,
   "reason": "not_deployed",
-  "message": "This project has not been deployed by Sealos Skills yet. Run /sealos-deploy first, then run /sealos-canvas again."
+  "message": "This project has no deployed Sealos state. Apply the prepared YAML with an approved deployment workflow, then run /sealos-canvas again."
 }
 ```
 

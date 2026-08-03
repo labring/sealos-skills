@@ -6,9 +6,9 @@
 
 <!-- README-I18N:END -->
 
-Déployez des projets sur [Sealos Cloud](https://sealos.io) depuis votre agent IA.
+Préparez du YAML de déploiement Sealos Cloud depuis votre agent IA.
 
-Sealos Skills est un ensemble de compétences axé sur les plugins pour le développement et le déploiement sur Sealos Cloud. Il aide un agent IA à inspecter un projet, préparer les artefacts de déploiement manquants, connecter les bases de données et le stockage objet Sealos Cloud pour le développement, créer ou réutiliser une image de conteneur, publier l'application sur Sealos Cloud et afficher les ressources déployées dans un canevas local en lecture seule.
+Sealos Skills est un ensemble de compétences axé sur les plugins pour le développement sur Sealos Cloud. Il aide un agent IA à inspecter un projet, préparer des artefacts de déploiement et du YAML, connecter les bases de données et le stockage objet Sealos Cloud pour le développement, créer ou réutiliser une image de conteneur et afficher les ressources déployées dans un canevas local en lecture seule. `sealos-deploy` prépare uniquement du YAML. Il s'arrête après la phase 4 et ne déploie ni ne met à jour les charges de travail.
 
 La méthode recommandée pour Codex consiste à installer le plugin Codex natif. Les installations de plugins entre différents hôtes, `skills.sh` et les hôtes d'extension qui fournissent uniquement du contexte, comme Gemini CLI et Qwen Code, utilisent tous la même source racine `skills/**`.
 
@@ -41,9 +41,9 @@ Après l'installation dans Codex, utilisez le plugin depuis Codex :
 Exemples Codex :
 
 ```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
+$sealos prepare a Sealos deployment YAML for this repo
+$sealos prepare a Sealos deployment YAML for /path/to/project
+$sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -72,9 +72,9 @@ npx plugins add https://github.com/labring/sealos-skills
 Après l'installation dans Claude Code, utilisez `/sealos` :
 
 ```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
+/sealos prepare a Sealos deployment YAML for this repo
+/sealos prepare a Sealos deployment YAML for /path/to/project
+/sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -152,29 +152,29 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## Fonctionnement de la configuration
 
-Vous avez uniquement besoin d'un agent IA compatible avec les plugins ou `skills.sh` et d'un projet à déployer.
+Vous avez seulement besoin d’un agent IA compatible avec les plugins ou skills.sh et d’un projet pour préparer le YAML.
 
-Pendant les workflows de déploiement, de base de données et de stockage objet, Sealos Skills :
+Pendant la préparation du YAML et les tâches de base de données et de stockage objet, Sealos Skills fait ceci :
 
-- vérifie la disponibilité d'outils tels que Docker et `kubectl`
-- guide l'utilisateur dans la connexion à Sealos lorsque cela est nécessaire
-- utilise `sealos-cli` pour créer des bases de données Sealos Cloud, récupérer les informations de connexion et effectuer des opérations de base de données
-- utilise `sealos-cli s3` pour gérer les buckets de stockage objet Sealos, les identifiants, les contrôles de quota, les opérations sur les objets et les URL présignées
-- publie les images `linux/amd64` construites localement dans l’espace de noms du compte GitHub actuel sur GHCR et transmet au déploiement le digest Buildx et le résultat d’accès en lecture
+- valide des outils comme Docker et kubectl
+- guide l’utilisateur pendant la connexion à Sealos si nécessaire
+- utilise sealos-cli pour les bases de données Sealos Cloud
+- utilise sealos-cli s3 pour le stockage objet Sealos
+- envoie les images linux/amd64 requises vers GHCR et utilise leurs digests dans le YAML
 
-Un déploiement réel nécessite un compte Sealos Cloud. Une session GitHub CLI authentifiée avec l’accès aux packages GHCR n’est requise que lorsque le chemin choisi construit et publie une nouvelle image. Les images existantes déclarées, y compris celles hébergées sur Docker Hub, peuvent toujours être réutilisées par digest immuable. Les opérations de base de données et de stockage objet nécessitent un compte Sealos Cloud et un espace de travail capable de créer les ressources demandées.
+La préparation locale du YAML nécessite un compte Sealos Cloud. GitHub CLI est nécessaire seulement lors de la création et de l’envoi d’une nouvelle image. Un flux de déploiement approuvé applique ensuite le YAML.
 
 ## Ce que gère Sealos Deploy
 
-Lors d'un déploiement classique, l'agent :
+Pour une demande de préparation de YAML, l’agent fait ceci :
 
-- évalue la structure du projet et ses besoins d'exécution
-- réutilise une image existante ou en crée une si nécessaire
-- génère un modèle Sealos
-- déploie et vérifie le rollout
-- vérifie l'URL réelle de Sealos App, les journaux, le processus de connexion ou de configuration des applications web et l'ensemble des ressources avant d'indiquer que l'application est utilisable
+- exécute seulement les phases 0 à 4
+- matérialise la source et prépare les contrats de phase
+- recherche une correspondance officielle exacte dans le répertoire actuel de kb-0.9
+- matérialise ou génère le YAML et exécute la porte de déploiement en phase 4
+- écrit .sealos/template/index.yaml puis s’arrête
 
-Les exécutions suivantes peuvent passer à un workflow de mise à jour sur place lorsqu'un déploiement existant est détecté.
+Sealos Deploy ne collecte pas les entrées de déploiement. Il ne lance pas de dry-run de cluster. Il ne déploie pas de ressources, ne met pas à jour les charges et ne vérifie pas le comportement d’exécution.
 
 ## Ce que gère Sealos Database
 
@@ -199,20 +199,20 @@ Pour un projet local ou un Devbox qui nécessite un stockage objet compatible S3
 
 ## Ce que gère Sealos Canvas
 
-Pour un dépôt déjà déployé par Sealos Deploy, l'agent :
+Pour un dépôt déjà déployé sur Sealos, l’agent fait ceci :
 
-1. Lit `.sealos/state.json` pour localiser l'application déployée.
-2. Interroge le namespace Sealos avec des commandes `kubectl get` en lecture seule.
-3. Démarre une interface de canevas temporaire sur `127.0.0.1`.
-4. Affiche et ouvre l'adresse de l'interface locale pour inspection.
+1. Lit .sealos/state.json pour trouver l’application déployée.
+2. Interroge le namespace Sealos avec des commandes kubectl get en lecture seule.
+3. Démarre une interface canvas temporaire sur 127.0.0.1.
+4. Affiche et ouvre l’adresse de l’interface locale pour inspection.
 
-Si le projet n'a pas encore été déployé, Sealos Canvas s'arrête et demande à l'utilisateur de déployer d'abord le projet.
+Si aucun état de déploiement existe, Sealos Canvas s’arrête. Utilisez un flux de déploiement approuvé pour appliquer le YAML. sealos-deploy prépare seulement le YAML.
 
 ## Compétences incluses
 
 Le plugin et le paquet `skills.sh` exposent la même source de compétences :
 
-- `sealos-deploy` — déploie un projet local ou GitHub sur Sealos Cloud
+- `sealos-deploy` — prépare un YAML de déploiement Sealos à partir d’un projet local ou GitHub
 - `sealos-database` — crée, connecte et exploite des bases de données Sealos Cloud pour le développement
 - `sealos-s3` — crée des buckets, connecte les identifiants, vérifie le quota et exploite le stockage objet compatible Sealos S3
 - `sealos-canvas` — affiche les ressources Sealos déployées dans une interface de canevas locale en lecture seule

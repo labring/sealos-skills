@@ -220,19 +220,19 @@ directly after syntax validation. Do not search for or substitute a different
 tag, and do not pre-screen third-party image architecture in this converter.
 
 For a service with `build:` but no `image:`, pass the built and pushed result as
-`--image-override SERVICE=IMAGE`. Phase 4 should supply its immutable digest;
+`--image-override SERVICE=IMAGE`. Phase 3 supplies its immutable digest;
 the converter validates and preserves that digest. If an override is still a
 selector, resolve it through the same registry HTTP API. The converter must not
 rewrite the source Compose file. The local build path owns its `linux/amd64`
 contract outside this converter.
 
-When a Phase 4 build-result artifact records
-`push.pull_access: ghcr_secret_required` or `indeterminate`, pass the same
+When the Phase 3 `build-result.json` artifact records
+`pull_access.<service>: ghcr_secret_required`, pass the same
 Compose service name with the repeatable
 `--image-pull-secret-service SERVICE` option. The converter adds only
 `{name: "${{ defaults.app_name }}"}` to that service's emitted workload
 `template.spec.imagePullSecrets`; it does not infer private access from a
-`ghcr.io` hostname. Do not pass the option for anonymous or reused images,
+`ghcr.io` hostname. Do not pass the option for public or reused images,
 failed builds, or services transformed into KubeBlocks resources.
 
 Database service images remain dependency and engine-classification evidence.
@@ -269,7 +269,7 @@ spec:
 Notes:
 - Do not infer that an image is private from its registry hostname alone; GHCR hosts both public and private repositories.
 - Omit `imagePullSecrets` for known public images. When existing build/detection state establishes that registry authentication is required, reference only the app-scoped image pull Secret `${{ defaults.app_name }}`.
-- `sealos-deploy` should create or refresh that Secret automatically from local `gh` CLI credentials when deploying private GHCR images.
+- The deployment workflow or operator must create or refresh that Secret from local `gh` CLI credentials before applying private GHCR images.
 - Reusable templates should not expose raw registry credential inputs as user-facing form fields.
 
 ## Port Mapping
@@ -1248,8 +1248,6 @@ volumes:
     configMap:
       name: ${{ defaults.app_name }}
 ```
-
-Real-world examples: see `skills/sealos-deploy/knowledge/lessons-learned.md` (EverShop case study)
 
 ### Sensitive Information
 - Docker business env vars → `env[].value` (`defaults`/`inputs`)

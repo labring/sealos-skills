@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills.sh/sealos-deploy/schemas/analysis-phase-0.schema.json",
+  "title": "Sealos Deploy Analysis After Phase 0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["runtime_profile", "work_dir", "repo_name", "github_url"],
+  "properties": {
+    "runtime_profile": {
+      "type": "string",
+      "enum": ["local", "sandbox"]
+    },
+    "work_dir": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repo_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "github_url": {
+      "type": ["string", "null"]
+    }
+  }
+}

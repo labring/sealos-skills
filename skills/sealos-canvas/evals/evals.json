@@ -4,7 +4,7 @@
     {
       "id": 0,
       "prompt": "/sealos-canvas in a repository without .sealos/state.json",
-      "expected_output": "Stops with a message telling the user to run /sealos-deploy first and does not generate HTML",
+      "expected_output": "Stops with a message that a completed deployment is required and does not generate HTML",
       "files": [],
       "assertions": [
         {

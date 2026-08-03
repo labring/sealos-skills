@@ -198,14 +198,14 @@ For managed or private object storage, live validation must upload known bytes t
 
 - Input image references may use any tag (`latest`, `stable`, `v2`, `2.1`, an explicit version, or another registry tag) or be tagless.
 - Before generated template use, resolve every emitted workload image selector through the registry HTTP API, or accept a caller-supplied immutable digest override, and emit only `repository@sha256:<digest>` references. Do not pre-screen third-party image architecture in this converter.
-- For a Compose service that has `build:` but no `image:`, pass its Phase 4 result with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image.
-- When Phase 4 reports `push.pull_access: ghcr_secret_required` or `indeterminate` for a service, pass the repeatable converter option `--image-pull-secret-service SERVICE`; the converter injects only the app-scoped `${{ defaults.app_name }}` Secret into that service's emitted workload. Do not pass it for `anonymous`, reused images, failed builds, or services converted to KubeBlocks.
+- For a Compose service that has `build:` but no `image:`, pass its Phase 3 digest with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image.
+- When `.sealos/phase-3/build-result.json` records `pull_access.<service>: ghcr_secret_required`, pass the repeatable converter option `--image-pull-secret-service SERVICE`; the converter injects only the app-scoped `${{ defaults.app_name }}` Secret into that service's emitted workload. Do not pass it for `public`, reused images, failed builds, or services converted to KubeBlocks.
 - Compose database service images are dependency and engine-classification evidence; after conversion to KubeBlocks, the generated template need not emit the original database image.
 - Managed workload image references must be concrete and must not contain Compose-style variable expressions (for example `${VAR}`, `${VAR:-default}`); resolve variables first, then resolve the resulting selector through the registry HTTP API or use a caller-supplied immutable digest.
 - Generated workload `image` fields and application `originImageName` annotations must use immutable `repository@sha256:<digest>` references.
 - Application `originImageName` must match container image.
 - Known public-image managed app workloads must omit `template.spec.imagePullSecrets`; when a registry-authenticated workload needs a pull Secret, it may reference only the app-scoped Secret `${{ defaults.app_name }}`.
-- The registry pull Secret is runtime-managed by `sealos-deploy` using local `gh` CLI credentials for private GHCR images; do not expose raw registry credential inputs in generated templates.
+- A later deployment workflow or its operator must manage the registry pull Secret for private GHCR images. Do not expose raw registry credential inputs in generated templates.
 - All containers must explicitly set `imagePullPolicy: IfNotPresent`.
 
 ### Storage
@@ -354,7 +354,7 @@ Run all checks before final response:
 7. `python scripts/check_consistency.py --skill SKILL.md --references references --rules-file references/rules-registry.yaml --artifacts template/<app-name>/index.yaml,.sealos/topology-evidence/<app-name>.yaml` for existing-template updates and other topology-sensitive conversions
 8. `python scripts/check_must_coverage.py --skill SKILL.md --mapping references/must-rules-map.yaml --rules-file references/rules-registry.yaml`
 9. (CI / one-shot) `python scripts/quality_gate.py --artifacts /abs/path/template/<app-name>/index.yaml` or `DOCKER_TO_SEALOS_ARTIFACTS=/abs/path/template/<app-name>/index.yaml python scripts/quality_gate.py` (without explicit artifacts, it scans `template/*/index.yaml`; set `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1` only for dev/debug without artifacts)
-10. Live deploy acceptance: after `sealos-deploy` creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, a random missing-path 404 without noisy traceback logs, expected database objects, and full resource footprint before reporting success.
+10. Live deploy acceptance: after a deployment workflow creates the app, verify the actual App URL, login/setup flow for web apps, recent logs, a random missing-path 404 without noisy traceback logs, expected database objects, and full resource footprint before reporting success.
 
 `check_consistency.py` is registry-driven. Keep `references/rules-registry.yaml` in sync with implemented rules.
 Registry rule entries support `severity` and optional `scope.include_paths` metadata.

@@ -6,9 +6,9 @@
 
 <!-- README-I18N:END -->
 
-透過 AI 代理程式將專案部署到 [Sealos Cloud](https://sealos.io)。
+透過 AI 代理程式準備 [Sealos Cloud](https://sealos.io) 部署 YAML。
 
-Sealos Skills 是一套以外掛程式為核心、專注於 Sealos Cloud 開發與部署的技能包。它能協助 AI 代理程式檢查專案、準備缺少的部署產物、連接 Sealos Cloud 資料庫與物件儲存以進行開發、建置或重複使用容器映像、將應用程式發布到 Sealos Cloud，並在本機唯讀畫布中查看已部署的資源。
+Sealos Skills 是一套以外掛程式為核心、專注於 Sealos Cloud 開發的技能包。它能協助 AI 代理程式檢查專案、準備部署產物和 YAML、連接 Sealos Cloud 資料庫與物件儲存以進行開發、建置或重複使用容器映像，並在本機唯讀畫布中查看已部署的資源。`sealos-deploy` 只準備 YAML，在 Phase 4 後停止，不部署或更新工作負載。
 
 Codex 的建議方式是安裝原生 Codex 外掛程式。跨主機外掛程式安裝、`skills.sh`，以及 Gemini CLI 和 Qwen Code 等僅提供內容的擴充主機，都使用相同的根目錄 `skills/**` 來源。
 
@@ -41,9 +41,9 @@ npx plugins add https://github.com/labring/sealos-skills --target codex
 Codex 範例：
 
 ```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
+$sealos prepare a Sealos deployment YAML for this repo
+$sealos prepare a Sealos deployment YAML for /path/to/project
+$sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -72,9 +72,9 @@ npx plugins add https://github.com/labring/sealos-skills
 在 Claude Code 中完成安裝後，使用 `/sealos`：
 
 ```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
+/sealos prepare a Sealos deployment YAML for this repo
+/sealos prepare a Sealos deployment YAML for /path/to/project
+/sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -152,29 +152,29 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## 設定流程
 
-你只需要一個相容外掛程式或相容 `skills.sh` 的 AI 代理程式，以及一個要部署的專案。
+你只需要一個相容外掛程式或相容 skills.sh 的 AI 代理程式，以及一個用於準備 YAML 的專案。
 
-在部署、資料庫和物件儲存流程中，Sealos Skills 將：
+在 YAML 準備、資料庫和物件儲存工作中，Sealos Skills 將：
 
-- 檢查 Docker 和 `kubectl` 等工具是否可用
+- 驗證 Docker 和 kubectl 等工具
 - 在需要時引導使用者登入 Sealos
-- 使用 `sealos-cli` 建立 Sealos Cloud 資料庫、取得連線詳細資料並執行資料庫操作
-- 使用 `sealos-cli s3` 管理 Sealos 物件儲存貯體、憑證、配額檢查、物件操作和預先簽署 URL
-- 將本機建置的 `linux/amd64` 映像推送到目前 GitHub 帳戶的 GHCR 命名空間，並把 Buildx digest 與拉取權限結果傳遞至部署階段
+- 使用 sealos-cli 處理 Sealos Cloud 資料庫
+- 使用 sealos-cli s3 處理 Sealos 物件儲存
+- 將所需 linux/amd64 映像推送到 GHCR，並在 YAML 中使用其 digest
 
-實際部署仍需要 Sealos Cloud 帳戶。只有所選路徑需要建置並推送新映像時，才需要具備 GHCR package 權限的 GitHub CLI 登入工作階段。現有的專案宣告映像（包括託管於 Docker Hub 的映像）仍可透過不可變 digest 重複使用。資料庫和物件儲存工作需要 Sealos Cloud 帳戶，以及具備建立所需資源權限的工作區。
+本機 YAML 準備需要 Sealos Cloud 帳戶。只有建置並推送新映像時才需要 GitHub CLI 登入。後續獲批准的部署流程會套用 YAML。
 
 ## Sealos Deploy 的處理範圍
 
-在一般部署中，代理程式將：
+對於 YAML 準備要求，代理程式將：
 
-- 評估專案結構和執行階段需求
-- 重複使用現有映像，或在需要時建置映像
-- 產生 Sealos 範本
-- 部署並驗證推出狀態
-- 在回報應用程式可用前，驗證實際的 Sealos App URL、日誌、Web 應用程式的登入或設定流程，以及完整資源範圍
+- 只執行 Phase 0 到 Phase 4
+- 具體化原始碼並準備階段契約
+- 在目前 kb-0.9 目錄中尋找唯一精確的官方匹配
+- 在 Phase 4 具體化或產生 YAML，並執行部署門禁
+- 寫入 .sealos/template/index.yaml 後停止
 
-後續執行在偵測到現有部署時可以切換為原地更新流程。
+Sealos Deploy 不收集部署輸入，不執行叢集 dry-run，不部署資源，不更新工作負載，也不驗證執行階段行為。
 
 ## Sealos Database 的處理範圍
 
@@ -199,20 +199,20 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## Sealos Canvas 的處理範圍
 
-對於已由 Sealos Deploy 部署的儲存庫，代理程式將：
+對於已經部署到 Sealos 的儲存庫，代理程式將：
 
-1. 讀取 `.sealos/state.json` 以找出已部署的應用程式。
-2. 使用唯讀 `kubectl get` 命令查詢 Sealos 命名空間。
-3. 啟動暫時的 `127.0.0.1` 畫布 UI。
+1. 讀取 .sealos/state.json 以定位已部署的應用程式。
+2. 使用唯讀 kubectl get 命令查詢 Sealos 命名空間。
+3. 啟動暫時的 127.0.0.1 畫布 UI。
 4. 輸出並開啟本機 UI 位址供檢查。
 
-如果專案尚未部署，Sealos Canvas 會停止並引導使用者先部署專案。
+如果沒有部署狀態，Sealos Canvas 會停止。請使用獲批准的部署流程套用 YAML。sealos-deploy 只準備 YAML。
 
 ## 包含的技能
 
 外掛程式和 `skills.sh` 技能包公開相同的技能來源：
 
-- `sealos-deploy` — 將本機或 GitHub 專案部署到 Sealos Cloud
+- `sealos-deploy` — 從本機或 GitHub 專案準備 Sealos 部署 YAML
 - `sealos-database` — 為開發建立、連接和操作 Sealos Cloud 資料庫
 - `sealos-s3` — 建立儲存貯體、連接憑證、檢查配額並操作 Sealos S3 相容物件儲存
 - `sealos-canvas` — 在本機唯讀畫布 UI 中查看已部署的 Sealos 資源

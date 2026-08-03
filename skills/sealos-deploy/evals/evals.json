@@ -3,549 +3,74 @@
   "evals": [
     {
       "id": 0,
-      "prompt": "I want to deploy uptime-kuma to Sealos, GitHub: https://github.com/louislam/uptime-kuma",
-      "expected_output": "High readiness score (7+), identifies Node.js project with external services, recommends proceeding with deployment",
+      "prompt": "Use /sealos-deploy for a local project. Stop after you prepare the Sealos YAML.",
+      "expected_output": "Phase 0 writes the four-field analysis artifact. The workflow does not inspect an existing deployment or create a cloud application.",
       "files": [],
       "assertions": [
-        {"name": "identifies-nodejs", "description": "Correctly identifies the project as Node.js"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
-        {"name": "detects-external-db", "description": "Detects external database dependency (SQLite/MariaDB)"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report with dimensions and scores"},
-        {"name": "creates-log-file", "description": "Creates a deploy log file at ~/.sealos/logs/"}
+        {"name": "writes-phase-zero-analysis", "description": "Writes runtime_profile, work_dir, repo_name, and github_url."},
+        {"name": "materializes-source", "description": "Uses a complete source workspace and preserves local changes."},
+        {"name": "does-not-run-mode-detection", "description": "Does not enter UPDATE or inspect live workloads."},
+        {"name": "creates-phase-log", "description": "Writes one phase log without secrets."}
       ]
     },
     {
       "id": 1,
-      "prompt": "/sealos-deploy https://github.com/sharkdp/bat",
-      "expected_output": "The Phase 1 entry judgment produces no separate result and silently continues to readiness scoring because a CLI project may still run as a Job, CronJob, worker, or service",
+      "prompt": "Use /sealos-deploy for an unchanged sandbox GitHub clone. The kb-0.9 catalog has one exact spec.gitRepo match.",
+      "expected_output": "Phase 1 reads the current kb-0.9 catalog directory and saves the exact matched YAML. Phase 4 materializes that YAML, runs the deployment gate, and stops.",
       "files": [],
       "assertions": [
-        {"name": "identifies-cli-tool", "description": "Correctly identifies bat as a CLI tool / non-web application"},
-        {"name": "no-entry-check-output", "description": "Does not emit a separate status, score, report, candidate list, or artifact for the entry judgment"},
-        {"name": "continues-readiness-analysis", "description": "Silently continues into Phase 1"},
-        {"name": "resolves-online-contract-later", "description": "Defers Job, CronJob, worker, or service feasibility to target selection and concrete build/runtime checks"}
+        {"name": "uses-exact-repository-match", "description": "Matches only one exact spec.gitRepo value."},
+        {"name": "saves-live-official-yaml", "description": "Copies the current matched catalog YAML to .sealos/phase-1/official-template.yaml and records its pointer."},
+        {"name": "materializes-in-phase-four", "description": "Writes .sealos/template/index.yaml during Phase 4."},
+        {"name": "stops-after-yaml", "description": "Does not collect inputs, dry-run a cluster, or deploy resources."}
       ]
     },
     {
       "id": 2,
-      "prompt": "/sealos-deploy",
-      "expected_output": "The Phase 1 entry judgment stays silent and continues to readiness scoring because the skills/tooling repository is not certainly impossible to deploy",
+      "prompt": "Use /sealos-deploy for a local repository with a Compose application, PostgreSQL, Redis, and a worker that needs a Dockerfile.",
+      "expected_output": "Phase 2 writes one canonical Compose source and a deployment plan. It retains every related component and prepares the worker Dockerfile without building it.",
       "files": [],
       "assertions": [
-        {"name": "identifies-skill-pack", "description": "Identifies the current repository as a skills pack or tooling repo rather than a standalone web app"},
-        {"name": "no-entry-check-output", "description": "Creates no separate status, review report, score, candidate list, or artifact for the entry judgment"},
-        {"name": "phase-one-runs", "description": "Immediately continues with normal Phase 1 analysis"}
+        {"name": "uses-gitingest-for-deployment-evidence", "description": "Writes the bounded gitingest digest."},
+        {"name": "keeps-full-topology", "description": "Keeps the application, database, cache, and worker."},
+        {"name": "writes-single-source-pointer", "description": "Writes deployment_source only in deployment-plan.json."},
+        {"name": "does-not-build-in-phase-two", "description": "Prepares Dockerfiles but does not build or push an image."}
       ]
     },
     {
       "id": 3,
-      "prompt": "Help me deploy alist to Sealos, project URL: https://github.com/alist-org/alist",
-      "expected_output": "High readiness score (8+), identifies Go web application with REST API and WebDAV server, recommends CONTINUE",
+      "prompt": "Generate the Phase 4 YAML for a standard source with one repository-built API and one upstream PostgreSQL image.",
+      "expected_output": "Phase 4 requests Phase 3 only for the API, returns to Phase 4 with a GHCR digest, pins every emitted image, and writes one YAML file.",
       "files": [],
       "assertions": [
-        {"name": "identifies-go", "description": "Correctly identifies the project as Go language"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
-        {"name": "identifies-http-server", "description": "Identifies this as an HTTP server / web service"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {"name": "builds-only-required-service", "description": "Does not build the upstream PostgreSQL image."},
+        {"name": "uses-sequential-builds", "description": "Runs no more than one build Subagent at a time."},
+        {"name": "writes-aggregate-build-result", "description": "Writes one Phase 3 digest and pull-access result."},
+        {"name": "pins-images", "description": "Uses repository@sha256 image references in the final YAML."}
       ]
     },
     {
       "id": 4,
-      "prompt": "I want to deploy lobe-chat to Sealos: https://github.com/lobehub/lobe-chat",
-      "expected_output": "High readiness score (10+), identifies Next.js monorepo with pnpm workspaces, recommends CONTINUE",
+      "prompt": "Prepare a Sealos YAML from a Helm chart that has an application, a database, a worker, and an Ingress.",
+      "expected_output": "Phase 4 copies and renders the selected chart, converts the rendered resources, writes a resource map, runs only the deployment-gate subset, and stops.",
       "files": [],
       "assertions": [
-        {"name": "identifies-nextjs", "description": "Correctly identifies the project as Next.js"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
-        {"name": "detects-monorepo-or-workspace", "description": "Detects pnpm monorepo / workspace structure"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
+        {"name": "uses-selected-helm-source", "description": "Does not replace the selected chart with Compose."},
+        {"name": "writes-rendered-source", "description": "Writes .sealos/phase-4/rendered.yaml."},
+        {"name": "writes-resource-map", "description": "Writes .sealos/phase-4/resource-map.json."},
+        {"name": "does-not-run-quality-gate", "description": "Runs the deployment-gate rule subset only."}
       ]
     },
     {
       "id": 5,
-      "prompt": "/sealos-deploy https://github.com/jgraph/drawio-desktop",
-      "expected_output": "Because an Electron repository may have a Linux, web, container, or remote-desktop path, the Phase 1 entry judgment produces no separate result and silently continues to readiness scoring",
+      "prompt": "The final template gate passes. Continue the sealos-deploy lifecycle.",
+      "expected_output": "The skill reports the YAML and log paths. It states that it stopped after Phase 4 without deployment.",
       "files": [],
       "assertions": [
-        {"name": "identifies-desktop-app", "description": "Correctly identifies drawio-desktop as an Electron / desktop GUI application"},
-        {"name": "does-not-stop-on-label", "description": "Does not stop merely because the repository is an Electron desktop application"},
-        {"name": "no-entry-check-output", "description": "Emits no separate status or review report for the entry judgment"},
-        {"name": "continues-phase-one", "description": "Silently starts normal readiness analysis"}
-      ]
-    },
-    {
-      "id": 6,
-      "prompt": "Deploy vaultwarden to Sealos: https://github.com/dani-garcia/vaultwarden",
-      "expected_output": "Maximum readiness score (12/12), identifies Rust web application with Rocket framework and existing Dockerfile, recommends CONTINUE",
-      "files": [],
-      "assertions": [
-        {"name": "identifies-rust", "description": "Correctly identifies the project as Rust language"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
-        {"name": "identifies-web-service", "description": "Identifies this as a web service / HTTP server"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
-      ]
-    },
-    {
-      "id": 7,
-      "prompt": "/sealos-deploy https://github.com/pallets/flask",
-      "expected_output": "The Phase 1 entry judgment produces no separate result and continues to readiness scoring because a framework/library repository is not certainly impossible to run online",
-      "files": [],
-      "assertions": [
-        {"name": "identifies-library", "description": "Correctly identifies Flask as a framework/library, not a standalone deployable app"},
-        {"name": "no-entry-check-output", "description": "Does not emit a separate library status, score, report, or artifact for the entry judgment"},
-        {"name": "continues-analysis", "description": "Silently continues to Phase 1 and lets later concrete work establish the outcome"}
-      ]
-    },
-    {
-      "id": 8,
-      "prompt": "Help me deploy mealie (home recipe management): https://github.com/mealie-recipes/mealie",
-      "expected_output": "High readiness score (8+), identifies Python FastAPI application with PostgreSQL support, recommends CONTINUE",
-      "files": [],
-      "assertions": [
-        {"name": "identifies-python", "description": "Correctly identifies the project as Python"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
-        {"name": "detects-external-db", "description": "Detects PostgreSQL database dependency"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
-      ]
-    },
-    {
-      "id": 9,
-      "prompt": "/sealos-deploy https://github.com/spring-projects/spring-petclinic",
-      "expected_output": "Good readiness score (6+), identifies Java Spring Boot application with port 8080 and Actuator endpoints, recommends CONTINUE",
-      "files": [],
-      "assertions": [
-        {"name": "identifies-java", "description": "Correctly identifies the project as Java / Spring Boot"},
-        {"name": "score-above-4", "description": "Readiness score is >= 4 and the result records the corresponding risk level"},
-        {"name": "identifies-web-service", "description": "Identifies this as a web application on port 8080"},
-        {"name": "produces-structured-report", "description": "Output contains a structured assessment report"}
-      ]
-    },
-    {
-      "id": 10,
-      "prompt": "/sealos-deploy https://github.com/toeverything/affine — use the unchanged default-branch source. The refreshed official catalog contains one exact spec.gitRepo match.",
-      "expected_output": "Phase 1 completes, Phase 1.5 records the unique trusted exact match, copies that official YAML verbatim, skips Phases 2–5.5, resolves required inputs in Phase 6, dry-runs and deploys with the same args, then completes Phase 6.5",
-      "files": [],
-      "assertions": [
-        {"name": "runs-analysis-first", "description": "The entry judgment produces no separate result, and Phase 1 completes readiness analysis before catalog discovery"},
-        {"name": "selects-unique-official-exact", "description": "Requires one exact spec.gitRepo match from a fresh official catalog with concrete commit provenance"},
-        {"name": "materializes-verbatim-template", "description": "Copies the selected official YAML verbatim to .sealos/template/index.yaml and records decision.route as deploy_official_template"},
-        {"name": "skips-build-and-generation", "description": "Skips Phases 2, 3, 4, 5, and 5.5 instead of detecting or building an image or generating another template"},
-        {"name": "resolves-official-inputs", "description": "Collects missing required spec.inputs in Phase 6 without modifying the official YAML or exposing sensitive values"},
-        {"name": "dry-runs-before-deploy", "description": "Uses the same official YAML and args for a successful dry-run before the real Template API request"},
-        {"name": "runs-runtime-truth", "description": "Continues through Phase 6.5 and records the primary image found in the live deployment"}
-      ]
-    },
-    {
-      "id": 11,
-      "prompt": "The application URL works, but Launchpad does not show a public address. Diagnose the Sealos template and live deployment.",
-      "expected_output": "Runs the Launchpad public-network check, validates numeric root Ingress backend port and Service port matching, compares the App URL host, and inventories manager-labeled resources before proposing a template repair.",
-      "files": [],
-      "assertions": [
-        {"name": "runs-launchpad-network-check", "description": "Uses sealos-launchpad-network.mjs or the equivalent Launchpad API contract before declaring success"},
-        {"name": "checks-numeric-ingress-port", "description": "Requires backend.service.port.number on the root Prefix Ingress and matches it to Service.spec.ports[].port"},
-        {"name": "compares-app-url-host", "description": "Compares the App URL host with the Launchpad public or custom domain"},
-        {"name": "inventories-live-resources", "description": "Checks manager-labeled Ingresses, Services, ready endpoints, App, Instance, and orphan resource footprint"},
-        {"name": "protects-sensitive-data", "description": "Keeps kubeconfig, environment values, and Secret data out of diagnostic output"}
-      ]
-    },
-    {
-      "id": 12,
-      "prompt": "Deploy this target: package.json has scripts.start='node server.js', dependencies.express='^5', and devDependencies.electron='^35'. There are no Electron scripts, desktop API imports, or desktop packaging files.",
-      "expected_output": "The Phase 1 entry judgment does not stop or emit a separate result; readiness scoring identifies the Express start command and continues normal analysis",
-      "files": [],
-      "assertions": [
-        {"name": "does-not-stop-on-dependency-alone", "description": "Does not stop solely because Electron appears in devDependencies"},
-        {"name": "no-entry-check-output", "description": "Emits no separate status or report for the entry judgment"},
-        {"name": "uses-server-entrypoint-in-phase-one", "description": "Phase 1 uses the Express dependency and node start command during normal analysis"}
-      ]
-    },
-    {
-      "id": 13,
-      "prompt": "Generate the Sealos Template phase for a Mastodon-style app whose analysis classifies SMTP_PORT as an optional input with the default string \"587\". Expose it as spec.inputs.smtp_port, keep infrastructure replicas and ports numeric, and validate the generated artifact before deployment.",
-      "expected_output": "Generates a Template whose SMTP port default remains the YAML string \"587\", preserves numeric Kubernetes infrastructure fields, and runs the docker-to-sealos quality gate against .sealos/template/index.yaml so R052 blocks an unquoted default before deployment.",
-      "files": [],
-      "assertions": [
-        {"name": "smtp-default-is-string", "description": "Emits spec.inputs.smtp_port.default as a quoted YAML string such as \"587\", never as the numeric scalar 587"},
-        {"name": "input-reference-is-declared", "description": "Declares spec.inputs.smtp_port and references that declared input from the Mastodon SMTP_PORT environment value"},
-        {"name": "infrastructure-numbers-stay-numeric", "description": "Keeps Kubernetes replicas, container ports, and Service ports as numeric YAML fields"},
-        {"name": "validates-generated-artifact", "description": "Runs quality_gate.py with --artifacts pointing to .sealos/template/index.yaml before configuration or deployment"},
-        {"name": "rejects-unquoted-input-default", "description": "Treats R052 or the equivalent string-type validation failure as blocking and fixes the template before continuing"}
-      ]
-    },
-    {
-      "id": 14,
-      "prompt": "/sealos-deploy 当前本地修改过的 https://github.com/danny-avila/LibreChat checkout，使用本地官方多组件 Compose；模板中 RAG 固定使用 OpenAI embeddings，并且 PostgreSQL 需要 vector 扩展。不要忽略本地改动，只允许使用该 skill 已有的产物。",
-      "expected_output": "Generates the existing Sealos template artifact with pinned component images, official health probes, valid runtime credentials, and a database final-state gate; the complete docker-to-sealos quality gate passes against the exact final template before deployment, with no new artifact type introduced",
-      "files": [],
-      "assertions": [
-        {"name": "does-not-bypass-local-changes", "description": "Phase 1.5 records continue_standard_pipeline and does not replace the modified checkout with an official catalog template"},
-        {"name": "pins-component-images", "description": "Accepts the exact declared selectors and resolves every emitted LibreChat component image to an immutable digest without pre-screening third-party architecture"},
-        {"name": "uses-official-rag-health", "description": "Uses /health on port 8000 for LibreChat RAG probes instead of probing /"},
-        {"name": "validates-format-constrained-credentials", "description": "Does not use bare random() defaults for LibreChat CREDS_KEY/CREDS_IV hex contracts"},
-        {"name": "requires-selected-provider-credential", "description": "OpenAI embeddings is paired with a non-empty required OpenAI credential rather than an optional empty input"},
-        {"name": "gates-rag-on-vector-state", "description": "RAG has an initContainer gate that waits for PostgreSQL and verifies the vector extension before startup"},
-        {"name": "classifies-mongodb-as-database", "description": "Converts the official mongo:8.0.20 service into the pinned MongoDB KubeBlocks Cluster contract"},
-        {"name": "rejects-raw-mongodb-workload", "description": "Emits no MongoDB Deployment, StatefulSet, DaemonSet, Job, CronJob, or standalone Service"},
-        {"name": "does-not-assume-ghcr-private", "description": "Does not add imagePullSecrets solely because an image is hosted on GHCR"},
-        {"name": "fails-closed-before-deploy", "description": "Runs the complete docker-to-sealos quality gate after final template mutation and does not deploy while the gate is failing"},
-        {"name": "keeps-existing-artifact-inventory", "description": "Introduces no generated artifact type beyond the full deploy skill's existing artifact inventory"}
-      ]
-    },
-    {
-      "id": 15,
-      "prompt": "Deploy a repository with apps/desktop as an Electron app and apps/api as an Express service. Do not choose the deployment target yet.",
-      "expected_output": "The Phase 1 entry judgment emits nothing and continues because the mixed repository is not certainly impossible; readiness analysis discovers the units and target selection happens before build or deployment",
-      "files": [],
-      "assertions": [
-        {"name": "no-entry-check-output", "description": "Does not emit a separate mixed-project status, candidate list, review report, or artifact for the entry judgment"},
-        {"name": "continues-to-analysis", "description": "Phase 1 discovers the Express API and Electron units"},
-        {"name": "defers-target-selection", "description": "Resolves the exact unit before build or deployment, not inside the Phase 1 entry judgment"}
-      ]
-    },
-    {
-      "id": 16,
-      "prompt": "Deploy a selected repository root whose only deployment contract is Dockerfile: FROM mcr.microsoft.com/windows/servercore:ltsc2025. The target Sealos runtime is linux/amd64 and there are no other workload candidates.",
-      "expected_output": "One Windows Dockerfile does not establish that the whole project is impossible to deploy, so the Phase 1 entry judgment says nothing and continues to readiness scoring",
-      "files": [],
-      "assertions": [
-        {"name": "does-not-overclaim", "description": "Does not treat one Windows container stage as proof that the project can never run online"},
-        {"name": "no-entry-check-output", "description": "Emits no separate runtime status, review report, or artifact for the entry judgment"},
-        {"name": "continues-phase-one", "description": "Silently continues to normal project analysis"}
-      ]
-    },
-    {
-      "id": 17,
-      "prompt": "The selected project is a confirmed Windows-only native WPF desktop application. It requires an interactive Windows desktop and Win32 APIs, and has no server, web, remote-desktop, container, source-porting, or alternative runtime target. Deploy it unchanged to a Sealos linux/amd64 cluster.",
-      "expected_output": "At the start of Phase 1, gives one short concrete explanation that this Windows-only desktop application cannot run on the Sealos Linux runtime, then stops before scoring or producing a status object, report, candidate list, or file",
-      "files": [],
-      "assertions": [
-        {"name": "stops-certainly-impossible-project", "description": "Stops at Phase 1 entry because the selected project is unambiguously Windows-only and has no online runtime path"},
-        {"name": "explains-concisely", "description": "Names the Windows desktop versus Sealos Linux incompatibility in one short explanation"},
-        {"name": "no-phase-artifact-or-assessment", "description": "Creates no status object, score, review report, candidate list, or project file"}
-      ]
-    },
-    {
-      "id": 18,
-      "prompt": "A deployment target is not obviously impossible to run on Sealos, but Phase 1 gives it a readiness score of 2/12. The user already asked to deploy it. Continue the sealos-deploy lifecycle.",
-      "expected_output": "The Phase 1 entry judgment emits nothing; readiness scoring reports the severe risks, then the pipeline proceeds to image detection and guarded containerization until a concrete build, safety, validation, or runtime check fails",
-      "files": [],
-      "assertions": [
-        {"name": "no-entry-check-output", "description": "Produces no separate status, report, score, or artifact for the entry judgment"},
-        {"name": "reports-low-score-risk", "description": "Explains the 2/12 findings and likely failure modes clearly"},
-        {"name": "continues-after-score", "description": "Continues to Phase 2 and later guarded work because the user requested deployment"},
-        {"name": "keeps-concrete-gates", "description": "Still stops on actual safety, image, build, template, or runtime failures"}
-      ]
-    },
-    {
-      "id": 19,
-      "prompt": "Re-run /sealos-deploy for a project whose .sealos/state.json records a live last_deploy image and URL. The current root Dockerfile contains a Windows stage, but the existing application is running on Sealos.",
-      "expected_output": "Mode detection verifies the existing live deployment and enters the UPDATE lifecycle without running Phase 1",
-      "files": [],
-      "assertions": [
-        {"name": "recognizes-project-can-run", "description": "Uses the existing live deployment as proof that the project can run"},
-        {"name": "does-not-reject-update", "description": "Does not let a Windows stage signal block a previously verified live deployment"},
-        {"name": "skips-phase-one", "description": "Skips Phase 1, including its entry judgment and readiness scoring, in UPDATE mode"},
-        {"name": "enters-mode-detection", "description": "Continues to verify the live application and choose DEPLOY versus UPDATE"},
-        {"name": "preserves-runtime-validation", "description": "Still verifies rollout and runtime truth during the update path"}
-      ]
-    },
-    {
-      "id": 20,
-      "prompt": "Deploy an unchanged default-branch repository that has no exact spec.gitRepo entry in the official Sealos template catalog.",
-      "expected_output": "Phase 1.5 records continue_standard_pipeline and immediately continues to Phase 2 without looking for or using a similar template",
-      "files": [],
-      "assertions": [
-        {"name": "records-no-exact-route", "description": "Writes decision.route as continue_standard_pipeline with a no-exact-match reason"},
-        {"name": "continues-to-phase-two", "description": "Continues directly to existing-image detection"},
-        {"name": "does-not-run-similarity", "description": "Does not structurally match, select, or reference similar templates"},
-        {"name": "does-not-materialize-catalog-yaml", "description": "Does not copy any catalog YAML to .sealos/template/index.yaml"}
-      ]
-    },
-    {
-      "id": 21,
-      "prompt": "The official catalog has an exact repository match, but the current local checkout is dirty and on a custom branch. Deploy the current source without losing those changes.",
-      "expected_output": "Phase 1.5 explains that the exact official template cannot replace the current checkout, records continue_standard_pipeline, and builds from the current source",
-      "files": [],
-      "assertions": [
-        {"name": "preserves-current-source-intent", "description": "Does not silently deploy the official release while ignoring local or branch changes"},
-        {"name": "disables-official-reuse", "description": "Invokes exact matching with official-template reuse disabled"},
-        {"name": "explains-standard-route", "description": "Briefly explains why the exact match continues through the standard pipeline"},
-        {"name": "does-not-copy-official-template", "description": "Leaves .sealos/template/index.yaml for Phase 5 generation"}
-      ]
-    },
-    {
-      "id": 22,
-      "prompt": "Deploy a project while the official template catalog cannot be refreshed and no trustworthy non-stale cache is available.",
-      "expected_output": "Phase 1.5 records an unavailable catalog result and continues to Phase 2 without blocking deployment or attempting similarity matching",
-      "files": [],
-      "assertions": [
-        {"name": "catalog-failure-is-nonblocking", "description": "Catalog network, Git, or parse failure does not stop the deployment"},
-        {"name": "records-unavailable-decision", "description": "Writes continue_standard_pipeline with an unavailable-catalog reason when possible"},
-        {"name": "continues-to-phase-two", "description": "Proceeds with current-source image detection and later phases"},
-        {"name": "does-not-use-stale-template", "description": "Does not directly deploy an untrusted or stale catalog YAML"}
-      ]
-    },
-    {
-      "id": 23,
-      "prompt": "Deploy a fresh, unchanged default-branch clone with one exact official template match. The repository does not ignore .sealos/, and Phase 1 has just created the untracked .sealos/analysis.json.",
-      "expected_output": "Phase 1.5 ignores only its own generated analysis artifact when checking source cleanliness, selects the unique freshly verified official template, and takes the Phase 6 fast path",
-      "files": [],
-      "assertions": [
-        {"name": "does-not-misclassify-generated-analysis", "description": "Does not treat the workflow-created .sealos/analysis.json as a user source change"},
-        {"name": "still-detects-real-overrides", "description": "Would still disable reuse for any other tracked or untracked change, including .sealos/config.json"},
-        {"name": "takes-exact-fast-path", "description": "Records deploy_official_template and skips Phases 2 through 5.5"}
-      ]
-    },
-    {
-      "id": 24,
-      "prompt": "Resume a first deployment whose local .sealos/template-references.json claims verified_for_reuse=true and whose copied YAML claims an official exact match, but the official catalog cannot be freshly fetched or verified now.",
-      "expected_output": "The resumed Phase 1.5 refuses to trust the local claim or YAML, records continue_standard_pipeline, removes only a byte-identical prior official materialization when safe, and continues to Phase 2",
-      "files": [],
-      "assertions": [
-        {"name": "requires-fresh-remote-proof", "description": "Reruns official origin, commit, and checkout verification instead of trusting local verified_for_reuse metadata"},
-        {"name": "does-not-deploy-forged-local-yaml", "description": "Does not enter Phase 6 with only the local artifact or copied template as evidence"},
-        {"name": "continues-standard-route", "description": "Falls back non-blockingly to Phase 2 when fresh verification is unavailable"}
-      ]
-    },
-    {
-      "id": 25,
-      "prompt": "The real Template API deployment POST times out after its body was sent. The selected official template uses random app names. Continue safely.",
-      "expected_output": "Treats the outcome as unknown, performs a read-only live footprint inventory, never generates a second random identity, and stops without retrying or using kubectl fallback",
-      "files": [],
-      "assertions": [
-        {"name": "does-not-assume-failure", "description": "Recognizes that a timeout after submission may still have created resources"},
-        {"name": "inventories-before-mutation", "description": "Checks recent Instances, Apps, and template resource kinds and names before any retry"},
-        {"name": "prevents-duplicate-random-deploy", "description": "Preserves resolved identifiers and never renders a second random app name or host"},
-        {"name": "stops-ambiguous-retry", "description": "If no footprint is visible, keeps the outcome unknown and does not retry or use kubectl fallback"}
-      ]
-    },
-    {
-      "id": 26,
-      "prompt": "Deploy a Compose project with a README image acme/frontend:latest, a CI-published ghcr.io/acme/api:v2, and Compose services frontend, api, postgres:16, redis:stable, and a build-only worker. Every declared image selector resolves successfully.",
-      "expected_output": "Phase 2 inventories the whole project using README before CI before Compose, resolves each exact declared selector to a digest, preserves the database, cache, and build-only worker, and sends only the worker through Dockerfile/build preparation",
-      "files": [],
-      "assertions": [
-        {"name": "uses-declared-evidence-order", "description": "Uses README, then CI publish evidence, then Compose; it does not guess an image from the GitHub owner/repository name"},
-        {"name": "accepts-floating-selectors", "description": "Treats latest, stable, and v2 as valid source selectors and does not search for replacement version tags"},
-        {"name": "does-not-prescreen-architecture", "description": "Reuses every exact selector that resolves to a digest without rejecting third-party images from architecture metadata"},
-        {"name": "emits-immutable-references", "description": "Records reusable images as repository@sha256 digest references"},
-        {"name": "preserves-complete-topology", "description": "Keeps frontend, api, PostgreSQL, Redis, and worker in the service inventory rather than filtering infrastructure"},
-        {"name": "builds-per-service", "description": "Runs Phase 3 and Phase 4 only for the build-only worker instead of skipping or rebuilding the entire project"},
-        {"name": "keeps-database-capability", "description": "Carries PostgreSQL into Phase 5 for an equivalent KubeBlocks conversion and preserves its application wiring"}
-      ]
-    },
-    {
-      "id": 27,
-      "prompt": "Deploy a repository whose README declares app/image:2.1, but the manifest supports only linux/arm64. Its Dockerfile starts with FROM node:latest and the source is otherwise buildable for linux/amd64.",
-      "expected_output": "Phase 2 resolves and reuses the exact image selector without architecture pre-screening. If the live linux/amd64 runtime later reports an exact architecture mismatch, the available source is rebuilt for linux/amd64 and the replacement is pinned using the digest returned by Buildx",
-      "files": [],
-      "assertions": [
-        {"name": "reuses-before-runtime-proof", "description": "Does not reject the digest-resolved image from manifest architecture metadata"},
-        {"name": "does-not-rewrite-selector", "description": "Does not replace 2.1 with a guessed exact version"},
-        {"name": "allows-floating-base", "description": "Does not classify FROM node:latest as a Dockerfile error by itself"},
-        {"name": "builds-amd64-only-after-runtime-proof", "description": "Builds the available source with --platform linux/amd64 only after exact runtime evidence such as no matching manifest or exec format error"},
-        {"name": "digests-built-image", "description": "Uses the immutable digest returned by Buildx for the replacement image"}
-      ]
-    },
-    {
-      "id": 28,
-      "prompt": "Deploy a Compose monorepo. frontend already has a digest-resolved image. api has build.context=services/api, build.dockerfile=docker/Dockerfile.prod, build.target=runtime, and build args NODE_ENV and API_TOKEN. search-db is an unsupported custom database with build.context=services/search-db. Both existing Dockerfiles are single-stage, run as root, omit EXPOSE, and use floating base tags, but there is no concrete build failure. The api context contains Markdown files required by its build.",
-      "expected_output": "Phase 3 preserves both existing Dockerfiles, records exact per-service build plans without argument values, and Phase 4 builds only api and search-db for linux/amd64 from their own contexts. The custom database remains a container workload, frontend is not rebuilt, and no standalone dockerfile-skill outputs are created",
-      "files": [],
-      "assertions": [
-        {"name": "preserves-existing-dockerfiles", "description": "Does not rewrite Dockerfiles solely for single-stage layout, root user, missing EXPOSE, cache style, or floating base selectors"},
-        {"name": "keeps-exact-service-build-plan", "description": "Records each service's context, Dockerfile, optional target, build-argument names, and existing origin in service_inventory[].build"},
-        {"name": "does-not-persist-build-arg-values", "description": "Retains NODE_ENV and API_TOKEN names but never writes secret argument values to analysis, logs, or build-result artifacts"},
-        {"name": "builds-all-final-container-roles", "description": "Builds the unsupported custom database because it remains a final container workload instead of excluding it by role"},
-        {"name": "builds-only-missing-services", "description": "Preserves the digest-resolved frontend and builds api and search-db independently for linux/amd64"},
-        {"name": "preserves-required-markdown", "description": "Does not blanket-ignore *.md or otherwise exclude files required by the api build context"},
-        {"name": "keeps-integration-boundary", "description": "Creates no Compose replacement, env or test-secret file, standalone report, deployment documentation, topology change, or unrelated application configuration"}
-      ]
-    },
-    {
-      "id": 29,
-      "prompt": "Resume deployment of a conventional single-app repository with no Compose file, no reusable published image, and an existing root Dockerfile. A previous run stopped after Phase 1 and the Dockerfile predates sealos-deploy.",
-      "expected_output": "The detector reports an implicit source without inventing a service. Phase 2 confirms from project evidence that the root is the application and records one service with context '.', Dockerfile 'Dockerfile', no target or build args, and existing origin. Phase 3 preserves that plan, Phase 4 builds it for linux/amd64, and Phase 5 uses a temporary Compose input to produce the canonical validated Sealos template without modifying the project",
-      "files": [],
-      "assertions": [
-        {"name": "keeps-detector-advisory", "description": "Does not treat an implicit source result as proof that the repository root is the application"},
-        {"name": "confirms-root-application", "description": "Uses project evidence to record the ordinary root application in service_inventory as one build-required service"},
-        {"name": "uses-root-build-defaults", "description": "Uses context '.', dockerfile 'Dockerfile', target null, args [], and origin existing"},
-        {"name": "does-not-use-root-file-as-checkpoint", "description": "Does not skip all Phase 3 preparation merely because a root Dockerfile exists"},
-        {"name": "preserves-existing-root-dockerfile", "description": "Uses the existing Dockerfile unchanged absent a certain blocker or concrete Phase 4 failure"},
-        {"name": "builds-single-app-for-amd64", "description": "Passes the normalized implicit-service plan to Phase 4 and builds linux/amd64"},
-        {"name": "uses-temporary-compose-adapter", "description": "Synthesizes the no-Compose conversion input outside the project from the implicit service image, detected port, and classified environment variables"},
-        {"name": "writes-canonical-template", "description": "Writes only .sealos/template/index.yaml and passes that exact artifact through the complete docker-to-sealos quality gate"}
-      ]
-    },
-    {
-      "id": 30,
-      "prompt": "Phase 4 must build the api service. Docker, Buildx, Node.js 18+, and gh are available, and gh is authenticated to github.com as MixedCaseUser with write:packages. The first GHCR push is denied. Continue safely without changing the selected source or build plan.",
-      "expected_output": "Phase 4 keeps GHCR as the only push destination, diagnoses or refreshes the current GitHub authentication and package scope, then retries the same linux/amd64 build plan. It never asks for a registry, username, or password and never falls back to Docker Hub. A successful retry records a lower-case ghcr.io/mixedcaseuser namespace, the digest returned by Buildx, and the pull_access handoff in the per-service build result",
-      "files": [],
-      "assertions": [
-        {"name": "uses-fixed-ghcr-destination", "description": "Pushes locally built images only to the current authenticated GitHub account namespace on ghcr.io"},
-        {"name": "does-not-offer-registry-choice", "description": "Does not ask the user to select a registry or provide registry host, username, or password"},
-        {"name": "never-falls-back-to-docker-hub", "description": "Treats a GHCR authentication or push failure as a Phase 4 problem and never pushes the build to Docker Hub"},
-        {"name": "normalizes-ghcr-namespace", "description": "Uses the lower-case current GitHub login in the GHCR repository path"},
-        {"name": "builds-linux-amd64", "description": "Builds the exact Phase 3 plan for linux/amd64"},
-        {"name": "records-buildx-digest-and-pull-access", "description": "Persists the digest from the same Buildx push plus anonymous, ghcr_secret_required, or indeterminate pull_access in build-result.json"}
-      ]
-    },
-    {
-      "id": 31,
-      "prompt": "Deploy a Compose project whose README and Compose file declare public Docker Hub images acme/frontend:v2 and postgres:16. Both exact selectors resolve to immutable digests, every final workload is covered, and gh is not installed.",
-      "expected_output": "Phase 2 reuses both project-declared Docker Hub images by immutable digest, preserves the application and database topology, and skips Phases 3 and 4. Missing gh is only a path-specific warning and does not block this deployment because no local image must be pushed",
-      "files": [],
-      "assertions": [
-        {"name": "reuses-declared-docker-hub-images", "description": "Keeps explicitly declared Docker Hub application and database images when their selectors resolve to digests"},
-        {"name": "does-not-confuse-reuse-with-push", "description": "The GHCR-only Phase 4 upload policy does not remove Phase 2 Docker Hub image discovery or reuse"},
-        {"name": "preserves-complete-topology", "description": "Carries both the frontend and PostgreSQL workload into template generation"},
-        {"name": "skips-local-build", "description": "Skips Phases 3 and 4 because every final container workload already has an immutable image"},
-        {"name": "does-not-require-gh-without-build", "description": "Does not block on missing gh when no local build/push path is needed"}
-      ]
-    },
-    {
-      "id": 32,
-      "prompt": "Update an existing version 1.1 deployment whose state maps frontend to Deployment/shop container web and worker to StatefulSet/shop-worker container worker. Both services changed and have independent build plans. Both GHCR builds succeed, frontend becomes ready, but worker rollout fails.",
-      "expected_output": "The update builds both selected services for linux/amd64 and records their GHCR digests before mutating the cluster. It updates the exact recorded workload/container targets rather than guessing from the app name. When the worker rollout fails, it restores both frontend and worker to their previous digests, keeps the current per-service state unchanged, and appends target-qualified failure history",
-      "files": [],
-      "assertions": [
-        {"name": "uses-per-service-build-plans", "description": "Builds frontend and worker with their own context, Dockerfile, target, and argument names"},
-        {"name": "pushes-every-new-image-to-ghcr", "description": "Uses GHCR for both new update images with no registry prompt or fallback"},
-        {"name": "targets-recorded-workloads", "description": "Uses Deployment/shop:web and StatefulSet/shop-worker:worker rather than deriving a target from app_name"},
-        {"name": "mutates-only-after-all-builds", "description": "Does not change a live workload until every selected service build succeeds"},
-        {"name": "rolls-back-the-whole-update-set", "description": "Restores every target changed in this operation when one selected rollout fails"},
-        {"name": "preserves-current-state-on-failure", "description": "Does not partially advance services[].image, pull_access, or the primary image summary"},
-        {"name": "records-target-qualified-history", "description": "Failure history identifies service, workload kind/name, container, previous image, and attempted image"}
-      ]
-    },
-    {
-      "id": 33,
-      "prompt": "Update a multi-service deployment. An unchanged private worker still uses ghcr.io/account-a/worker@sha256:<digest>, while the current active GitHub account builds a private api image under ghcr.io/account-b/api@sha256:<digest>.",
-      "expected_output": "Before changing any cloud resource, the update evaluates the complete prospective service inventory and refuses to overwrite the app-scoped GHCR credential because its non-anonymous images span two namespaces. It asks the user to rebuild every conflicting private or indeterminate service under one GitHub account; it does not partially update workloads or state",
-      "files": [],
-      "assertions": [
-        {"name": "checks-complete-service-inventory", "description": "Includes unchanged services when determining which GHCR credential the application still needs"},
-        {"name": "requires-one-private-namespace", "description": "Allows only one normalized GHCR namespace across ghcr_secret_required and indeterminate service images"},
-        {"name": "stops-before-cluster-mutation", "description": "Does not refresh the Secret, patch imagePullSecrets, or set a workload image when namespaces conflict"},
-        {"name": "does-not-overwrite-another-account", "description": "Never replaces account-a credentials with account-b credentials while an unchanged private account-a image remains in use"},
-        {"name": "preserves-state", "description": "Leaves the per-service state and history unchanged because no update operation began"}
-      ]
-    },
-    {
-      "id": 34,
-      "prompt": "Generate Phase 5 for a Compose project where worker is declared first, api exposes only port 8080, and frontend publishes port 3000 with API_URL=http://api:8080. Frontend declares limits of 0.75 CPU and 600M memory, while the worker's official runtime documentation requires 1 CPU and 1Gi memory. Phase 4 reports frontend as ghcr_secret_required and worker as anonymous.",
-      "expected_output": "Phase 5 selects frontend as the sole public service regardless of declaration order, preserves api as an internal Service, rewrites frontend's API URL to the generated api Service FQDN, keeps every component above its hard floor, rounds frontend and worker requirements up to valid Sealos tiers without lowering them, injects the app-scoped pull Secret only into frontend, writes .sealos/template/index.yaml, and passes the complete quality gate",
-      "files": [],
-      "assertions": [
-        {"name": "selects-public-service-by-contract", "description": "Uses frontend as the public workload and Ingress backend because it is the sole application service publishing Compose ports"},
-        {"name": "preserves-internal-expose-port", "description": "Creates an internal api Service on port 8080 from Compose expose without creating an api Ingress"},
-        {"name": "rewrites-internal-service-url", "description": "Maps http://api:8080 to the generated api Service FQDN using the Sealos namespace variable"},
-        {"name": "selects-safe-resource-tiers", "description": "Uses at least limits 500m/2048Mi and requests 50m/512Mi for every long-running business primary container, rounds frontend to 1 CPU/2048Mi without lowering its source requirement, and keeps worker at 1 CPU/2048Mi after combining official evidence with the role floor"},
-        {"name": "scopes-private-pull-secret", "description": "Adds imagePullSecrets with the app-scoped name only to frontend and omits it from the anonymous worker and reused services"},
-        {"name": "validates-canonical-artifact", "description": "Runs the complete quality gate against .sealos/template/index.yaml and does not fail R013 on the canonical deploy path"}
-      ]
-    },
-    {
-      "id": 35,
-      "prompt": "Deploy a GitHub repository from a temporary checkout through the Template API. The kubeconfig selects namespace ns-demo, the built image is private GHCR, the API returns a random instance name, and the workload becomes ready after creation.",
-      "expected_output": "Phase 6 resolves and validates ns-demo before any Secret operation, performs the dry-run and real request with the same template and args, creates the app-scoped GHCR pull Secret for the returned instance, waits for every workload and public Service endpoint before Phase 6.5, validates state.json, persists the validated state outside the temporary checkout, and only then removes the checkout",
-      "files": [],
-      "assertions": [
-        {"name": "initializes-namespace-before-secret", "description": "Reads and validates the kubeconfig namespace before Template API submission and passes that exact namespace to the pull-Secret helper"},
-        {"name": "uses-identical-dry-run-and-create-inputs", "description": "Sends the same template bytes and argument object to dry-run and the real create request"},
-        {"name": "materializes-secret-after-random-name", "description": "Explicitly assigns APP_NAME from the allowlisted DEPLOY_RESULT.response.name, validates it as a Kubernetes name, and uses that exact value for the app-scoped Secret without guessing"},
-        {"name": "runs-common-readiness-gate", "description": "Waits for every returned or rendered workload and for public Service endpoints before runtime truth"},
-        {"name": "persists-state-before-cleanup", "description": "Validates state.json, copies it to the stable GitHub repository state bridge, and cleans the temporary checkout only after persistence succeeds"}
-      ]
-    },
-    {
-      "id": 36,
-      "prompt": "Deploy a repository with no root Compose file. Its parent Helm Chart defines API, UI, registry, and worker Deployments, their Services and Ingresses, RBAC, and one PostgreSQL KubeBlocks Cluster. The repository CI contains independent build plans for the four application images.",
-      "expected_output": "Phase 2 selects the parent Helm Chart instead of the implicit single-service fallback, renders it from a temporary copy without installing it, inventories the complete topology, resolves or builds each application image independently, and Phase 5 converts the rendered Kubernetes resources into one validated Sealos template without dropping the database, worker, registry, RBAC, or internal/public URL wiring",
-      "files": [],
-      "assertions": [
-        {"name": "selects-explicit-helm-source", "description": "Selects the parent Helm Chart as deployment_source.kind=helm and does not treat vendored dependency Charts as independent sources"},
-        {"name": "renders-without-installing", "description": "Uses a temporary Chart copy, rebuilds declared dependencies when needed, runs helm template without hooks, and never runs helm install or mutates the source Chart"},
-        {"name": "does-not-fallback-to-single-service", "description": "Keeps all explicit Helm resources and never creates the implicit single-application service"},
-        {"name": "matches-build-plans-per-container", "description": "Binds each CI build context, Dockerfile, target, and build-argument-name list to the matching workload/container service key"},
-        {"name": "preserves-complete-topology", "description": "Retains API, UI, registry, worker, Services, Ingresses, RBAC, and the PostgreSQL KubeBlocks Cluster or an explicitly mapped equivalent"},
-        {"name": "pins-every-workload-image", "description": "Uses a distinct immutable digest override for every emitted container workload rather than one top-level image for all services"},
-        {"name": "normalizes-runtime-references", "description": "Binds RoleBinding ServiceAccounts to the selected Sealos namespace and rewrites application URLs to the generated Service or Ingress identities"},
-        {"name": "accounts-for-every-source-resource", "description": "Writes a source resource mapping and topology evidence in which every rendered resource is preserved, transformed, or explicitly filtered exactly once"},
-        {"name": "validates-template-and-topology", "description": "Runs the complete docker-to-sealos quality gate against both the canonical template and topology evidence before deployment"}
-      ]
-    },
-    {
-      "id": 37,
-      "prompt": "Run Phase 1 for https://github.com/fanux/sealos-brain-homepage, a static HTML/CSS/JavaScript project served by Nginx. It has no package manager or language runtime version, and its existing Dockerfile exposes the application on port 3000. Continue the deployment lifecycle.",
-      "expected_output": "Phase 1 records the static project facts without coercing them into a known backend stack: language html, all_languages containing html/css/javascript, framework nginx, package_manager null, port 3000, and an empty or null runtime_version. The analysis artifact validates and the lifecycle continues to Phase 1.5",
-      "files": [],
-      "assertions": [
-        {"name": "accepts-open-language-values", "description": "Treats html, css, and javascript as valid descriptive language facts rather than rejecting them against the deterministic detector vocabulary"},
-        {"name": "permits-absent-package-runtime", "description": "Keeps package_manager null and runtime_version empty or null instead of inventing node, npm, or a runtime version"},
-        {"name": "preserves-existing-container-path", "description": "Does not require known language metadata before preserving the existing Dockerfile path"},
-        {"name": "continues-after-valid-analysis", "description": "Validates analysis.json and advances to Phase 1.5 rather than stopping the deployment in Phase 1"}
-      ]
-    },
-    {
-      "id": 38,
-      "prompt": "Run Phase 6.5 against a healthy Next.js application whose initial HTTP response contains the internal NEXT_REDIRECT marker and redirects the browser to /project. Browser rendering, API checks, logs, and stability checks all pass.",
-      "expected_output": "The runtime truth pass treats NEXT_REDIRECT as a framework control-flow marker rather than a runtime failure, keeps the HTTP smoke result successful, and accepts the deployment based on the actual browser, HTTP status, logs, and stability evidence",
-      "files": [],
-      "assertions": [
-        {"name": "ignores-normal-next-control-flow", "description": "Does not classify NEXT_REDIRECT alone as a smoke failure"},
-        {"name": "retains-real-error-detection", "description": "Continues to fail on user-visible SSR error text and unsuccessful HTTP status codes"},
-        {"name": "uses-runtime-evidence", "description": "Bases final acceptance on rendered browser behavior, HTTP status, logs, and stability rather than an internal framework digest"}
-      ]
-    },
-    {
-      "id": 39,
-      "prompt": "Deploy a buildable static web repository whose Dockerfile uses a private third-party base image that the current GitHub account cannot pull. The source files and runtime port can be established from the repository.",
-      "expected_output": "The private base-image failure rejects only the current build plan. Phase 4 routes the service back to Phase 3, Phase 3 reconstructs an equivalent static-server Dockerfile from source using an accessible base, and Phase 4 retries and pushes the resulting linux/amd64 image to the current user's GHCR before continuing to Phase 5",
-      "files": [],
-      "assertions": [
-        {"name": "does-not-reject-project-on-private-base", "description": "Does not stop or skip the project solely because the Dockerfile base image returns 401 or 403"},
-        {"name": "routes-source-image-failure-to-phase3", "description": "Treats an inaccessible FROM image as a build-plan failure and returns only that service to Phase 3"},
-        {"name": "builds-current-user-replacement", "description": "Rebuilds from source and uses the digest of the image pushed to the current GitHub user's GHCR"}
-      ]
-    },
-    {
-      "id": 40,
-      "prompt": "Deploy a GitHub repository whose current commit declares tracked Git LFS content, but the Git LFS client is not installed. A metadata-only clone succeeds, while the application cannot be analyzed or built correctly from pointer files.",
-      "expected_output": "Phase 0 applies the general source-materialization rule: it detects the repository-declared content mechanism, installs the missing trustworthy tool without a separate dependency confirmation, materializes and verifies the exact current commit, and only then enters Phase 1 without creating a new lifecycle artifact",
-      "files": [],
-      "assertions": [
-        {"name": "keeps-source-tool-conditional", "description": "Does not treat Git LFS as a global prerequisite for repositories that do not declare or need it"},
-        {"name": "uses-repository-evidence", "description": "Discovers the required source mechanism from repository metadata and checkout state rather than a casual README command"},
-        {"name": "materializes-before-analysis", "description": "Installs the missing tool, obtains and verifies the real tracked content, and never analyzes or builds from pointer files"},
-        {"name": "uses-existing-phase-zero-contract", "description": "Keeps source hydration inside Phase 0 and creates no new .sealos artifact or lifecycle phase"}
-      ]
-    },
-    {
-      "id": 41,
-      "prompt": "Deploy a single application repository with no Compose, Helm, or Kubernetes topology. Phase 1 finds a PostgreSQL dependency and DATABASE_URL, the source does not declare an external database provider, and Phase 4 has produced the application image.",
-      "expected_output": "Phase 5 does not stop because Compose is absent. It synthesizes the existing temporary adapter input with the application and PostgreSQL services, converts PostgreSQL to KubeBlocks, preserves the declared application database and user through an idempotent bootstrap Job, gates application startup on that exact credential, and continues through the normal quality gate without adding a lifecycle artifact",
-      "files": [],
-      "assertions": [
-        {"name": "does-not-require-explicit-database-topology", "description": "Does not reject the implicit source route merely because analysis.json records a supported database"},
-        {"name": "prefers-kubeblocks", "description": "Creates the supported PostgreSQL dependency as a KubeBlocks Cluster instead of a raw database workload"},
-        {"name": "preserves-application-database-semantics", "description": "Creates the declared database and application user with an idempotent bootstrap Job, grants access, and wires DATABASE_URL through that application credential and the KubeBlocks Service identity"},
-        {"name": "gates-on-application-credential", "description": "Verifies the target database with the same application credential before starting the business workload"},
-        {"name": "keeps-existing-artifact-contract", "description": "Writes only the existing canonical template and does not introduce a new phase artifact"}
-      ]
-    },
-    {
-      "id": 42,
-      "prompt": "Deploy a component-library monorepo whose repository root has no application start command or listening port. Project-owned workspace scripts and CI build a Storybook site from packages/ui into static output, and the repository also contains runnable examples. There is no Compose, Helm, or Kubernetes topology.",
-      "expected_output": "The skill treats the repository as a source boundary instead of stopping on the root runtime contract. Phase 1 identifies the project-backed Storybook as a reasonable online form, Phase 2 records that actual service in the existing service inventory, Phase 3 prepares its real workspace build context and a static-serving final container, and the normal build, template, and quality-gate path continues without adding a target artifact",
-      "files": [],
-      "assertions": [
-        {"name": "does-not-require-root-runtime", "description": "Does not stop because the component-library repository root lacks an application start command or port"},
-        {"name": "uses-project-backed-online-form", "description": "Uses workspace and CI evidence to select a real Storybook, documentation, example, or other repository-supported deployable form"},
-        {"name": "serves-static-output", "description": "Turns the selected static build output into a concrete final runtime with a listening port"},
-        {"name": "keeps-existing-artifacts", "description": "Records reasoning in the existing analysis and service inventory without introducing a target-selection phase or artifact"}
+        {"name": "reports-final-yaml", "description": "Reports .sealos/template/index.yaml."},
+        {"name": "reports-log", "description": "Reports the single phase log path."},
+        {"name": "prohibits-later-phases", "description": "Does not run Phase 4.5, Phase 4.9, Phase 5, Phase 5.5, or UPDATE."},
+        {"name": "does-not-mutate-application-resources", "description": "Does not call the Template API or apply YAML with kubectl."}
       ]
     }
   ]

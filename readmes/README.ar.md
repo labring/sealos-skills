@@ -6,9 +6,9 @@
 
 <!-- README-I18N:END -->
 
-انشر المشاريع على [Sealos Cloud](https://sealos.io) من خلال وكيل الذكاء الاصطناعي لديك.
+حضّر YAML للنشر في [Sealos Cloud](https://sealos.io) من خلال وكيل الذكاء الاصطناعي لديك.
 
-Sealos Skills هي حزمة مهارات تعتمد على الإضافات وتركز على التطوير والنشر في Sealos Cloud. تساعد وكيل الذكاء الاصطناعي على فحص المشروع، وتجهيز عناصر النشر الناقصة، وربط قواعد بيانات Sealos Cloud وتخزين الكائنات لأغراض التطوير، وبناء صورة حاوية أو إعادة استخدامها، ونشر التطبيق على Sealos Cloud، وعرض الموارد المنشورة في لوحة محلية للقراءة فقط.
+Sealos Skills هي حزمة مهارات تعتمد على الإضافات لتطوير Sealos Cloud. تساعد وكيل الذكاء الاصطناعي على فحص مشروع، وتجهيز عناصر النشر وYAML، وربط قواعد بيانات Sealos Cloud وتخزين الكائنات لأغراض التطوير، وبناء صورة حاوية أو إعادة استخدامها، وعرض الموارد المنشورة في لوحة محلية للقراءة فقط. تُحضّر مهارة `sealos-deploy` YAML فقط. تتوقف بعد المرحلة 4 ولا تنشر أعباء العمل أو تحدّثها.
 
 المسار الموصى به في Codex هو تثبيت إضافة Codex الأصلية. تستخدم عمليات تثبيت الإضافات عبر المضيفين و`skills.sh` ومضيفات الامتدادات التي توفر السياق فقط، مثل Gemini CLI وQwen Code، المصدر نفسه من المسار الجذري `skills/**`.
 
@@ -41,9 +41,9 @@ npx plugins add https://github.com/labring/sealos-skills --target codex
 أمثلة Codex:
 
 ```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
+$sealos prepare a Sealos deployment YAML for this repo
+$sealos prepare a Sealos deployment YAML for /path/to/project
+$sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -72,9 +72,9 @@ npx plugins add https://github.com/labring/sealos-skills
 بعد التثبيت في Claude Code، استخدم `/sealos`:
 
 ```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
+/sealos prepare a Sealos deployment YAML for this repo
+/sealos prepare a Sealos deployment YAML for /path/to/project
+/sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -152,29 +152,29 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## آلية الإعداد
 
-تحتاج فقط إلى وكيل ذكاء اصطناعي متوافق مع الإضافات أو `skills.sh` ومشروع تريد نشره.
+تحتاج فقط إلى وكيل ذكاء اصطناعي متوافق مع الإضافات أو skills.sh ومشروع لإعداد YAML.
 
-أثناء مسارات النشر وقواعد البيانات وتخزين الكائنات، تنفذ Sealos Skills ما يلي:
+أثناء إعداد YAML وقواعد البيانات وتخزين الكائنات، تقوم Sealos Skills بما يلي:
 
-- تتحقق من توفر أدوات مثل Docker و`kubectl`
+- تتحقق من الأدوات مثل Docker وkubectl
 - ترشد المستخدم خلال تسجيل الدخول إلى Sealos عند الحاجة
-- تستخدم `sealos-cli` لإنشاء قواعد بيانات Sealos Cloud والحصول على تفاصيل الاتصال وتنفيذ عمليات قواعد البيانات
-- تستخدم `sealos-cli s3` لإدارة حاويات تخزين الكائنات في Sealos وبيانات الاعتماد وفحوصات الحصة وعمليات الكائنات وعناوين URL الموقعة مسبقًا
-- تدفع صور `linux/amd64` المبنية محليًا إلى مساحة اسم حساب GitHub الحالي في GHCR، وتنقل ملخص Buildx ونتيجة صلاحية السحب إلى النشر
+- تستخدم sealos-cli لعمليات قواعد بيانات Sealos Cloud
+- تستخدم sealos-cli s3 لعمليات تخزين الكائنات في Sealos
+- تدفع صور linux/amd64 المطلوبة إلى GHCR وتستخدم digest في YAML
 
-يتطلب النشر الفعلي حساب Sealos Cloud. لا تلزم جلسة GitHub CLI موثقة بصلاحية حزم GHCR إلا عندما يتطلب المسار بناء صورة جديدة ودفعها. ويمكن الاستمرار في إعادة استخدام الصور المعلنة الموجودة، بما فيها صور Docker Hub، عبر ملخص غير قابل للتغيير. تتطلب أعمال قواعد البيانات وتخزين الكائنات حساب Sealos Cloud ومساحة عمل يمكنها إنشاء الموارد المطلوبة.
+يتطلب إعداد YAML محليًا حساب Sealos Cloud. يلزم GitHub CLI موثق فقط عند بناء صورة جديدة ودفعها. تطبق عملية نشر لاحقة ومعتمدة ملف YAML.
 
 ## ما الذي تعالجه Sealos Deploy
 
-في عملية نشر نموذجية، ينفذ الوكيل ما يلي:
+لطلب إعداد YAML، ينفذ الوكيل ما يلي:
 
-- يقيّم بنية المشروع ومتطلبات بيئة التشغيل
-- يعيد استخدام صورة موجودة أو يبني واحدة عند الحاجة
-- ينشئ قالب Sealos
-- ينشر ويتحقق من rollout
-- يتحقق من عنوان Sealos App URL الفعلي والسجلات ومسار تسجيل الدخول أو الإعداد لتطبيقات الويب والنطاق الكامل للموارد قبل الإبلاغ عن جاهزية التطبيق للاستخدام
+- يشغّل Phase 0 حتى Phase 4 فقط
+- يجهز المصدر وعقود المراحل
+- يبحث في دليل kb-0.9 الحالي عن تطابق رسمي دقيق
+- يكتب أو يولد YAML ويشغّل بوابة النشر في Phase 4
+- يكتب .sealos/template/index.yaml ثم يتوقف
 
-يمكن لعمليات التشغيل اللاحقة الانتقال إلى مسار تحديث في الموضع عند اكتشاف عملية نشر موجودة.
+لا يجمع Sealos Deploy مدخلات النشر ولا ينفذ dry-run في الكتلة ولا ينشر موارد أو يحدث أعباء العمل أو يتحقق من وقت التشغيل.
 
 ## ما الذي تعالجه Sealos Database
 
@@ -199,20 +199,20 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## ما الذي تعالجه Sealos Canvas
 
-بالنسبة إلى مستودع سبق نشره بواسطة Sealos Deploy، ينفذ الوكيل ما يلي:
+لمستودع نُشر بالفعل إلى Sealos، ينفذ الوكيل ما يلي:
 
-1. يقرأ `.sealos/state.json` لتحديد موقع التطبيق المنشور.
-2. يستعلم عن namespace في Sealos باستخدام أوامر `kubectl get` للقراءة فقط.
-3. يشغّل واجهة لوحة مؤقتة على `127.0.0.1`.
+1. يقرأ .sealos/state.json لتحديد التطبيق المنشور.
+2. يستعلم عن namespace في Sealos باستخدام أوامر kubectl get للقراءة فقط.
+3. يشغّل واجهة لوحة مؤقتة على 127.0.0.1.
 4. يعرض عنوان الواجهة المحلية ويفتحه للفحص.
 
-إذا لم يُنشر المشروع بعد، تتوقف Sealos Canvas وتوجّه المستخدم إلى نشر المشروع أولًا.
+إذا لم توجد حالة نشر، تتوقف Sealos Canvas. استخدم عملية نشر معتمدة لتطبيق YAML. إن sealos-deploy يجهز YAML فقط.
 
 ## المهارات المضمنة
 
 توفر الإضافة وحزمة `skills.sh` مصدر المهارات نفسه:
 
-- `sealos-deploy` — ينشر مشروعًا محليًا أو مشروع GitHub على Sealos Cloud
+- `sealos-deploy` — يُعد YAML نشر Sealos من مشروع محلي أو مشروع GitHub
 - `sealos-database` — ينشئ قواعد بيانات Sealos Cloud للتطوير ويربطها ويشغّلها
 - `sealos-s3` — ينشئ الحاويات ويربط بيانات الاعتماد ويتحقق من الحصة ويشغّل تخزين الكائنات المتوافق مع Sealos S3
 - `sealos-canvas` — يعرض موارد Sealos المنشورة في واجهة لوحة محلية للقراءة فقط

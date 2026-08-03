@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sealos Deploy"
+  short_description: "Prepare validated Sealos deployment YAML"
+  default_prompt: "Use $sealos-deploy to prepare a validated Sealos deployment YAML for this project."

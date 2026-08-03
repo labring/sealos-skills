@@ -6,9 +6,9 @@
 
 <!-- README-I18N:END -->
 
-AI 에이전트에서 [Sealos Cloud](https://sealos.io)로 프로젝트를 배포하세요.
+AI 에이전트에서 [Sealos Cloud](https://sealos.io) 배포 YAML을 준비하세요.
 
-Sealos Skills는 Sealos Cloud 개발 및 배포를 중심으로 하는 플러그인 우선 스킬 팩입니다. AI 에이전트가 프로젝트를 검사하고, 누락된 배포 산출물을 준비하고, 개발용 Sealos Cloud 데이터베이스와 객체 스토리지를 연결하고, 컨테이너 이미지를 빌드하거나 재사용하고, 앱을 Sealos Cloud에 배포하고, 로컬 읽기 전용 캔버스에서 배포된 리소스를 확인하도록 지원합니다.
+Sealos Skills는 Sealos Cloud 개발을 중심으로 하는 플러그인 우선 스킬 팩입니다. AI 에이전트가 프로젝트를 검사하고, 배포 산출물과 YAML을 준비하고, 개발용 Sealos Cloud 데이터베이스와 객체 스토리지를 연결하고, 컨테이너 이미지를 빌드하거나 재사용하고, 로컬 읽기 전용 캔버스에서 배포된 리소스를 확인하도록 지원합니다. `sealos-deploy`는 YAML만 준비합니다. Phase 4 후에 멈추며 워크로드를 배포하거나 업데이트하지 않습니다.
 
 Codex에서는 네이티브 Codex 플러그인 설치를 권장합니다. 교차 호스트 플러그인 설치, `skills.sh`, Gemini CLI 및 Qwen Code와 같은 컨텍스트 전용 확장 호스트는 동일한 루트 `skills/**` 소스를 사용합니다.
 
@@ -41,9 +41,9 @@ Codex에 설치한 후 다음 방식으로 플러그인을 사용합니다.
 Codex 예시:
 
 ```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
+$sealos prepare a Sealos deployment YAML for this repo
+$sealos prepare a Sealos deployment YAML for /path/to/project
+$sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -72,9 +72,9 @@ npx plugins add https://github.com/labring/sealos-skills
 Claude Code에 설치한 후 `/sealos`를 사용합니다.
 
 ```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
+/sealos prepare a Sealos deployment YAML for this repo
+/sealos prepare a Sealos deployment YAML for /path/to/project
+/sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -152,29 +152,29 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## 설정 작동 방식
 
-플러그인 또는 `skills.sh` 호환 AI 에이전트와 배포할 프로젝트만 있으면 됩니다.
+플러그인 또는 skills.sh와 호환되는 AI 에이전트와 YAML을 준비할 프로젝트만 있으면 됩니다.
 
-배포, 데이터베이스 및 객체 스토리지 흐름에서 Sealos Skills는 다음을 수행합니다.
+YAML 준비와 데이터베이스 및 객체 스토리지 작업에서 Sealos Skills는 다음을 수행합니다.
 
-- Docker 및 `kubectl` 같은 도구의 사용 가능 여부 확인
-- 필요할 때 사용자에게 Sealos 로그인 안내
-- `sealos-cli`를 사용하여 Sealos Cloud 데이터베이스를 생성하고 연결 세부 정보를 가져오며 데이터베이스 작업 수행
-- `sealos-cli s3`를 사용하여 Sealos 객체 스토리지 버킷, 자격 증명, 할당량 확인, 객체 작업 및 미리 서명된 URL 관리
-- 로컬에서 빌드한 `linux/amd64` 이미지를 현재 GitHub 계정의 GHCR 네임스페이스로 푸시하고 Buildx digest와 pull-access 결과를 배포 단계로 전달
+- Docker 및 kubectl 같은 도구를 검증합니다
+- 필요할 때 Sealos 로그인을 안내합니다
+- Sealos Cloud 데이터베이스에 sealos-cli를 사용합니다
+- Sealos 객체 스토리지에 sealos-cli s3를 사용합니다
+- 필요한 linux/amd64 이미지를 GHCR에 푸시하고 해당 digest를 YAML에 사용합니다
 
-실제 배포에는 Sealos Cloud 계정이 필요합니다. GHCR package 권한이 있는 인증된 GitHub CLI 세션은 선택한 경로에서 새 이미지를 빌드하고 푸시할 때만 필요합니다. Docker Hub에 호스팅된 이미지를 포함한 기존 선언 이미지는 불변 digest로 계속 재사용할 수 있습니다. 데이터베이스 및 객체 스토리지 작업에는 Sealos Cloud 계정과 요청한 리소스를 생성할 수 있는 워크스페이스가 필요합니다.
+로컬 YAML 준비에는 Sealos Cloud 계정이 필요합니다. GitHub CLI 인증은 새 이미지를 빌드하고 푸시할 때만 필요합니다. 이후 승인된 배포 워크플로가 YAML을 적용합니다.
 
 ## Sealos Deploy 처리 범위
 
-일반적인 배포에서 에이전트는 다음을 수행합니다.
+YAML 준비 요청에서 에이전트는 다음을 수행합니다.
 
-- 프로젝트 구조와 런타임 요구 사항 평가
-- 기존 이미지 재사용 또는 필요할 때 새 이미지 빌드
-- Sealos 템플릿 생성
-- 배포 후 롤아웃 검증
-- 앱을 사용할 수 있다고 보고하기 전에 실제 Sealos App URL, 로그, 웹 앱의 로그인 또는 설정 흐름, 전체 리소스 범위 검증
+- Phase 0부터 Phase 4까지만 실행합니다
+- 소스를 구체화하고 단계 계약을 준비합니다
+- 현재 kb-0.9 디렉터리에서 고유한 정확한 공식 일치를 찾습니다
+- Phase 4에서 YAML을 구체화하거나 생성하고 배포 게이트를 실행합니다
+- .sealos/template/index.yaml을 쓴 후 중지합니다
 
-기존 배포가 감지되면 이후 실행에서 인플레이스 업데이트 흐름으로 전환할 수 있습니다.
+Sealos Deploy는 배포 입력을 수집하지 않습니다. 클러스터 dry-run을 실행하지 않습니다. 리소스를 배포하지 않고 워크로드를 업데이트하지 않으며 런타임을 검증하지 않습니다.
 
 ## Sealos Database 처리 범위
 
@@ -199,20 +199,20 @@ S3 호환 객체 스토리지가 필요한 로컬 프로젝트 또는 Devbox에�
 
 ## Sealos Canvas 처리 범위
 
-Sealos Deploy로 이미 배포된 저장소에서 에이전트는 다음을 수행합니다.
+이미 Sealos에 배포된 저장소에서 에이전트는 다음을 수행합니다.
 
-1. `.sealos/state.json`을 읽어 배포된 앱을 찾습니다.
-2. 읽기 전용 `kubectl get` 명령으로 Sealos 네임스페이스를 조회합니다.
-3. 임시 `127.0.0.1` 캔버스 UI를 시작합니다.
-4. 검사를 위해 로컬 UI 주소를 출력하고 엽니다.
+1. .sealos/state.json을 읽어 배포된 앱을 찾습니다.
+2. 읽기 전용 kubectl get 명령으로 Sealos namespace를 조회합니다.
+3. 127.0.0.1에서 임시 canvas UI를 시작합니다.
+4. 검사용 로컬 UI 주소를 표시하고 엽니다.
 
-프로젝트가 아직 배포되지 않았다면 Sealos Canvas가 중지되고 먼저 프로젝트를 배포하도록 안내합니다.
+배포 상태가 없으면 Sealos Canvas가 중지됩니다. 승인된 배포 워크플로로 YAML을 적용하세요. sealos-deploy는 YAML만 준비합니다.
 
 ## 포함된 스킬
 
 플러그인과 `skills.sh` 팩은 동일한 스킬 소스를 제공합니다.
 
-- `sealos-deploy` — 로컬 또는 GitHub 프로젝트를 Sealos Cloud에 배포
+- `sealos-deploy` — 로컬 또는 GitHub 프로젝트에서 Sealos 배포 YAML 준비
 - `sealos-database` — 개발용 Sealos Cloud 데이터베이스 생성, 연결 및 운영
 - `sealos-s3` — 버킷 생성, 자격 증명 연결, 할당량 확인 및 Sealos S3 호환 객체 스토리지 운영
 - `sealos-canvas` — 로컬 읽기 전용 캔버스 UI에서 배포된 Sealos 리소스 확인

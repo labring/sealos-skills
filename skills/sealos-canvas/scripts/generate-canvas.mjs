@@ -28,7 +28,7 @@ function main() {
   const state = readJsonIfExists(statePath)
   const lastDeploy = state?.last_deploy
   if (!lastDeploy?.app_name || !lastDeploy?.namespace) {
-    return printStop('not_deployed', 'This project has not been deployed by Sealos Skills yet. Run /sealos-deploy first, then run /sealos-canvas again.')
+    return printStop('not_deployed', 'This project has no deployed Sealos state. Apply the prepared YAML with an approved deployment workflow, then run /sealos-canvas again.')
   }
 
   let resources
@@ -38,7 +38,7 @@ function main() {
   } else {
     const kubeconfig = path.join(os.homedir(), '.sealos', 'kubeconfig')
     if (!fs.existsSync(kubeconfig)) {
-      return printStop('kubeconfig_missing', 'Sealos kubeconfig was not found at ~/.sealos/kubeconfig. Run /sealos-deploy first, then run /sealos-canvas again.')
+      return printStop('kubeconfig_missing', 'Sealos kubeconfig was not found at ~/.sealos/kubeconfig. Complete Sealos access setup, then run /sealos-canvas again.')
     }
 
     const kubectl = findKubectl()

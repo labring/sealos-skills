@@ -1,115 +1,82 @@
 #!/usr/bin/env node
 
-import fs from 'fs'
-import path from 'path'
-import { pathToFileURL } from 'url'
+import fs from 'node:fs'
+import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   inferArtifactKind,
   validateArtifactFile,
+  validateProjectArtifacts,
 } from './artifact-validator.mjs'
 
-function collectBuildResults(buildDir) {
-  if (!fs.existsSync(buildDir)) return []
-
-  const results = []
-  const pending = [buildDir]
-  while (pending.length > 0) {
-    const current = pending.pop()
-    const entries = fs.readdirSync(current, { withFileTypes: true })
-      .sort((left, right) => left.name.localeCompare(right.name))
-
-    for (const entry of entries) {
-      const entryPath = path.join(current, entry.name)
-      if (entry.isDirectory()) {
-        pending.push(entryPath)
-      } else if (entry.isFile() && entry.name === 'build-result.json') {
-        results.push(entryPath)
-      }
-    }
-  }
-
-  return results.sort()
+function usage () {
+  return [
+    'Usage:',
+    '  node validate-artifacts.mjs <file>',
+    '  node validate-artifacts.mjs <kind> <file>',
+    '  node validate-artifacts.mjs --dir <work-dir>',
+    '  node validate-artifacts.mjs --stage <phase-0|phase-1|phase-2|phase-3> --dir <work-dir>',
+  ].join('\n')
 }
 
-function collectProjectArtifacts(workDir) {
-  const sealosDir = path.join(workDir, '.sealos')
-  const candidates = [
-    path.join(sealosDir, 'config.json'),
-    path.join(sealosDir, 'template-references.json'),
-    path.join(sealosDir, 'analysis.json'),
-    path.join(sealosDir, 'state.json'),
-    ...collectBuildResults(path.join(sealosDir, 'build')),
-  ]
-
-  return candidates
-    .filter((candidate) => fs.existsSync(candidate))
-    .map((candidate) => ({
-      file: candidate,
-      kind: inferArtifactKind(candidate),
-    }))
-    .filter((entry) => entry.kind)
-}
-
-function printAndExit(result, code) {
+function printResult (result, code) {
   console.log(JSON.stringify(result, null, 2))
-  process.exit(code)
+  process.exitCode = code
 }
 
-function main(args = process.argv.slice(2)) {
-  if (args.length === 0) {
-    printAndExit({
-      valid: false,
-      error: 'Usage: node validate-artifacts.mjs <file> | <kind> <file> | --dir <work-dir>',
-    }, 1)
-  }
-
+export function parseArgs (args) {
   if (args[0] === '--dir') {
-    const workDir = args[1]
-    if (!workDir) {
-      printAndExit({ valid: false, error: 'Missing work directory after --dir' }, 1)
-    }
-
-    const results = collectProjectArtifacts(path.resolve(workDir)).map(({ kind, file }) => ({
-      file,
-      ...validateArtifactFile(kind, file),
-    }))
-
-    printAndExit({
-      valid: results.every((entry) => entry.valid),
-      results,
-    }, results.every((entry) => entry.valid) ? 0 : 1)
+    if (!args[1] || args.length !== 2) throw new Error(usage())
+    return { mode: 'project', workDir: path.resolve(args[1]) }
   }
-
-  let kind
-  let filePath
-
-  if (args.length === 1) {
-    filePath = path.resolve(args[0])
-    kind = inferArtifactKind(filePath)
-    if (!kind) {
-      printAndExit({
-        valid: false,
-        error: `Could not infer artifact kind from filename: ${path.basename(filePath)}`,
-      }, 1)
+  if (args[0] === '--stage') {
+    if (args[2] !== '--dir' || !args[1] || !args[3] || args.length !== 4) {
+      throw new Error(usage())
     }
-  } else {
-    kind = args[0]
-    filePath = path.resolve(args[1])
+    return { mode: 'stage', stage: args[1], workDir: path.resolve(args[3]) }
   }
-
-  const result = validateArtifactFile(kind, filePath)
-  printAndExit({
-    file: filePath,
-    ...result,
-  }, result.valid ? 0 : 1)
+  if (args.length === 1) return { mode: 'file', filePath: path.resolve(args[0]), kind: null }
+  if (args.length === 2) return { mode: 'file', kind: args[0], filePath: path.resolve(args[1]) }
+  throw new Error(usage())
 }
 
-const isMain = process.argv[1] &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+function inferProjectStage (workDir) {
+  const sealosDir = path.join(workDir, '.sealos')
+  if (fs.existsSync(path.join(sealosDir, 'phase-3', 'build-result.json'))) return 'phase-3'
+  if (fs.existsSync(path.join(sealosDir, 'phase-2', 'deployment-plan.json'))) return 'phase-2'
+  try {
+    const analysis = JSON.parse(fs.readFileSync(path.join(sealosDir, 'analysis.json'), 'utf8'))
+    if (Object.hasOwn(analysis, 'official_template')) return 'phase-1'
+  } catch {}
+  return 'phase-0'
+}
 
+export function validateProjectDirectory (workDir, stage = null) {
+  return validateProjectArtifacts(workDir, stage || inferProjectStage(workDir))
+}
+
+export function main (args = process.argv.slice(2)) {
+  try {
+    const parsed = parseArgs(args)
+    if (parsed.mode === 'stage' || parsed.mode === 'project') {
+      const result = validateProjectDirectory(
+        parsed.workDir,
+        parsed.mode === 'stage' ? parsed.stage : null,
+      )
+      printResult(result, result.valid ? 0 : 1)
+      return result
+    }
+    const kind = parsed.kind || inferArtifactKind(parsed.filePath)
+    if (!kind) throw new Error(`Cannot infer an artifact kind for ${path.basename(parsed.filePath)}`)
+    const result = { file: parsed.filePath, ...validateArtifactFile(kind, parsed.filePath) }
+    printResult(result, result.valid ? 0 : 1)
+    return result
+  } catch (error) {
+    const result = { valid: false, error: error.message }
+    printResult(result, 1)
+    return result
+  }
+}
+
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 if (isMain) main()
-
-export {
-  collectBuildResults,
-  collectProjectArtifacts,
-}

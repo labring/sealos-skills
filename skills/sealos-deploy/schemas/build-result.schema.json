@@ -1,256 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://skills.sh/sealos-deploy/schemas/build-result.schema.json",
-  "title": "Sealos Deploy Build Result Artifact",
-  "oneOf": [
-    {
+  "title": "Sealos Deploy Phase 3 Build Result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["digests", "pull_access"],
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "digests": {
       "type": "object",
+      "minProperties": 1,
       "additionalProperties": false,
-      "required": [
-        "outcome",
-        "registry",
-        "service",
-        "build",
-        "push",
-        "finished_at"
-      ],
-      "properties": {
-        "outcome": {
-          "const": "success"
-        },
-        "registry": {
-          "const": "ghcr"
-        },
-        "service": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "name",
-            "artifact_key"
-          ],
-          "properties": {
-            "name": {
-              "type": "string",
-              "minLength": 1
-            },
-            "artifact_key": {
-              "type": "string",
-              "pattern": "^[a-z0-9_][a-z0-9_.-]*$"
-            }
-          }
-        },
-        "build": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "image_name",
-            "context",
-            "dockerfile",
-            "target",
-            "build_arg_names",
-            "started_at"
-          ],
-          "properties": {
-            "image_name": {
-              "type": "string",
-              "pattern": "^[a-z0-9_.-]+$"
-            },
-            "context": {
-              "type": "string",
-              "minLength": 1
-            },
-            "dockerfile": {
-              "type": "string",
-              "minLength": 1
-            },
-            "target": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "minLength": 1
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "build_arg_names": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
-              }
-            },
-            "started_at": {
-              "type": "string",
-              "format": "date-time"
-            }
-          }
-        },
-        "push": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "remote_image",
-            "digest",
-            "image_ref",
-            "platforms",
-            "pull_access",
-            "pushed_at"
-          ],
-          "properties": {
-            "remote_image": {
-              "type": "string",
-              "minLength": 1
-            },
-            "digest": {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-fA-F]{64}$"
-            },
-            "image_ref": {
-              "type": "string",
-              "pattern": "^[^\\s@]+@sha256:[0-9a-fA-F]{64}$"
-            },
-            "platforms": {
-              "description": "Platforms explicitly requested from Buildx for this build.",
-              "type": "array",
-              "minItems": 1,
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "pull_access": {
-              "description": "Anonymous pull status for the pushed GHCR image.",
-              "type": "string",
-              "enum": [
-                "anonymous",
-                "ghcr_secret_required",
-                "indeterminate"
-              ]
-            },
-            "pushed_at": {
-              "type": "string",
-              "format": "date-time"
-            }
-          }
-        },
-        "finished_at": {
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9._-]*$": {
           "type": "string",
-          "format": "date-time"
+          "pattern": "^[^\\s@]+@sha256:[a-fA-F0-9]{64}$"
         }
       }
     },
-    {
+    "pull_access": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "outcome",
-        "registry",
-        "service",
-        "build",
-        "push",
-        "error",
-        "finished_at"
-      ],
-      "properties": {
-        "outcome": {
-          "const": "failed"
-        },
-        "registry": {
-          "const": "ghcr"
-        },
-        "service": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "name",
-            "artifact_key"
-          ],
-          "properties": {
-            "name": {
-              "type": "string",
-              "minLength": 1
-            },
-            "artifact_key": {
-              "type": "string",
-              "pattern": "^[a-z0-9_][a-z0-9_.-]*$"
-            }
-          }
-        },
-        "build": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "image_name",
-            "context",
-            "dockerfile",
-            "target",
-            "build_arg_names",
-            "started_at"
-          ],
-          "properties": {
-            "image_name": {
-              "type": "string",
-              "pattern": "^[a-z0-9_.-]+$"
-            },
-            "context": {
-              "type": "string",
-              "minLength": 1
-            },
-            "dockerfile": {
-              "type": "string",
-              "minLength": 1
-            },
-            "target": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "minLength": 1
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "build_arg_names": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
-              }
-            },
-            "started_at": {
-              "type": "string",
-              "format": "date-time"
-            }
-          }
-        },
-        "push": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "remote_image"
-          ],
-          "properties": {
-            "remote_image": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        },
-        "error": {
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9._-]*$": {
           "type": "string",
-          "minLength": 1
-        },
-        "finished_at": {
-          "type": "string",
-          "format": "date-time"
+          "enum": ["public", "ghcr_secret_required"]
         }
       }
     }
-  ]
+  }
 }

@@ -6,9 +6,9 @@
 
 <!-- README-I18N:END -->
 
-AI エージェントからプロジェクトを [Sealos Cloud](https://sealos.io) にデプロイします。
+AI エージェントで [Sealos Cloud](https://sealos.io) のデプロイ YAML を準備します。
 
-Sealos Skills は、Sealos Cloud での開発とデプロイを中心としたプラグインファーストのスキルパックです。AI エージェントによるプロジェクトの調査、不足しているデプロイ成果物の準備、開発用 Sealos Cloud データベースとオブジェクトストレージへの接続、コンテナイメージのビルドまたは再利用、Sealos Cloud へのアプリの公開、ローカルの読み取り専用キャンバスでのデプロイ済みリソースの表示を支援します。
+Sealos Skills は、Sealos Cloud の開発を中心としたプラグインファーストのスキルパックです。AI エージェントによるプロジェクトの調査、デプロイ成果物と YAML の準備、開発用 Sealos Cloud データベースとオブジェクトストレージへの接続、コンテナイメージのビルドまたは再利用、ローカルの読み取り専用キャンバスでのデプロイ済みリソースの表示を支援します。`sealos-deploy` は YAML のみを準備します。Phase 4 で停止し、ワークロードのデプロイや更新は行いません。
 
 Codex では、ネイティブ Codex プラグインのインストールを推奨します。クロスホストのプラグインインストール、`skills.sh`、Gemini CLI や Qwen Code などのコンテキスト専用拡張ホストは、同じルート `skills/**` ソースを使用します。
 
@@ -41,9 +41,9 @@ Codex にインストールしたら、次の方法でプラグインを使用�
 Codex の例：
 
 ```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
+$sealos prepare a Sealos deployment YAML for this repo
+$sealos prepare a Sealos deployment YAML for /path/to/project
+$sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -72,9 +72,9 @@ npx plugins add https://github.com/labring/sealos-skills
 Claude Code にインストールしたら、`/sealos` を使用します。
 
 ```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
+/sealos prepare a Sealos deployment YAML for this repo
+/sealos prepare a Sealos deployment YAML for /path/to/project
+/sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -152,29 +152,29 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## セットアップの仕組み
 
-必要なのは、プラグインまたは `skills.sh` に対応する AI エージェントと、デプロイするプロジェクトだけです。
+プラグインまたは skills.sh と互換性がある AI エージェントと、YAML を準備するプロジェクトが必要です。
 
-デプロイ、データベース、オブジェクトストレージの各フローで、Sealos Skills は次を実行します。
+YAML の準備、データベース、オブジェクトストレージの作業中、Sealos Skills は次を実行します。
 
-- Docker や `kubectl` などのツールが利用可能か確認
-- 必要に応じて Sealos へのログインを案内
-- `sealos-cli` を使用した Sealos Cloud データベースの作成、接続情報の取得、データベース操作
-- `sealos-cli s3` を使用した Sealos オブジェクトストレージのバケット、認証情報、クォータ確認、オブジェクト操作、署名付き URL の管理
-- ローカルでビルドした `linux/amd64` イメージを現在の GitHub アカウントの GHCR 名前空間へプッシュし、Buildx の digest と pull-access 結果をデプロイへ引き継ぐ
+- Docker や kubectl などのツールを検証します
+- 必要な場合に Sealos ログインを案内します
+- Sealos Cloud データベースに sealos-cli を使用します
+- Sealos オブジェクトストレージに sealos-cli s3 を使用します
+- 必要な linux/amd64 イメージを GHCR にプッシュし、その digest を YAML で使用します
 
-実際のデプロイには Sealos Cloud アカウントが必要です。GHCR package 権限を持つ GitHub CLI の認証済みセッションは、選択された経路で新しいイメージをビルドしてプッシュする場合にのみ必要です。Docker Hub 上のイメージを含む既存の宣言済みイメージは、引き続き不変の digest で再利用できます。データベースとオブジェクトストレージの作業には、Sealos Cloud アカウントと、必要なリソースを作成できるワークスペースが必要です。
+ローカル YAML 準備には Sealos Cloud アカウントが必要です。GitHub CLI 認証は新しいイメージをビルドしてプッシュするときだけ必要です。後続の承認済みデプロイワークフローが YAML を適用します。
 
 ## Sealos Deploy が処理する内容
 
-一般的なデプロイでは、エージェントは次を実行します。
+YAML 準備要求に対して、エージェントは次を実行します。
 
-- プロジェクト構造とランタイム要件を評価
-- 既存のイメージを再利用、または必要に応じてビルド
-- Sealos テンプレートを生成
-- デプロイしてロールアウトを検証
-- アプリを利用可能と報告する前に、実際の Sealos App URL、ログ、Web アプリのログインまたはセットアップフロー、リソース全体を検証
+- Phase 0 から Phase 4 だけを実行します
+- ソースを具体化し、フェーズ契約を準備します
+- 現在の kb-0.9 ディレクトリで一意の正確な公式一致を検索します
+- Phase 4 で YAML を具体化または生成し、デプロイゲートを実行します
+- .sealos/template/index.yaml を書き込み、停止します
 
-既存のデプロイが検出されると、以降の実行はインプレース更新フローに切り替えられます。
+Sealos Deploy はデプロイ入力を収集しません。クラスター dry-run を実行しません。リソースをデプロイせず、ワークロードを更新せず、ランタイムを検証しません。
 
 ## Sealos Database が処理する内容
 
@@ -199,20 +199,20 @@ S3 互換オブジェクトストレージを必要とするローカルプロ�
 
 ## Sealos Canvas が処理する内容
 
-Sealos Deploy でデプロイ済みのリポジトリに対して、エージェントは次を実行します。
+すでに Sealos にデプロイされたリポジトリに対して、エージェントは次を実行します。
 
-1. `.sealos/state.json` を読み取り、デプロイ済みアプリを特定します。
-2. 読み取り専用の `kubectl get` コマンドで Sealos 名前空間を照会します。
-3. 一時的な `127.0.0.1` キャンバス UI を起動します。
-4. 確認用のローカル UI アドレスを出力して開きます。
+1. .sealos/state.json を読み、デプロイ済みアプリを見つけます。
+2. 読み取り専用の kubectl get コマンドで Sealos namespace を照会します。
+3. 127.0.0.1 で一時的な canvas UI を開始します。
+4. 検査用にローカル UI アドレスを出力して開きます。
 
-プロジェクトがまだデプロイされていない場合、Sealos Canvas は停止し、先にプロジェクトをデプロイするよう案内します。
+デプロイ状態がない場合、Sealos Canvas は停止します。承認済みデプロイワークフローで YAML を適用してください。sealos-deploy は YAML だけを準備します。
 
 ## 含まれるスキル
 
 プラグインと `skills.sh` パックは、同じスキルソースを公開します。
 
-- `sealos-deploy` — ローカルまたは GitHub プロジェクトを Sealos Cloud にデプロイ
+- `sealos-deploy` — ローカルまたは GitHub プロジェクトから Sealos デプロイ YAML を準備
 - `sealos-database` — 開発用 Sealos Cloud データベースの作成、接続、操作
 - `sealos-s3` — バケットの作成、認証情報の接続、クォータ確認、Sealos S3 互換オブジェクトストレージの操作
 - `sealos-canvas` — ローカルの読み取り専用キャンバス UI でデプロイ済み Sealos リソースを表示

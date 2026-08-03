@@ -67,7 +67,7 @@ must_rules:
   - must: "SSR/Next.js/React server apps must not use a path that renders a server-side exception as the App URL or HTTP probe. Treat visible `Application error`, `server-side exception`, `Internal Server Error`, or `Unhandled Runtime Error` text as a failed entry path even if the HTTP status is 2xx/3xx."
     enforcement:
       type: manual
-      note: "Requires HTTP body/runtime smoke inspection, covered by sealos-live-smoke failure signals."
+      note: "Requires HTTP body and runtime smoke inspection in a later deployment workflow."
   - must: "Never use `spec.template` in App resource."
     enforcement:
       type: rule
@@ -184,14 +184,14 @@ must_rules:
     enforcement:
       type: manual
       note: "R001 enforces the emitted digest form; converter tests exercise registry HTTP resolution, digest overrides, and the absence of architecture pre-screening."
-  - must: "For a Compose service that has `build:` but no `image:`, pass its Phase 4 result with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image."
+  - must: "For a Compose service that has `build:` but no `image:`, pass its Phase 3 digest with the repeatable converter option `--image-override SERVICE=IMAGE`; do not edit the source Compose file merely to inject a built image."
     enforcement:
       type: manual
       note: "The converter rejects build-only services without a matching override, preserves supplied immutable digests, and resolves selector overrides through the registry HTTP API."
-  - must: "When Phase 4 reports `push.pull_access: ghcr_secret_required` or `indeterminate` for a service, pass the repeatable converter option `--image-pull-secret-service SERVICE`; the converter injects only the app-scoped `${{ defaults.app_name }}` Secret into that service's emitted workload. Do not pass it for `anonymous`, reused images, failed builds, or services converted to KubeBlocks."
+  - must: "When `.sealos/phase-3/build-result.json` records `pull_access.<service>: ghcr_secret_required`, pass the repeatable converter option `--image-pull-secret-service SERVICE`; the converter injects only the app-scoped `${{ defaults.app_name }}` Secret into that service's emitted workload. Do not pass it for `public`, reused images, failed builds, or services converted to KubeBlocks."
     enforcement:
       type: manual
-      note: "Phase 4 artifact routing is covered by the sealos-deploy contract and converter tests; R035 validates the emitted pull-Secret reference shape."
+      note: "Phase 3 artifact routing is covered by the sealos-deploy contract and converter tests; R035 validates the emitted pull-Secret reference shape."
   - must: "Compose database service images are dependency and engine-classification evidence; after conversion to KubeBlocks, the generated template need not emit the original database image."
     enforcement:
       type: manual
@@ -212,7 +212,7 @@ must_rules:
     enforcement:
       type: rule
       target: R035
-  - must: "The registry pull Secret is runtime-managed by `sealos-deploy` using local `gh` CLI credentials for private GHCR images; do not expose raw registry credential inputs in generated templates."
+  - must: "A later deployment workflow or its operator must manage the registry pull Secret for private GHCR images. Do not expose raw registry credential inputs in generated templates."
     enforcement:
       type: manual
       note: "Requires deploy-path behavior that cannot be validated from static template snippets alone."

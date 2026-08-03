@@ -47,7 +47,7 @@ Apply this policy whenever changes from `main` are merged into the branch named 
 - Do not merge main's plugin and marketplace surfaces: `.codex-plugin/`, `.claude-plugin/`, `.codebuddy-plugin/`, `.agents/plugins/`, `commands/`, `distribution/`, `marketplaces/`, `plugins/`, `plugin.json`, `marketplace.json`, `gemini-extension.json`, `qwen-extension.json`, or `openclaw.plugin.json`.
 - Do not merge main's current `assets/`; they contain plugin branding and Codex usage media. Evaluate future non-plugin assets separately.
 - Do not merge main's `.planning/` history. If the preview branch has planning artifacts of its own, preserve the target branch's versions.
-- Evaluate root `scripts/` files manually. Merge a script only when it validates behavior intentionally shared with the preview branch. Do not merge `scripts/validate-codex-plugin.py` or `scripts/test-sealos-deploy-template-references.mjs`, because they validate main-only plugin or full-deploy behavior.
+- Evaluate root `scripts/` files manually. Merge a script only when it validates behavior intentionally shared with the preview branch. Do not merge `scripts/validate-codex-plugin.py` or obsolete full-deploy test helpers.
 
 ### Merge Procedure
 
@@ -65,14 +65,13 @@ Apply this policy whenever changes from `main` are merged into the branch named 
 ```text
 sealos plugin entry points ($sealos, /sealos)
   ├→ sealos-deploy (direct skills.sh entry point: /sealos-deploy)
-  │   ├→ cloud-native-readiness   (Phase 1: score 0-12)
-  │   ├→ dockerfile-skill         (Phase 3: constrained per-service Dockerfile preparation)
-  │   └→ docker-to-sealos         (Phase 5: Compose/Helm/Kubernetes → Sealos template)
+  │   ├→ docker-to-sealos          (Phase 4: Compose/Helm/Kubernetes → Sealos template)
+  │   └→ k8s-kaniko-job            (Phase 3 sandbox builds, when installed)
   ├→ sealos-database (direct skills.sh entry point: /sealos-database)
   └→ sealos-s3       (direct skills.sh entry point: /sealos-s3)
 ```
 
-`sealos-app-builder` is an adjacent skill for Sealos Desktop app work. `sealos-canvas` is an adjacent skill for read-only deployed-resource visualization after `/sealos-deploy` has created `.sealos/state.json`.
+`sealos-app-builder` is an adjacent skill for Sealos Desktop app work. `sealos-canvas` is an adjacent skill for read-only visualization of an existing deployment.
 
 ### Skill module pattern
 
@@ -106,28 +105,26 @@ Root `skills/**` is the only skill source for every host. Do not add a second pa
 
 Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts. Keep `/sealos-deploy`, `/sealos-database`, and `/sealos-s3` examples only in direct `skills.sh` sections.
 
-### Deployment pipeline (sealos-deploy)
+### Deployment-YAML pipeline (sealos-deploy)
 
 ```text
-Preflight → Mode Detection → DEPLOY or UPDATE
-
-DEPLOY: Assess (including the obvious-impossibility entry judgment) → Official template lookup
-  ├→ unique safe exact match: reuse official YAML → Resolve inputs → Dry-run → Deploy → Runtime Truth
-  └→ otherwise: Select Compose/Helm/Kubernetes/implicit source → discover declared images and full topology → prepare exact per-service build plans → reuse or Build & Push → source-adapted digest-pinned Template → Configure → Dry-run → Deploy → Runtime Truth
-UPDATE: Build & Push → resolve digest → kubectl set image → Verify rollout (auto-rollback on failure)
+Phase 0: Preflight → Phase 1: Assess
+  ├→ eligible unique exact official template → Phase 4: materialize and gate YAML → Stop
+  └→ standard route → Phase 2: select source and prepare images → Phase 4: generate YAML
+       └→ a build digest is missing → Phase 3: build and push → Phase 4
 ```
 
-Mode detection reads `.sealos/state.json` `last_deploy` field. If a running deployment is found (verified via kubectl), the skill enters UPDATE mode and skips assess/template/deploy phases. If not, it runs the full DEPLOY pipeline.
+`sealos-deploy` stops after Phase 4. It does not enter mode detection, UPDATE, configuration, dry-run, deployment, rollback, or runtime verification.
 
-State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot, deployment source, and normalized per-service build plans), `.sealos/deployment-source/rendered.yaml` plus `resource-map.json` (rendered explicit topology and Phase 5 accounting), `.sealos/topology-evidence/<app>.yaml` (validator-only topology contract), `.sealos/build/<service>/build-result.json` (independent Phase 4 results), `.sealos/template-references.json` plus `.sealos/template-references/` (exact catalog decision and provenance), and `.sealos/config.json` (optional user overrides). A unique, source-aligned official match is copied verbatim to `.sealos/template/index.yaml` and skips Phases 2–5.5; every other result follows the standard build-and-generate route. Similar-template reference matching is a documented TODO and is not executed.
+The artifact contract uses `.sealos/analysis.json`, optional `.sealos/phase-1/official-template.yaml`, `.sealos/phase-2/deployment-plan.json`, optional `.sealos/phase-3/build-result.json`, `.sealos/phase-4/`, and `.sealos/template/index.yaml`. Phase 1 reads the current `kb-0.9` catalog directory and saves one exact official YAML. Phase 4 materializes that YAML when the official route is eligible.
 
 ## Key paths
 
-- `skills/sealos-deploy/SKILL.md` — primary entry point for the deploy workflow
+- `skills/sealos-deploy/SKILL.md` — primary entry point for the deployment-YAML workflow
 - `skills/sealos-database/SKILL.md` — primary entry point for cloud database development workflow
 - `skills/sealos-s3/SKILL.md` — primary entry point for S3-compatible object storage workflow
 - `skills/sealos-deploy/config.json` — OAuth client_id, regional Sealos URLs
-- `skills/sealos-deploy/scripts/` — auth, scoring, and helper automation scripts
+- `skills/sealos-deploy/scripts/` — auth, artifact, source, and official-template helpers
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
 - `skills/sealos-canvas/SKILL.md` — read-only resource canvas workflow
 - `.codex-plugin/plugin.json` — Codex plugin manifest pointing to root `skills/`
@@ -164,9 +161,9 @@ State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.j
 - For `docker-to-sealos` changes without a template artifact, run `DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1 python3 skills/docker-to-sealos/scripts/quality_gate.py`.
 - Add or update `test_check_consistency.py`, `test_compose_to_template.py`, or `test_check_must_coverage.py` coverage with the behavior they enforce.
 - For changed `sealos-deploy` JavaScript helpers, run `node --check <changed-script.mjs>` and the matching `test-*.mjs` file.
-- For template catalog reference behavior, run `node scripts/test-sealos-deploy-template-references.mjs`.
-- Run `node skills/sealos-deploy/scripts/test-sealos-footprint.mjs` and `node skills/sealos-deploy/scripts/test-sealos-live-smoke.mjs` when their helpers or runtime contract changes.
-- Keep `skills/sealos-deploy/evals/` aligned with user-visible deploy behavior.
+- For official-template behavior, run `node skills/sealos-deploy/scripts/test-find-official-template.mjs` and `node skills/sealos-deploy/scripts/test-materialize-official-template.mjs`.
+- Run `node skills/sealos-deploy/scripts/test-phase-boundary.mjs` after pipeline changes.
+- Keep `skills/sealos-deploy/evals/` aligned with user-visible YAML-preparation behavior.
 - Run `python3 scripts/validate-codex-plugin.py` when manifests, commands, distribution metadata, assets, or skill inventory changes.
 
 ### Runtime Safety

@@ -6,9 +6,9 @@
 
 <!-- README-I18N:END -->
 
-Deploy proyek ke [Sealos Cloud](https://sealos.io) dari agen AI Anda.
+Siapkan YAML deployment [Sealos Cloud](https://sealos.io) dari agen AI Anda.
 
-Sealos Skills adalah paket skill berbasis plugin yang berfokus pada pengembangan dan deployment Sealos Cloud. Paket ini membantu agen AI memeriksa proyek, menyiapkan artefak deployment yang belum tersedia, menghubungkan database dan object storage Sealos Cloud untuk pengembangan, membuat atau menggunakan kembali image container, mengirim aplikasi ke Sealos Cloud, dan melihat resource yang telah di-deploy dalam canvas lokal hanya-baca.
+Sealos Skills adalah paket skill berbasis plugin yang berfokus pada pengembangan Sealos Cloud. Paket ini membantu agen AI memeriksa proyek, menyiapkan artefak deployment dan YAML, menghubungkan database dan object storage Sealos Cloud untuk pengembangan, membuat atau menggunakan kembali image container, dan melihat resource yang telah di-deploy dalam canvas lokal hanya-baca. `sealos-deploy` hanya menyiapkan YAML. Skill ini berhenti setelah Phase 4 dan tidak men-deploy atau memperbarui workload.
 
 Jalur Codex yang direkomendasikan adalah instalasi plugin Codex native. Instalasi plugin lintas host, `skills.sh`, dan host ekstensi khusus konteks seperti Gemini CLI dan Qwen Code menggunakan sumber root `skills/**` yang sama.
 
@@ -41,9 +41,9 @@ Setelah instalasi di Codex, gunakan plugin dari Codex:
 Contoh Codex:
 
 ```text
-$sealos deploy this repo to Sealos Cloud
-$sealos deploy /path/to/project
-$sealos deploy https://github.com/labring-sigs/kite
+$sealos prepare a Sealos deployment YAML for this repo
+$sealos prepare a Sealos deployment YAML for /path/to/project
+$sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -72,9 +72,9 @@ npx plugins add https://github.com/labring/sealos-skills
 Setelah instalasi di Claude Code, gunakan `/sealos`:
 
 ```text
-/sealos deploy this repo to Sealos Cloud
-/sealos deploy /path/to/project
-/sealos deploy https://github.com/labring-sigs/kite
+/sealos prepare a Sealos deployment YAML for this repo
+/sealos prepare a Sealos deployment YAML for /path/to/project
+/sealos prepare a Sealos deployment YAML for https://github.com/labring-sigs/kite
 /sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 /sealos create private S3 object storage for uploads and wire env vars
 ```
@@ -152,29 +152,29 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 ## Cara Kerja Penyiapan
 
-Anda hanya memerlukan agen AI yang kompatibel dengan plugin atau `skills.sh` dan sebuah proyek untuk di-deploy.
+Anda hanya memerlukan agen AI yang kompatibel dengan plugin atau skills.sh dan proyek untuk menyiapkan YAML.
 
-Selama alur deployment, database, dan object storage, Sealos Skills akan:
+Selama persiapan YAML serta tugas database dan object storage, Sealos Skills melakukan hal berikut:
 
-- memeriksa ketersediaan alat seperti Docker dan `kubectl`
-- memandu pengguna melalui login Sealos saat diperlukan
-- menggunakan `sealos-cli` untuk membuat database Sealos Cloud, mengambil detail koneksi, dan menjalankan operasi database
-- menggunakan `sealos-cli s3` untuk bucket object storage Sealos, kredensial, pemeriksaan kuota, operasi objek, dan URL presigned
-- mendorong image `linux/amd64` yang dibangun secara lokal ke namespace akun GitHub saat ini di GHCR serta meneruskan digest Buildx dan hasil akses pull ke deployment
+- memvalidasi alat seperti Docker dan kubectl
+- memandu pengguna melalui login Sealos bila diperlukan
+- menggunakan sealos-cli untuk database Sealos Cloud
+- menggunakan sealos-cli s3 untuk object storage Sealos
+- mendorong image linux/amd64 yang diperlukan ke GHCR dan memakai digest-nya di YAML
 
-Deployment aktual memerlukan akun Sealos Cloud. Sesi GitHub CLI terautentikasi dengan akses package GHCR hanya diperlukan saat jalur yang dipilih membangun dan mendorong image baru. Image yang telah dideklarasikan, termasuk yang di-host di Docker Hub, tetap dapat digunakan kembali melalui digest yang immutable. Pekerjaan database dan object storage memerlukan akun Sealos Cloud serta workspace yang dapat membuat resource yang diminta.
+Persiapan YAML lokal memerlukan akun Sealos Cloud. GitHub CLI hanya memerlukan autentikasi saat membuat dan mendorong image baru. Alur deployment yang disetujui kemudian menerapkan YAML.
 
 ## Yang Ditangani Sealos Deploy
 
-Dalam deployment umum, agen akan:
+Untuk permintaan persiapan YAML, agen melakukan hal berikut:
 
-- menilai struktur proyek dan kebutuhan runtime
-- menggunakan kembali image yang ada atau membuatnya saat diperlukan
-- menghasilkan template Sealos
-- melakukan deployment dan memverifikasi rollout
-- memverifikasi Sealos App URL aktual, log, alur login atau penyiapan untuk aplikasi web, dan seluruh cakupan resource sebelum menyatakan aplikasi siap digunakan
+- menjalankan hanya Phase 0 sampai Phase 4
+- mematerialkan sumber dan menyiapkan kontrak fase
+- mencari kecocokan resmi yang tepat di direktori kb-0.9 saat ini
+- mematerialkan atau menghasilkan YAML dan menjalankan deployment gate pada Phase 4
+- menulis .sealos/template/index.yaml lalu berhenti
 
-Eksekusi berikutnya dapat beralih ke alur pembaruan in-place saat deployment yang ada terdeteksi.
+Sealos Deploy tidak mengumpulkan input deployment. Skill ini tidak menjalankan dry-run cluster. Skill ini tidak men-deploy resource, memperbarui workload, atau memeriksa runtime.
 
 ## Yang Ditangani Sealos Database
 
@@ -199,20 +199,20 @@ Untuk proyek lokal atau Devbox yang membutuhkan object storage kompatibel S3, ag
 
 ## Yang Ditangani Sealos Canvas
 
-Untuk repositori yang telah di-deploy oleh Sealos Deploy, agen akan:
+Untuk repositori yang sudah di-deploy ke Sealos, agen melakukan hal berikut:
 
-1. Membaca `.sealos/state.json` untuk menemukan aplikasi yang di-deploy.
-2. Mengueri namespace Sealos dengan perintah `kubectl get` hanya-baca.
-3. Memulai UI canvas `127.0.0.1` sementara.
-4. Menampilkan dan membuka alamat UI lokal untuk pemeriksaan.
+1. Membaca .sealos/state.json untuk menemukan aplikasi yang di-deploy.
+2. Membaca namespace Sealos dengan perintah kubectl get hanya-baca.
+3. Menjalankan UI canvas sementara pada 127.0.0.1.
+4. Menampilkan dan membuka alamat UI lokal untuk inspeksi.
 
-Jika proyek belum di-deploy, Sealos Canvas berhenti dan mengarahkan pengguna untuk men-deploy proyek terlebih dahulu.
+Jika tidak ada status deployment, Sealos Canvas berhenti. Gunakan alur deployment yang disetujui untuk menerapkan YAML. sealos-deploy hanya menyiapkan YAML.
 
 ## Skill yang Disertakan
 
 Plugin dan paket `skills.sh` menyediakan sumber skill yang sama:
 
-- `sealos-deploy` — deploy proyek lokal atau GitHub ke Sealos Cloud
+- `sealos-deploy` — menyiapkan YAML deployment Sealos dari proyek lokal atau GitHub
 - `sealos-database` — membuat, menghubungkan, dan mengoperasikan database Sealos Cloud untuk pengembangan
 - `sealos-s3` — membuat bucket, menghubungkan kredensial, memeriksa kuota, dan mengoperasikan object storage kompatibel Sealos S3
 - `sealos-canvas` — melihat resource Sealos yang di-deploy dalam UI canvas lokal hanya-baca

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://skills.sh/sealos-deploy/schemas/analysis.schema.json",
-  "title": "Sealos Deploy Analysis After Phase 2",
+  "$id": "https://skills.sh/sealos-deploy/schemas/analysis-phase-1.schema.json",
+  "title": "Sealos Deploy Analysis After Phase 1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -9,8 +9,7 @@
     "work_dir",
     "repo_name",
     "github_url",
-    "official_template",
-    "deployment_plan"
+    "official_template"
   ],
   "properties": {
     "runtime_profile": {
@@ -38,14 +37,6 @@
           "const": ".sealos/phase-1/official-template.yaml"
         }
       ]
-    },
-    "deployment_plan": {
-      "type": "string",
-      "const": ".sealos/phase-2/deployment-plan.json"
-    },
-    "build_result": {
-      "type": "string",
-      "const": ".sealos/phase-3/build-result.json"
     }
   }
 }

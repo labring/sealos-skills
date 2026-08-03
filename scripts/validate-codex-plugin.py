@@ -197,7 +197,7 @@ def require_readme_contract(readme: str) -> None:
         [README_CLAUDE_FALLBACK_COMMAND] in claude_blocks,
         "README Claude Code section includes exact fallback npx install block",
     )
-    require("/sealos deploy this repo to Sealos Cloud" in claude_section, "README Claude Code section uses /sealos examples")
+    require("/sealos prepare a Sealos deployment YAML for this repo" in claude_section, "README Claude Code section uses /sealos examples")
     for token in (REPOSITORY_SLUG, PLUGIN_SELECTOR, "$sealos", DISPLAY_LABEL):
         require(token in readme, f"README includes canonical identity token: {token}")
 
