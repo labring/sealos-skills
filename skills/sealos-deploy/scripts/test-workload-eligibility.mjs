@@ -197,6 +197,73 @@ test('accepts a standalone static web build without requiring an application lis
   assertValidDecision(result)
 })
 
+test('accepts a source-ready site containing only index.html', (t) => {
+  const fixtureDir = createFixture(t, {
+    'index.html': '<!doctype html><title>Static site</title>\n',
+  })
+
+  const result = classifyProject(fixtureDir)
+  assert.equal(result.status, 'eligible')
+  assert.equal(result.workload_type, 'static_web')
+  assert.deepEqual(result.reason_codes, ['SOURCE_READY_STATIC_SITE'])
+  assert.match(result.evidence.join('\n'), /No build, container, server-runtime/i)
+  assertValidDecision(result)
+})
+
+test('accepts source-ready HTML, CSS, and browser JavaScript without a build tool', (t) => {
+  const fixtureDir = createFixture(t, {
+    'index.html': '<!doctype html><link rel="stylesheet" href="site.css"><script src="site.js"></script>\n',
+    'site.css': 'body { color: rebeccapurple; }\n',
+    'site.js': 'document.documentElement.dataset.ready = "true"\n',
+  })
+
+  const result = classifyProject(fixtureDir)
+  assert.equal(result.status, 'eligible')
+  assert.equal(result.workload_type, 'static_web')
+  assert.deepEqual(result.reason_codes, ['SOURCE_READY_STATIC_SITE'])
+  assert.match(result.evidence.join('\n'), /3 public files can be served without transformation/i)
+  assertValidDecision(result)
+})
+
+test('accepts a nested public asset tree without treating directory depth as a runtime signal', (t) => {
+  const fixtureDir = createFixture(t, {
+    'index.html': '<!doctype html><link rel="stylesheet" href="assets/css/site.css">\n',
+    'assets/css/site.css': 'body { color: rebeccapurple; }\n',
+    'assets/fonts/site.woff2': Buffer.from([0, 1, 2, 3]),
+    'downloads/manual.pdf': Buffer.from('%PDF fixture'),
+  })
+
+  const result = classifyProject(fixtureDir)
+  assert.equal(result.status, 'eligible')
+  assert.deepEqual(result.reason_codes, ['SOURCE_READY_STATIC_SITE'])
+  assert.match(result.evidence.join('\n'), /3 public files are preserved in nested directories/i)
+  assertValidDecision(result)
+})
+
+test('does not publish a repository containing a sensitive environment file', (t) => {
+  const fixtureDir = createFixture(t, {
+    'index.html': '<!doctype html><title>Unsafe fixture</title>\n',
+    '.env.production': 'TOKEN=do-not-publish\n',
+  })
+
+  const result = classifyProject(fixtureDir)
+  assert.equal(result.status, 'needs_review')
+  assert.notDeepEqual(result.reason_codes, ['SOURCE_READY_STATIC_SITE'])
+  assertValidDecision(result)
+})
+
+test('does not classify index.html plus a server entry point as source-ready static web', (t) => {
+  const fixtureDir = createFixture(t, {
+    'index.html': '<!doctype html><title>Mixed target</title>\n',
+    'server.js': 'require("node:http").createServer(() => {}).listen(3000)\n',
+  })
+
+  const result = classifyProject(fixtureDir)
+  assert.equal(result.status, 'needs_review')
+  assert.equal(result.workload_type, 'unknown')
+  assertValidDecision(result)
+})
+
 test('does not accept a Node server dependency without an application runtime command', (t) => {
   const fixtureDir = createFixture(t, {
     'package.json': {

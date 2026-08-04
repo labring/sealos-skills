@@ -397,6 +397,47 @@ Output rules:
 
 ## Phase 2: Detect Existing Image
 
+### 2.S Source-Ready Static Site Fast Path
+
+Before registry discovery, check the in-memory eligibility decision. When its reason
+codes contain `SOURCE_READY_STATIC_SITE`, the requested project has a root
+`index.html`, a public asset tree that can be served without transformation, and no
+higher-priority build, server-runtime, container, or sensitive-file signal.
+
+Read `static_html_fast_path` from `<SKILL_DIR>/config.json`, calculate the base64
+expansion of every public asset, verify that the encoded payload does not exceed
+`max_encoded_config_map_bytes`, and set:
+
+```text
+STATIC_HTML_FAST_PATH = true
+IMAGE_REF = static_html_fast_path.image
+PORT = static_html_fast_path.port
+```
+
+Update `.sealos/analysis.json` with `language: "html"`,
+`framework: "static_html"`, `package_manager: null`, the configured port, and
+`image_ref: IMAGE_REF`. The configured image must use an exact version tag, expose
+`linux/amd64`, run without root, and be anonymously pullable. The checked-in default
+is `nginxinc/nginx-unprivileged:1.31.3-alpine3.24` on port `8080`.
+
+Skip registry discovery, Dockerfile generation, and Phase 4 entirely. Do not create
+`.sealos/build/`, prompt for a registry, or require Docker/gh readiness. Continue to
+Phase 5, where the deterministic static generator mounts every approved asset from
+one ConfigMap into the pinned public image.
+
+This fast path is intentionally evidence-based and fail-closed. File count,
+extension, and directory depth are not deployment decisions. Preserve arbitrary
+regular public assets and their relative paths, including nested directories, while
+ignoring repository metadata such as README and LICENSE. Give an existing container
+contract precedence over this path. Route build/runtime manifests and server-source
+signals through ordinary analysis. Stop for possible secrets, symbolic links, or a
+missing root `index.html`. When the public tree exceeds the encoded ConfigMap limit,
+keep it eligible as `static_web` but route it to the ordinary static-image build
+path instead of failing during template generation. Never silently omit a business
+asset from the deployed site.
+
+The remaining Phase 2 instructions apply when `STATIC_HTML_FAST_PATH` is false.
+
 **If Node.js available:**
 ```bash
 # With GitHub URL:
@@ -734,6 +775,23 @@ If the project mentions Frappe, ERPNext, HRMS, or `bench`, also read:
 ### 5.2 Generate Template
 
 Read `.sealos/analysis.json` and use `image_ref`, `port`, `databases`, and `env_vars` as inputs.
+
+When `STATIC_HTML_FAST_PATH=true`, generate the only template artifact
+deterministically before considering Compose or hand-authored conversion:
+
+```bash
+node "<SKILL_DIR>/scripts/generate-static-html-template.mjs" "$WORK_DIR" \
+  --app-name "$REPO_NAME" \
+  --title "$APP_TITLE" \
+  ${GITHUB_URL:+--git-repo "$GITHUB_URL"}
+```
+
+The generator base64-encodes every approved asset in the recursively preserved public tree into a runtime-labeled
+ConfigMap, mounts each file at its matching `/usr/share/nginx/html/<file>` path,
+uses the pinned public unprivileged NGINX image, and emits Deployment, Service, root
+Ingress, and App resources. Encoding prevents source text that resembles Template
+expressions from being evaluated. It writes no Dockerfile and no image-build
+artifact. Continue directly to the complete Phase 5.3 quality gate.
 
 Generate the template at `.sealos/template/index.yaml` (overrides the default `template/` path from docker-to-sealos skill).
 Do not create another template-generation artifact.

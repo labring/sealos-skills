@@ -254,6 +254,20 @@
         {"name": "validates-both-s3-branches", "description": "Validates authenticated upload/read/content/deletion for both local storage and managed ObjectStorageBucket branches, with restricted anonymous raw-object access"},
         {"name": "verifies-s3-and-db-together", "description": "Checks approved KubeBlocks database Secret keys and required database objects alongside managed object-storage Secret wiring"}
       ]
+    },
+    {
+      "id": 22,
+      "prompt": "Deploy a source-ready static repository with root index.html, site.css, and site.js but no package.json or build tool.",
+      "expected_output": "Classifies the target as an eligible source-ready static site, scores it above the deployment threshold, and deploys every static asset through the pinned public unprivileged NGINX plus ConfigMap fast path without creating a Dockerfile, building an image, or asking for a registry.",
+      "files": ["index.html", "site.css", "site.js"],
+      "assertions": [
+        {"name": "recognizes-source-ready-assets", "description": "Returns eligible static_web with SOURCE_READY_STATIC_SITE evidence for root index.html plus a directly publishable asset tree and no higher-priority build, runtime, container, or sensitive-file signal"},
+        {"name": "scores-static-readiness", "description": "Reports HTML/static_html on port 8080 with a readiness score >= 4"},
+        {"name": "skips-custom-image-work", "description": "Skips image discovery, Dockerfile generation, buildx or Kaniko build, and registry prompts"},
+        {"name": "uses-pinned-public-runtime", "description": "Uses the configured exact-version nginxinc/nginx-unprivileged public image without imagePullSecrets"},
+        {"name": "mounts-all-assets-from-configmap", "description": "Generates and validates one template artifact that mounts index.html, site.css, and site.js from a correctly named ConfigMap without omitting files"},
+        {"name": "keeps-runtime-truth", "description": "Still verifies Launchpad networking, the real App URL, logs, missing-static-asset behavior, Event convergence, and the resource footprint"}
+      ]
     }
   ]
 }

@@ -849,6 +849,8 @@ def _extract_template_directory_name(path: Path) -> str:
     index = parts.index("template")
     if index + 1 >= len(parts):
         return ""
+    if parts[index + 1] == "index.yaml" and index > 0 and parts[index - 1] == ".sealos":
+        return ""
     return parts[index + 1]
 
 

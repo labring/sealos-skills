@@ -33,8 +33,10 @@ can become eligible only after explicit review.
 
 - `web_service` — a headless web application, API, gateway, or network service with
   a clear non-interactive start command
-- `static_web` — a frontend with a reproducible production build whose output can be
-  served by Nginx, Caddy, or another standard static server
+- `static_web` — either a frontend with a reproducible production build, or a
+  source-ready site with a root `index.html` and a public asset tree that needs no
+  transformation or application runtime; both can be served by Nginx, Caddy, or
+  another standard static server
 - `worker` — a long-running, non-interactive queue consumer or background processor
   with a clear start command; an inbound HTTP port is not required
 - `scheduled_job` — a non-interactive batch or scheduled task with bounded execution
@@ -68,7 +70,19 @@ can become eligible only after explicit review.
    unless the repository documents and builds it as an independent web target.
 4. Do not require an HTTP listener from workers or scheduled jobs. Require a clear,
    non-interactive runtime contract instead.
-5. Treat an existing browser/VNC container contract as `needs_review` until its
+5. Treat file count, file extension, and directory depth as evidence about the
+   artifact tree, never as the deployment conclusion. A static server can publish
+   arbitrary regular assets, including nested paths and binary formats.
+6. Resolve deployment-route signals in this order: unsafe-to-publish evidence;
+   existing container contract; application build/runtime contract; source-ready
+   static publication. Do not let a root `index.html` hide a stronger signal.
+7. Never expose likely secrets, environment files, private keys, or symbolic-link
+   targets through the static fast path. Missing or conflicting evidence requires
+   review rather than partial publication.
+8. Treat direct-publication size as a routing constraint, not an eligibility
+   constraint. A source-ready tree above the ConfigMap limit remains `static_web`
+   and continues through the static-image build path.
+9. Treat an existing browser/VNC container contract as `needs_review` until its
    headless entry point and remote access path are confirmed.
 
 ## Evidence
@@ -84,7 +98,9 @@ Examples:
   targets
 - web service: server framework plus listener/start command, or an existing runtime
   container exposing the service
-- static web: frontend framework plus production build script and documented output
+- static web: frontend framework plus production build script and documented output,
+  or a root `index.html` plus a recursively preserved public asset tree with no
+  stronger container, build, runtime, or sensitive-file signal
 - worker/job: queue or scheduler integration plus a dedicated non-interactive command
 - CLI/library: package `bin`/console-script metadata, library exports, and absence of
   a supported application entry point

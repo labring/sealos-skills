@@ -344,6 +344,50 @@ class CheckConsistencyTests(unittest.TestCase):
             )
             self.assertTrue(any(item.rule_id == "R013" for item in violations))
 
+    def test_allows_sealos_deploy_template_artifact_without_app_subdirectory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill = root / "SKILL.md"
+            refs_dir = root / "references"
+            refs_file = refs_dir / "sample.md"
+            rules_file = refs_dir / "rules-registry.yaml"
+            artifact_file = root / ".sealos" / "template" / "index.yaml"
+
+            write_file(skill, "# no yaml snippets\n")
+            write_file(refs_file, "# refs\n")
+            write_registry(rules_file)
+            write_file(
+                artifact_file,
+                """
+                apiVersion: app.sealos.io/v1
+                kind: Template
+                metadata:
+                  name: deploy-artifact
+                spec:
+                  title: Deploy Artifact
+                  url: https://example.com
+                  gitRepo: https://github.com/example/deploy-artifact
+                  author: example
+                  description: demo
+                  icon: https://raw.githubusercontent.com/example/demo/kb-0.9/template/deploy-artifact/logo.png
+                  templateType: inline
+                  locale: en
+                  i18n:
+                    zh:
+                      description: 示例
+                  categories:
+                    - frontend
+                """,
+            )
+
+            violations = CHECKER.run_checks(
+                skill,
+                refs_dir,
+                rules_file,
+                additional_include_paths=[".sealos/template/index.yaml"],
+            )
+            self.assertFalse(any(item.rule_id == "R013" for item in violations))
+
     def test_detects_template_icon_path_mismatch_in_artifact(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
