@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills.sh/sealos-deploy/schemas/execution-context.schema.json",
+  "title": "Sealos Deploy Execution Context",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "execution_environment",
+    "sandbox",
+    "non_interactive",
+    "builder",
+    "sealai_deploy_task_id_present",
+    "namespace",
+    "api_server",
+    "region",
+    "region_domain",
+    "template_api_url",
+    "kubeconfig_path"
+  ],
+  "properties": {
+    "execution_environment": { "type": "string", "enum": ["local", "sandbox"] },
+    "sandbox": { "type": "boolean" },
+    "non_interactive": { "type": "boolean" },
+    "builder": { "type": "string", "enum": ["buildx", "kaniko"] },
+    "sealai_deploy_task_id_present": { "type": "boolean" },
+    "namespace": { "type": "string", "minLength": 1 },
+    "api_server": { "type": "string", "minLength": 1 },
+    "region": { "type": "string", "minLength": 1 },
+    "region_domain": { "type": "string", "minLength": 1 },
+    "template_api_url": { "type": "string", "minLength": 1 },
+    "kubeconfig_path": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ]
+    }
+  }
+}

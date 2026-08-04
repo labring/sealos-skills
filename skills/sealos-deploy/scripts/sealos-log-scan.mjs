@@ -124,11 +124,12 @@ function printJson(result, exitCode = 0) {
 
 function kubectl(args) {
   const env = { ...process.env };
-  if (!env.KUBECONFIG) {
+  const sandbox = Object.prototype.hasOwnProperty.call(env, "SEALAI_DEPLOY_TASK_ID");
+  if (!sandbox && !env.KUBECONFIG) {
     env.KUBECONFIG = `${homedir()}/.sealos/kubeconfig`;
   }
 
-  const fullArgs = ["--insecure-skip-tls-verify", ...args];
+  const fullArgs = sandbox ? args : ["--insecure-skip-tls-verify", ...args];
   const child = spawnSync("kubectl", fullArgs, {
     env,
     encoding: "utf8",

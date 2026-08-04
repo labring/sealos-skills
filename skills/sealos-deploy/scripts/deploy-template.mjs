@@ -9,13 +9,14 @@
  *   node deploy-template.mjs <template-path> --args-file ./args.json
  *
  * Behavior:
- *   - Reads ~/.sealos/auth.json for the current region
- *   - Reads ~/.sealos/kubeconfig and sends it as encodeURIComponent(kubeconfig)
+ *   - Reads local auth or derives the region from the active kubeconfig API server
+ *   - Reads an explicit/active kubeconfig and sends it as encodeURIComponent(kubeconfig)
  *   - Posts the template YAML to:
  *       https://template.<region-domain>/api/v2alpha/templates/raw
  *   - Prints a JSON result to stdout
  */
 
+import { spawnSync } from 'child_process'
 import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { basename, join, resolve } from 'path'
@@ -35,6 +36,8 @@ function parseArgs(argv) {
   let dryRun = false
   let argsJson = null
   let argsFile = null
+  let region = null
+  let kubeconfig = null
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]
@@ -42,13 +45,15 @@ function parseArgs(argv) {
       dryRun = true
       continue
     }
-    if (arg === '--args-json') {
-      argsJson = args[i + 1]
-      i += 1
-      continue
-    }
-    if (arg === '--args-file') {
-      argsFile = args[i + 1]
+    if (arg === '--args-json' || arg === '--args-file' || arg === '--region' || arg === '--kubeconfig') {
+      const value = args[i + 1]
+      if (!value || value.startsWith('--')) {
+        fail(`${arg} requires a value`)
+      }
+      if (arg === '--args-json') argsJson = value
+      if (arg === '--args-file') argsFile = value
+      if (arg === '--region') region = value
+      if (arg === '--kubeconfig') kubeconfig = value
       i += 1
       continue
     }
@@ -76,6 +81,8 @@ function parseArgs(argv) {
     dryRun,
     argsJson,
     argsFile: argsFile ? resolve(process.cwd(), argsFile) : null,
+    region,
+    kubeconfig: kubeconfig ? resolve(process.cwd(), kubeconfig) : null,
   }
 }
 
@@ -83,7 +90,7 @@ function printHelp() {
   console.log(`Sealos Template Deploy
 
 Usage:
-  node deploy-template.mjs <template-path> [--dry-run]
+  node deploy-template.mjs <template-path> [--dry-run] [--region <url>] [--kubeconfig <path>]
   node deploy-template.mjs <template-path> --args-json '{"KEY":"value"}'
   node deploy-template.mjs <template-path> --args-file ./args.json
 
@@ -105,10 +112,10 @@ function loadJson(filePath, label) {
   }
 }
 
-function normalizeRegion(region) {
+function normalizeRegion(region, source = 'region') {
   const text = String(region || '').trim()
   if (!text) {
-    fail('Auth file is missing region', { path: AUTH_PATH })
+    fail(`${source} is missing region`)
   }
 
   const normalized = text.replace(/\/+$/, '')
@@ -116,13 +123,13 @@ function normalizeRegion(region) {
   try {
     url = new URL(normalized)
   } catch (error) {
-    fail('Invalid region URL in auth file', { region: text, details: error.message })
+    fail(`Invalid region URL from ${source}`, { region: text, details: error.message })
   }
 
   return {
-    region: url.toString().replace(/\/+$/, ''),
-    regionDomain: url.host,
-    deployUrl: `https://template.${url.host}/api/v2alpha/templates/raw`,
+    region: `${url.protocol}//${url.hostname}`,
+    regionDomain: url.hostname,
+    deployUrl: `https://template.${url.hostname}/api/v2alpha/templates/raw`,
   }
 }
 
@@ -147,7 +154,7 @@ function loadDeployArgs({ argsJson, argsFile }) {
       }
       return parsed
     } catch (error) {
-      fail('Failed to parse --args-json', { details: error.message })
+      fail('Failed to parse --args-json')
     }
   }
 
@@ -162,11 +169,89 @@ function loadDeployArgs({ argsJson, argsFile }) {
   return {}
 }
 
-function loadKubeconfig() {
-  if (!existsSync(KUBECONFIG_PATH)) {
-    fail('Kubeconfig not found', { path: KUBECONFIG_PATH })
+function runKubectlConfig(kubeconfigPath, format) {
+  const env = { ...process.env }
+  if (kubeconfigPath) env.KUBECONFIG = kubeconfigPath
+  const result = spawnSync(
+    'kubectl',
+    ['config', 'view', '--minify', '--raw', '--flatten', '-o', format],
+    { encoding: 'utf8', env },
+  )
+  if (result.error || result.status !== 0) {
+    return null
   }
-  return readFileSync(KUBECONFIG_PATH, 'utf8')
+  return result.stdout
+}
+
+function resolveKubeconfigPath(input) {
+  return input.kubeconfig || process.env.KUBECONFIG || KUBECONFIG_PATH
+}
+
+function loadKubeconfig(input) {
+  const kubeconfigPath = resolveKubeconfigPath(input)
+  if (existsSync(kubeconfigPath)) {
+    return readFileSync(kubeconfigPath, 'utf8')
+  }
+
+  const flattened = runKubectlConfig(input.kubeconfig || process.env.KUBECONFIG || null, 'yaml')
+  if (flattened) return flattened
+  fail('Kubeconfig not found or unreadable', { path: kubeconfigPath })
+}
+
+function resolveRegion(input) {
+  if (input.region) return normalizeRegion(input.region, '--region')
+
+  if (existsSync(AUTH_PATH)) {
+    const auth = loadJson(AUTH_PATH, 'auth file')
+    if (auth.region) return normalizeRegion(auth.region, 'auth file')
+  }
+
+  const raw = runKubectlConfig(input.kubeconfig || process.env.KUBECONFIG || null, 'json')
+  if (!raw) {
+    fail('Unable to derive region from the active kubeconfig API server')
+  }
+
+  let config
+  try {
+    config = JSON.parse(raw)
+  } catch {
+    fail('kubectl returned invalid kubeconfig JSON while deriving region')
+  }
+  const server = config?.clusters?.[0]?.cluster?.server
+  return normalizeRegion(server, 'kubeconfig API server')
+}
+
+function redactValue(value, suppliedValues) {
+  if (suppliedValues.some((candidate) => String(candidate) === String(value))) {
+    return '<redacted>'
+  }
+  return value
+}
+
+function sanitizeResponse(response, deployArgs) {
+  if (!response || typeof response !== 'object' || Array.isArray(response)) return null
+  const suppliedValues = Object.values(deployArgs)
+  const output = {}
+  for (const key of ['ok', 'name', 'uid', 'resourceType', 'displayName', 'createdAt', 'resources']) {
+    if (Object.prototype.hasOwnProperty.call(response, key)) {
+      output[key] = key === 'displayName'
+        ? redactValue(response[key], suppliedValues)
+        : response[key]
+    }
+  }
+
+  if (response.error && typeof response.error === 'object') {
+    output.error = {}
+    for (const key of ['type', 'code']) {
+      if (Object.prototype.hasOwnProperty.call(response.error, key)) {
+        output.error[key] = response.error[key]
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(response.error, 'details')) {
+      output.error.details_omitted = true
+    }
+  }
+  return output
 }
 
 async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun }) {
@@ -202,11 +287,10 @@ async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun }) {
 }
 
 const input = parseArgs(process.argv)
-const auth = loadJson(AUTH_PATH, 'auth file')
-const { region, regionDomain, deployUrl } = normalizeRegion(auth.region)
+const { region, regionDomain, deployUrl } = resolveRegion(input)
 const yaml = loadTemplate(input.templatePath)
 const deployArgs = loadDeployArgs(input)
-const kubeconfig = loadKubeconfig()
+const kubeconfig = loadKubeconfig(input)
 
 try {
   const result = await postTemplate({
@@ -224,9 +308,10 @@ try {
     region_domain: regionDomain,
     deploy_url: deployUrl,
     template_path: input.templatePath,
-    args: deployArgs,
+    args_supplied: Object.keys(deployArgs).length,
     status: result.status,
-    response: result.json || result.text,
+    status_text: result.statusText,
+    response: sanitizeResponse(result.json, deployArgs),
   }
 
   if (!result.ok) {
@@ -241,6 +326,7 @@ try {
     region_domain: regionDomain,
     deploy_url: deployUrl,
     template_path: input.templatePath,
-    details: error.message,
+    args_supplied: Object.keys(deployArgs).length,
+    details: Object.keys(deployArgs).length > 0 ? 'Request details omitted.' : error.message,
   })
 }

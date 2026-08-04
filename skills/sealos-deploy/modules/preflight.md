@@ -2,6 +2,19 @@
 
 Detect the user's environment, record what's available, guide them to fix what's missing.
 
+## Step 0: Resolve Execution Environment
+
+Run this before auth or tool-install prompts:
+
+```bash
+node "<SKILL_DIR>/scripts/execution-context.mjs" --environment-only
+```
+
+- `SEALAI_DEPLOY_TASK_ID` is present, including an empty value → sandbox mode
+- `SEALAI_DEPLOY_TASK_ID` is absent → local mode
+
+Sandbox mode is non-interactive. Never start OAuth, `gh auth login`, tool installation, deployment confirmation, or another prompt. Missing required data must produce a precise blocker and stop. Sandbox builds use Kaniko; local builds keep the existing Docker buildx path.
+
 **Hard rule:** Every run must start with a preflight capability scan before touching the project.
 That means:
 - Detect tool availability first
@@ -13,7 +26,7 @@ Do not treat Docker, `gh`, or `buildx` as universal entry requirements — they 
 
 ## Tool Install Policy
 
-When `docker`, `gh`, or `kubectl` is missing, do not just print commands and stop.
+In local mode, when `docker`, `gh`, or `kubectl` is missing, do not just print commands and stop.
 Ask directly:
 
 ```text
@@ -23,9 +36,11 @@ Missing <tool>. Install it now? (y/n)
 If the user answers `y`, install the tool for the current platform, then re-run the corresponding check.
 If the install command needs elevated privileges, package-manager setup, or manual UI interaction, explain that before running it.
 
+In sandbox mode, never ask and never install system tools. Report a blocker only when the selected path requires the missing capability.
+
 ## Step 1: Environment Detection
 
-Detect the local toolchain on every run. These checks are fast, and re-running them avoids stale results after the user installs a missing dependency such as `gh` or `kubectl`.
+Detect the toolchain on every run. In sandbox mode, Docker/buildx/gh results are informational only and must not trigger prompts; Kaniko capabilities are authoritative for Phase 4.
 
 ### 1.1 Detect Installed Tools
 
@@ -75,11 +90,17 @@ ENV.kubectl   = true/false   (required for update-mode rollout operations)
 ENV.gh        = true/false   (enables zero-interaction GHCR push)
 ENV.curl      = true/false
 ENV.jq        = true/false
+ENV.sandbox   = true/false   (`SEALAI_DEPLOY_TASK_ID` presence)
+ENV.builder   = kaniko/buildx
 ```
+
+In sandbox mode, Docker, buildx, Docker login state, and `gh` are not build prerequisites. Record the active kubeconfig, namespace, ServiceAccount, Job/Secret permissions, `GITHUB_TOKEN`, and VersityGW S3 capability without printing secret values.
 
 ### 1.2 Docker Daemon Check
 
 Tool detection and Docker daemon status are different checks. Always verify the daemon separately:
+
+Skip this check in sandbox mode because sandbox builds use Kaniko.
 
 ```bash
 docker info 2>/dev/null
@@ -157,12 +178,12 @@ Before touching the project, classify findings into:
 ### 2.1 Immediate Stop Conditions
 
 Stop before project inspection only when one of these is true:
-- Sealos authentication is unavailable and cannot be completed
-- Workspace selection is incomplete
+- local mode: Sealos authentication is unavailable or workspace selection cannot be completed
+- sandbox mode: the active kubeconfig cannot be read, or its current context lacks API server or namespace information
 - The user provided a GitHub URL and `git` is unavailable, so the repository cannot be cloned
 - `curl` is unavailable, so auth and fallback API checks cannot run
 
-These are true entry blockers for a deploy run.
+These are true entry blockers for a deploy run. Missing sandbox Kaniko inputs are conditional until Phase 4 actually needs a new image.
 
 ### 2.2 Build-Path Warnings
 
@@ -175,6 +196,8 @@ Detect these now and report them early, but do **not** stop the run yet:
 - Container registry connectivity looks unhealthy
 
 These findings become hard blockers only if the run later determines that local image build/push is required.
+
+In sandbox mode, replace these with Kaniko warnings: kubectl, `GITHUB_TOKEN`, VersityGW S3 endpoint/secret, namespace, ServiceAccount, or namespaced Job/Secret permissions. Upgrade them to blockers only when Phase 4 needs a build.
 
 ### 2.3 Update-Path Warnings
 
@@ -209,8 +232,8 @@ Example:
 
 ## Step 3: Project Context
 
-**Execution order override:** Do **not** execute this section until Step 4 auth/workspace checks are complete.
-Run **Step 4: Sealos Cloud Auth** first, satisfy the immediate stop conditions, then come back to Step 3.
+**Local execution order override:** In local mode, do **not** execute this section until Step 4 auth/workspace checks are complete.
+Run **Step 4: Sealos Cloud Auth** first, satisfy the immediate stop conditions, then come back to Step 3. Sandbox mode skips OAuth and may resolve the project directly.
 
 This section is intentionally documented here for readability, but it is operationally blocked behind Step 4.
 
@@ -280,7 +303,21 @@ This avoids re-reading README in every phase. The AI already has it in context.
 
 ## Step 4: Sealos Cloud Auth (OAuth2 Device Grant Flow)
 
-This step must complete before Step 3 project context begins in practice.
+### 4.S Sandbox Context — No Login
+
+When `SEALAI_DEPLOY_TASK_ID` is present, do not execute OAuth, region selection, or workspace selection. After `WORK_DIR` is known, resolve the context in memory:
+
+```bash
+EXECUTION_CONTEXT_JSON=$(node "<SKILL_DIR>/scripts/execution-context.mjs")
+```
+
+Do not write project artifacts before the Phase 0.4 eligibility gate passes. The pipeline persists this JSON only after it creates the approved `.sealos/` artifact directory.
+
+The helper reads the minified current kubeconfig. It takes the namespace from the current context and derives region from the current cluster API server after removing the Kubernetes port. For example, `https://usw-1.sealos.io:6443` maps to region `https://usw-1.sealos.io` and Template API host `template.usw-1.sealos.io`.
+
+Use `KUBECONFIG` or kubectl's active configuration. Do not copy it to `~/.sealos/kubeconfig`, switch workspace, or replace the sandbox ServiceAccount. A missing server or namespace is a non-interactive blocker.
+
+The rest of Step 4 applies only to local mode. In local mode this step must complete before Step 3 project context begins in practice.
 
 Uses RFC 8628 Device Authorization Grant — no token copy-paste needed.
 
@@ -530,7 +567,8 @@ REGIONAL_TOKEN="$NEW_TOKEN"
 Only reach this section after:
 - Step 1 environment detection/checks passed
 - Step 2 capability classification completed
-- Step 4 auth/workspace checks passed
+- local mode: Step 4 auth/workspace checks passed
+- sandbox mode: active kubeconfig, namespace, region, and ServiceAccount context resolved without login
 - And only then Step 3 project context was collected
 
 Report to user with a short readiness summary. This is a user-facing status snapshot, not a full artifact dump.

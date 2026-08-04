@@ -254,6 +254,32 @@
         {"name": "validates-both-s3-branches", "description": "Validates authenticated upload/read/content/deletion for both local storage and managed ObjectStorageBucket branches, with restricted anonymous raw-object access"},
         {"name": "verifies-s3-and-db-together", "description": "Checks approved KubeBlocks database Secret keys and required database objects alongside managed object-storage Secret wiring"}
       ]
+    },
+    {
+      "id": 20,
+      "prompt": "Run /sealos-deploy in an environment where SEALAI_DEPLOY_TASK_ID is present. The active kubeconfig server is https://usw-1.sealos.io:6443 and its current context namespace is ns-sandbox. No reusable image exists.",
+      "expected_output": "Selects non-interactive sandbox mode, skips Sealos OAuth and workspace prompts, derives region https://usw-1.sealos.io and namespace ns-sandbox from kubeconfig, preserves the active ServiceAccount, and builds the image with the k8s-kaniko-job contract instead of Docker buildx.",
+      "files": [],
+      "assertions": [
+        {"name": "detects-sandbox-by-presence", "description": "Treats presence of SEALAI_DEPLOY_TASK_ID as sandbox mode even when its value is empty"},
+        {"name": "skips-interactive-auth", "description": "Does not run Sealos OAuth, workspace selection, gh auth login, tool installation prompts, or deployment confirmation"},
+        {"name": "derives-region-and-namespace", "description": "Derives region without the API server port and reads namespace from the current kubeconfig context"},
+        {"name": "uses-kaniko", "description": "Writes the sandbox build request and invokes k8s-kaniko-job with the active namespace and ServiceAccount"},
+        {"name": "keeps-main-deploy-flow", "description": "Continues from the Kaniko build result into main template, deploy, update-state, and Runtime Truth phases"}
+      ]
+    },
+    {
+      "id": 21,
+      "prompt": "Deploy a template in sandbox mode with required ADMIN_EMAIL, ADMIN_PASSWORD, and EXTERNAL_API_KEY inputs, but no user-supplied values are available.",
+      "expected_output": "Runs without prompts, generates non-real placeholder values that satisfy every declared input constraint, records which inputs were generated without exposing secret values, requires Template API dry-run success, and then deploys automatically.",
+      "files": [],
+      "assertions": [
+        {"name": "does-not-prompt", "description": "Does not request template values or deployment confirmation in sandbox mode"},
+        {"name": "satisfies-input-contracts", "description": "Generated placeholders satisfy declared type, enum, pattern, format, length, and numeric bounds"},
+        {"name": "records-placeholder-provenance", "description": "Records generated input names and sandbox-placeholder provenance separately from secret argument values"},
+        {"name": "protects-generated-secrets", "description": "Keeps generated password, token, and key values out of logs and user-facing output"},
+        {"name": "requires-dry-run", "description": "Stops with a precise blocker unless the exact template and generated args pass Template API dry-run"}
+      ]
     }
   ]
 }

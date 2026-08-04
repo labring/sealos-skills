@@ -13,13 +13,15 @@
 
 Run this pass after Template API deploy or kubectl fallback deploy. Accept the deployment only after the live application entry, Launchpad public network, logs, and first meaningful user workflow are verified.
 
+Use the `KUBECTL` command selected by the deployment pipeline. In sandbox mode, also keep `REGION` from `.sealos/execution-context.json` and the active `KUBECONFIG`; never fall back to local Sealos auth files.
+
 ## Capture Live Identity
 
 Read the App URL from the live App resource when possible:
 
 ```bash
 APP_NAME="<app-name>"
-APP_URL=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+APP_URL=$("${KUBECTL[@]}" \
   get apps.app.sealos.io/"$APP_NAME" -n "$NAMESPACE" \
   -o jsonpath='{.spec.data.url}' 2>/dev/null)
 ```
@@ -36,7 +38,7 @@ node "<SKILL_DIR>/scripts/sealos-footprint.mjs" \
 Confirm the live root Ingress backend, application Service, and ready endpoints:
 
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   get ingress,svc,endpoints -n "$NAMESPACE" \
   -l "cloud.sealos.io/app-deploy-manager=$APP_NAME" -o wide
 ```
@@ -56,6 +58,8 @@ node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" \
   --app-url "$APP_URL" \
   --expected-port "$PUBLIC_PORT"
 ```
+
+In sandbox mode, add `--region "$REGION"` and, when `KUBECONFIG` is set, `--kubeconfig "$KUBECONFIG"` so the helper never reads `~/.sealos/auth.json` or the local-login kubeconfig.
 
 Private applications with no public Ingress skip this command. Public application acceptance requires:
 
@@ -193,7 +197,7 @@ The pre-injection report proves the fault window. The recovery baseline prevents
 Inspect the live main container startup command for managed app workloads:
 
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   get pod/<pod> -n "$NAMESPACE" \
   -o jsonpath='{range .spec.containers[*]}{.name}{" command="}{.command}{" args="}{.args}{"\n"}{end}'
 ```

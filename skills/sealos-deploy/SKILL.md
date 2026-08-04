@@ -3,14 +3,14 @@ name: sealos-deploy
 description: Deploy compatible server, static-web, worker, scheduled-job, or reviewed remote-desktop workloads from GitHub or local source to Sealos Cloud, then run the default Runtime Truth Pass against the returned App URL, public route, authentication flow, logs, database state, and full resource footprint. Reject unsupported desktop, mobile, CLI, library, extension, hardware-dependent, mixed, and unidentified targets before readiness scoring or build. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
 metadata:
   author: labring
-  compatibility: Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
+  compatibility: Local deploys require Sealos auth/workspace and use Docker buildx when an image build is needed. When SEALAI_DEPLOY_TASK_ID is present, the non-interactive sandbox uses its injected kubeconfig, namespace, ServiceAccount, GITHUB_TOKEN, VersityGW S3 settings, and Kaniko instead. git is required when cloning from GitHub or resolving metadata. Node.js 18+ is required for the sandbox execution helpers. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
 ---
 
 # Sealos Deploy
 
 ## Compatibility
 
-Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
+Local deploys require Sealos auth/workspace and use Docker buildx when an image build is needed. When `SEALAI_DEPLOY_TASK_ID` is present, the non-interactive sandbox skips login and uses its injected kubeconfig, namespace, ServiceAccount, `GITHUB_TOKEN`, VersityGW S3 settings, and Kaniko. git is required when cloning from GitHub or resolving metadata. Node.js 18+ is required for sandbox helpers. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
 
 
 Deploy compatible cloud workloads to Sealos Cloud, stopping unsupported targets
@@ -18,9 +18,10 @@ before build or deployment.
 
 ## kubectl Safety Rules (all phases)
 
-All kubectl commands MUST use the Sealos kubeconfig:
+Local kubectl commands use the Sealos login kubeconfig. Sandbox commands must preserve the injected active context:
 ```
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify
+local:   kubectl --kubeconfig ~/.sealos/kubeconfig --insecure-skip-tls-verify
+sandbox: kubectl
 ```
 
 System tool installation requires user confirmation. If `docker`, `gh`, or `kubectl` is missing and the skill can install it for the current platform, ask first and only run the install command after the user explicitly replies `y`.
@@ -35,20 +36,20 @@ Only proceed after user confirms. This applies even if the pipeline logic sugges
 
 Use this check when cleaning Template API test deployments:
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" \
+"${KUBECTL[@]}" -n "$NS" \
   get instances.app.sealos.io,app,statefulset,deployment,svc,ingress,pvc,pod | grep "$APP"
 ```
 
 Delete in this order after confirmation:
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete instances.app.sealos.io "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete app "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete statefulset "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete deployment "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete ingress "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete svc "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" get pvc -o name | grep "$APP" | while read -r PVC; do
-  KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete "$PVC" --ignore-not-found --wait=false
+"${KUBECTL[@]}" -n "$NS" delete instances.app.sealos.io "$APP" --ignore-not-found --wait=false
+"${KUBECTL[@]}" -n "$NS" delete app "$APP" --ignore-not-found --wait=false
+"${KUBECTL[@]}" -n "$NS" delete statefulset "$APP" --ignore-not-found --wait=false
+"${KUBECTL[@]}" -n "$NS" delete deployment "$APP" --ignore-not-found --wait=false
+"${KUBECTL[@]}" -n "$NS" delete ingress "$APP" --ignore-not-found --wait=false
+"${KUBECTL[@]}" -n "$NS" delete svc "$APP" --ignore-not-found --wait=false
+"${KUBECTL[@]}" -n "$NS" get pvc -o name | grep "$APP" | while read -r PVC; do
+  "${KUBECTL[@]}" -n "$NS" delete "$PVC" --ignore-not-found --wait=false
 done
 ```
 
@@ -141,13 +142,14 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 |--------|-------|---------|
 | `workload-eligibility.mjs` | `node workload-eligibility.mjs <repo-dir>` | Read-only fail-closed workload classification; decision is stdout-only |
 | `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
+| `execution-context.mjs` | `node execution-context.mjs [--environment-only] [--kubeconfig <path>]` | Detect sandbox mode and derive namespace/region from the active kubeconfig |
 | `detect-template.mjs` | `node detect-template.mjs [--github-url <url>] --work-dir <repo-dir> --skill-dir <SKILL_DIR>` | Detect configured GitHub repo → Sealos template fast-path matches |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |
 | `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build amd64 image & push to the selected registry (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update app-scoped GHCR pull Secret and optionally patch an existing Deployment to reference it |
 | `gh-refresh-scopes.mjs` | `node gh-refresh-scopes.mjs write:packages` | Refresh GHCR package access in the current TTY; `write:packages` is sufficient for both push and private pull in this workflow |
-| `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--args-json '{"KEY":"value"}'\|--args-file <file>]` | Resolve the current region from `~/.sealos/auth.json`, build the correct Template API URL, and post a local template YAML |
+| `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--region <url>] [--kubeconfig <path>] [--args-json '{"KEY":"value"}'\|--args-file <file>]` | Resolve region from local auth or the active kubeconfig API server and post Template YAML without exposing argument values |
 | `sealos-launchpad-network.mjs` | `node sealos-launchpad-network.mjs --app <app> --app-url <url> [--expected-port <port>] [--region <url>] [--kubeconfig <path>]` | Read-only Launchpad public-network discovery check with App URL and Service port matching |
 | `sealos-footprint.mjs` | `node sealos-footprint.mjs --namespace <ns> --app <app>` | Read-only inventory of Instance/App/workloads/Jobs/KubeBlocks/PVCs/ObjectStorageBuckets for deploy debug and cleanup planning |
 | `sealos-live-smoke.mjs` | `node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-method json-token\|cookie-json] [--login-path <path>] [--username <user>] [--password <pass>] [--token-path <path>] [--auth-path <path>] [--missing-api-path <path>] [--missing-page-path <path>]` | Read-only or credentialed HTTP smoke test for the real Sealos App entry URL, authenticated routes, and API/SPA negative probes |
@@ -172,6 +174,7 @@ This skill references knowledge files from co-installed internal skills. These a
 <SKILL_DIR>/../
 ├── sealos-deploy/           ← this skill (user entry point) = <SKILL_DIR>
 ├── dockerfile-skill/        ← Phase 3: Dockerfile generation knowledge
+├── k8s-kaniko-job/          ← sandbox Phase 4: namespaced Kaniko build through VersityGW S3
 ├── cloud-native-readiness/  ← Phase 0.4 eligibility policy + Phase 1 assessment criteria
 └── docker-to-sealos/       ← Phase 5: Sealos template rules
 ```
@@ -187,15 +190,15 @@ Paths used in pipeline.md follow the pattern:
 
 | Phase | Action | Skip When |
 |-------|--------|-----------|
-| 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
+| 0 — Preflight | Detect local/sandbox context; local auth or sandbox kubeconfig validation | Initial blockers resolved |
 | 0.4 — Eligibility | Confirm the repository root is a supported cloud workload | Any non-eligible result → stop |
 | 0.5 — Template Fast Path | Match GitHub repo to a configured Sealos template | No match, or match cannot materialize template YAML |
 | 1 — Assess | Clone repo (or use current project), analyze deployability | Score too low → stop |
 | 2 — Detect | Find existing image (Docker Hub / GHCR / README) | Found → jump to Phase 5 |
 | 3 — Dockerfile | Generate Dockerfile if missing | Already has one → skip |
-| 4 — Build & Push | `docker buildx` → GHCR (auto via gh CLI) or Docker Hub (fallback) | — |
+| 4 — Build & Push | local: Docker buildx; sandbox: namespaced Kaniko → GHCR | — |
 | 5 — Template | Generate Sealos application template | — |
-| 5.5 — Configure | Guide user through app env vars and inputs | No inputs needed |
+| 5.5 — Configure | local: collect inputs; sandbox: generate validated placeholders for missing required inputs | No inputs needed |
 | 6 — Deploy | Deploy template to Sealos Cloud | — |
 | 6.5 — Runtime Truth Pass | Verify Launchpad public networking, the actual Sealos runtime, logs, Event convergence, App URL, login path, object-storage flow, and resource footprint | User explicitly requests deploy-only output |
 
@@ -224,7 +227,7 @@ Input (GitHub URL / local path)
 [Phase 3] Dockerfile (generate/reuse)   │
   │                                     │
   ▼                                     │
-[Phase 4] Build & Push to registry      │
+[Phase 4] local buildx / sandbox Kaniko │
   │                                     │
   ◄─────────────────────────────────────┘
   │
@@ -233,7 +236,7 @@ Input (GitHub URL / local path)
   ◄──────────────────────────────────────┘
   │
   ▼
-[Phase 5.5] Configure ── present env vars → ask user for inputs → confirm
+[Phase 5.5] Configure ── local prompts / sandbox validated placeholders
   │
   ▼
 [Phase 6] Deploy to Sealos Cloud ── 401 → re-auth

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execFileSync } from 'child_process'
+import { execFileSync, spawnSync } from 'child_process'
 import { ensureGhScopesWithPrompt, run } from './gh-auth-utils.mjs'
 
 function runFile (command, args, opts = {}) {
@@ -8,10 +8,15 @@ function runFile (command, args, opts = {}) {
 }
 
 function getKubeEnv () {
-  return {
-    ...process.env,
-    KUBECONFIG: process.env.KUBECONFIG || `${process.env.HOME}/.sealos/kubeconfig`,
+  if (Object.prototype.hasOwnProperty.call(process.env, 'SEALAI_DEPLOY_TASK_ID')) {
+    return { ...process.env }
   }
+  return { ...process.env, KUBECONFIG: process.env.KUBECONFIG || `${process.env.HOME}/.sealos/kubeconfig` }
+}
+
+function kubectlArgs (args) {
+  if (Object.prototype.hasOwnProperty.call(process.env, 'SEALAI_DEPLOY_TASK_ID')) return args
+  return ['--insecure-skip-tls-verify', ...args]
 }
 
 function parseImageRegistry (imageRef) {
@@ -45,28 +50,35 @@ function ensureKubectl () {
 }
 
 function createOrUpdateDockerRegistrySecret ({ namespace, secretName, registry, username, password, email }) {
-  const escapedPassword = password.replace(/"/g, '\\"')
-  const escapedUsername = username.replace(/"/g, '\\"')
-  const escapedEmail = email.replace(/"/g, '\\"')
-  const script = [
-    `KUBECONFIG=\${KUBECONFIG:-$HOME/.sealos/kubeconfig}`,
-    'kubectl --insecure-skip-tls-verify create secret docker-registry ' +
-      `${secretName} -n ${namespace} ` +
-      `--docker-server=${registry} ` +
-      `--docker-username="${escapedUsername}" ` +
-      `--docker-password="${escapedPassword}" ` +
-      `--docker-email="${escapedEmail}" ` +
-      '--dry-run=client -o yaml | ' +
-      'kubectl --insecure-skip-tls-verify apply -f -',
-  ].join(' && ')
-
-  runFile('sh', ['-c', script], { env: getKubeEnv() })
+  const auth = Buffer.from(`${username}:${password}`, 'utf8').toString('base64')
+  const dockerConfig = JSON.stringify({
+    auths: {
+      [registry]: { username, password, email, auth },
+    },
+  })
+  const manifest = JSON.stringify({
+    apiVersion: 'v1',
+    kind: 'Secret',
+    metadata: { name: secretName, namespace },
+    type: 'kubernetes.io/dockerconfigjson',
+    data: {
+      '.dockerconfigjson': Buffer.from(dockerConfig, 'utf8').toString('base64'),
+    },
+  })
+  const result = spawnSync(
+    'kubectl',
+    kubectlArgs(['apply', '-f', '-']),
+    { env: getKubeEnv(), encoding: 'utf8', input: manifest },
+  )
+  if (result.error || result.status !== 0) {
+    throw new Error(result.error?.message || result.stderr?.trim() || 'kubectl apply failed for image pull Secret')
+  }
 }
 
 function getDeploymentImagePullSecretNames ({ namespace, deploymentName }) {
   const output = runFile(
     'kubectl',
-    ['--insecure-skip-tls-verify', 'get', 'deployment', deploymentName, '-n', namespace, '-o', 'json'],
+    kubectlArgs(['get', 'deployment', deploymentName, '-n', namespace, '-o', 'json']),
     { env: getKubeEnv() },
   )
   const deployment = JSON.parse(output)
@@ -98,7 +110,7 @@ function ensureDeploymentImagePullSecret ({ namespace, deploymentName, secretNam
 
   runFile(
     'kubectl',
-    ['--insecure-skip-tls-verify', 'patch', 'deployment', deploymentName, '-n', namespace, '--type', 'merge', '-p', patch],
+    kubectlArgs(['patch', 'deployment', deploymentName, '-n', namespace, '--type', 'merge', '-p', patch]),
     { env: getKubeEnv() },
   )
 
@@ -135,18 +147,32 @@ try {
     process.exit(0)
   }
 
-  const authCheck = await ensureGhAuth()
-  if (!authCheck.ok) {
-    console.log(JSON.stringify({
-      success: false,
-      ...authCheck,
-    }, null, 2))
-    process.exit(1)
+  const sandbox = Object.prototype.hasOwnProperty.call(process.env, 'SEALAI_DEPLOY_TASK_ID')
+  let username
+  let password
+  if (sandbox) {
+    password = process.env.GITHUB_TOKEN
+    if (!password) throw new Error('GITHUB_TOKEN is required for sandbox GHCR pull-secret creation')
+    const response = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${password}`,
+        Accept: 'application/vnd.github+json',
+      },
+    })
+    if (!response.ok) throw new Error(`GITHUB_TOKEN identity lookup failed with HTTP ${response.status}`)
+    const identity = await response.json()
+    username = identity.login
+    if (!username) throw new Error('GITHUB_TOKEN identity response did not include login')
+  } else {
+    const authCheck = await ensureGhAuth()
+    if (!authCheck.ok) {
+      console.log(JSON.stringify({ success: false, ...authCheck }, null, 2))
+      process.exit(1)
+    }
+    username = run('gh api user -q .login')
+    password = run('gh auth token')
   }
   ensureKubectl()
-
-  const username = run('gh api user -q .login')
-  const password = run('gh auth token')
   createOrUpdateDockerRegistrySecret({
     namespace,
     secretName,

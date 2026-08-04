@@ -62,6 +62,7 @@ QODER_SKILLS = (
     "./skills/sealos-app-builder",
     "./skills/cloud-native-readiness",
     "./skills/dockerfile-skill",
+    "./skills/k8s-kaniko-job",
     "./skills/docker-to-sealos",
 )
 QODER_COMMAND_SOURCE = "./commands/sealos.md"
@@ -77,6 +78,7 @@ REQUIRED_PLUGIN_PAYLOAD_PATHS = (
     "skills/sealos-deploy/SKILL.md",
     "skills/sealos-database/SKILL.md",
     "skills/sealos-s3/SKILL.md",
+    "skills/k8s-kaniko-job/SKILL.md",
     "assets/logo.svg",
 )
 PLUGIN_PARITY_KEYS = (

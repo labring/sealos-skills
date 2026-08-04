@@ -5,6 +5,14 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "target_image": {
+      "type": "string",
+      "minLength": 1
+    },
+    "update_strategy": {
+      "type": "string",
+      "enum": ["rebuild", "restart"]
+    },
     "port": {
       "type": "integer",
       "minimum": 1,

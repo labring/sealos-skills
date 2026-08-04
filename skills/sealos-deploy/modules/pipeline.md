@@ -10,6 +10,20 @@ when a GitHub repository reference is available.
 
 Use `ENV` from preflight to choose between script mode (Node.js available) and fallback mode (AI-native).
 
+Use the in-memory execution context from preflight, then read the persisted `.sealos/execution-context.json` after the eligibility gate creates the artifact directory. Set `SANDBOX=true` only when it records `sandbox: true`; this decision must originate from the presence of `SEALAI_DEPLOY_TASK_ID`.
+
+Resolve one kubectl command for the whole run:
+
+```bash
+if [ "$SANDBOX" = true ]; then
+  KUBECTL=(kubectl)
+else
+  KUBECTL=(kubectl --kubeconfig "$HOME/.sealos/kubeconfig" --insecure-skip-tls-verify)
+fi
+```
+
+Every later kubectl example uses `"${KUBECTL[@]}"`. Sandbox mode must preserve the injected context, namespace, and ServiceAccount.
+
 ## Phase 0.4: Deployment Eligibility Gate
 
 Run this gate before creating `.sealos/`, detecting deployment mode, matching a
@@ -59,7 +73,10 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ├── template-match.json           ← Phase 0.5 template fast-path decision
 ├── state.json                    ← deployment state (auto-maintained after Phase 6)
 ├── analysis.json                 ← project analysis snapshot (regenerated each deploy)
+├── execution-context.json        ← sandbox/local mode, builder, namespace, API server, and derived region
+├── sandbox-inputs.json           ← placeholder provenance only; never contains argument values
 ├── build/                        ← created only if Phase 4 actually runs
+│   ├── build-request.json        ← sandbox Kaniko execution contract; absent for local buildx
 │   └── build-result.json         ← Phase 4 result (`success` or `failed`)
 └── template/
     └── index.yaml                ← Phase 5 Sealos template
@@ -69,6 +86,9 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 - `config.json` — optional user overrides (port, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
 - `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, score, etc.). Regenerated each deploy.
 - `state.json` — deployment state written after Phase 6 success. Contains `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
+- `execution-context.json` — preflight execution decision. In sandbox mode it also records the active namespace and region derived from the kubeconfig API server.
+- `build/build-request.json` — sandbox-only Kaniko handoff. The local buildx path does not create it.
+- `sandbox-inputs.json` — sandbox-only metadata identifying generated placeholder inputs without storing their values.
 
 **Note:** When reading dockerfile-skill modules (analyze.md, generate.md, build-fix.md), they reference `docker-build/` as their default output path. In this pipeline, always write to `.sealos/build/` instead. Similarly, template output goes to `.sealos/template/` instead of `template/`.
 
@@ -76,6 +96,9 @@ JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>
 - `config.schema.json`
 - `template-match.schema.json`
 - `analysis.schema.json`
+- `execution-context.schema.json`
+- `sandbox-inputs.schema.json`
+- `build-request.schema.json`
 - `build-result.schema.json`
 - `state.schema.json`
 
@@ -91,6 +114,12 @@ At the very start of the pipeline (before Phase 1), create the base artifact dir
 
 ```bash
 mkdir -p "$WORK_DIR/.sealos" "$WORK_DIR/.sealos/template"
+```
+
+In sandbox mode, persist the already resolved in-memory context after this directory is created:
+
+```bash
+printf '%s\n' "$EXECUTION_CONTEXT_JSON" > "$WORK_DIR/.sealos/execution-context.json"
 ```
 
 Create `"$WORK_DIR/.sealos/build"` lazily when Phase 4 starts. If Phase 2 finds an existing image and skips Phase 4, `build/` should remain absent rather than exist as an empty directory.
@@ -124,15 +153,17 @@ If no `last_deploy` key or file doesn't exist → proceed to **Step 1.5** (attem
 
 ### Step 1.5: Discover existing deployment from cluster (migration)
 
-Projects deployed by an older version of the skill may have no `last_deploy` section in state.json (or no state.json at all). If `ENV.kubectl` is true and `~/.sealos/kubeconfig` exists, attempt to discover an existing deployment by project name:
+Skip migration discovery in sandbox mode. Without durable `.sealos/state.json`, automatically associating a name-prefix match is unsafe and would require user confirmation. Continue in DEPLOY mode instead.
+
+Projects deployed by an older version of the skill may have no `last_deploy` section in state.json (or no state.json at all). In local mode, if `ENV.kubectl` is true and the resolved kubeconfig is usable, attempt to discover an existing deployment by project name:
 
 ```bash
 # Derive the namespace from the sealos kubeconfig
-NAMESPACE=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+NAMESPACE=$("${KUBECTL[@]}" \
   config view --minify -o jsonpath='{.contexts[0].context.namespace}' 2>/dev/null)
 
 # Search for a deployment whose name starts with the repo name
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   get deploy -n "$NAMESPACE" \
   -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.template.spec.containers[0].image}{"\n"}{end}' 2>/dev/null \
   | grep -i "^$REPO_NAME"
@@ -143,7 +174,7 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 1. Query the full details to reconstruct the `deployed` state:
 ```bash
 # Get the ingress host
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   get ingress/<app_name> -n "$NAMESPACE" \
   -o jsonpath='{.spec.rules[0].host}' 2>/dev/null
 ```
@@ -172,7 +203,7 @@ If `ENV.kubectl` is false:
 
 If `ENV.kubectl` is true, query the cluster:
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   get deployment/<app_name> -n <namespace> \
   -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null
 ```
@@ -181,6 +212,8 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 - Command returns current image → proceed to Step 3
 
 ### Step 3: Ask user
+
+In sandbox mode, do not ask. A verified live `last_deploy` automatically selects UPDATE mode. If no valid live state exists, select DEPLOY mode. Use `.sealos/config.json.update_strategy` to choose `rebuild` or `restart` during UPDATE; default to `rebuild`.
 
 Present the detected state and let the user choose:
 
@@ -216,6 +249,8 @@ Default: Update
 If any artifacts exist, report to user:
 `"Found artifacts from a previous deploy attempt. [list found artifacts]."`
 Ask: `"Resume from where it left off? Or restart from Phase 1?"`
+
+In sandbox mode, do not ask. Resume only from artifacts that pass their schemas and whose recorded execution context matches the current `SEALAI_DEPLOY_TASK_ID` presence. Invalid or inconsistent artifacts are blockers; do not silently reuse them.
 
 If restart → remove `.sealos/analysis.json`, `.sealos/build/`, `.sealos/template/index.yaml` and start fresh.
 
@@ -530,6 +565,59 @@ __pycache__
 ---
 
 ## Phase 4: Build & Push
+
+### 4.S Sandbox Builder Route
+
+When `SANDBOX=true`, execute this route instead of the local registry prompt, `gh` login, Docker daemon, and buildx instructions below. Phase 2 still skips Phase 4 entirely when it finds a reusable amd64 image.
+
+Sandbox Phase 4 requires the `brain-deploy` Kaniko contract:
+
+- active sandbox kubeconfig, namespace, and ServiceAccount
+- `GITHUB_TOKEN` with `write:packages`
+- VersityGW S3 endpoint and accepted secret source
+- permission to create namespaced Jobs and Secrets
+
+Resolve the authenticated GitHub login through `GITHUB_TOKEN`, lowercase it for GHCR, and never print the token. Select the target image in this order:
+
+1. `.sealos/config.json.target_image`
+2. `ghcr.io/<lowercase-token-login>/<repo>:deploy-<commit-sha-or-timestamp>`
+
+Only GHCR is supported by the sandbox Kaniko path. Create `.sealos/build/build-request.json` and validate it against `schemas/build-request.schema.json`:
+
+```json
+{
+  "version": "1.0",
+  "generated_at": "<ISO-8601>",
+  "source": {
+    "type": "sandbox-context",
+    "github_url": "<GITHUB_URL>",
+    "repo": "<owner/repo>",
+    "ref": "<git commit SHA>",
+    "work_dir": "<absolute WORK_DIR>"
+  },
+  "mode": "build-required",
+  "image": {
+    "image_ref": null,
+    "target_image": "<resolved GHCR image>"
+  },
+  "build": {
+    "context_path": ".",
+    "dockerfile_path": "Dockerfile",
+    "build_args": {}
+  },
+  "runtime": {
+    "port": 8080
+  }
+}
+```
+
+The Dockerfile must be inside the selected context. Every local `COPY` or `ADD` source required by it must also be inside that context. Do not widen beyond the repository root.
+
+Execute `<SKILL_DIR>/../k8s-kaniko-job/` in module order using this request. It packages the sandbox-local context through VersityGW S3, preserves the active namespace and ServiceAccount, builds `linux/amd64`, pushes GHCR, and writes `.sealos/build/build-result.json` in the main schema. Stop when the result has `outcome: "failed"`.
+
+On success, set `IMAGE_REF` from `build-result.json.push.remote_image`, update `analysis.json.image_ref`, and continue to Phase 5. Do not run Docker/buildx or any interactive auth fallback in sandbox mode.
+
+The remaining Phase 4 instructions are the local-mode buildx route.
 
 ### 4.0 Choose Image Destination
 
@@ -896,6 +984,37 @@ Configuration for <app-name>:
 
 ### 5.5.3 Collect User Input
 
+#### Sandbox non-interactive input resolution
+
+When `SANDBOX=true`, do not ask for any value. Preserve values explicitly supplied through the sandbox task's initial runtime input, then synthesize a placeholder for every still-missing required input. Never place credentials in committed `.sealos/config.json`. A placeholder must satisfy the Template input's declared type, enum, pattern, format, length, and numeric bounds and must allow the resources to be admitted by the Template API dry-run.
+
+Use these strategies only after project documentation and the input declaration have been inspected:
+
+- enum → first allowed value
+- boolean → declared default, otherwise `false`
+- integer/number → declared default, otherwise an in-range non-zero value
+- username → `sandbox-admin`
+- email → `sandbox-admin@example.com`
+- URL → `https://example.com`
+- password, token, key, or secret → a generated random value long enough for the declared contract
+- other strings → a non-empty `sandbox-<random>` value adjusted to the declared pattern and bounds
+
+Never use a known real credential. If no value can be synthesized with confidence against the declared validation contract, emit a blocker naming the input and failed constraint, then stop.
+
+Write the resolved argument object to a `mktemp` file outside the project with mode `0600`, retain it only through dry-run and deploy, then remove it. Separately write `.sealos/sandbox-inputs.json` containing the generated input names, strategy, sensitivity classification, and `source: "sandbox-placeholder"`, but not the generated secret values. This metadata lets downstream systems distinguish placeholders from user-supplied values. Keep argument values out of project files, committed files, logs, and user-facing output.
+
+Run the Template API dry-run with the exact args file. A successful schema-only guess is insufficient; HTTP 200 dry-run is required before the real deploy:
+
+```bash
+node "<SKILL_DIR>/scripts/deploy-template.mjs" \
+  "$WORK_DIR/.sealos/template/index.yaml" \
+  --region "$REGION" \
+  --args-file "$SANDBOX_ARGS_FILE" \
+  --dry-run
+```
+
+If dry-run rejects an input, revise only the rejected placeholder and retry. Do not request user interaction.
+
 **For required inputs:**
 1. Ask the user for each value
 2. If user doesn't have a value, explain what it's used for and how to obtain it
@@ -959,6 +1078,8 @@ Ready to deploy <app-name> to Sealos Cloud:
 
 Wait for user confirmation before continuing to Phase 6.
 
+In sandbox mode, do not present or wait for confirmation. Continue automatically only after the final quality gate and Template API dry-run both pass. Otherwise stop with a blocker.
+
 Configuration is applied directly to `.sealos/template/index.yaml`. No separate checkpoint — the template contains the final configured state.
 
 ---
@@ -984,6 +1105,8 @@ REGION_DOMAIN=$(printf '%s' "$REGION" | sed -E 's#^https?://##; s#/$##')
 DEPLOY_URL="https://template.${REGION_DOMAIN}/api/v2alpha/templates/raw"
 ```
 
+In sandbox mode, read `region`, `region_domain`, and `template_api_url` from `.sealos/execution-context.json`; those values were derived from the active kubeconfig API server. Do not read `~/.sealos/auth.json`.
+
 ### 6.2 Deploy Template
 
 Read kubeconfig, **encode it with `encodeURIComponent`**, and send as `Authorization` header.
@@ -999,8 +1122,22 @@ node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --d
 node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --args-json '{"ADMIN_EMAIL":"user@example.com"}'
 ```
 
+Sandbox invocation uses its active kubeconfig and non-interactive args file:
+
+```bash
+node "<SKILL_DIR>/scripts/deploy-template.mjs" \
+  "$WORK_DIR/.sealos/template/index.yaml" \
+  --region "$REGION" \
+  ${KUBECONFIG:+--kubeconfig "$KUBECONFIG"} \
+  --args-file "$SANDBOX_ARGS_FILE"
+```
+
+Remove `SANDBOX_ARGS_FILE` in a finally-style cleanup when the dry-run/deploy sequence ends or stops, whether it succeeds or fails.
+
+The helper can derive region directly from the minified kubeconfig when `--region` is omitted. In sandbox mode, a 401 is an authentication blocker; never start OAuth or workspace switching.
+
 This script is the preferred execution path because it:
-- reads `~/.sealos/auth.json` directly instead of fragile shell parsing
+- accepts an explicit region/kubeconfig and can derive sandbox region from the active kubeconfig API server
 - derives `REGION_DOMAIN` from the real `region` value
 - always posts to the concrete `DEPLOY_URL`
 - emits structured JSON on success or failure
@@ -1008,7 +1145,8 @@ This script is the preferred execution path because it:
 **Without Node.js (curl fallback):**
 ```bash
 # encodeURIComponent via Python (almost always available)
-KUBECONFIG_ENCODED=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read(), safe=''))" < ~/.sealos/kubeconfig)
+KUBECONFIG_ENCODED=$("${KUBECTL[@]}" config view --minify --raw --flatten -o yaml | \
+  python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read(), safe=''))")
 
 # Build JSON body with args — use jq if available
 TEMPLATE_YAML=$(cat .sealos/template/index.yaml)
@@ -1076,10 +1214,10 @@ Extract the instance name and present to user.
 After a 201 response, do not assume the app is usable. Verify Kubernetes readiness:
 
 ```bash
-NAMESPACE=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+NAMESPACE=$("${KUBECTL[@]}" \
   config view --minify -o jsonpath='{.contexts[0].context.namespace}')
 
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   get pod,svc,endpoints,ingress -n "$NAMESPACE" -l app=<app-name>
 ```
 
@@ -1088,7 +1226,7 @@ For the public app Service, endpoints must be non-empty before the Ingress can s
 1. Check `endpoints/<app-name>`; empty endpoints means the backend Pod is not Ready.
 2. Check Pod init container status and previous logs:
    ```bash
-   KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+   "${KUBECTL[@]}" \
      logs pod/<pod> -n "$NAMESPACE" -c <init-container> --previous --tail=200
    ```
 3. Look for common signatures:
@@ -1101,7 +1239,7 @@ For the public app Service, endpoints must be non-empty before the Ingress can s
 For templates with KubeBlocks-supported databases, runtime truth must include the database control plane and generated connection surface:
 
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   get cluster,component,instanceset,secret,svc -n "$NAMESPACE" \
   | grep -E '<app-name>|redis|postgres|mysql|mongo|broker'
 ```
@@ -1133,13 +1271,17 @@ If the Template API returns 503/500 or is unreachable, deploy directly via kubec
 **Step 1 — Gather cluster context:**
 ```bash
 # User namespace
-NAMESPACE=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify config view --minify -o jsonpath='{.contexts[0].context.namespace}')
+NAMESPACE=$("${KUBECTL[@]}" config view --minify -o jsonpath='{.contexts[0].context.namespace}')
 
 # Cluster domain (from region URL)
-CLOUD_DOMAIN=$(jq -r '.region' ~/.sealos/auth.json | sed -E 's#^https?://##; s#/$##')
+if [ "$SANDBOX" = true ]; then
+  CLOUD_DOMAIN=$(node -e 'const c=require(process.argv[1]); process.stdout.write(c.region_domain)' "$WORK_DIR/.sealos/execution-context.json")
+else
+  CLOUD_DOMAIN=$(jq -r '.region' ~/.sealos/auth.json | sed -E 's#^https?://##; s#/$##')
+fi
 
 # TLS secret name (from existing ingress, or default)
-CERT_SECRET=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify get ingress -n "$NAMESPACE" -o jsonpath='{.items[0].spec.tls[0].secretName}' 2>/dev/null || echo "wildcard-cert")
+CERT_SECRET=$("${KUBECTL[@]}" get ingress -n "$NAMESPACE" -o jsonpath='{.items[0].spec.tls[0].secretName}' 2>/dev/null || echo "wildcard-cert")
 ```
 
 **Step 2 — Render template variables:**
@@ -1174,7 +1316,7 @@ cat > /tmp/sealos-deploy-rendered.yaml << 'EOF'
 <rendered Deployment + Service + Ingress + App YAML>
 EOF
 
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify apply -f /tmp/sealos-deploy-rendered.yaml -n "$NAMESPACE"
+"${KUBECTL[@]}" apply -f /tmp/sealos-deploy-rendered.yaml -n "$NAMESPACE"
 rm -f /tmp/sealos-deploy-rendered.yaml
 ```
 
@@ -1190,11 +1332,11 @@ rm -f /tmp/sealos-deploy-rendered.yaml
 **Step 5 — Verify deployment:**
 ```bash
 # Wait for pod to be ready (max 120s)
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   wait --for=condition=available deployment/<app-name> -n "$NAMESPACE" --timeout=120s
 
 # Get pod status
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   get pods -l app=<app-name> -n "$NAMESPACE"
 ```
 
@@ -1244,7 +1386,7 @@ Sources for each field:
 - `app_name`: from Template API response `name` or the rendered `defaults.app_name` (kubectl apply)
 - `app_host`: from the rendered `defaults.app_host` value, or parsed from the Ingress host
 - `namespace`: from kubeconfig context
-- `region`: from `~/.sealos/auth.json` `region` field (strip `https://`)
+- `region`: local mode reads `~/.sealos/auth.json`; sandbox mode reads the kubeconfig-derived `execution-context.json.region_domain`
 - `image`: from `analysis.json` `image_ref`
 - `docker_hub_user`: from Phase 4 `DOCKER_HUB_USER` (null if Phase 2 found existing image)
 - `repo_name`: from `analysis.json` `project.repo_name`
@@ -1300,7 +1442,7 @@ The update path skips Assess, Detect Image, Dockerfile, and Template generation 
 
 All kubectl commands use the Sealos kubeconfig:
 ```
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify
+"${KUBECTL[@]}"
 ```
 
 **Reminder:** `kubectl delete` requires user confirmation — see SKILL.md "kubectl Safety Rules".
@@ -1323,6 +1465,8 @@ APP_URL       = last_deploy.url
 
 ## Phase U1: Build & Push
 
+In sandbox mode, do not ask what changed. Read `.sealos/config.json.update_strategy`; default to `rebuild`. For `rebuild`, execute the Phase 4 sandbox Kaniko route and set `NEW_IMAGE` from its build result. For `restart`, reuse `CURRENT_IMAGE`. Never invoke buildx, Docker login, or `gh auth login` in sandbox mode.
+
 Ask the user what changed:
 
 ```
@@ -1334,7 +1478,7 @@ What would you like to update?
 
 ### Option 1: Rebuild
 
-Reuse the **exact same build logic as Phase 4** — same Dockerfile, same explicit registry choice, same build-push.mjs or fallback.
+Reuse the **exact same environment-selected build logic as Phase 4** — Kaniko in sandbox; Docker buildx locally.
 Default to the registry used by `CURRENT_IMAGE`, but let the user switch if they want.
 
 ```bash
@@ -1374,7 +1518,7 @@ node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" "$NAMESPACE" "$APP_NAME"
 ```
 
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   set image deployment/$APP_NAME \
   $APP_NAME=$NEW_IMAGE \
   -n $NAMESPACE
@@ -1383,7 +1527,7 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 ### Restart only (Option 2 — no new image):
 
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   rollout restart deployment/$APP_NAME \
   -n $NAMESPACE
 ```
@@ -1395,7 +1539,7 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 ### Wait for new pods to be ready:
 
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   rollout status deployment/$APP_NAME \
   -n $NAMESPACE --timeout=120s
 ```
@@ -1422,7 +1566,7 @@ To update again later, run: /sealos-deploy
 
 Auto-rollback:
 ```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+"${KUBECTL[@]}" \
   rollout undo deployment/$APP_NAME \
   -n $NAMESPACE
 ```
@@ -1510,11 +1654,11 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
 - **Initial deploy counts** — the first entry should be `action: "deploy"` written by Phase 6 checkpoint.
 - **Failed updates count** — record failures so the user can see what was attempted and why it didn't work.
 - **Keep it bounded** — if history exceeds 50 entries, trim the oldest entries (keep the first `deploy` entry and the most recent 49).
-### 6.1.5 Ensure Image Pull Secret (locally built private GHCR path only)
+### 6.1.5 Ensure Image Pull Secret (new private GHCR builds only)
 
-Before calling the Template API or `kubectl apply`, check whether this run actually passed through Phase 4 local build and push.
+Before calling the Template API or `kubectl apply`, check whether this run actually passed through Phase 4 and pushed a private GHCR image.
 This step is only for cases where:
-- Phase 4 built a new GHCR image locally with Docker
+- Phase 4 built a new GHCR image with local buildx or sandbox Kaniko
 - That GHCR image is not anonymously pullable
 
 Do **not** run this step when:
@@ -1528,14 +1672,15 @@ imagePullSecrets:
   - name: ${{ defaults.app_name }}
 ```
 
-If the run meets the locally built private-GHCR conditions above, create or update the app-scoped pull Secret in the target namespace using the local `gh` CLI session:
+Create or update the app-scoped pull Secret in the target namespace. Local mode uses the `gh` CLI session; sandbox mode uses injected `GITHUB_TOKEN` without prompting:
 
 ```bash
 node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" "$NAMESPACE" "$APP_NAME" "$IMAGE_REF"
 ```
 
 Behavior:
-- Uses `gh api user -q .login` and `gh auth token`
+- local mode uses `gh api user -q .login` and `gh auth token`
+- sandbox mode uses `GITHUB_TOKEN` and the GitHub `/user` API
 - Creates/updates a `docker-registry` Secret named exactly like the app (`$APP_NAME`)
 - When a deployment name is provided, also patches `spec.template.spec.imagePullSecrets` to include that app-scoped Secret
 - Keeps registry credentials out of the generated template inputs

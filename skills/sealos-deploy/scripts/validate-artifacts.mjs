@@ -13,6 +13,9 @@ function collectProjectArtifacts(workDir) {
     path.join(sealosDir, 'config.json'),
     path.join(sealosDir, 'template-match.json'),
     path.join(sealosDir, 'analysis.json'),
+    path.join(sealosDir, 'execution-context.json'),
+    path.join(sealosDir, 'sandbox-inputs.json'),
+    path.join(sealosDir, 'build', 'build-request.json'),
     path.join(sealosDir, 'build', 'build-result.json'),
     path.join(sealosDir, 'state.json'),
   ]

@@ -1,0 +1,57 @@
+# Build Request
+
+Read and validate `.sealos/build/build-request.json`.
+
+## Location
+
+Default path:
+
+```text
+<WORK_DIR>/.sealos/build/build-request.json
+```
+
+If missing, stop and ask the user to run `/sealos-deploy <github-url>` first.
+
+## Supported Mode
+
+The main deployment flow invokes this executor only for `build-required`. Reusable images skip Phase 4 without creating a Kaniko request or result.
+
+Require:
+
+- `source.type = "sandbox-context"`
+- `source.work_dir`
+- `image.target_image`
+- `build.context_path`
+- `build.dockerfile_path`
+
+Stop if any required field is missing.
+
+## Source Constraint
+
+This MVP only supports sandbox-local Dockerfile builds. The skill packages files from `source.work_dir` and exposes the tarball through the DevBox VersityGW S3 endpoint.
+
+`source.github_url`, `source.repo`, and `source.ref` may be present for traceability, but the build does not clone from them. Generated files such as `Dockerfile` are expected to be present under `source.work_dir`.
+
+Stop if `source.work_dir` is missing, not absolute, or not readable from the sandbox process.
+
+## Registry Constraint
+
+This MVP supports `ghcr.io` output only.
+
+If `image.target_image` does not start with `ghcr.io/`, stop and explain that other registries need additional auth handling.
+
+## Dockerfile Path Semantics
+
+`build.dockerfile_path` must point to a file inside `build.context_path`.
+
+Examples:
+
+```text
+context_path=.        dockerfile_path=Dockerfile          -> --dockerfile=Dockerfile
+context_path=apps/web dockerfile_path=apps/web/Dockerfile -> --dockerfile=Dockerfile
+context_path=.        dockerfile_path=apps/web/Dockerfile -> --dockerfile=apps/web/Dockerfile
+```
+
+If the Dockerfile is outside the selected context, stop. Do not silently widen the context because that can package unrelated local files into the S3 tarball.
+
+If a subdirectory Dockerfile reads repository-root workspace files, use the repository root as `context_path`. For example, a monorepo Dockerfile under `apps/www/Dockerfile` that copies `pnpm-lock.yaml`, `package.json`, `pnpm-workspace.yaml`, `turbo.json`, or sibling packages must use `context_path="."` rather than `context_path="apps/www"`.

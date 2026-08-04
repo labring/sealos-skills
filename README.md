@@ -23,7 +23,7 @@ codex plugin marketplace add labring/sealos-skills
 codex plugin add sealos@sealos
 ```
 
-One Sealos plugin installs the deploy, database, S3, canvas, app-builder, and supporting cloud-native skills from root `skills/**`: `sealos-deploy`, `sealos-database`, `sealos-s3`, `sealos-canvas`, `sealos-app-builder`, `cloud-native-readiness`, `dockerfile-skill`, and `docker-to-sealos`.
+One Sealos plugin installs the deploy, database, S3, canvas, app-builder, and supporting cloud-native skills from root `skills/**`: `sealos-deploy`, `sealos-database`, `sealos-s3`, `sealos-canvas`, `sealos-app-builder`, `cloud-native-readiness`, `dockerfile-skill`, `k8s-kaniko-job`, and `docker-to-sealos`.
 
 For compatibility and local Codex testing, install the same plugin with:
 
@@ -87,7 +87,7 @@ Build the Qoder plugin package from the repository root:
 python3 scripts/package-qoder-plugin.py
 ```
 
-Import `dist/sealos-1.2.0.zip` into Qoder. The package exposes the same eight root-level skills as the Codex plugin and provides `/sealos` as its command entry point.
+Import `dist/sealos-1.2.0.zip` into Qoder. The package exposes the same nine root-level skills as the Codex plugin and provides `/sealos` as its command entry point.
 
 Qoder examples:
 
@@ -152,7 +152,7 @@ The Codex integration follows [OpenAI's Codex plugin build guide](https://develo
 - `.codex-plugin/plugin.json` contains plugin identity, discovery metadata, interface copy, default prompts, brand metadata, and asset paths relative to the repository root.
 - `.agents/plugins/marketplace.json` registers this repo-local plugin for local Codex marketplace testing.
 - `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` define the Claude Code-compatible plugin surface.
-- `.qoder-plugin/plugin.json` defines the Qoder plugin surface and explicitly exposes all eight Codex skills.
+- `.qoder-plugin/plugin.json` defines the Qoder plugin surface and explicitly exposes all nine Codex skills.
 - `qoder.md` provides Qoder-level routing and safety instructions without copying skill implementations.
 - `distribution/platforms.json` records platform support claims and evidence.
 - `marketplaces/README.md` owns marketplace rules and prevents command-support overclaims.
@@ -181,10 +181,10 @@ You only need a plugin-compatible or `skills.sh` compatible AI agent and a proje
 During the deploy, database, and object-storage flows, Sealos Skills will:
 
 - check whether tools such as Docker and `kubectl` are available
-- guide the user through Sealos login when needed
+- guide the user through Sealos login locally, or use the injected kubeconfig without prompts when `SEALAI_DEPLOY_TASK_ID` selects sandbox mode
 - use `sealos-cli` for Sealos Cloud database creation, connection details, and database operations
 - use `sealos-cli s3` for Sealos object storage buckets, credentials, quota checks, object operations, and presigned URLs
-- use or help prepare a container registry path such as Docker Hub or GHCR
+- use Docker buildx locally or namespaced Kaniko in sandbox mode, then push through the configured registry path
 
 For an actual deployment, you will still need a Sealos Cloud account and access to a container registry, but these do not need to be fully set up before the skill starts. For database and object-storage work, you need a Sealos Cloud account and a workspace that can create the requested resources.
 
@@ -243,6 +243,7 @@ The plugin and `skills.sh` pack expose the same skill source:
 - `sealos-app-builder` — build Sealos Desktop apps with SDK integration
 - `cloud-native-readiness` — assess deployment readiness
 - `dockerfile-skill` — generate production-ready Dockerfiles
+- `k8s-kaniko-job` — build sandbox-local Docker contexts through namespaced Kaniko Jobs
 - `docker-to-sealos` — convert Docker Compose services into Sealos templates
 
 ## Repository

@@ -63,10 +63,13 @@ function fail(message, extra = {}) {
 }
 
 function runKubectl(namespace, type) {
+  const sandbox = Object.prototype.hasOwnProperty.call(process.env, "SEALAI_DEPLOY_TASK_ID");
+  const env = { ...process.env };
+  if (!sandbox && !env.KUBECONFIG) env.KUBECONFIG = `${process.env.HOME}/.sealos/kubeconfig`;
   const result = spawnSync(
     "kubectl",
     [
-      "--insecure-skip-tls-verify",
+      ...(sandbox ? [] : ["--insecure-skip-tls-verify"]),
       "-n",
       namespace,
       "get",
@@ -76,8 +79,9 @@ function runKubectl(namespace, type) {
       "--ignore-not-found",
     ],
     {
-      env: { ...process.env, KUBECONFIG: process.env.KUBECONFIG || `${process.env.HOME}/.sealos/kubeconfig` },
+      env,
       encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
     },
   );
 

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills.sh/sealos-deploy/schemas/sandbox-inputs.schema.json",
+  "title": "Sealos Deploy Sandbox Placeholder Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "generated_at", "inputs"],
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "strategy", "sensitive", "source"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "strategy": { "type": "string", "minLength": 1 },
+          "sensitive": { "type": "boolean" },
+          "source": { "type": "string", "const": "sandbox-placeholder" }
+        }
+      }
+    }
+  }
+}

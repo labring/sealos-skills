@@ -349,3 +349,37 @@ test('allowlists response diagnostics and drops resolved defaults when no argume
     assert.equal(request.body.dryRun, true)
   })
 })
+
+test('sandbox derives region from kubeconfig API server without auth.json', () => {
+  withFixture((fixture) => {
+    rmSync(join(fixture.homeDir, '.sealos', 'auth.json'))
+    const kubeconfigPath = join(fixture.fixtureRoot, 'sandbox-kubeconfig')
+    const binDir = join(fixture.fixtureRoot, 'bin')
+    const kubectlPath = join(binDir, 'kubectl')
+    mkdirSync(binDir, { recursive: true })
+    writeFileSync(kubeconfigPath, 'apiVersion: v1\n')
+    writeFileSync(kubectlPath, `#!/bin/sh
+case "$*" in
+  *"-o json"*) printf '%s' '{"clusters":[{"cluster":{"server":"https://usw-1.sealos.io:6443"}}],"contexts":[{"context":{"namespace":"ns-sandbox"}}]}' ;;
+  *) printf '%s' 'apiVersion: v1' ;;
+esac
+`, { mode: 0o755 })
+
+    const result = runDeploy(
+      fixture,
+      ['--kubeconfig', kubeconfigPath],
+      {
+        PATH: `${binDir}:${process.env.PATH}`,
+        SEALAI_DEPLOY_TASK_ID: 'task-example',
+        SEALOS_DEPLOY_TEST_RESPONSE: JSON.stringify({ ok: true, name: 'sandbox-app' }),
+      },
+    )
+
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const output = JSON.parse(result.stdout)
+    assert.equal(output.region, 'https://usw-1.sealos.io')
+    assert.equal(output.region_domain, 'usw-1.sealos.io')
+    const request = JSON.parse(readFileSync(fixture.capturePath, 'utf8'))
+    assert.equal(request.url, 'https://template.usw-1.sealos.io/api/v2alpha/templates/raw')
+  })
+})

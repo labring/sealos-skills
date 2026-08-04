@@ -67,6 +67,7 @@ sealos plugin entry points ($sealos, /sealos)
   ├→ sealos-deploy (direct skills.sh entry point: /sealos-deploy)
   │   ├→ cloud-native-readiness   (Phase 1: score 0-12)
   │   ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
+  │   ├→ k8s-kaniko-job           (sandbox Phase 4: Kaniko build)
   │   └→ docker-to-sealos         (Phase 5: Compose → Sealos template)
   ├→ sealos-database (direct skills.sh entry point: /sealos-database)
   └→ sealos-s3       (direct skills.sh entry point: /sealos-s3)
@@ -118,6 +119,8 @@ DEPLOY: Assess → Detect image → Dockerfile → Build & Push → Template →
 UPDATE: Build & Push → kubectl set image → Verify rollout (auto-rollback on failure)
 ```
 
+When `SEALAI_DEPLOY_TASK_ID` is present, the deploy flow is non-interactive: it skips Sealos login, derives region and namespace from the active kubeconfig, uses the injected namespace/ServiceAccount, and builds new images through `k8s-kaniko-job`. Without that variable, the existing local OAuth and Docker buildx flow remains active.
+
 Mode detection reads `.sealos/state.json` `last_deploy` field. If a running deployment is found (verified via kubectl), the skill enters UPDATE mode and skips assess/template/deploy phases. If not, it runs the full DEPLOY pipeline.
 
 State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.json` (project analysis snapshot), and `.sealos/config.json` (optional user overrides). The `last_deploy` section in `state.json` records app name, namespace, image, and URL so later deploys can update in place instead of starting over.
@@ -129,6 +132,7 @@ State is tracked in `.sealos/state.json` (deployment state), `.sealos/analysis.j
 - `skills/sealos-s3/SKILL.md` — primary entry point for S3-compatible object storage workflow
 - `skills/sealos-deploy/config.json` — OAuth client_id, regional Sealos URLs
 - `skills/sealos-deploy/scripts/` — auth, scoring, and helper automation scripts
+- `skills/k8s-kaniko-job/SKILL.md` — sandbox Kaniko build executor
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
 - `skills/sealos-canvas/SKILL.md` — read-only resource canvas workflow
 - `.codex-plugin/plugin.json` — Codex plugin manifest pointing to root `skills/`

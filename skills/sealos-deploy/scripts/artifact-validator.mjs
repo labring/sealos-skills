@@ -10,6 +10,9 @@ const SCHEMA_DIR = path.join(__dirname, '..', 'schemas')
 const SCHEMA_FILES = {
   config: 'config.schema.json',
   analysis: 'analysis.schema.json',
+  'execution-context': 'execution-context.schema.json',
+  'sandbox-inputs': 'sandbox-inputs.schema.json',
+  'build-request': 'build-request.schema.json',
   'build-result': 'build-result.schema.json',
   state: 'state.schema.json',
   'template-match': 'template-match.schema.json',
@@ -264,6 +267,23 @@ function validateBuildResultSemantics(data, errors) {
   }
 }
 
+function validateExecutionContextSemantics(data, errors) {
+  const expectedSandbox = data.execution_environment === 'sandbox'
+  if (data.sandbox !== expectedSandbox) {
+    pushError(errors, '$.sandbox', 'must match execution_environment')
+  }
+  if (data.non_interactive !== expectedSandbox) {
+    pushError(errors, '$.non_interactive', 'must be true only for sandbox execution')
+  }
+  if (data.sealai_deploy_task_id_present !== expectedSandbox) {
+    pushError(errors, '$.sealai_deploy_task_id_present', 'must match sandbox execution')
+  }
+  const expectedBuilder = expectedSandbox ? 'kaniko' : 'buildx'
+  if (data.builder !== expectedBuilder) {
+    pushError(errors, '$.builder', `must be ${expectedBuilder} for ${data.execution_environment}`)
+  }
+}
+
 function validateStateSemantics(data, errors) {
   const { last_deploy: lastDeploy, history } = data
 
@@ -320,6 +340,9 @@ function validateStateSemantics(data, errors) {
 const SEMANTIC_VALIDATORS = {
   config: () => {},
   analysis: validateAnalysisSemantics,
+  'execution-context': validateExecutionContextSemantics,
+  'sandbox-inputs': () => {},
+  'build-request': () => {},
   'build-result': validateBuildResultSemantics,
   state: validateStateSemantics,
   'template-match': () => {},
@@ -332,8 +355,14 @@ export function inferArtifactKind(filePath) {
       return 'config'
     case 'analysis.json':
       return 'analysis'
+    case 'execution-context.json':
+      return 'execution-context'
+    case 'sandbox-inputs.json':
+      return 'sandbox-inputs'
     case 'build-result.json':
       return 'build-result'
+    case 'build-request.json':
+      return 'build-request'
     case 'state.json':
       return 'state'
     case 'template-match.json':
