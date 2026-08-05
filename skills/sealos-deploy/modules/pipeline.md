@@ -660,7 +660,7 @@ Please run `docker login` in another terminal, then continue this deploy.
 
 ### 4.1 Build & Push
 
-Tag format: `<owner-or-user>/<repo-name>:YYYYMMDD-HHMMSS` (e.g., `ghcr.io/zhujingyang/kite:20260304-143022`). The timestamp ensures same-day rebuilds never collide.
+Tag format: `<lowercase-owner-or-user>/<lowercase-repo-name>:YYYYMMDD-HHMMSS` (e.g., `ghcr.io/zhujingyang/kite:20260304-143022`). Normalize the registry namespace and repository name to lowercase before constructing the image reference. The timestamp ensures same-day rebuilds never collide.
 
 Before invoking the build helper, create the build artifact directory:
 
@@ -691,14 +691,14 @@ If the user chose GHCR:
 ```bash
 GH_USER=$(gh api user -q .login)
 gh auth token | docker login ghcr.io -u "$GH_USER" --password-stdin
-IMAGE="ghcr.io/$GH_USER/<repo-name>:$TAG"
+IMAGE="ghcr.io/$(printf '%s' "$GH_USER" | tr '[:upper:]' '[:lower:]')/<lowercase-repo-name>:$TAG"
 docker buildx build --platform linux/amd64 -t "$IMAGE" --push -f Dockerfile "$WORK_DIR"
 ```
 
 If the user chose Docker Hub:
 ```bash
 DOCKER_HUB_USER=$(docker info 2>/dev/null | sed -n 's/^ Username: //p')
-IMAGE="$DOCKER_HUB_USER/<repo-name>:$TAG"
+IMAGE="$(printf '%s' "$DOCKER_HUB_USER" | tr '[:upper:]' '[:lower:]')/<lowercase-repo-name>:$TAG"
 docker buildx build --platform linux/amd64 -t "$IMAGE" --push -f Dockerfile "$WORK_DIR"
 ```
 

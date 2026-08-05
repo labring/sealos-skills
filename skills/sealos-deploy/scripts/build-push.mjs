@@ -255,13 +255,14 @@ async function autoDetectRegistry () {
 async function buildAndPush (workDir, repoName, registryInfo) {
   const tag = getDateTag()
   const sanitized = repoName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')
+  const registryNamespace = registryInfo.user.toLowerCase()
   const startedAt = new Date().toISOString()
 
   let remoteImage
   if (registryInfo.registry === 'ghcr') {
-    remoteImage = `ghcr.io/${registryInfo.user}/${sanitized}:${tag}`
+    remoteImage = `ghcr.io/${registryNamespace}/${sanitized}:${tag}`
   } else {
-    remoteImage = `${registryInfo.user}/${sanitized}:${tag}`
+    remoteImage = `${registryNamespace}/${sanitized}:${tag}`
   }
 
   const dockerfilePath = path.join(workDir, 'Dockerfile')
@@ -286,9 +287,9 @@ async function buildAndPush (workDir, repoName, registryInfo) {
     let warning = null
     let requiresImagePullSecret = false
     if (registryInfo.registry === 'ghcr') {
-      const pullVerification = await verifyGhcrPublicPull(registryInfo.user, sanitized, tag)
+      const pullVerification = await verifyGhcrPublicPull(registryNamespace, sanitized, tag)
       if (!pullVerification.ok) {
-        warning = formatGhcrPullabilityWarning(registryInfo.user, sanitized, tag, pullVerification)
+        warning = formatGhcrPullabilityWarning(registryNamespace, sanitized, tag, pullVerification)
         requiresImagePullSecret = true
       }
     }
