@@ -2,6 +2,17 @@
 
 Use these playbooks after a Sealos Template API deployment reaches rollout success. A running Pod is a scheduling signal; the acceptance signal is the real Sealos App entry URL, app logs, and the first meaningful user workflow.
 
+## Contents
+
+- [Runtime Truth Pass](#runtime-truth-pass)
+- [First-User Signup and Mandatory Bootstrap](#first-user-signup-and-mandatory-bootstrap)
+- [Event Convergence Gate](#event-convergence-gate)
+- [Private Object Storage Acceptance](#private-object-storage-acceptance)
+- [Stuck Pod Debug Checklist](#stuck-pod-debug-checklist)
+- [BillionMail](#billionmail)
+- [LLM Gateway / Multi-Service SSR Web App](#llm-gateway--multi-service-ssr-web-app)
+- [Generic Login-Gated Web App](#generic-login-gated-web-app)
+
 ## Runtime Truth Pass
 
 Run this pass after Phase 6 for every deployment unless the user explicitly asks for deploy-only output.
@@ -15,7 +26,7 @@ Run this pass after Phase 6 for every deployment unless the user explicitly asks
    - live main container `command`/`args`
    - KubeBlocks Cluster status for database-backed apps
 3. Visit the actual App URL exactly as Sealos launches it. Test the root path and the configured App URL path when the app uses an entrance or safe-path mechanism. When an Ingress has several HTTP paths, keep the root Prefix path `/` first so Launchpad discovers the intended public entry.
-4. For login-gated web apps, complete registration or login with the exact deploy-time credentials, confirm a token/session, and open at least one authenticated page or API route. Use `cookie-json` when the app emits a dynamic CSRF cookie/header pair, and keep credentials, cookies, tokens, and derived secrets masked in every report.
+4. For login-gated web apps, complete the selected first-user signup or mandatory bootstrap login flow, confirm a token/session, and open at least one authenticated page or API route. Use `cookie-json` when the app emits a dynamic CSRF cookie/header pair, and keep credentials, cookies, tokens, and derived secrets masked in every report.
 5. Scan recent logs after login with `scripts/sealos-log-scan.mjs`. Treat recurring application errors as deployment failures even when all Pods are Running.
 6. Request a documented API negative route or unique missing static asset against the real App URL. API probes must return 404. SPA/browser apps may return the shell with HTTP 200 for client routes, so inspect the response content and accept the result only when the follow-up log scan stays clear of traceback-style `HTTPException` / `NotFound` noise.
 7. Treat visible SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` as failed smoke even when HTTP returns 2xx/3xx.
@@ -37,6 +48,19 @@ Run this pass after Phase 6 for every deployment unless the user explicitly asks
    - matching `ObjectStorageBucket` resources when created for the test
 
 The footprint helper must report `collectionOk: true` before cleanup is called complete. Deployment acceptance also requires `runtimeReady: true` and the expected resource inventory. Permission or listing errors keep cleanup unresolved even when the visible workload list is empty.
+
+## First-User Signup and Mandatory Bootstrap
+
+Classify the exact selected release before deployment:
+
+| Account mode | Template behavior | Live smoke |
+|---|---|---|
+| Functional first-user signup | Keep optional administrator/root inputs and bootstrap injection absent | Register after readiness and verify one authenticated action |
+| Mandatory bootstrap, deployer-supplied | Require every documented identity/password input with no default and validate exact upstream rules before deploy | Log in with the exact Phase 5.5 values |
+| Mandatory bootstrap, runtime-generated | Omit administrator inputs, deterministically construct and validate the documented credential format, and retain the resolved value in a Secret or documented live runtime source | Retrieve the resolved value without printing it, then complete login and one authenticated action |
+| Optional root reconciliation | Use the functional first-user signup contract | Register and verify the optional overlay remains absent |
+
+When first boot exits on password policy, invalid root configuration, or reconciliation validation, inspect configuration before resources. Patch the source Template and highest writable live declarative owner, roll out a fresh Pod, wait through one reconciliation window, and confirm removed bootstrap key names remain absent. Inspect last-applied annotations and ControllerRevisions through redacted key-name-only reports, then recommend credential rotation.
 
 ## Event Convergence Gate
 
@@ -152,7 +176,7 @@ Minimum smoke:
 
 1. Load the real App URL.
 2. Find the login, registration, setup, or bootstrap admin route from upstream docs, source, first-run page, or API traffic.
-3. Complete the first-run setup or login with generated credentials.
+3. Complete the selected first-user signup or mandatory bootstrap login with the exact credentials for that flow.
 4. Confirm success with one of:
    - HTTP 2xx JSON success flag
    - token/cookie/session persistence

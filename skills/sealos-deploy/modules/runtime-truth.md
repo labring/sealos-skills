@@ -6,6 +6,7 @@
 - [Verify Launchpad public networking](#verify-launchpad-public-networking)
 - [Capture the runtime baseline](#capture-the-runtime-baseline)
 - [Authenticate and verify routes](#authenticate-and-verify-routes)
+- [Repair declarative ownership and credential residue](#repair-declarative-ownership-and-credential-residue)
 - [Verify Jobs, logs, and footprint](#verify-jobs-logs-and-footprint)
 - [Exercise the application](#exercise-the-application)
 - [Verify Event convergence](#verify-event-convergence)
@@ -88,7 +89,7 @@ node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
 
 Run the root request from a fresh session before any setup or login request. For a path-based entrance, exercise both the configured App URL path and `/`; keep the path that reaches the real first-run or login screen as the App URL. A successful status code with SSR/browser failure text remains a failed entry.
 
-For credentialed smoke, use the exact deploy-time administrator values collected during configuration. The helper supports JSON token and cookie-session flows, including dynamic CSRF cookie/header pairs:
+Use the selected account flow from Phase 5.5. For deployer-supplied mandatory bootstrap, use the exact administrator values collected and validated during configuration. For runtime-generated mandatory bootstrap, retrieve the resolved credential from its Secret or documented live runtime source into a private local value without printing it, then use it for login. For functional first-user signup, register through the supported first-run form or API after readiness, then reuse that new session for authenticated checks. The helper supports JSON token and cookie-session flows, including dynamic CSRF cookie/header pairs:
 
 ```bash
 node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" \
@@ -103,6 +104,19 @@ node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" \
 Keep passwords, bearer tokens, cookies, CSRF values, captcha payloads, and runtime-derived secrets out of command echoes and reports. A runtime-derived credential is acceptable only when an opaque default seed is deterministically transformed and validated by the application startup path before the final process is `exec`-ed.
 
 Use `--token-path` when the login response stores its bearer token outside the default locations. Use `--missing-api-path` for a documented API route that must return 404, and `--missing-page-path` for a browser/SPA route whose shell fallback may return 2xx/3xx. The helper marks an unexpected negative-probe status as a failed step.
+
+## Repair Declarative Ownership and Credential Residue
+
+When startup fails on bootstrap credential validation, classify it as a configuration-contract failure before resource tuning. Reconfirm the exact release's account mode, then repair every declarative layer that can recreate the invalid configuration:
+
+1. Update the source Template first.
+2. Follow `ownerReferences`, Instance identity, and manager labels to identify the highest writable live declarative owner, then patch that owner or the emitted Deployment/StatefulSet.
+3. Roll out a fresh Pod and wait through one complete controller reconciliation window.
+4. Re-read the workload and Pod environment key names to confirm removed administrator/root bootstrap keys remain absent.
+5. Parse `kubectl.kubernetes.io/last-applied-configuration` and ControllerRevisions into key-name-only reports. Keep values redacted.
+6. Recommend rotation for every credential that reached Template API args, workload history, annotations, or revisions.
+
+Deleting historical annotations or ControllerRevisions requires the user's explicit confirmation. Record retained residue as a rotation requirement in the handoff.
 
 ## Verify Jobs, Logs, and Footprint
 
@@ -120,9 +134,9 @@ For every web application:
 node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$APP_URL"
 ```
 
-For login-gated web applications, identify the first-run, registration, or login flow from upstream docs, source code, the rendered template, or observed network/API behavior. Complete the flow and verify at least one authenticated page or API route.
+For login-gated web applications, identify the first-run, registration, or login flow from upstream docs, source code, the rendered template, or observed network/API behavior. Complete the selected account flow and verify at least one authenticated page or API route.
 
-If administrator credentials were collected in Phase 5.5, use those exact deploy-time values for the login smoke. Mask the password in command echoes, logs, summaries, and final output.
+For deployer-supplied mandatory bootstrap, use the exact values validated in Phase 5.5. For runtime-generated mandatory bootstrap, retrieve and use the resolved value without printing it. For first-user signup, use the exact values submitted during registration. Mask passwords in command echoes, logs, summaries, and final output.
 
 When credentials and API paths are known, use the helper for the repeatable HTTP portion:
 
@@ -205,7 +219,8 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 - Public web apps have a Launchpad report with `ok: true`, the expected Service port, and an App URL host match.
 - Root Prefix routes appear before more specific HTTP paths, and the root backend uses a numeric Service port.
 - The actual App URL loads from a fresh session.
-- Login-gated apps complete setup/login with deploy-time administrator credentials and one authenticated action. Passwords remain masked in all output.
+- Login-gated apps complete the selected first-user signup or mandatory bootstrap login flow and one authenticated action. Passwords remain masked in all output.
+- Source Template and live declarative ownership converge after account-flow repair; removed bootstrap key names stay absent through one reconciliation window, and sensitive historical key names are reported with values redacted.
 - A documented API negative route or unique missing static asset returns the expected 404, and the follow-up log scan has no traceback-style `HTTPException` / `NotFound` noise; SPA shell fallback responses are classified by content.
 - SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` is absent from smoke responses.
 - Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
