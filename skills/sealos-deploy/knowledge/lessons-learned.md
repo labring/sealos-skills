@@ -94,13 +94,12 @@ decision:
     - "Phase 2 reused an existing public image"
 
 verification:
-  visibility_check: "gh api /user/packages/container/<repo> -q .visibility"
-  anonymous_pull_check: "GET ghcr token, then HEAD/GET manifest from ghcr.io/v2/.../manifests/<tag>"
+  local_build_rule: "treat a newly pushed GHCR image as private and require the pull Secret without probing visibility or anonymous access"
 
 fixes:
-  preferred: "create/update the app-scoped imagePullSecret from gh auth token during deploy"
-  fallback_1: "make the GHCR package public"
-  fallback_2: "push to Docker Hub instead"
+  required: "create/update the app-scoped imagePullSecret from gh auth token during deploy"
+  forbidden: "do not attempt REST, GraphQL, package settings, or other visibility mutations to make the package public"
+  alternate_registry: "push to Docker Hub only when the user selected that public-image flow"
 ```
 
 ### Public URL Misconfiguration (Prevents Runtime API Failures)

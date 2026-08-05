@@ -268,6 +268,18 @@
         {"name": "mounts-all-assets-from-configmap", "description": "Generates and validates one template artifact that mounts index.html, site.css, and site.js from a correctly named ConfigMap without omitting files"},
         {"name": "keeps-runtime-truth", "description": "Still verifies Launchpad networking, the real App URL, logs, missing-static-asset behavior, Event convergence, and the resource footprint"}
       ]
+    },
+    {
+      "id": 23,
+      "prompt": "A locally built image was pushed to GHCR and the new package is private. Continue the Sealos deployment.",
+      "expected_output": "Keeps the private GHCR image, immediately creates or refreshes the app-scoped image pull Secret from the local gh CLI session, references it from the workload, and continues deployment without trying to change package visibility.",
+      "files": [],
+      "assertions": [
+        {"name": "uses-built-in-pull-secret", "description": "Runs ensure-image-pull-secret.mjs or the equivalent built-in Secret path before applying or updating the private-image workload"},
+        {"name": "does-not-change-visibility", "description": "Does not call REST, GraphQL, package settings, or other visibility-changing mechanisms"},
+        {"name": "keeps-credentials-out-of-template-inputs", "description": "Uses local gh CLI credentials to create the namespace Secret without exposing registry credentials as template inputs"},
+        {"name": "continues-with-private-image", "description": "Continues deployment with the pushed GHCR reference instead of rebuilding or switching registries"}
+      ]
     }
   ]
 }

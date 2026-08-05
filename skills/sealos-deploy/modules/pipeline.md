@@ -613,7 +613,8 @@ Important:
 - When `build-push.mjs` or `ensure-image-pull-secret.mjs` runs inside a TTY, it will now ask once whether it should refresh missing GHCR scopes and, on `y`, run `gh auth refresh` in the same PTY before continuing.
 - If `gh auth refresh` exits successfully but the scopes are still missing, the script will immediately fall back to a full `gh auth login --web --scopes ...` in the same PTY and only continue after re-checking the scopes.
 - A successful GHCR push does **not** guarantee Sealos can pull the image.
-- For private GHCR packages, keep the deployment path GHCR-first and create an image pull Secret from the local `gh` CLI session before applying or updating workloads.
+- Treat every locally built and newly pushed GHCR image as private by default. Do not run a visibility or anonymous-pull probe; proceed immediately to the built-in image pull Secret path and create the Secret from the local `gh` CLI session before applying or updating workloads.
+- Do not attempt to make the package public during deployment. Do not probe or call GitHub REST endpoints, GraphQL mutations, package settings, or other visibility-changing paths; package visibility is not a deployment prerequisite.
 - Do **not** surface raw registry host/username/password/email as user-facing template inputs when local `gh auth status` is already available.
 
 If `build-push.mjs` or `ensure-image-pull-secret.mjs` returns:
@@ -679,7 +680,7 @@ Run the command that matches the user's chosen destination:
 
 Output: `{ "success": true, "image": "...", "registry": "ghcr" }` or `{ "success": false, "error": "..." }`
 
-For GHCR success, record whether the image is anonymously pullable. If Phase 4 built a GHCR image and it is still private, continue with the GHCR image and let Phase 6 create/update the pull Secret automatically from `gh auth token`.
+For GHCR success, `build-push.mjs` returns `requires_image_pull_secret: true`. Continue immediately with the GHCR image and let Phase 6 create/update the pull Secret automatically from `gh auth token`. Do not check or change package visibility.
 If Phase 2 reused an existing public image, do **not** trigger the GHCR pull-secret flow.
 
 **If Node.js not available (fallback — run docker directly):**
@@ -702,17 +703,7 @@ IMAGE="$(printf '%s' "$DOCKER_HUB_USER" | tr '[:upper:]' '[:lower:]')/<lowercase
 docker buildx build --platform linux/amd64 -t "$IMAGE" --push -f Dockerfile "$WORK_DIR"
 ```
 
-If `$IMAGE` is a GHCR image, immediately verify it is anonymously pullable before proceeding:
-
-```bash
-TOKEN=$(curl -fsSL "https://ghcr.io/token?scope=repository:$GH_USER/<repo-name>:pull" | sed -n 's/.*"token":"\\([^"]*\\)".*/\\1/p')
-curl -fsSLI \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
-  "https://ghcr.io/v2/$GH_USER/<repo-name>/manifests/$TAG"
-```
-
-If that check returns 401/403 or the package visibility is still private, continue with the build but mark that Phase 6 must create/update the namespace image pull Secret before rollout.
+If `$IMAGE` is a newly built GHCR image, mark that Phase 6 must create/update the namespace image pull Secret before rollout. Do not run visibility or anonymous-pull probes and do not attempt any package-visibility mutation.
 If the run is using an existing public image instead of a new local build, skip this secret-creation path.
 
 ### 4.2 Error Handling
@@ -1568,12 +1559,11 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
 - **Initial deploy counts** — the first entry should be `action: "deploy"` written by Phase 6 checkpoint.
 - **Failed updates count** — record failures so the user can see what was attempted and why it didn't work.
 - **Keep it bounded** — if history exceeds 50 entries, trim the oldest entries (keep the first `deploy` entry and the most recent 49).
-### 6.1.5 Ensure Image Pull Secret (locally built private GHCR path only)
+### 6.1.5 Ensure Image Pull Secret (locally built GHCR path only)
 
 Before calling the Template API or `kubectl apply`, check whether this run actually passed through Phase 4 local build and push.
 This step is only for cases where:
 - Phase 4 built a new GHCR image locally with Docker
-- That GHCR image is not anonymously pullable
 
 Do **not** run this step when:
 - Phase 2 reused an existing public image
@@ -1586,11 +1576,13 @@ imagePullSecrets:
   - name: ${{ defaults.app_name }}
 ```
 
-If the run meets the locally built private-GHCR conditions above, create or update the app-scoped pull Secret in the target namespace using the local `gh` CLI session:
+If the run meets the locally built GHCR condition above, create or update the app-scoped pull Secret in the target namespace using the local `gh` CLI session:
 
 ```bash
 node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" "$NAMESPACE" "$APP_NAME" "$IMAGE_REF"
 ```
+
+Run this Secret path immediately after the GHCR build result. Never run a visibility or anonymous-pull probe, and never try REST, GraphQL, package settings, or other mechanisms to make the GHCR package public first.
 
 Behavior:
 - Uses `gh api user -q .login` and `gh auth token`
@@ -1599,4 +1591,4 @@ Behavior:
 - Keeps registry credentials out of the generated template inputs
 - Do not call it for existing public images
 
-This step should run for both fresh deploys and in-place updates before rollout, but only on the locally built private-GHCR path.
+This step should run for both fresh deploys and in-place updates before rollout, but only on the locally built GHCR path.

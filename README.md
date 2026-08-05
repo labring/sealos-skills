@@ -87,7 +87,7 @@ Build the Qoder plugin package from the repository root:
 python3 scripts/package-qoder-plugin.py
 ```
 
-Import `dist/sealos-1.2.1.zip` into Qoder. The package exposes the same eight root-level skills as the Codex plugin and provides `/sealos` as its command entry point.
+Import `dist/sealos-1.2.2.zip` into Qoder. The package exposes the same eight root-level skills as the Codex plugin and provides `/sealos` as its command entry point.
 
 Qoder examples:
 
