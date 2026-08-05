@@ -6,9 +6,6 @@ import { fileURLToPath } from 'url'
 
 import { inspectSourceReadyStaticSite } from './static-site.mjs'
 
-const SKILL_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
-const DEPLOY_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, 'config.json'), 'utf8'))
-
 const IGNORED_DIRECTORIES = new Set([
   '.git',
   '.next',
@@ -392,20 +389,15 @@ function collectRepositorySignals(targetDir, targetPath) {
     : joinRelativePath(targetPath, path.dirname(path.relative(targetDir, hardwareFile)))
 
   const generalCandidates = []
-  const staticSite = inspectSourceReadyStaticSite(targetDir, {
-    maxEncodedBytes: DEPLOY_CONFIG.static_html_fast_path.max_encoded_config_map_bytes,
-  })
-  if (staticSite.eligible || staticSite.classification === 'source_ready_static_oversized') {
-    const directPublish = staticSite.eligible
+  const staticSite = inspectSourceReadyStaticSite(targetDir)
+  if (staticSite.eligible) {
     generalCandidates.push({
       path: normalizeRelativePath(targetPath),
       workload_type: 'static_web',
-      reason_code: directPublish ? 'SOURCE_READY_STATIC_SITE' : 'STATIC_WEB_BUILD',
+      reason_code: 'SOURCE_READY_STATIC_SITE',
       evidence: [
         ...staticSite.evidence,
-        directPublish
-          ? 'No build, container, server-runtime, size, or sensitive-file signal changes the direct-publish route'
-          : 'The site is source-ready, but its encoded payload requires a static image instead of ConfigMap publication',
+        'No build, container, server-runtime, or sensitive-file signal prevents packaging the asset tree in a static Nginx image',
       ],
     })
   }

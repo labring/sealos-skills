@@ -7,11 +7,6 @@
     "https://bja.sealos.run",
     "https://hzh.sealos.run"
   ],
-  "static_html_fast_path": {
-    "image": "nginxinc/nginx-unprivileged:1.31.3-alpine3.24",
-    "port": 8080,
-    "max_encoded_config_map_bytes": 921600
-  },
   "template_fast_path": {
     "enabled": true,
     "templates": []

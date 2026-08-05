@@ -16,6 +16,7 @@ Based on `analysis.framework` and `analysis.package_manager`:
 
 | Framework | Package Manager | Template |
 |-----------|-----------------|----------|
+| source-ready static HTML | none | [templates/static-nginx.dockerfile](../templates/static-nginx.dockerfile) |
 | express / koa / nestjs | npm/yarn/pnpm | [templates/nodejs-express.dockerfile](../templates/nodejs-express.dockerfile) |
 | nextjs | npm/yarn/pnpm | [templates/nodejs-nextjs.dockerfile](../templates/nodejs-nextjs.dockerfile) |
 | nextjs | bun | [templates/nodejs-nextjs-bun.dockerfile](../templates/nodejs-nextjs-bun.dockerfile) |
@@ -24,6 +25,10 @@ Based on `analysis.framework` and `analysis.package_manager`:
 | django | any | [templates/python-django.dockerfile](../templates/python-django.dockerfile) |
 | go (any) | any | [templates/golang.dockerfile](../templates/golang.dockerfile) |
 | springboot | any | [templates/java-springboot.dockerfile](../templates/java-springboot.dockerfile) |
+
+For source-ready static HTML, also copy
+[`templates/static-nginx.dockerignore`](../templates/static-nginx.dockerignore) so
+repository metadata and deployment files do not enter the public web root.
 
 **Package Manager Detection**:
 - `bun.lockb` → Bun

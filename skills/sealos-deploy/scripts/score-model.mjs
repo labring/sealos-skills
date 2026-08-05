@@ -493,7 +493,7 @@ function scoreProject(repoDir) {
   // ── Dimension 6: Service Boundaries (0-2) ──
   if (s.lang.html) {
     scores.boundaries = 1;
-    details.boundaries = 'One source-ready static publication unit';
+    details.boundaries = 'One source-ready static image workload';
   } else if (s.mono.is_monorepo && s.mono.has_apps_dir) {
     scores.boundaries = 2;
     details.boundaries = 'Monorepo with apps/ directory — clear service separation';

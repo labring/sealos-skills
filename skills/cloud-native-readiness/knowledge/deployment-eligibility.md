@@ -75,14 +75,11 @@ can become eligible only after explicit review.
    arbitrary regular assets, including nested paths and binary formats.
 6. Resolve deployment-route signals in this order: unsafe-to-publish evidence;
    existing container contract; application build/runtime contract; source-ready
-   static publication. Do not let a root `index.html` hide a stronger signal.
+   static image build. Do not let a root `index.html` hide a stronger signal.
 7. Never expose likely secrets, environment files, private keys, or symbolic-link
-   targets through the static fast path. Missing or conflicting evidence requires
-   review rather than partial publication.
-8. Treat direct-publication size as a routing constraint, not an eligibility
-   constraint. A source-ready tree above the ConfigMap limit remains `static_web`
-   and continues through the static-image build path.
-9. Treat an existing browser/VNC container contract as `needs_review` until its
+   targets through the static image build context. Missing or conflicting evidence
+   requires review rather than partial publication.
+8. Treat an existing browser/VNC container contract as `needs_review` until its
    headless entry point and remote access path are confirmed.
 
 ## Evidence

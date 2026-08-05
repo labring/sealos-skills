@@ -144,7 +144,6 @@ Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
 | `detect-template.mjs` | `node detect-template.mjs [--github-url <url>] --work-dir <repo-dir> --skill-dir <SKILL_DIR>` | Detect configured GitHub repo → Sealos template fast-path matches |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |
-| `generate-static-html-template.mjs` | `node generate-static-html-template.mjs <work-dir> [--app-name <name>] [--title <title>] [--git-repo <url>]` | Generate a zero-build Sealos template for an evidence-confirmed source-ready static asset tree |
 | `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build amd64 image & push to the selected registry (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update app-scoped GHCR pull Secret and optionally patch an existing Deployment to reference it |
 | `gh-refresh-scopes.mjs` | `node gh-refresh-scopes.mjs write:packages` | Refresh GHCR package access in the current TTY; `write:packages` is sufficient for both push and private pull in this workflow |
@@ -192,7 +191,7 @@ Paths used in pipeline.md follow the pattern:
 | 0.4 — Eligibility | Confirm the repository root is a supported cloud workload | Any non-eligible result → stop |
 | 0.5 — Template Fast Path | Match GitHub repo to a configured Sealos template | No match, or match cannot materialize template YAML |
 | 1 — Assess | Clone repo (or use current project), analyze deployability | Score too low → stop |
-| 2 — Detect | For an evidence-confirmed source-ready static tree, select the pinned runtime; otherwise find an existing image | Direct-publish static tree or existing image → jump to Phase 5 |
+| 2 — Detect | Route an evidence-confirmed source-ready static tree to the pinned Nginx image build; otherwise find an existing image | Existing image → jump to Phase 5 |
 | 3 — Dockerfile | Generate Dockerfile if missing | Already has one → skip |
 | 4 — Build & Push | `docker buildx` → GHCR (auto via gh CLI) or Docker Hub (fallback) | — |
 | 5 — Template | Generate Sealos application template | — |

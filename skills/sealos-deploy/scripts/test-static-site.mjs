@@ -28,7 +28,7 @@ test('classifies an arbitrary nested public asset tree by deployment contract, n
   })
   const result = inspectSourceReadyStaticSite(root)
   assert.equal(result.classification, 'source_ready_static')
-  assert.equal(result.route, 'static_configmap')
+  assert.equal(result.route, 'static_image_build')
   assert.equal(result.eligible, true)
   assert.deepEqual(result.assets.map(({ relativePath }) => relativePath), [
     'assets/app.js', 'assets/app.wasm', 'downloads/archive.custom', 'index.html',
@@ -58,19 +58,18 @@ test('routes frontend source formats and lockfiles through a reproducible build 
   assert.equal(result.runtimeSignals.length, 2)
 })
 
-test('routes an oversized source-ready tree to a static image build before template generation', (t) => {
+test('routes every source-ready tree to a static image build', (t) => {
   const root = fixture(t, {
     'index.html': '<!doctype html>',
     'assets/payload.bin': Buffer.alloc(32, 1),
   })
-  const result = inspectSourceReadyStaticSite(root, { maxEncodedBytes: 16 })
-  assert.equal(result.classification, 'source_ready_static_oversized')
+  const result = inspectSourceReadyStaticSite(root)
+  assert.equal(result.classification, 'source_ready_static')
   assert.equal(result.route, 'static_image_build')
-  assert.equal(result.eligible, false)
-  assert.ok(result.encodedBytes > 16)
+  assert.equal(result.eligible, true)
 })
 
-test('gives an existing container contract precedence over direct static publication', (t) => {
+test('gives an existing container contract precedence over the generated static image', (t) => {
   const root = fixture(t, {
     'index.html': '<!doctype html>',
     Dockerfile: 'FROM nginx:alpine',

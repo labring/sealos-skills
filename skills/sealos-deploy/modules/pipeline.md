@@ -397,46 +397,29 @@ Output rules:
 
 ## Phase 2: Detect Existing Image
 
-### 2.S Source-Ready Static Site Fast Path
+### 2.S Source-Ready Static Site Image Path
 
 Before registry discovery, check the in-memory eligibility decision. When its reason
 codes contain `SOURCE_READY_STATIC_SITE`, the requested project has a root
 `index.html`, a public asset tree that can be served without transformation, and no
 higher-priority build, server-runtime, container, or sensitive-file signal.
 
-Read `static_html_fast_path` from `<SKILL_DIR>/config.json`, calculate the base64
-expansion of every public asset, verify that the encoded payload does not exceed
-`max_encoded_config_map_bytes`, and set:
+Set `STATIC_NGINX_IMAGE_BUILD=true` and update `.sealos/analysis.json` with
+`language: "html"`, `framework: "static_html"`, `package_manager: null`, port
+`8080`, and `image_ref: null`. Skip existing-image discovery for this source-only
+tree and continue to Phase 3. Phase 3 must generate the pinned static Nginx
+Dockerfile, and Phase 4 must build and push it through the same registry path as
+every other locally built image.
 
-```text
-STATIC_HTML_FAST_PATH = true
-IMAGE_REF = static_html_fast_path.image
-PORT = static_html_fast_path.port
-```
+This path is intentionally evidence-based and fail-closed. File count, extension,
+and directory depth are not deployment decisions. Preserve arbitrary regular public
+assets and their relative paths, including nested directories, while excluding
+repository metadata through `.dockerignore`. Give an existing container contract
+precedence over this path. Route build/runtime manifests and server-source signals
+through ordinary analysis. Stop for possible secrets, symbolic links, or a missing
+root `index.html`. Never silently omit a business asset from the image.
 
-Update `.sealos/analysis.json` with `language: "html"`,
-`framework: "static_html"`, `package_manager: null`, the configured port, and
-`image_ref: IMAGE_REF`. The configured image must use an exact version tag, expose
-`linux/amd64`, run without root, and be anonymously pullable. The checked-in default
-is `nginxinc/nginx-unprivileged:1.31.3-alpine3.24` on port `8080`.
-
-Skip registry discovery, Dockerfile generation, and Phase 4 entirely. Do not create
-`.sealos/build/`, prompt for a registry, or require Docker/gh readiness. Continue to
-Phase 5, where the deterministic static generator mounts every approved asset from
-one ConfigMap into the pinned public image.
-
-This fast path is intentionally evidence-based and fail-closed. File count,
-extension, and directory depth are not deployment decisions. Preserve arbitrary
-regular public assets and their relative paths, including nested directories, while
-ignoring repository metadata such as README and LICENSE. Give an existing container
-contract precedence over this path. Route build/runtime manifests and server-source
-signals through ordinary analysis. Stop for possible secrets, symbolic links, or a
-missing root `index.html`. When the public tree exceeds the encoded ConfigMap limit,
-keep it eligible as `static_web` but route it to the ordinary static-image build
-path instead of failing during template generation. Never silently omit a business
-asset from the deployed site.
-
-The remaining Phase 2 instructions apply when `STATIC_HTML_FAST_PATH` is false.
+The remaining Phase 2 instructions apply when `STATIC_NGINX_IMAGE_BUILD` is false.
 
 **If Node.js available:**
 ```bash
@@ -514,6 +497,7 @@ If no Dockerfile exists, generate one.
 
 **Load the appropriate template from the internal dockerfile-skill:**
 ```
+<SKILL_DIR>/../dockerfile-skill/templates/static-nginx.dockerfile
 <SKILL_DIR>/../dockerfile-skill/templates/golang.dockerfile
 <SKILL_DIR>/../dockerfile-skill/templates/nodejs-express.dockerfile
 <SKILL_DIR>/../dockerfile-skill/templates/nodejs-nextjs.dockerfile
@@ -527,6 +511,15 @@ Read the template matching the detected language/framework, then adapt it:
 - Adjust build commands based on actual package manager (npm/yarn/pnpm/bun)
 - Add system dependencies if needed
 - Set correct entry point
+
+When `STATIC_NGINX_IMAGE_BUILD=true`, copy
+`<SKILL_DIR>/../dockerfile-skill/templates/static-nginx.dockerfile` as the project
+Dockerfile without adding a ConfigMap publication path or a frontend build stage.
+The pinned unprivileged Nginx image serves the recursively copied source-ready asset
+tree on port `8080`. Copy
+`<SKILL_DIR>/../dockerfile-skill/templates/static-nginx.dockerignore` to
+`$WORK_DIR/.dockerignore`; do not use the generic ignore list below, because arbitrary
+public assets such as Markdown downloads must not be silently omitted.
 
 **Pre-load Phase 1 analysis for analyze.md:**
 
@@ -550,12 +543,12 @@ If validation reports errors, fix the Dockerfile before proceeding to Phase 4.
 If Node.js is not available, manually verify the Validation Checklist in generate.md.
 
 **Key Dockerfile principles:**
-- Multi-stage build (builder + runtime)
+- Multi-stage build when compilation is required; source-ready static sites use the single-stage pinned Nginx template
 - Pin base image versions (never `:latest`)
-- Run as non-root user (USER 1001)
+- Run as a non-root user (for example USER 1001, or the static Nginx image's USER 101)
 - Proper `.dockerignore`
 
-Also generate `.dockerignore`:
+For non-static-image paths, also generate `.dockerignore`:
 ```
 .git
 node_modules
@@ -566,6 +559,8 @@ __pycache__
 .vscode
 .idea
 .sealos
+Dockerfile
+.dockerignore
 ```
 
 ---
@@ -766,23 +761,6 @@ If the project mentions Frappe, ERPNext, HRMS, or `bench`, also read:
 ### 5.2 Generate Template
 
 Read `.sealos/analysis.json` and use `image_ref`, `port`, `databases`, and `env_vars` as inputs.
-
-When `STATIC_HTML_FAST_PATH=true`, generate the only template artifact
-deterministically before considering Compose or hand-authored conversion:
-
-```bash
-node "<SKILL_DIR>/scripts/generate-static-html-template.mjs" "$WORK_DIR" \
-  --app-name "$REPO_NAME" \
-  --title "$APP_TITLE" \
-  ${GITHUB_URL:+--git-repo "$GITHUB_URL"}
-```
-
-The generator base64-encodes every approved asset in the recursively preserved public tree into a runtime-labeled
-ConfigMap, mounts each file at its matching `/usr/share/nginx/html/<file>` path,
-uses the pinned public unprivileged NGINX image, and emits Deployment, Service, root
-Ingress, and App resources. Encoding prevents source text that resembles Template
-expressions from being evaluated. It writes no Dockerfile and no image-build
-artifact. Continue directly to the complete Phase 5.3 quality gate.
 
 Generate the template at `.sealos/template/index.yaml` (overrides the default `template/` path from docker-to-sealos skill).
 Do not create another template-generation artifact.

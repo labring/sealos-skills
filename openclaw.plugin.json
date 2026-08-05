@@ -1,6 +1,6 @@
 {
   "id": "sealos",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "format": "claude-plugin",
   "source": ".claude-plugin/plugin.json",
   "commands": [

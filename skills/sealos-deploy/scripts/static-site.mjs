@@ -21,7 +21,7 @@ function toPosix(relativePath) {
   return relativePath.split(path.sep).join('/')
 }
 
-function inspectSourceReadyStaticSite(rootDir, { maxEncodedBytes = Number.POSITIVE_INFINITY } = {}) {
+function inspectSourceReadyStaticSite(rootDir) {
   const assets = []
   const evidence = []
   const ignoredFiles = []
@@ -86,7 +86,6 @@ function inspectSourceReadyStaticSite(rootDir, { maxEncodedBytes = Number.POSITI
   const entryFile = assets.find(({ relativePath }) => /^index\.html?$/i.test(relativePath)) || null
   const nestedAssetCount = assets.filter(({ relativePath }) => relativePath.includes('/')).length
   const totalBytes = assets.reduce((total, asset) => total + asset.size, 0)
-  const encodedBytes = assets.reduce((total, { size }) => total + 4 * Math.ceil(size / 3), 0)
 
   if (entryFile != null) evidence.push(`${entryFile.relativePath}: root document entry point`)
   if (assets.length > 0) evidence.push(`${assets.length} public files can be served without transformation`)
@@ -94,7 +93,7 @@ function inspectSourceReadyStaticSite(rootDir, { maxEncodedBytes = Number.POSITI
   if (ignoredFiles.length > 0) evidence.push(`${ignoredFiles.length} repository metadata files are intentionally excluded`)
 
   let classification = 'source_ready_static'
-  let route = 'static_configmap'
+  let route = 'static_image_build'
   if (blockers.length > 0) {
     classification = 'unsafe_to_publish'
     route = 'stop_and_review'
@@ -108,10 +107,6 @@ function inspectSourceReadyStaticSite(rootDir, { maxEncodedBytes = Number.POSITI
     classification = 'needs_review'
     route = 'ordinary_analysis'
     blockers.push('root index.html is missing')
-  } else if (encodedBytes > maxEncodedBytes) {
-    classification = 'source_ready_static_oversized'
-    route = 'static_image_build'
-    evidence.push(`Encoded asset payload ${encodedBytes} bytes exceeds the direct-publication limit ${maxEncodedBytes}`)
   }
 
   return {
@@ -122,7 +117,6 @@ function inspectSourceReadyStaticSite(rootDir, { maxEncodedBytes = Number.POSITI
     entryFile: entryFile?.relativePath || null,
     assets,
     totalBytes,
-    encodedBytes,
     evidence,
     ignoredFiles,
     routeSignals: [...containerSignals, ...runtimeSignals],

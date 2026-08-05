@@ -206,7 +206,7 @@ test('accepts a source-ready site containing only index.html', (t) => {
   assert.equal(result.status, 'eligible')
   assert.equal(result.workload_type, 'static_web')
   assert.deepEqual(result.reason_codes, ['SOURCE_READY_STATIC_SITE'])
-  assert.match(result.evidence.join('\n'), /No build, container, server-runtime/i)
+  assert.match(result.evidence.join('\n'), /static Nginx image/i)
   assertValidDecision(result)
 })
 
