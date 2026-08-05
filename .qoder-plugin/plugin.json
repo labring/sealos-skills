@@ -1,6 +1,6 @@
 {
   "name": "sealos",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Deploy projects to Sealos Cloud, connect databases and S3 object storage, inspect deployed resources, and build Sealos Desktop apps.",
   "displayName": "Sealos",
   "author": {

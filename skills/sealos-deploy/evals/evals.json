@@ -272,10 +272,13 @@
     {
       "id": 23,
       "prompt": "A locally built image was pushed to GHCR and the new package is private. Continue the Sealos deployment.",
-      "expected_output": "Keeps the private GHCR image, immediately creates or refreshes the app-scoped image pull Secret from the local gh CLI session, references it from the workload, and continues deployment without trying to change package visibility.",
+      "expected_output": "Keeps the private GHCR image, deploys first to obtain the real instance name, immediately creates the same-named image pull Secret from the local gh CLI session, and lets kubelet pull retries recover the Pod without changing package visibility or recreating the Pod.",
       "files": [],
       "assertions": [
-        {"name": "uses-built-in-pull-secret", "description": "Runs ensure-image-pull-secret.mjs or the equivalent built-in Secret path before applying or updating the private-image workload"},
+        {"name": "deploys-before-fresh-secret", "description": "For a fresh Template API deploy, waits for the successful response before creating the pull Secret"},
+        {"name": "uses-real-instance-name", "description": "Reads the authoritative instance name from the deploy response and creates a Secret with exactly that name"},
+        {"name": "uses-built-in-pull-secret", "description": "Runs ensure-image-pull-secret.mjs or the equivalent built-in Secret path immediately after fresh deployment; an update may refresh the already-known same-named Secret before changing the image"},
+        {"name": "relies-on-kubelet-retry", "description": "Allows kubelet image-pull retries to recover the Pod after Secret creation instead of deleting or recreating the Pod"},
         {"name": "does-not-change-visibility", "description": "Does not call REST, GraphQL, package settings, or other visibility-changing mechanisms"},
         {"name": "keeps-credentials-out-of-template-inputs", "description": "Uses local gh CLI credentials to create the namespace Secret without exposing registry credentials as template inputs"},
         {"name": "continues-with-private-image", "description": "Continues deployment with the pushed GHCR reference instead of rebuilding or switching registries"}

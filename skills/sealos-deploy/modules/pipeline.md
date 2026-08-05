@@ -608,7 +608,7 @@ Important:
 - When `build-push.mjs` or `ensure-image-pull-secret.mjs` runs inside a TTY, it will now ask once whether it should refresh missing GHCR scopes and, on `y`, run `gh auth refresh` in the same PTY before continuing.
 - If `gh auth refresh` exits successfully but the scopes are still missing, the script will immediately fall back to a full `gh auth login --web --scopes ...` in the same PTY and only continue after re-checking the scopes.
 - A successful GHCR push does **not** guarantee Sealos can pull the image.
-- Treat every locally built and newly pushed GHCR image as private by default. Do not run a visibility or anonymous-pull probe; proceed immediately to the built-in image pull Secret path and create the Secret from the local `gh` CLI session before applying or updating workloads.
+- Treat every locally built and newly pushed GHCR image as private by default. Do not run a visibility or anonymous-pull probe; proceed immediately to the built-in image pull Secret path. For a fresh deploy, wait for the Template API to return the real instance name, then create the same-named Secret immediately. For an update, refresh the Secret before swapping the image because the real instance name is already known from state.
 - Do not attempt to make the package public during deployment. Do not probe or call GitHub REST endpoints, GraphQL mutations, package settings, or other visibility-changing paths; package visibility is not a deployment prerequisite.
 - Do **not** surface raw registry host/username/password/email as user-facing template inputs when local `gh auth status` is already available.
 
@@ -698,7 +698,7 @@ IMAGE="$(printf '%s' "$DOCKER_HUB_USER" | tr '[:upper:]' '[:lower:]')/<lowercase
 docker buildx build --platform linux/amd64 -t "$IMAGE" --push -f Dockerfile "$WORK_DIR"
 ```
 
-If `$IMAGE` is a newly built GHCR image, mark that Phase 6 must create/update the namespace image pull Secret before rollout. Do not run visibility or anonymous-pull probes and do not attempt any package-visibility mutation.
+If `$IMAGE` is a newly built GHCR image, mark that Phase 6 must create/update the namespace image pull Secret. A fresh deploy must use the real instance name returned by the Template API; an update may refresh the known same-named Secret before rollout. Do not run visibility or anonymous-pull probes and do not attempt any package-visibility mutation.
 If the run is using an existing public image instead of a new local build, skip this secret-creation path.
 
 ### 4.2 Error Handling
@@ -846,7 +846,7 @@ After generating the base template, check if the app needs its public URL config
 - `imagePullPolicy: IfNotPresent`
 - `revisionHistoryLimit: 1`
 - `automountServiceAccountToken: false`
-- Add `template.spec.imagePullSecrets: [{ name: ${{ defaults.app_name }} }]` only for an authenticated private-image path; omit it for anonymously pullable images, including public GHCR images
+- For a locally built GHCR image, add `template.spec.imagePullSecrets: [{ name: ${{ defaults.app_name }} }]`. The Template API resolves this to the real generated instance name; the same-named Secret is created immediately after the deploy response. Omit it for anonymously pullable existing images and Docker Hub public images.
 - Every `spec.defaults.<name>.value` and every present `spec.inputs.<name>.default` must deserialize as a YAML string; quote numeric-, boolean-, and null-like values, while infrastructure fields such as replicas and ports remain numeric
 - **App CRD** (last resource): only `spec.data.url`, `spec.displayType`, `spec.icon`, `spec.name`, `spec.type` — no other fields (no `menuData`, `nameColor`, `template`, etc.)
 - **App CRD fixed enums**: `spec.displayType` must be `normal`; `spec.type` must be `link`
@@ -1098,7 +1098,42 @@ On 201 success, the response contains:
 ```
 Extract the instance name and present to user.
 
-### 6.3.1 Post-Deploy Readiness Verification
+### 6.3.1 Create the Pull Secret Using the Real Instance Name
+
+For a locally built GHCR image, do **not** create the pull Secret before the Template
+API call. The requested repository/app name is not authoritative, and the API may
+generate a different Instance, App, and Deployment identity.
+
+Immediately after the `201` response:
+
+1. Read `REAL_APP_NAME` from the top-level response `name`. This is the authoritative
+   Secret name and the value resolved from `${{ defaults.app_name }}`.
+2. Read `NAMESPACE` from the active kubeconfig context.
+3. Create the Secret named exactly `$REAL_APP_NAME` before starting readiness waits:
+
+```bash
+REAL_APP_NAME="<response.name>"
+NAMESPACE=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  config view --minify -o jsonpath='{.contexts[0].context.namespace}')
+
+node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" \
+  "$NAMESPACE" "$REAL_APP_NAME" "$IMAGE_REF"
+```
+
+The Template may create a Pod before the Secret exists, so a short initial
+`ErrImagePull` or `ImagePullBackOff` is expected. Do not delete or recreate the Pod,
+do not change package visibility, and do not replace the image. Kubelet retries image
+pulls automatically and should recover after the same-named Secret appears.
+
+Secret creation is a blocking post-deploy step: verify the Secret exists and that
+the live Deployment references `$REAL_APP_NAME` in `spec.template.spec.imagePullSecrets`
+before accepting readiness. If `response.name` is missing, empty, or does not match
+the rendered Secret reference, stop instead of guessing from the repository name.
+
+Skip this subsection when Phase 2 reused an existing public image or the selected
+registry was the Docker Hub public-image flow.
+
+### 6.3.2 Post-Deploy Readiness Verification
 
 After a 201 response, do not assume the app is usable. Verify Kubernetes readiness:
 
@@ -1135,7 +1170,7 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 
 Acceptance requires the KubeBlocks `Cluster` to be Ready/Running, each expected `Component` and `InstanceSet` to converge, the account Secret to exist, and the application environment to point at the expected Service FQDN. For Redis, verify both `redis` and `redis-sentinel` components, `${APP_NAME}-redis-redis-account-default`, and `${APP_NAME}-redis-redis-redis.${NAMESPACE}.svc.cluster.local`. For MongoDB, verify `${APP_NAME}-mongo-mongodb-account-root` or the matching `mongodb` suffix variant before judging app initialization.
 
-### 6.3.2 Runtime Truth Pass for Authenticated Apps
+### 6.3.3 Runtime Truth Pass for Authenticated Apps
 
 For web apps with login or registration, verify the authenticated runtime state after the readiness checks pass:
 
@@ -1204,6 +1239,22 @@ EOF
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify apply -f /tmp/sealos-deploy-rendered.yaml -n "$NAMESPACE"
 rm -f /tmp/sealos-deploy-rendered.yaml
 ```
+
+For a locally built GHCR image, `${{ defaults.app_name }}` from the rendered
+resources is the authoritative `REAL_APP_NAME` in this fallback path. Immediately
+after `kubectl apply`, create the same-named pull Secret before starting readiness
+waits:
+
+```bash
+REAL_APP_NAME="<rendered defaults.app_name>"
+node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" \
+  "$NAMESPACE" "$REAL_APP_NAME" "$IMAGE_REF"
+```
+
+The rendered Deployment must already reference `$REAL_APP_NAME` in
+`spec.template.spec.imagePullSecrets`. Do not delete or recreate a Pod that entered
+`ErrImagePull` or `ImagePullBackOff`; kubelet will retry after the Secret appears.
+Skip this step for an existing public image or the Docker Hub public-image flow.
 
 **Step 4 — Handle apply errors:**
 
@@ -1537,36 +1588,3 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
 - **Initial deploy counts** — the first entry should be `action: "deploy"` written by Phase 6 checkpoint.
 - **Failed updates count** — record failures so the user can see what was attempted and why it didn't work.
 - **Keep it bounded** — if history exceeds 50 entries, trim the oldest entries (keep the first `deploy` entry and the most recent 49).
-### 6.1.5 Ensure Image Pull Secret (locally built GHCR path only)
-
-Before calling the Template API or `kubectl apply`, check whether this run actually passed through Phase 4 local build and push.
-This step is only for cases where:
-- Phase 4 built a new GHCR image locally with Docker
-
-Do **not** run this step when:
-- Phase 2 reused an existing public image
-- The selected registry was Docker Hub public image flow
-
-The template itself should reference the app-scoped pull Secret name via:
-
-```yaml
-imagePullSecrets:
-  - name: ${{ defaults.app_name }}
-```
-
-If the run meets the locally built GHCR condition above, create or update the app-scoped pull Secret in the target namespace using the local `gh` CLI session:
-
-```bash
-node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" "$NAMESPACE" "$APP_NAME" "$IMAGE_REF"
-```
-
-Run this Secret path immediately after the GHCR build result. Never run a visibility or anonymous-pull probe, and never try REST, GraphQL, package settings, or other mechanisms to make the GHCR package public first.
-
-Behavior:
-- Uses `gh api user -q .login` and `gh auth token`
-- Creates/updates a `docker-registry` Secret named exactly like the app (`$APP_NAME`)
-- When a deployment name is provided, also patches `spec.template.spec.imagePullSecrets` to include that app-scoped Secret
-- Keeps registry credentials out of the generated template inputs
-- Do not call it for existing public images
-
-This step should run for both fresh deploys and in-place updates before rollout, but only on the locally built GHCR path.
