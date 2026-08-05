@@ -1273,7 +1273,7 @@ Execute `<SKILL_DIR>/modules/runtime-truth.md` after every Template API or kubec
     "app_name": "<instance name, e.g. evershop-uvbp0n0n>",
     "app_host": "<ingress host prefix, e.g. evershop-4ha6b4mh>",
     "namespace": "<K8s namespace from kubeconfig>",
-    "region": "<Sealos region domain, e.g. gzg.sealos.run>",
+    "region": "<Sealos control-plane region domain, e.g. usw-1.sealos.io>",
     "image": "<IMAGE_REF used in this deploy>",
     "docker_hub_user": "<DOCKER_HUB_USER, or null if existing image was used>",
     "repo_name": "<REPO_NAME>",
@@ -1302,11 +1302,11 @@ Sources for each field:
 - `app_name`: from Template API response `name` or the rendered `defaults.app_name` (kubectl apply)
 - `app_host`: from the rendered `defaults.app_host` value, or parsed from the Ingress host
 - `namespace`: from kubeconfig context
-- `region`: from `~/.sealos/auth.json` `region` field (strip `https://`)
+- `region`: control-plane/API region from `~/.sealos/auth.json` `region` field (strip `https://`); this may differ from the App runtime domain
 - `image`: from `analysis.json` `image_ref`
 - `docker_hub_user`: from Phase 4 `DOCKER_HUB_USER` (null if Phase 2 found existing image)
 - `repo_name`: from `analysis.json` `project.repo_name`
-- `url`: constructed from `app_host` and `region`
+- `url`: the exact `APP_URL` verified by the Runtime Truth Pass, read from the live App resource or deployment response; never reconstruct it from `app_host` and `region`
 
 ---
 
