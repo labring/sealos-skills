@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -52,7 +53,8 @@ global.fetch = async (url, options) => {
   return {
     ok: status >= 200 && status < 300,
     status,
-    statusText: status >= 200 && status < 300 ? 'OK' : 'Bad Request',
+    statusText: process.env.SEALOS_DEPLOY_TEST_STATUS_TEXT
+      || (status >= 200 && status < 300 ? 'OK' : 'Bad Request'),
     headers: { entries: () => [][Symbol.iterator]() },
     text: async () => process.env.SEALOS_DEPLOY_TEST_RESPONSE || '',
   }
@@ -72,13 +74,13 @@ global.fetch = async (url, options) => {
   }
 }
 
-function runDeploy(fixture, args = [], env = {}) {
+function runDeployCommand(fixture, commandArgs, env = {}) {
   const nodeOptions = [
     process.env.NODE_OPTIONS,
     `--require=${fixture.fetchMockPath}`,
   ].filter(Boolean).join(' ')
 
-  return spawnSync(process.execPath, [deployScript, fixture.templatePath, ...args], {
+  return spawnSync(process.execPath, [deployScript, ...commandArgs], {
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -88,6 +90,10 @@ function runDeploy(fixture, args = [], env = {}) {
       ...env,
     },
   })
+}
+
+function runDeploy(fixture, args = [], env = {}) {
+  return runDeployCommand(fixture, [fixture.templatePath, ...args], env)
 }
 
 function assertSecretAbsent(result, secret) {
@@ -256,7 +262,7 @@ test('does not echo template arguments loaded from a file', () => {
   withFixture((fixture) => {
     const secret = 'official-template-secret-file-2wJ7'
     const argsPath = join(fixture.fixtureRoot, 'args.json')
-    writeFileSync(argsPath, JSON.stringify({ ADMIN_PASSWORD: secret }))
+    writeFileSync(argsPath, JSON.stringify({ ADMIN_PASSWORD: secret }), { mode: 0o600 })
 
     const result = runDeploy(
       fixture,
@@ -281,11 +287,31 @@ test('does not echo template arguments loaded from a file', () => {
   })
 })
 
+test('rejects an args file readable by group or other users', () => {
+  withFixture((fixture) => {
+    const secret = 'official-template-secret-permissions-4yL9'
+    const argsPath = join(fixture.fixtureRoot, 'args.json')
+    writeFileSync(argsPath, JSON.stringify({ ADMIN_PASSWORD: secret }), { mode: 0o644 })
+    chmodSync(argsPath, 0o644)
+
+    const result = runDeploy(fixture, ['--args-file', argsPath])
+
+    assert.equal(result.status, 1)
+    assert.equal(result.stdout, '')
+    assertSecretAbsent(result, secret)
+    assert.deepEqual(JSON.parse(result.stderr), {
+      error: 'Args file must not grant access to group or other users',
+      path: argsPath,
+    })
+    assert.equal(existsSync(fixture.capturePath), false)
+  })
+})
+
 test('does not echo malformed args files in parser diagnostics', () => {
   withFixture((fixture) => {
     const secret = 'official-template-secret-file-json-3xK8'
     const argsPath = join(fixture.fixtureRoot, 'args.json')
-    writeFileSync(argsPath, `{"ADMIN_PASSWORD":"${secret}"`)
+    writeFileSync(argsPath, `{"ADMIN_PASSWORD":"${secret}"`, { mode: 0o600 })
 
     const result = runDeploy(fixture, ['--args-file', argsPath])
 
@@ -311,9 +337,23 @@ test('rejects missing template-argument option values before making a request', 
   })
 })
 
+test('does not echo an unknown option value used before the template path', () => {
+  withFixture((fixture) => {
+    const secret = 'official-template-secret-option-8vP6'
+    const result = runDeployCommand(fixture, [`--admin-password=${secret}`])
+
+    assert.equal(result.status, 1)
+    assert.equal(result.stdout, '')
+    assertSecretAbsent(result, secret)
+    assert.deepEqual(JSON.parse(result.stderr), { error: 'Unknown option' })
+    assert.equal(existsSync(fixture.capturePath), false)
+  })
+})
+
 test('allowlists response diagnostics and drops resolved defaults when no arguments are supplied', () => {
   withFixture((fixture) => {
     const generatedSecret = 'server-resolved-default-secret-9xQ4'
+    const remoteStatusSecret = 'server-controlled-status-secret-1zR5'
     const response = {
       ok: true,
       name: 'demo-instance',
@@ -326,11 +366,13 @@ test('allowlists response diagnostics and drops resolved defaults when no argume
       ['--dry-run'],
       {
         SEALOS_DEPLOY_TEST_RESPONSE: JSON.stringify(response),
+        SEALOS_DEPLOY_TEST_STATUS_TEXT: remoteStatusSecret,
       },
     )
 
     assert.equal(result.status, 0, result.stderr || result.stdout)
     assertSecretAbsent(result, generatedSecret)
+    assertSecretAbsent(result, remoteStatusSecret)
     const output = JSON.parse(result.stdout)
     assert.equal(output.args_supplied, 0)
     assert.equal(output.status, 200)

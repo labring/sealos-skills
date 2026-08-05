@@ -192,12 +192,12 @@
     {
       "id": 15,
       "prompt": "Deploy a login-gated web app in the default execution mode. The Template API response returns an Instance and App host that differ from the requested app name. Verify the live application before reporting success.",
-      "expected_output": "Runs the Runtime Truth Pass against the returned App URL, checks both the configured entrance path and root path, completes the real login/setup flow with deploy-time credentials, verifies an authenticated route, scans logs after the workflow and a documented API negative route or unique missing static asset, and keeps credentials redacted.",
+      "expected_output": "Runs the Runtime Truth Pass against the returned App URL, checks both the configured entrance path and root path, completes the selected first-user signup or mandatory bootstrap login flow, verifies an authenticated route, scans logs after the workflow and a documented API negative route or unique missing static asset, and keeps credentials redacted.",
       "files": [],
       "assertions": [
         {"name": "uses-returned-app-url", "description": "Uses the actual App URL and live Instance/App identity from the deploy response or live resource rather than reconstructing a host from the requested app name"},
         {"name": "checks-root-and-entrance", "description": "Exercises both the configured entrance path and the root path from a fresh session and rejects SSR/browser failure text"},
-        {"name": "proves-authenticated-action", "description": "Completes setup or login with deploy-time credentials and verifies at least one authenticated page or API route"},
+        {"name": "proves-authenticated-action", "description": "Completes the selected signup or mandatory bootstrap login flow and verifies at least one authenticated page or API route"},
         {"name": "redacts-runtime-secrets", "description": "Masks passwords, tokens, cookies, CSRF values, captcha payloads, and derived credentials in command output and reports"},
         {"name": "scans-after-workflow", "description": "Runs log scans after login or setup and after a documented API or missing-static-asset request before acceptance"},
         {"name": "distinguishes-spa-fallback", "description": "Uses a documented API or missing static asset for negative-route checks when arbitrary SPA routes return the HTML shell with HTTP 200"}
@@ -253,6 +253,45 @@
         {"name": "keeps-secret-material-private", "description": "Keeps the seed, derived credential, database password, and object-storage credentials out of diagnostics and summaries"},
         {"name": "validates-both-s3-branches", "description": "Validates authenticated upload/read/content/deletion for both local storage and managed ObjectStorageBucket branches, with restricted anonymous raw-object access"},
         {"name": "verifies-s3-and-db-together", "description": "Checks approved KubeBlocks database Secret keys and required database objects alongside managed object-storage Secret wiring"}
+      ]
+    },
+    {
+      "id": 20,
+      "prompt": "Prepare a static Sealos deployment contract for an observability web app release. Official Compose enables first-user registration. Helm exposes an optional root username/password overlay, and server startup rejects root passwords that miss documented length or character-class rules. The Sealos Template input form may express type, description, default, required, options, and if; regex, length, character-class, equality, and cross-field checks require pre-deploy validation. Keep the task static: describe the emitted account inputs, failure diagnosis, live account workflow, and durable repair steps.",
+      "expected_output": "Classifies the selected release as functional first-user signup, omits optional root inputs and bootstrap injection, diagnoses password-policy startup exits as configuration failures before resource tuning, verifies registration plus an authenticated action, and repairs both source and live declarative ownership while reporting credential residue with values redacted.",
+      "files": [],
+      "assertions": [
+        {"name": "classifies-first-user-signup", "description": "Uses exact selected-release evidence to classify functional first-user signup as the account mode"},
+        {"name": "omits-optional-root-overlay", "description": "Keeps optional root username/password inputs and their bootstrap environment or config injection out of the emitted Template"},
+        {"name": "diagnoses-config-before-resources", "description": "Treats startup password-policy validation as a configuration-contract failure before CPU or memory tuning"},
+        {"name": "proves-registration-session", "description": "Completes first-user registration after readiness and verifies one authenticated page or API action"},
+        {"name": "repairs-durable-ownership", "description": "Repairs the source Template and highest writable live declarative owner, verifies reconciliation, reports only redacted residue key names, and recommends credential rotation"}
+      ]
+    },
+    {
+      "id": 21,
+      "prompt": "Prepare a static Sealos deployment contract for a Frappe-like release whose official initialization requires an administrator identity and password before the web login is usable. Upstream requires a 3-32 character username matching [A-Za-z0-9._-]+ and a 12-128 character password containing at least one uppercase letter, lowercase letter, digit, and symbol. Keep the task static: describe Template inputs, pre-deploy validation, bootstrap wiring, and live authentication proof.",
+      "expected_output": "Classifies the release as deployer-supplied mandatory bootstrap, emits required administrator inputs with no defaults and English descriptions containing the exact 3-32 character username pattern and 12-128 character password-class rules, validates values before Template API deployment, passes them unchanged through the documented initialization path, and uses the same redacted values for an authenticated live smoke.",
+      "files": [],
+      "assertions": [
+        {"name": "classifies-mandatory-bootstrap", "description": "Uses exact selected-release evidence to classify the account mode as deployer-supplied mandatory bootstrap"},
+        {"name": "keeps-required-inputs", "description": "Declares every documented administrator identity/password field as required and omits defaults"},
+        {"name": "describes-exact-constraints", "description": "Places the exact 3-32 character username pattern and 12-128 character password-class rules in the English input descriptions"},
+        {"name": "validates-before-deploy", "description": "Validates the collected credential against the discovered constraints before Template API deployment"},
+        {"name": "preserves-login-values", "description": "Passes the credential unchanged through initialization and live login while keeping its value redacted"}
+      ]
+    },
+    {
+      "id": 22,
+      "prompt": "Prepare a static Sealos deployment contract for a mail platform release whose official startup requires an administrator account before HTTP is served. The selected runtime supports generated initialization and reads the resolved password from a Kubernetes Secret. Upstream requires a 20-character password containing uppercase, lowercase, digit, and symbol characters, and the deployer does not choose the administrator credential. Keep the task static: describe Template inputs, credential construction and storage, startup validation, and live authentication proof.",
+      "expected_output": "Classifies the release as runtime-generated mandatory bootstrap, omits administrator inputs, deterministically constructs and validates the exact 20-character password format before serving, retains the resolved credential in a Kubernetes Secret, retrieves it without printing, and completes login plus one authenticated action with all credential material redacted.",
+      "files": [],
+      "assertions": [
+        {"name": "classifies-generated-mandatory-bootstrap", "description": "Uses exact selected-release evidence to classify the account mode as runtime-generated mandatory bootstrap"},
+        {"name": "omits-administrator-inputs", "description": "Keeps administrator inputs absent because the selected runtime owns credential generation and the deployer does not choose the value"},
+        {"name": "constructs-exact-format", "description": "Deterministically constructs and validates a 20-character password containing uppercase, lowercase, digit, and symbol characters before HTTP is served"},
+        {"name": "retains-resolved-secret", "description": "Stores the resolved administrator credential in a Kubernetes Secret or the exact documented live runtime source"},
+        {"name": "proves-redacted-login", "description": "Retrieves the resolved credential without printing it and completes login plus one authenticated action with credential material redacted"}
       ]
     }
   ]
