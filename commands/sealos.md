@@ -15,14 +15,16 @@ Use this command as the Claude Code and compatible plugin entry point for Sealos
 
 ## Route
 
-- Deploy, update, or publish a local/GitHub project to Sealos Cloud → `sealos-deploy`
-- Create, connect, or manage a Sealos Cloud database for local development or Devbox → `sealos-database`
-- Create, connect, or operate Sealos S3-compatible object storage → `sealos-s3`
-- View resources created by a previous deployment in a local read-only canvas → `sealos-canvas`
-- Build or adapt a Sealos Desktop app with the Sealos app SDK → `sealos-app-builder`
-- Assess whether a project is cloud-native/container-ready → `cloud-native-readiness`
-- Generate or fix Docker packaging → `dockerfile-skill`
-- Convert Docker Compose or install docs into a Sealos template → `docker-to-sealos`
+| Intent | Canonical skill | Plugin entry | Direct skills.sh entry |
+| --- | --- | --- | --- |
+| Deploy, update, or publish a local/GitHub project to Sealos Cloud | `sealos-deploy` | `$sealos` / `/sealos` | `/sealos-deploy` |
+| Create, connect, or manage a Sealos Cloud database for local development or Devbox | `sealos-database` | `$sealos` / `/sealos` | `/sealos-database` |
+| Create, connect, or operate Sealos S3-compatible object storage | `sealos-s3` | `$sealos` / `/sealos` | `/sealos-s3` |
+| View resources created by a previous deployment in a local read-only canvas | `sealos-canvas` | `$sealos` / `/sealos` | host selection through the installed pack |
+| Build or adapt a Sealos Desktop app with the Sealos app SDK | `sealos-app-builder` | `$sealos` / `/sealos` | host selection through the installed pack |
+| Assess whether a project is cloud-native/container-ready | `cloud-native-readiness` | `$sealos` / `/sealos` | host selection through the installed pack |
+| Generate or fix Docker packaging | `dockerfile-skill` | `$sealos` / `/sealos` | host selection through the installed pack |
+| Convert Docker Compose or install docs into a Sealos template | `docker-to-sealos` | `$sealos` / `/sealos` | host selection through the installed pack |
 
 ## Rules
 
