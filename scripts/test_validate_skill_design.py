@@ -23,10 +23,12 @@ class DesignValidatorTests(unittest.TestCase):
     def _copy_repo(self) -> tuple[tempfile.TemporaryDirectory[str], Path]:
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
-        for directory in ("skills", "commands", "docs", "tests", ".codex-plugin", ".claude-plugin", ".codebuddy-plugin", ".qoder-plugin", "distribution"):
+        for directory in ("skills", "commands", "docs", "tests", ".codex-plugin", ".claude-plugin", ".codebuddy-plugin", ".qoder-plugin", ".agents", "distribution"):
             source = ROOT / directory
             if source.exists():
-                shutil.copytree(source, root / directory)
+                shutil.copytree(source, root / directory, symlinks=True)
+        (root / "plugins").mkdir()
+        (root / "plugins/sealos").symlink_to("..")
         for file_name in ("plugin.json", "marketplace.json", "gemini-extension.json", "qwen-extension.json", "openclaw.plugin.json"):
             shutil.copy(ROOT / file_name, root / file_name)
         return temp, root
@@ -49,12 +51,9 @@ class DesignValidatorTests(unittest.TestCase):
                 values.append("./skills/sealos-canvas")
             path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
-    def test_live_reports_only_known_canvas_projection_drift(self) -> None:
+    def test_live_validator_is_green_after_canvas_repair(self) -> None:
         diagnostics = validate_design_system(ROOT)
-        codes = {item.code for item in diagnostics}
-        self.assertIn("inventory.missing_projection", codes)
-        self.assertNotIn("canary.missing", codes)
-        self.assertNotIn("eval.malformed", codes)
+        self.assertEqual(diagnostics, [], diagnostics)
 
     def test_projection_repair_fixture_is_green(self) -> None:
         temp, root = self._copy_repo()

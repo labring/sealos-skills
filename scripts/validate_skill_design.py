@@ -105,6 +105,111 @@ def _projection_checks(root: Path, names: set[str]) -> list[DesignDiagnostic]:
     return diagnostics
 
 
+def _pointer_checks(root: Path, names: set[str]) -> list[DesignDiagnostic]:
+    """Validate directory and manifest pointers separately from explicit arrays."""
+
+    diagnostics: list[DesignDiagnostic] = []
+
+    codex, errors = _load_json(root, ".codex-plugin/plugin.json")
+    diagnostics.extend(errors)
+    if isinstance(codex, dict):
+        if codex.get("skills") != "./skills/":
+            diagnostics.append(_diag("pointer.invalid", root, root / ".codex-plugin/plugin.json", "Codex plugin must point to the canonical skills directory", field="skills", target=str(codex.get("skills"))))
+        elif not (root / "skills").is_dir():
+            diagnostics.append(_diag("pointer.missing", root, root / ".codex-plugin/plugin.json", "Codex skills directory pointer does not resolve", field="skills", target="./skills/"))
+
+    local_marketplace, errors = _load_json(root, ".agents/plugins/marketplace.json")
+    diagnostics.extend(errors)
+    local_source: Any = local_marketplace
+    try:
+        for key in ("plugins", 0, "source", "path"):
+            local_source = local_source[key] if not isinstance(key, int) else local_source[key]
+    except (KeyError, IndexError, TypeError):
+        diagnostics.append(_diag("pointer.malformed", root, root / ".agents/plugins/marketplace.json", "local Codex marketplace source path is missing", field="plugins[0].source.path"))
+    else:
+        if local_source != "./plugins/sealos":
+            diagnostics.append(_diag("pointer.invalid", root, root / ".agents/plugins/marketplace.json", "local Codex marketplace must point to ./plugins/sealos", field="plugins[0].source.path", target=str(local_source)))
+        link = root / "plugins/sealos"
+        if not link.is_symlink():
+            diagnostics.append(_diag("pointer.missing", root, link, "local Codex marketplace source must be a symlink", target="./plugins/sealos"))
+        elif link.resolve() != root.resolve():
+            diagnostics.append(_diag("pointer.invalid", root, link, "local Codex marketplace symlink must resolve to repository root", target=link.resolve().as_posix()))
+
+    openclaw, errors = _load_json(root, "openclaw.plugin.json")
+    diagnostics.extend(errors)
+    if isinstance(openclaw, dict):
+        if openclaw.get("source") != ".claude-plugin/plugin.json":
+            diagnostics.append(_diag("pointer.invalid", root, root / "openclaw.plugin.json", "OpenClaw must point to the Claude plugin manifest", field="source", target=str(openclaw.get("source"))))
+        if openclaw.get("commands") != ["./commands/"]:
+            diagnostics.append(_diag("pointer.invalid", root, root / "openclaw.plugin.json", "OpenClaw must expose the shared command directory", field="commands", target=str(openclaw.get("commands"))))
+        if openclaw.get("commandCount") != 1:
+            diagnostics.append(_diag("pointer.invalid", root, root / "openclaw.plugin.json", "OpenClaw commandCount must remain one", field="commandCount", target=str(openclaw.get("commandCount"))))
+        if "skills" in openclaw:
+            diagnostics.append(_diag("pointer.copied_tree", root, root / "openclaw.plugin.json", "OpenClaw pointer must not embed a copied skill list", field="skills"))
+        if not (root / ".claude-plugin/plugin.json").is_file():
+            diagnostics.append(_diag("pointer.missing", root, root / "openclaw.plugin.json", "OpenClaw source manifest does not exist", field="source", target=".claude-plugin/plugin.json"))
+
+    qoder, errors = _load_json(root, ".qoder-plugin/plugin.json")
+    diagnostics.extend(errors)
+    if isinstance(qoder, dict):
+        expected = _canonical_paths(names)
+        current = qoder.get("skills")
+        if not isinstance(current, list) or set(current) != expected or len(current) != len(expected):
+            diagnostics.append(_diag("pointer.qoder_inventory", root, root / ".qoder-plugin/plugin.json", "Qoder skill list must equal the derived physical inventory", field="skills"))
+        command = qoder.get("commands", {}).get("sealos") if isinstance(qoder.get("commands"), dict) else None
+        if not isinstance(command, dict) or command.get("source") != "./commands/sealos.md":
+            diagnostics.append(_diag("pointer.invalid", root, root / ".qoder-plugin/plugin.json", "Qoder command must point to commands/sealos.md", field="commands.sealos.source", target=str(command.get("source") if isinstance(command, dict) else None)))
+
+    return diagnostics
+
+
+def _parse_openai_scalars(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    in_interface = False
+    for raw_line in path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").splitlines():
+        if raw_line.strip() == "interface:":
+            in_interface = True
+            continue
+        if not in_interface:
+            continue
+        if raw_line and not raw_line.startswith((" ", "\t")):
+            in_interface = False
+            continue
+        line = raw_line.strip()
+        if not line or line.startswith("#") or ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1].strip()
+        values[key.strip()] = value
+    return values
+
+
+def _openai_metadata_checks(root: Path, names: set[str]) -> list[DesignDiagnostic]:
+    diagnostics: list[DesignDiagnostic] = []
+    for name in sorted(names):
+        relative = f"skills/{name}/agents/openai.yaml"
+        path = root / relative
+        if not path.is_file():
+            diagnostics.append(_diag("metadata.missing_openai", root, path, "OpenAI presentation metadata is missing", skill=name))
+            continue
+        try:
+            values = _parse_openai_scalars(path)
+        except OSError as exc:
+            diagnostics.append(_diag("metadata.unreadable_openai", root, path, str(exc), skill=name))
+            continue
+        display_name = values.get("display_name", "").strip()
+        if not display_name:
+            diagnostics.append(_diag("metadata.missing_display_name", root, path, "OpenAI display_name must be non-empty", field="interface.display_name", skill=name))
+        if not values.get("short_description", "").strip():
+            diagnostics.append(_diag("metadata.missing_short_description", root, path, "OpenAI short_description must be non-empty", field="interface.short_description", skill=name))
+        expected_prompt = f"${name}"
+        if expected_prompt not in values.get("default_prompt", ""):
+            diagnostics.append(_diag("metadata.prompt_missing_skill", root, path, f"OpenAI default_prompt must include {expected_prompt}", field="interface.default_prompt", target=expected_prompt, skill=name))
+    return diagnostics
+
+
 def _version_checks(root: Path) -> list[DesignDiagnostic]:
     canonical_payload, errors = _load_json(root, ".codex-plugin/plugin.json")
     diagnostics = list(errors)
@@ -233,6 +338,8 @@ def validate_design_system(root: Path) -> list[DesignDiagnostic]:
         diagnostics.extend(_convert_diagnostic(item) for item in exc.diagnostics)
     names = {entry.name for entry in entries}
     diagnostics.extend(_projection_checks(root, names))
+    diagnostics.extend(_pointer_checks(root, names))
+    diagnostics.extend(_openai_metadata_checks(root, names))
     diagnostics.extend(_version_checks(root))
     diagnostics.extend(_link_checks(root, entries))
     diagnostics.extend(_eval_checks(root, entries))

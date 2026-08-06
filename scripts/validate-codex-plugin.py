@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import sys
 from pathlib import Path
 
@@ -24,7 +25,6 @@ REPOSITORY_URL = "https://github.com/labring/sealos-skills"
 PLUGIN_ID = "sealos"
 PLUGIN_SELECTOR = "sealos@sealos"
 DISPLAY_LABEL = "Sealos"
-CURRENT_VERSION = "1.2.0"
 SKILLS_SOURCE = "./skills/"
 CODEX_MARKETPLACE_SOURCE = "./plugins/sealos"
 ROOT_MARKETPLACE_SOURCE = "./"
@@ -54,16 +54,6 @@ CLAUDE_EVIDENCE_FILES = (
     "marketplace.json",
     "commands/sealos.md",
 )
-QODER_SKILLS = (
-    "./skills/sealos-deploy",
-    "./skills/sealos-database",
-    "./skills/sealos-s3",
-    "./skills/sealos-canvas",
-    "./skills/sealos-app-builder",
-    "./skills/cloud-native-readiness",
-    "./skills/dockerfile-skill",
-    "./skills/docker-to-sealos",
-)
 QODER_COMMAND_SOURCE = "./commands/sealos.md"
 QODER_EVIDENCE_FILES = (
     ".qoder-plugin/plugin.json",
@@ -91,6 +81,37 @@ PLUGIN_PARITY_KEYS = (
     "skills",
     "interface",
 )
+
+
+def configure_root(root: Path) -> None:
+    """Rebind path projections so the validator can inspect a temporary checkout."""
+
+    global ROOT, ROOT_PLUGIN_PATH, PLUGIN_PATH, PLUGIN_SOURCE_LINK, MARKETPLACE_PATH
+    global ROOT_MARKETPLACE_PATH, CLAUDE_PLUGIN_PATH, CLAUDE_MARKETPLACE_PATH
+    global QODER_PLUGIN_PATH, QODER_CONTEXT_PATH, PLATFORMS_PATH, README_PATH
+    ROOT = root.resolve()
+    ROOT_PLUGIN_PATH = ROOT / "plugin.json"
+    PLUGIN_PATH = ROOT / ".codex-plugin" / "plugin.json"
+    PLUGIN_SOURCE_LINK = ROOT / "plugins" / "sealos"
+    MARKETPLACE_PATH = ROOT / ".agents" / "plugins" / "marketplace.json"
+    ROOT_MARKETPLACE_PATH = ROOT / "marketplace.json"
+    CLAUDE_PLUGIN_PATH = ROOT / ".claude-plugin" / "plugin.json"
+    CLAUDE_MARKETPLACE_PATH = ROOT / ".claude-plugin" / "marketplace.json"
+    QODER_PLUGIN_PATH = ROOT / ".qoder-plugin" / "plugin.json"
+    QODER_CONTEXT_PATH = ROOT / "qoder.md"
+    PLATFORMS_PATH = ROOT / "distribution" / "platforms.json"
+    README_PATH = ROOT / "README.md"
+
+
+def canonical_version() -> str:
+    """Load the sole package version from the Codex plugin manifest."""
+
+    try:
+        payload = json.loads(PLUGIN_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        fail(f"cannot load canonical version from {PLUGIN_PATH.relative_to(ROOT)}: {exc}")
+    require(isinstance(payload, dict) and isinstance(payload.get("version"), str) and bool(payload["version"]), "Codex manifest exposes a canonical version")
+    return payload["version"]
 
 
 def fail(message: str) -> None:
@@ -310,13 +331,11 @@ def require_qoder_plugin_contract(qoder_plugin: dict, codex_plugin: dict, qoder_
     require(qoder_plugin.get("version") == codex_plugin.get("version"), "Qoder plugin version matches Codex")
     require(qoder_plugin.get("repository") == REPOSITORY_URL, "Qoder plugin uses canonical repository URL")
     require(qoder_plugin.get("license") == "MIT", "Qoder plugin uses the canonical license")
-    require(tuple(skills) == QODER_SKILLS, "Qoder plugin exposes the complete Codex skill inventory")
-
     discovered_skills = {
         f"./{path.parent.relative_to(ROOT).as_posix()}"
         for path in (ROOT / "skills").glob("*/SKILL.md")
     }
-    require(set(skills) == discovered_skills, "Qoder plugin includes every root skill exactly once")
+    require(set(skills) == discovered_skills and len(skills) == len(discovered_skills), "Qoder plugin inventory includes every root skill exactly once")
     for index, skill_path in enumerate(skills):
         require_relative_path(skill_path, f"Qoder skills[{index}]")
         require((ROOT / skill_path[2:] / "SKILL.md").is_file(), f"Qoder skill has SKILL.md: {skill_path}")
@@ -328,15 +347,23 @@ def require_qoder_plugin_contract(qoder_plugin: dict, codex_plugin: dict, qoder_
     require(bool(sealos_command.get("description")), "Qoder /sealos command has a description")
     require(bool(sealos_command.get("argumentHint")), "Qoder /sealos command has an argument hint")
 
-    for skill_path in QODER_SKILLS:
+    for skill_path in sorted(discovered_skills):
         skill_name = Path(skill_path).name
         require(skill_name in qoder_context, f"qoder.md routes {skill_name}")
     require("/sealos" in qoder_context, "qoder.md names the Qoder command entry point")
 
 
-def require_platform_codex_contract(platforms: dict) -> None:
+def require_openclaw_pointer_contract(openclaw: dict) -> None:
+    require(openclaw.get("source") == ".claude-plugin/plugin.json", "OpenClaw points to the Claude plugin manifest")
+    require(openclaw.get("commands") == ["./commands/"], "OpenClaw uses the shared command directory")
+    require(openclaw.get("commandCount") == 1, "OpenClaw exposes one shared command")
+    require("skills" not in openclaw, "OpenClaw does not embed a copied skill tree")
+    require((ROOT / ".claude-plugin/plugin.json").is_file(), "OpenClaw source manifest exists")
+
+
+def require_platform_codex_contract(platforms: dict, version: str) -> None:
     require(platforms.get("name") == PLUGIN_ID, "platform registry uses canonical plugin id")
-    require(platforms.get("version") == CURRENT_VERSION, "platform registry version is current")
+    require(platforms.get("version") == version, "platform registry version matches Codex manifest")
     require(platforms.get("repository") == REPOSITORY_URL, "platform registry uses canonical repository URL")
     platform_entries = require_platform_entries(platforms)
     codex_entries = [platform for platform in platform_entries if platform.get("id") == CODEX_PLATFORM_ID]
@@ -392,7 +419,9 @@ def require_platform_qoder_contract(platforms: dict) -> None:
         require(evidence_file in evidence, f"Qoder platform evidence records {evidence_file}")
 
 
-def main() -> int:
+def validate(root: Path) -> int:
+    configure_root(root)
+    version = canonical_version()
     readme = read_text(README_PATH)
     root_plugin = load_json_object(ROOT_PLUGIN_PATH)
     plugin = load_json_object(PLUGIN_PATH)
@@ -402,6 +431,7 @@ def main() -> int:
     claude_marketplace = load_json_object(CLAUDE_MARKETPLACE_PATH)
     qoder_plugin = load_json_object(QODER_PLUGIN_PATH)
     qoder_context = read_text(QODER_CONTEXT_PATH)
+    openclaw = load_json_object(ROOT / "openclaw.plugin.json")
     platforms = load_json_object(PLATFORMS_PATH)
 
     require(README_PATH.is_file(), "README.md exists")
@@ -417,7 +447,7 @@ def main() -> int:
     require_plugin_source_link()
     require_plugin_payload(PLUGIN_SOURCE_LINK, "Codex marketplace source")
     require(plugin.get("name") == PLUGIN_ID, "Codex plugin name is sealos")
-    require(plugin.get("version") == CURRENT_VERSION, "Codex plugin version is current")
+    require(plugin.get("version") == version, "Codex plugin version matches canonical version")
     require(plugin.get("skills") == SKILLS_SOURCE, "Codex plugin points to root skills directory")
     require((ROOT / "skills").is_dir(), "skills directory exists")
 
@@ -438,12 +468,20 @@ def main() -> int:
     root_marketplace_entry = require_root_marketplace_contract(root_marketplace, plugin)
     require_claude_plugin_contract(claude_plugin, claude_marketplace, root_marketplace_entry)
     require_qoder_plugin_contract(qoder_plugin, plugin, qoder_context)
-    require_platform_codex_contract(platforms)
+    require_openclaw_pointer_contract(openclaw)
+    require_platform_codex_contract(platforms, version)
     require_platform_claude_contract(platforms)
     require_platform_qoder_contract(platforms)
 
     print("Sealos Codex, Claude Code, and Qoder plugin integration validation passed")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    args = parser.parse_args()
+    return validate(args.root)
 
 
 if __name__ == "__main__":
