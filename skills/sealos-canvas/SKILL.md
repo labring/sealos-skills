@@ -13,7 +13,7 @@ description: Run a local read-only HTML topology UI for a project already deploy
 
 ## Scope and Boundaries
 
-Require `.sealos/state.json` with `last_deploy`, `~/.sealos/kubeconfig`, and live read access. Use only read commands such as `kubectl get` and `kubectl config view`; never deploy, update, restart, patch, delete, or apply. Render sanitized resource metadata into `.sealos/canvas/index.html` and return `local_url`.
+Require `.sealos/state.json` with `last_deploy`, `~/.sealos/kubeconfig`, and live read access. Use only read commands such as `kubectl get` and `kubectl config view`; never deploy, update, restart, patch, delete, or apply. Render sanitized resource metadata into `.sealos/canvas/index.html` and return the exact local URL/cache and server-lifetime contract.
 
 ## Risk and Confirmation
 
@@ -30,16 +30,18 @@ Load `scripts/generate-canvas.mjs` and its owned template/reference paths only a
 ## Output, Stop, and Error States
 
 - `success`: `local_url`, `html_path`, app URL, node count, edge count, sanitized HTML/model, and server-lifetime evidence.
-- `stopped`: `not_deployed`, `kubeconfig_missing`, or unavailable read access with the exact safe next action; no HTML/server fallback.
-- `error`: generation or server-start path plus recovery action with secrets and kubeconfig redacted.
+- `stopped`: `not_deployed`, `kubeconfig_missing`, `kubectl_missing`, or unavailable read access with the exact safe next action, `server_lifetime.status: not_started`, and no HTML/server fallback.
+- `error`: generation or server-start path, sanitized diagnostic category, `server_lifetime`, and recovery action with secrets and kubeconfig redacted.
+
+Success with `--no-serve` returns `local_url: null` and `server_lifetime.status: not_started`; normal success returns `local_url` and `server_lifetime.status: running` with shutdown `SIGINT/SIGTERM or request end`.
 
 ## Handoffs
 
-Canvas consumes `target: none`, `inputArtifact: .sealos/state.json last_deploy plus sanitized live summaries`, `allowedAction: serve a temporary read-only loopback view`, `failureReturn: read-only generation/server diagnostic`, and `responseOwner: sealos-canvas`. A deploy response may include the returned link without granting Canvas mutation authority.
+Canvas consumes the typed direct-result tuple with `target: none`, `inputArtifact: .sealos/state.json last_deploy plus sanitized live summaries`, `allowedAction: serve a temporary read-only loopback view`, `failureReturn: sanitized read-only generation/server diagnostic`, and `responseOwner: sealos-canvas`. A deploy response may include the returned link without granting Canvas mutation authority.
 
 ## Verification
 
-Use `generate-canvas.mjs --no-serve`, the canvas evals, and baseline cases `canvas-positive-read-only-local-url` and `canvas-violating-missing-state-or-mutation`. Verify `127.0.0.1`, `local_url`, read-only commands, sanitized output, and explicit "Stop the server" behavior.
+Use `generate-canvas.mjs --no-serve`, the Canvas contract tests, the canvas evals, and baseline cases `canvas-positive-read-only-local-url` and `canvas-violating-missing-state-or-mutation`. Verify `127.0.0.1`, `local_url`, `html_path`, `server_lifetime`, read-only commands, sanitized output, and explicit "Stop the server" behavior.
 
 ## Overview
 

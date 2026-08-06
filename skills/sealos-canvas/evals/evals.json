@@ -44,6 +44,10 @@
           "description": "Returns ok=true with a http://127.0.0.1 local_url"
         },
         {
+          "name": "reports-server-lifetime",
+          "description": "Returns html_path, node_count, edge_count, and explicit server_lifetime evidence"
+        },
+        {
           "name": "renders-topology",
           "description": "Local UI contains resource nodes and connector edges"
         },
@@ -70,6 +74,10 @@
         {
           "name": "renders-secret-safely",
           "description": "Secret nodes show names and metadata only"
+        },
+        {
+          "name": "redacts-diagnostics",
+          "description": "Event and read-error messages omit credential-shaped values"
         }
       ]
     }
