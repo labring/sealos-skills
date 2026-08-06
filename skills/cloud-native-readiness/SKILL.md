@@ -13,7 +13,7 @@ description: Determine whether a repository contains a supported cloud workload,
 
 ## Scope and Boundaries
 
-Accept a local path or GitHub URL and inspect repository evidence. This entry assesses eligibility, readiness, and existing artifacts; it does not write project files or score an unsupported target. A Dockerfile handoff carries the readiness report as its input artifact and leaves packaging mutations to the receiving owner.
+Accept a local path or GitHub URL and inspect repository evidence. This entry assesses eligibility, readiness, and existing artifacts; it does not write project files or score an unsupported target. A standalone readiness request keeps its report in the request result and does not create `.sealos/analysis.json`; composed deploy orchestration may persist a sanitized handoff snapshot under its own contract. A Dockerfile handoff carries the readiness report as its input artifact and leaves packaging mutations to the receiving owner.
 
 ## Risk and Confirmation
 
@@ -21,7 +21,7 @@ Load `knowledge/deployment-eligibility.md` before scoring. An unsupported or unr
 
 ## Lifecycle Workflow
 
-For each request, select the repository, run eligibility, assess eligible targets, detect Docker artifacts, and route only when the decision matrix allows it. The request ends with `success`, `stopped`, or `error`; the existing three-phase Assess → Detect → Route workflow remains the domain extension below.
+For each request, select the repository, run eligibility, assess eligible targets, detect Docker artifacts, and route only when the decision matrix allows it. The request ends with `success`, `stopped`, or `error`; each result carries the selected source, workload type, redaction status, and the strongest evidence reached. The existing three-phase Assess → Detect → Route workflow remains the domain extension below.
 
 ## Progressive Disclosure
 
@@ -29,17 +29,54 @@ Load `modules/assess.md`, `modules/detect.md`, and `modules/route.md` one level 
 
 ## Output, Stop, and Error States
 
-- `success`: eligibility, score, dimensions, artifact inventory, recommendation, and any typed handoff evidence are present.
-- `stopped`: workload type, reason codes, observed evidence, and the safe next action are present; no downstream artifact is claimed.
-- `error`: the failed source, phase, or helper and its recovery action are named with sensitive values redacted.
+- `success`: selected source, eligible workload type, score dimensions, artifact inventory, concerns, recommendation, verification evidence, and any typed handoff are present.
+- `stopped`: selected source, workload type, eligibility or confirmation reason codes, observed evidence, redaction result, and safe next action are present; no downstream artifact is claimed.
+- `error`: selected source, failed phase/helper or artifact, sanitized diagnostic, redaction result, and recovery action are present.
 
 ## Handoffs
 
-When eligible and the route requires packaging, send `target: dockerfile-skill`, `inputArtifact: readiness report`, `allowedAction: generate Docker packaging`, `failureReturn: readiness findings and failed route condition`, and `responseOwner: cloud-native-readiness` for an assessment-only request. The receiving skill re-checks its own scope and canaries.
+When eligible and the route requires packaging, send the complete typed handoff below for an assessment-only request. The receiving skill re-checks its own scope and canaries.
+
+```yaml
+target: dockerfile-skill
+inputArtifact: readiness report with source, workload, score, dimensions, concerns, and artifact inventory
+allowedAction: generate Docker packaging within the receiving skill's owned file scope
+failureReturn: readiness findings and the failed route condition
+responseOwner: cloud-native-readiness
+```
 
 ## Verification
 
 Use `workload-eligibility.mjs`, `score-model.mjs`, the current readiness eval evidence, and the baseline traces `readiness-positive-eligible` and `readiness-violating-ineligible`. Verify eligibility before score/build, preserve report fields, and redact credential-shaped values.
+
+## Readiness Report Contract
+
+Keep this payload request-scoped and repository-relative. A downstream handoff may reuse it without repeating discovery.
+
+```yaml
+source:
+  kind: local-path | github-url
+  display: redacted repository identifier
+workload:
+  type: server | static-web | worker | scheduled-job | reviewed-remote-desktop | unresolved
+  eligibility: eligible | ineligible | needs_review
+assessment:
+  score: 0-12 or null when stopped
+  dimensions: six named scores when eligible
+  concerns: redacted findings
+artifacts:
+  status: complete | partial | none
+  inventory: repository-relative paths and quality observations
+recommendation: report-only | package | remediate | stop
+verification:
+  helper: eligibility and/or scoring helper invoked
+  evidence: observed result and redaction status
+handoff: typed tuple or none
+terminal_state: success | stopped | error
+safe_next_action: request-scoped next action
+```
+
+The payload never contains passwords, tokens, kubeconfig contents, environment values, or complete connection strings.
 
 ## Overview
 

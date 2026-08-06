@@ -21,6 +21,11 @@ Do not inspect Docker artifacts, calculate a score, or invoke `dockerfile-skill`
 before eligibility passes. Keep the decision in memory; do not create a project
 artifact for it.
 
+Record the eligibility result as the first field of the request-scoped report:
+`workload.type`, `workload.eligibility`, `reason_codes`, `observed_evidence`,
+`safe_next_action`, and `redaction.ok`. A stopped or error result carries these
+fields without a score or downstream artifact claim.
+
 ## Pre-Assessment: Fast-Track Rules
 
 Before running the full 6-dimension assessment, check these fast-track rules derived
@@ -90,6 +95,11 @@ project:
       path: "apps/cms"
       type: "Web application"
 ```
+
+When the gate passes, merge the project description into the readiness report
+without copying source paths, environment values, or credential-shaped values.
+The report keeps the six dimension scores, concerns, and recommendation for the
+downstream route.
 
 ### Step 2: Assess Statelessness (0-2 points)
 
