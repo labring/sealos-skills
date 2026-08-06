@@ -34,8 +34,8 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 ### Runtime Evidence and Output Design
 
 - [ ] **SDS-12**: Entry refactors preserve existing artifacts, phase order, authentication, confirmation gates, cleanup expectations, runtime verification, host semantics, and branch-specific behavior for the current workflows.
-- [ ] **SDS-D01**: Terminal outputs include the strongest available evidence for the domain, such as an actual App URL and live identity, sanitized resource footprint, connection proof, object round trip, report path, or local Canvas URL.
-- [ ] **SDS-D03**: Existing readiness, build, template, deployment-state, and Canvas handoffs use minimal typed payloads that carry evidence and prevent repeated discovery.
+- [x] **SDS-D01**: Terminal outputs include the strongest available evidence for the domain, such as an actual App URL and live identity, sanitized resource footprint, connection proof, object round trip, report path, or local Canvas URL.
+- [x] **SDS-D03**: Existing readiness, build, template, deployment-state, and Canvas handoffs use minimal typed payloads that carry evidence and prevent repeated discovery.
 - [x] **SDS-D06**: Skills share terminal-state and evidence vocabulary while retaining domain-specific output fields for deployment, data services, conversion, Canvas, and Desktop app development.
 
 ## v2 Requirements
@@ -88,8 +88,8 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | SDS-D04 | Phase 6 | Complete |
 | SDS-D02 | Phase 7 | Complete |
 | SDS-12 | Phase 12 | Pending |
-| SDS-D01 | Phase 10 | Pending |
-| SDS-D03 | Phase 10 | Pending |
+| SDS-D01 | Phase 10 | Complete |
+| SDS-D03 | Phase 10 | Complete |
 | SDS-D06 | Phase 9 | Complete |
 
 **Coverage:**

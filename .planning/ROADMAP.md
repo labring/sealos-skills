@@ -41,7 +41,7 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 - [x] **Phase 7: Host Adapter and Public Surface Alignment** - Align every host projection and risk-aware route around the eight canonical skills. (completed 2026-08-06)
 - [x] **Phase 8: Dependency Skill Entry Refactors** - Focus readiness, Dockerfile, and Compose conversion entries while preserving their handoff and quality-gate contracts. (completed 2026-08-06)
 - [x] **Phase 9: Service and Adjacent Skill Entry Refactors** - Focus database, S3, Canvas, and Desktop app entries around their risk classes and evidence outputs. (completed 2026-08-06)
-- [ ] **Phase 10: Deploy Orchestration and Runtime Truth** - Refactor the composite deploy entry around typed inputs and verified live outcomes.
+- [x] **Phase 10: Deploy Orchestration and Runtime Truth** - Refactor the composite deploy entry around typed inputs and verified live outcomes. (completed 2026-08-06)
 - [ ] **Phase 11: Behavior Evals, Deterministic Grader, and Maintainer Gate** - Give all eight skills executable behavior coverage and one documented local gate.
 - [ ] **Phase 12: Branch Policy, Documentation, and Release Audit** - Prove preservation and publish aligned, adapted, and excluded change evidence.
 
@@ -184,10 +184,10 @@ Plans:
 
 Plans:
 
-- [ ] 10-01: Refocus the deploy entry around the composite phase map, preflight gates, and owned `.sealos` artifacts.
-- [ ] 10-02: Wire typed readiness, Dockerfile, and template handoffs into the deploy pipeline (depends on Phase 8 and 09-04 handoff contracts).
-- [ ] 10-03: Preserve auth, kubeconfig, tool-install, confirmation, cleanup, rollback, and branch-specific behavior while moving verbose detail into owned modules (depends on 10-01 and 10-02).
-- [ ] 10-04: Run Runtime Truth, footprint, log, live-smoke, and Canvas handoff checks against the preserved workflow (depends on 10-03).
+- [x] 10-01: Refocus the deploy entry around the composite phase map, preflight gates, and owned `.sealos` artifacts.
+- [x] 10-02: Wire typed readiness, Dockerfile, and template handoffs into the deploy pipeline (depends on Phase 8 and 09-04 handoff contracts).
+- [x] 10-03: Preserve auth, kubeconfig, tool-install, confirmation, cleanup, rollback, and branch-specific behavior while moving verbose detail into owned modules (depends on 10-01 and 10-02).
+- [x] 10-04: Run Runtime Truth, footprint, log, live-smoke, and Canvas handoff checks against the preserved workflow (depends on 10-03).
 
 **Research flag**: Deep research recommended for live runtime evidence, disposable-account and cleanup authority, and the exact boundary between `main` full deploy behavior and preview prepare-only behavior.
 
@@ -279,6 +279,6 @@ Phases execute in numeric order: 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 | 7. Host Adapter and Public Surface Alignment | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 8. Dependency Skill Entry Refactors | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 9. Service and Adjacent Skill Entry Refactors | v1.1 | 4/4 | Complete    | 2026-08-06 |
-| 10. Deploy Orchestration and Runtime Truth | v1.1 | 0/4 | Not started | - |
+| 10. Deploy Orchestration and Runtime Truth | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 11. Behavior Evals, Deterministic Grader, and Maintainer Gate | v1.1 | 0/4 | Not started | - |
 | 12. Branch Policy, Documentation, and Release Audit | v1.1 | 0/4 | Not started | - |
