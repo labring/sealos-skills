@@ -21,7 +21,22 @@ Keep buckets private by default. Ask before public policy, credential rotation f
 
 ## Lifecycle Workflow
 
-For each request, resolve the project, analyze storage need, authenticate and select a workspace, list before create/reuse, wire existing keys, prove an authenticated upload/read or presign path, and report cleanup state. Emit request-scoped `success`, `stopped`, or `error`; the existing private-first workflow remains the domain extension below.
+For each request, resolve the project, analyze storage need, confirm CLI/auth/region/workspace, list before create/reuse, wait for credential readiness, wire existing keys, prove an authenticated upload/read or presign path, clean temporary objects, and report policy state. Emit request-scoped `success`, `stopped`, or `error`; the existing private-first workflow remains the domain extension below. Workspace ambiguity, missing credential readiness, or a tracked env target stops the request before mutation.
+
+## Request Contract
+
+```yaml
+input:
+  project: local path or repository source
+  intent: bucket purpose, object path, and sharing requirement
+  policy: private by default; publicRead/publicReadwrite only after confirmation
+preconditions:
+  - analyzer evidence identifies the storage adapter and env keys
+  - sealos-cli/auth/region/workspace are resolved
+  - bucket list and credential status are available
+```
+
+The ordered action is `analyze -> resolve account/workspace -> list -> create or reuse -> wait for secret -> wire -> object-flow -> cleanup`. Bucket identity, policy, namespace, and env mutation remain request-scoped.
 
 ## Progressive Disclosure
 
@@ -29,13 +44,23 @@ Load analyzer, bucket, policy, credential, object-flow, and cleanup procedures o
 
 ## Output, Stop, and Error States
 
-- `success`: bucket identity/policy/readiness, env key names, authenticated object or presign proof, and redacted cleanup state.
-- `stopped`: public policy, rotation, or destructive confirmation boundary with the safe private/presign alternative; no gated operation is claimed.
-- `error`: analyzer, CLI, policy, object, or env-write step plus recovery action with credentials and connection values redacted.
+- `success`: bucket identity/policy/readiness, workspace, env key names, authenticated object or presign proof, cleanup state, and redaction status.
+- `stopped`: ambiguous workspace, unavailable credential readiness, tracked env target, public policy, rotation, replacement, or destructive confirmation boundary with the safe private/presign alternative; no gated operation is claimed.
+- `error`: analyzer, CLI, policy, credential, object, or env-write step, sanitized diagnostic category, affected artifact, and recovery action with credentials, endpoints, and connection values redacted.
 
 ## Handoffs
 
-An optional deployment handoff uses `target: sealos-deploy`, `inputArtifact: private bucket identity, policy, and redacted env-key contract`, `allowedAction: consume approved ObjectStorageBucket/Secret wiring`, `failureReturn: analyzer/CLI/policy/object diagnostics`, and `responseOwner: sealos-s3` for direct requests.
+An optional deployment handoff uses the complete tuple below. The receiver re-checks deployment scope and runtime evidence.
+
+```yaml
+target: sealos-deploy
+inputArtifact: private bucket identity, policy, approved env-key contract, credential-readiness state, and object-flow proof
+allowedAction: consume approved ObjectStorageBucket/Secret wiring within the selected deployment scope
+failureReturn: sanitized analyzer, CLI, policy, credential, object, or env diagnostic with the failed phase
+responseOwner: sealos-s3
+```
+
+Direct S3 requests use `target: none` and keep the same evidence fields.
 
 ## Verification
 
