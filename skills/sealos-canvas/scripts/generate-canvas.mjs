@@ -46,7 +46,14 @@ function main() {
       return printStop('kubectl_missing', 'kubectl is required to view deployed Sealos resources. Install kubectl, then run /sealos-canvas again.')
     }
 
-    resources = readLiveResources({ kubectl, kubeconfig, namespace: lastDeploy.namespace })
+    const liveRead = readLiveResources({ kubectl, kubeconfig, namespace: lastDeploy.namespace })
+    if (liveRead.readErrors.length > 0) {
+      return printStop(
+        'read_access_unavailable',
+        `Unable to read deployed Sealos resources: ${liveRead.readErrors.join('; ')}`
+      )
+    }
+    resources = liveRead.resources
   }
 
   const theme = extractTheme(workDir)
@@ -193,6 +200,7 @@ function findKubectl() {
 function readLiveResources({ kubectl, kubeconfig, namespace }) {
   const env = { ...process.env, KUBECONFIG: kubeconfig }
   const resources = {}
+  const readErrors = []
 
   for (const kind of SAFE_RESOURCE_KINDS) {
     try {
@@ -203,14 +211,19 @@ function readLiveResources({ kubectl, kubeconfig, namespace }) {
       )
       resources[toResourceKey(kind)] = JSON.parse(stdout)
     } catch (error) {
-      resources[toResourceKey(kind)] = { apiVersion: 'v1', items: [], error: readableExecError(error) }
+      const diagnostic = readableExecError(error)
+      resources[toResourceKey(kind)] = { apiVersion: 'v1', items: [], error: diagnostic }
+      readErrors.push(`${kind}: ${diagnostic}`)
     }
   }
 
   resources.configmaps = readConfigMapSummaries({ kubectl, env, namespace })
-  resources.secrets = readSecretSummaries({ kubectl, env, namespace })
+  if (resources.configmaps.error) readErrors.push(`configmap: ${resources.configmaps.error}`)
 
-  return resources
+  resources.secrets = readSecretSummaries({ kubectl, env, namespace })
+  if (resources.secrets.error) readErrors.push(`secret: ${resources.secrets.error}`)
+
+  return { resources, readErrors }
 }
 
 function readConfigMapSummaries({ kubectl, env, namespace }) {

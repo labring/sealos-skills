@@ -78,6 +78,20 @@ function run(workDir, fixturePath) {
   return JSON.parse(result.stdout)
 }
 
+function runLive(workDir, homeDir, pathValue) {
+  const result = spawnSync(process.execPath, [SCRIPT, '--work-dir', workDir, '--no-serve'], {
+    env: {
+      ...process.env,
+      HOME: homeDir,
+      PATH: pathValue,
+      SEALOS_CANVAS_KUBE_FIXTURE: ''
+    },
+    encoding: 'utf8'
+  })
+  assert.equal(result.status, 0, result.stderr)
+  return JSON.parse(result.stdout)
+}
+
 function testMissingStateStops() {
   const workDir = makeWorkDir(false)
   try {
@@ -111,6 +125,30 @@ function testFixtureGeneratesSanitizedCanvas() {
   }
 }
 
+function testReadAccessStopsBeforeGeneration() {
+  const workDir = makeWorkDir(true)
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sealos-canvas-home-'))
+  const binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sealos-canvas-bin-'))
+  const kubectlPath = path.join(binDir, 'kubectl')
+  fs.mkdirSync(path.join(homeDir, '.sealos'), { recursive: true })
+  fs.writeFileSync(path.join(homeDir, '.sealos', 'kubeconfig'), 'apiVersion: v1\n')
+  fs.writeFileSync(kubectlPath, '#!/bin/sh\ncase "$1" in\n  version) exit 0 ;;\n  *) printf "password=SHOULD_NOT_RENDER_SECRET\\n" >&2; exit 1 ;;\nesac\n')
+  fs.chmodSync(kubectlPath, 0o755)
+
+  try {
+    const result = runLive(workDir, homeDir, `${binDir}:${process.env.PATH || ''}`)
+    assert.equal(result.ok, false)
+    assert.equal(result.reason, 'read_access_unavailable')
+    assert.equal(result.server_lifetime.status, 'not_started')
+    assert.doesNotMatch(result.message, /SHOULD_NOT_RENDER_SECRET/)
+    assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'canvas', 'index.html')), false)
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true })
+    fs.rmSync(homeDir, { recursive: true, force: true })
+    fs.rmSync(binDir, { recursive: true, force: true })
+  }
+}
+
 function testSourceHasReadOnlyCommands() {
   const source = fs.readFileSync(SCRIPT, 'utf8')
   assert.doesNotMatch(source, /\b(?:apply|patch|delete|rollout|set image)\b/i)
@@ -118,5 +156,6 @@ function testSourceHasReadOnlyCommands() {
 
 testMissingStateStops()
 testFixtureGeneratesSanitizedCanvas()
+testReadAccessStopsBeforeGeneration()
 testSourceHasReadOnlyCommands()
-console.log('Canvas contract tests passed (3 cases).')
+console.log('Canvas contract tests passed (4 cases).')
