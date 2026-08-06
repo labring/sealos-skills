@@ -3,10 +3,11 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Skill Design System Optimization
 status: planning
-last_updated: "2026-08-06T03:06:48.069Z"
+last_updated: "2026-08-06T06:31:49.889Z"
 last_activity: 2026-08-06
+last_activity_desc: v1.1 roadmap approved; Phase 5 ready for discussion
 progress:
-  total_phases: 0
+  total_phases: 8
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-06)
 
 **Core value:** AI agents can reliably select and execute the right Sealos workflow with preserved safety, runtime truth, and host-consistent behavior.
-**Current focus:** Define and roadmap the v1.1 skill design system optimization.
+**Current focus:** Phase 5 — Baseline, Ownership, and Shared Contract
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 5 — Baseline, Ownership, and Shared Contract
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-06 — Milestone v1.1 started
+Status: Ready for phase discussion
+Last activity: 2026-08-06 — v1.1 roadmap approved
 
 ## Performance Metrics
 
@@ -49,6 +50,14 @@ Last activity: 2026-08-06 — Milestone v1.1 started
 | 02 | 2 | - | - |
 | 03 | 1 | - | - |
 | 04 | 2 | - | - |
+| 05 | 0/TBD | - | - |
+| 06 | 0/TBD | - | - |
+| 07 | 0/TBD | - | - |
+| 08 | 0/TBD | - | - |
+| 09 | 0/TBD | - | - |
+| 10 | 0/TBD | - | - |
+| 11 | 0/TBD | - | - |
+| 12 | 0/TBD | - | - |
 
 **Recent Trend:**
 
@@ -69,6 +78,11 @@ Last activity: 2026-08-06 — Milestone v1.1 started
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
+
+- [v1.1 Roadmap]: Physical `skills/` entry files are the canonical inventory and behavior source; `commands/sealos.md` is the broad routing source; host files are projections.
+- [v1.1 Roadmap]: The v1.1 execution order is Phase 5 baseline and contract, Phase 6 inventory and validator, Phase 7 adapters, Phase 8 dependency entries, Phase 9 service entries, Phase 10 deploy, Phase 11 behavior gate, and Phase 12 release audit.
+- [v1.1 Roadmap]: Load-bearing Sealos safety, runtime, artifact, and branch-specific contracts remain entry-visible and authoritative during design refactors.
+- [v1.1 Roadmap]: A second hand-maintained inventory, Ponytail runtime modes, universal line caps, universal output JSON, host behavior forks, and required network benchmarks remain outside v1.1.
 
 - [Roadmap]: Use 4 coarse MVP phases: native marketplace discovery, README and metadata alignment, validator hardening, install smoke and handoff.
 - [Roadmap]: Keep root `skills/**` as the single canonical skill source across Codex and other hosts.
@@ -118,9 +132,10 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-08-06
-Stopped at: Defining v1.1 requirements
+Stopped at: v1.1 roadmap approval; Phase 5 ready for discussion
 Resume file: None
 
 ## Operator Next Steps
 
-- Complete v1.1 research, requirements, and roadmap definition.
+- Discuss Phase 5 context, then create its execution plan.
+- Use `$gsd-discuss-phase 5` for clarification or `$gsd-plan-phase 5` for direct planning.

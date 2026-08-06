@@ -72,32 +72,32 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SDS-01 | TBD | Pending |
-| SDS-02 | TBD | Pending |
-| SDS-03 | TBD | Pending |
-| SDS-04 | TBD | Pending |
-| SDS-05 | TBD | Pending |
-| SDS-06 | TBD | Pending |
-| SDS-07 | TBD | Pending |
-| SDS-08 | TBD | Pending |
-| SDS-09 | TBD | Pending |
-| SDS-D05 | TBD | Pending |
-| REL-01 | TBD | Pending |
-| SDS-10 | TBD | Pending |
-| SDS-11 | TBD | Pending |
-| SDS-D04 | TBD | Pending |
-| SDS-D02 | TBD | Pending |
-| SDS-12 | TBD | Pending |
-| SDS-D01 | TBD | Pending |
-| SDS-D03 | TBD | Pending |
-| SDS-D06 | TBD | Pending |
+| SDS-01 | Phase 5 | Pending |
+| SDS-02 | Phase 7 | Pending |
+| SDS-03 | Phase 5 | Pending |
+| SDS-04 | Phase 9 | Pending |
+| SDS-05 | Phase 5 | Pending |
+| SDS-06 | Phase 8 | Pending |
+| SDS-07 | Phase 11 | Pending |
+| SDS-08 | Phase 8 | Pending |
+| SDS-09 | Phase 6 | Pending |
+| SDS-D05 | Phase 7 | Pending |
+| REL-01 | Phase 12 | Pending |
+| SDS-10 | Phase 11 | Pending |
+| SDS-11 | Phase 11 | Pending |
+| SDS-D04 | Phase 6 | Pending |
+| SDS-D02 | Phase 7 | Pending |
+| SDS-12 | Phase 12 | Pending |
+| SDS-D01 | Phase 10 | Pending |
+| SDS-D03 | Phase 10 | Pending |
+| SDS-D06 | Phase 9 | Pending |
 
 **Coverage:**
 
 - v1 requirements: 19 total
-- Mapped to phases: 0
-- Unmapped: 19 (roadmap assignment pending)
+- Mapped to phases: 19
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-06*
-*Last updated: 2026-08-06 after user confirmation*
+*Last updated: 2026-08-06 after roadmap approval*

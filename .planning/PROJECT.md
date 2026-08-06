@@ -85,9 +85,11 @@ Relevant current files:
 | Prioritize Codex marketplace commands for Codex users | Codex users should see Codex-native commands before cross-host installer syntax | ✓ Good |
 | Keep `npx plugins add` documented as a compatibility/local path | The repo already supports it and it remains useful for local testing | ✓ Good |
 | Keep root `skills/**` as the only skill source | Existing architecture depends on one canonical skill tree across hosts | ✓ Good |
-| Use Ponytail as a design-mechanism reference | Its source ownership, focused skills, adapters, and behavior tests transfer cleanly while Sealos retains domain semantics | — Pending |
-| Cover all eight skills and supported host adapters in v1.1 | A partial rollout would leave routing, inventory, and design contracts inconsistent | — Pending |
-| Continue roadmap numbering at Phase 5 | v1.1 extends the completed four-phase v1.0 milestone | — Pending |
+| Use Ponytail as a design-mechanism reference | Its source ownership, focused skills, adapters, and behavior tests transfer cleanly while Sealos retains domain semantics | ✓ Approved |
+| Cover all eight skills and supported host adapters in v1.1 | Full coverage keeps routing, inventory, and design contracts consistent | ✓ Approved |
+| Continue roadmap numbering at Phase 5 | v1.1 extends the completed four-phase v1.0 milestone | ✓ Approved |
+| Keep `skills/` and `commands/sealos.md` as the two owned sources | Physical skill entries own behavior and the unified router owns broad intent routing; host files remain projections | ✓ Approved |
+| Sequence v1.1 from baseline through release audit | Dependency order keeps safety, handoffs, and deploy runtime truth stable during entry refactors | ✓ Approved |
 
 ## Evolution
 
@@ -107,4 +109,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-08-06 after starting milestone v1.1*
+*Last updated: 2026-08-06 after v1.1 roadmap approval*
