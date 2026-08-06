@@ -5,6 +5,42 @@ description: Convert Docker Compose files or installation docs into production-g
 
 # Docker to Sealos Template Converter
 
+## Identity and Discovery
+
+- **Owner:** `docker-to-sealos` (`/docker-to-sealos` and Compose, install-doc, or Sealos template conversion requests).
+- **Class:** `local-artifact-mutation` with a validated template handoff to `sealos-deploy`.
+- **Canaries:** `DTS-RULE-PRECEDENCE`, `DTS-MUST-MAP`, and `DTS-QUALITY-GATE`.
+
+## Scope and Boundaries
+
+Accept Docker Compose or installation documentation and write the existing template artifact under `template/<app>/index.yaml` plus owned evidence. Do not perform a live cloud mutation. Keep the rule source, database topology, resource order, declared inputs, and secret boundaries inside this skill.
+
+## Risk and Confirmation
+
+The governance order remains entry MUST rules, Sealos specs/database templates, then mappings/examples. `references/must-rules-map.yaml` and `references/rules-registry.yaml` are coupled load-bearing sources. Public exposure, destructive changes, credential changes, and system-tool installation retain explicit confirmation; generated values and connection data remain redacted.
+
+## Lifecycle Workflow
+
+For each request, analyze input, infer metadata, plan resources, apply conversion rules, validate the final artifact, and hand off only after the complete quality gate passes. Emit request-scoped `success`, `stopped`, or `error`; the existing analysis → inference → resource planning → conversion workflow remains the domain extension below.
+
+## Progressive Disclosure
+
+Load the relevant owned reference family one level deep after the core canaries are visible. Preserve the MUST-map and rules-registry coupling, rule precedence, and existing validator scripts; do not replace them with a generic converter or `railpack build` path.
+
+## Output, Stop, and Error States
+
+- `success`: final Template YAML, conversion summary, declared inputs, and consistency/MUST-map/quality-gate evidence.
+- `stopped`: missing input or confirmation boundary with the safe next action; do not hand off an unvalidated artifact.
+- `error`: failed rule, registry, topology, artifact, or quality gate with recovery action and redacted diagnostics.
+
+## Handoffs
+
+Send `target: sealos-deploy`, `inputArtifact: final template plus validator evidence`, `allowedAction: deploy after required inputs and gates`, `failureReturn: failed rule/artifact diagnostics`, and `responseOwner: docker-to-sealos` for direct conversion. Deploy re-checks its own auth, scope, and Runtime Truth gates.
+
+## Verification
+
+Run consistency, MUST coverage, and `quality_gate.py` against the exact final template. Use baseline cases `docker-to-sealos-positive-quality-gate` and `docker-to-sealos-violating-missing-rule`; missing registry/MUST evidence blocks deployment.
+
 ## Overview
 
 Convert Docker Compose files or installation docs into production-grade Sealos templates.

@@ -5,6 +5,42 @@ description: Build, adapt, and document apps that run inside Sealos Desktop usin
 
 # Sealos App Builder
 
+## Identity and Discovery
+
+- **Owner:** `sealos-app-builder` (`/sealos-app-builder` and Sealos Desktop app, SDK, iframe, tutorial, or publish requests).
+- **Class:** `local-artifact-mutation` for app/docs work, with a verified app handoff to `sealos-deploy` when requested.
+- **Canaries:** `APP-CODE-TUTORIAL`, `APP-SDK-SOURCE`, `APP-DESKTOP-VERIFY`, and `APP-PUBLISH-HANDOFF`.
+
+## Scope and Boundaries
+
+Classify create, adapt, identity integration, or tutorial work before editing. Inspect local SDK sources and provider apps first; keep SDK initialization client-only, business data in the app, and outside-Desktop fallback behavior explicit. Owned outputs are project code, package metadata, and tutorials; publishing is claimed only after Desktop evidence.
+
+## Risk and Confirmation
+
+Use the official SDK package when local sources are unavailable and follow the existing installation/tool confirmation boundary. Keep session, auth, database, and environment values redacted. A tutorial result does not claim code integration, and a browser-only render does not prove Desktop iframe readiness.
+
+## Lifecycle Workflow
+
+For each request, identify the branch, inspect sources, integrate the SDK and identity, verify the real Desktop iframe when relevant, and prepare the publish handoff. Emit request-scoped `success`, `stopped`, or `error`; the existing create/adapt/integration/tutorial workflow remains the domain extension below.
+
+## Progressive Disclosure
+
+Load only the branch-specific references (`minimal-app-template`, framework placement, data integration, local test app, or publish checklist) after the entry boundary is selected. Preserve the real SDK surface and avoid server-side SDK calls.
+
+## Output, Stop, and Error States
+
+- `success`: branch-specific source/tutorial output, SDK/session/language wiring, outside-Desktop fallback, and real Desktop/publish evidence when claimed.
+- `stopped`: code-versus-tutorial ambiguity or missing Desktop verification with the safe next action; no publish claim.
+- `error`: SDK source/package mismatch, session/runtime, or publish prerequisite failure with recovery action and redacted diagnostics.
+
+## Handoffs
+
+Send `target: sealos-deploy`, `inputArtifact: verified app source and Desktop/publish evidence`, `allowedAction: deploy after app verification`, `failureReturn: SDK, iframe, or publish prerequisite diagnostics`, and `responseOwner: sealos-app-builder` for direct requests. The deploy owner re-checks its own runtime gates.
+
+## Verification
+
+Use the real Desktop iframe checklist and baseline cases `app-builder-positive-sdk-iframe-publish` and `app-builder-violating-tutorial-or-missing-desktop`. Verify client-only SDK initialization, session identity mapping, language sync, fallback, and publish prerequisites without exposing session values.
+
 ## Overview
 
 Use this skill to turn a generic web app into a Sealos app that runs inside Sealos Desktop, or to scaffold a new Sealos app from scratch. Focus on the repeatable parts: SDK initialization, session access, language sync, business-data integration, local debugging through a Desktop test app, and publish readiness.

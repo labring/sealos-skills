@@ -5,6 +5,42 @@ description: Determine whether a repository contains a supported cloud workload,
 
 # Cloud Native Readiness Assessment Skill
 
+## Identity and Discovery
+
+- **Owner:** `cloud-native-readiness` (`/cloud-native-readiness` and readiness, containerization, deployment-feasibility, or workload-eligibility requests).
+- **Class:** `read-only-observation` with a typed handoff to `dockerfile-skill` only after eligibility and route evidence pass.
+- **Canaries:** `CNR-ELIGIBILITY-STOP` and `CNR-ROUTE-HANDOFF`.
+
+## Scope and Boundaries
+
+Accept a local path or GitHub URL and inspect repository evidence. This entry assesses eligibility, readiness, and existing artifacts; it does not write project files or score an unsupported target. A Dockerfile handoff carries the readiness report as its input artifact and leaves packaging mutations to the receiving owner.
+
+## Risk and Confirmation
+
+Load `knowledge/deployment-eligibility.md` before scoring. An unsupported or unresolved workload stops before artifact detection, scoring, Dockerfile generation, or deployment. Keep source paths, environment values, and any credentials redacted in the report; preserve the current fail-closed eligibility boundary.
+
+## Lifecycle Workflow
+
+For each request, select the repository, run eligibility, assess eligible targets, detect Docker artifacts, and route only when the decision matrix allows it. The request ends with `success`, `stopped`, or `error`; the existing three-phase Assess → Detect → Route workflow remains the domain extension below.
+
+## Progressive Disclosure
+
+Load `modules/assess.md`, `modules/detect.md`, and `modules/route.md` one level deep when their phase is reached. Load the deployment-eligibility knowledge before the first score. Do not load Dockerfile detail or invoke the handoff after an eligibility stop.
+
+## Output, Stop, and Error States
+
+- `success`: eligibility, score, dimensions, artifact inventory, recommendation, and any typed handoff evidence are present.
+- `stopped`: workload type, reason codes, observed evidence, and the safe next action are present; no downstream artifact is claimed.
+- `error`: the failed source, phase, or helper and its recovery action are named with sensitive values redacted.
+
+## Handoffs
+
+When eligible and the route requires packaging, send `target: dockerfile-skill`, `inputArtifact: readiness report`, `allowedAction: generate Docker packaging`, `failureReturn: readiness findings and failed route condition`, and `responseOwner: cloud-native-readiness` for an assessment-only request. The receiving skill re-checks its own scope and canaries.
+
+## Verification
+
+Use `workload-eligibility.mjs`, `score-model.mjs`, the current readiness eval evidence, and the baseline traces `readiness-positive-eligible` and `readiness-violating-ineligible`. Verify eligibility before score/build, preserve report fields, and redact credential-shaped values.
+
 ## Overview
 
 This skill evaluates a repository's readiness for cloud-native microservice deployment through a 3-phase workflow:

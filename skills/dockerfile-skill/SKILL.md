@@ -5,6 +5,42 @@ description: Generate production-ready Dockerfile for any GitHub project. Suppor
 
 # Dockerfile Generator Skill
 
+## Identity and Discovery
+
+- **Owner:** `dockerfile-skill` (`/dockerfile` and Dockerfile, containerize, build-fix, or Docker build requests).
+- **Class:** `local-artifact-mutation` with a validated packaging handoff to `sealos-deploy`.
+- **Canaries:** `DFS-RUNTIME-ACCEPT`, `DFS-OWNED-FILES`, and `DFS-REDACT`.
+
+## Scope and Boundaries
+
+Accept a local path or GitHub URL. Analyze and write only the named packaging artifacts (`Dockerfile`, `.dockerignore`, optional compose/entrypoint/docs and deploy-side build evidence); preserve pre-existing files and project values. Build, migration, HTTP, and log validation remain required before a result is accepted.
+
+## Risk and Confirmation
+
+Keep generated secrets, environment values, database URLs, and connection details out of reports. A required package or system-tool installation follows the current project confirmation boundary. Never treat a successful `docker build` as runtime acceptance; the `DFS-RUNTIME-ACCEPT` canary requires migration/table, HTTP, health, and log evidence.
+
+## Lifecycle Workflow
+
+For each request, analyze the project, generate owned packaging, run the closed-loop build/fix phase, and run runtime validation. Emit request-scoped `success`, `stopped`, or `error`; the existing four-phase Deep Analysis → Generate → Build & Fix → Runtime Validation workflow remains the domain extension below.
+
+## Progressive Disclosure
+
+Load `modules/analyze.md`, `modules/generate.md`, and `modules/build-fix.md` one level deep when their phase is reached. Load knowledge/templates only from those owned branches and retain the existing error-pattern routing.
+
+## Output, Stop, and Error States
+
+- `success`: named packaging files, successful image build, migration/database proof, HTTP response, and quiet runtime logs.
+- `stopped`: unresolved analysis, missing precondition, or required installation decision with the safe next action; no partial acceptance claim.
+- `error`: failed build, migration, HTTP, or log step with its artifact and recovery action; redact secret-shaped values.
+
+## Handoffs
+
+Send `target: sealos-deploy`, `inputArtifact: validated Dockerfile and build/runtime result`, `allowedAction: build or reuse an image`, `failureReturn: failing packaging/runtime phase`, and `responseOwner: dockerfile-skill` for direct packaging requests. Deploy must preserve its own eligibility and Runtime Truth gates.
+
+## Verification
+
+Use the runtime validation commands in this entry, `node --check` for changed helpers, and baseline cases `dockerfile-positive-build-runtime` and `dockerfile-violating-build-only`. Verify actual container behavior, migrations, HTTP, logs, file scope, and redaction.
+
 ## Overview
 
 This skill generates production-ready Dockerfiles through a 4-phase process:

@@ -5,6 +5,42 @@ description: Provision, connect, and operate Sealos object storage through the s
 
 # Sealos S3
 
+## Identity and Discovery
+
+- **Owner:** `sealos-s3` (`/sealos-s3` and bucket, object, policy, credentials, presign, or quota requests).
+- **Class:** `cloud-local-mutation` through `sealos-cli s3`, with an optional redacted deployment handoff.
+- **Canaries:** `S3-PRIVATE-REUSE`, `S3-CONFIRM-PUBLIC`, and `S3-REDACT-OBJECT`.
+
+## Scope and Boundaries
+
+Accept a project path and object-storage intent. Analyze first, list existing buckets, create or reuse private storage, initialize credentials only when needed, and wire the smallest existing env-key set. Preserve local MinIO/Compose fallback; public policy, rotation, deletion, and destructive object changes remain gated.
+
+## Risk and Confirmation
+
+Keep buckets private by default. Ask before public policy, credential rotation for an active app, bucket/object deletion, or replacing storage configuration. Never print secret keys, full credential blocks, kubeconfig, auth files, or copied env values; parse JSON output rather than scraping secrets from tables.
+
+## Lifecycle Workflow
+
+For each request, resolve the project, analyze storage need, authenticate and select a workspace, list before create/reuse, wire existing keys, prove an authenticated upload/read or presign path, and report cleanup state. Emit request-scoped `success`, `stopped`, or `error`; the existing private-first workflow remains the domain extension below.
+
+## Progressive Disclosure
+
+Load analyzer, bucket, policy, credential, object-flow, and cleanup procedures one level deep when their phase is reached. Keep private policy, confirmation, and redaction canaries visible before the CLI detail.
+
+## Output, Stop, and Error States
+
+- `success`: bucket identity/policy/readiness, env key names, authenticated object or presign proof, and redacted cleanup state.
+- `stopped`: public policy, rotation, or destructive confirmation boundary with the safe private/presign alternative; no gated operation is claimed.
+- `error`: analyzer, CLI, policy, object, or env-write step plus recovery action with credentials and connection values redacted.
+
+## Handoffs
+
+An optional deployment handoff uses `target: sealos-deploy`, `inputArtifact: private bucket identity, policy, and redacted env-key contract`, `allowedAction: consume approved ObjectStorageBucket/Secret wiring`, `failureReturn: analyzer/CLI/policy/object diagnostics`, and `responseOwner: sealos-s3` for direct requests.
+
+## Verification
+
+Use `analyze-project-s3.mjs`, `sealos-cli s3` JSON output, authenticated object-flow evidence, and baseline cases `s3-positive-private-round-trip` and `s3-violating-unconfirmed-public-or-rotation`. Verify private policy, env preservation, and redaction before success.
+
 Use this skill to give a project real Sealos object storage through `sealos-cli s3`. The default outcome is: identify the app's object-storage need, create or reuse a bucket, initialize credentials only when needed, wire the smallest safe set of local env vars, and verify the project's upload/download or presigned URL path.
 
 This skill is grounded in `zjy365/sealos-cli#28`, which registered the `s3` command and implemented bucket CRD operations plus S3-compatible object operations.
