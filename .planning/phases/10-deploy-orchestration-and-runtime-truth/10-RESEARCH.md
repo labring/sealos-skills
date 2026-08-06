@@ -68,6 +68,18 @@ The implementation boundary is the full-deploy main workflow in this worktree. T
 | Sanitized observation handoff to Canvas | Browser / Client | API / Backend | Canvas consumes a read-only state tuple and renders the observation; deploy owns the verified state it emits. [VERIFIED: codebase grep] |
 | Deploy audit log and redacted diagnostics | Database / Storage | API / Backend | One append-only log under `~/.sealos/logs/` stores execution evidence while helpers keep sensitive values out of reports. [VERIFIED: codebase grep] |
 
+## Project Constraints (from AGENTS.md)
+
+- Treat root `skills/**` as the canonical implementation and keep host manifests/adapters pointed at that source; do not add a second packaged skill copy. [VERIFIED: AGENTS.md]
+- Keep Node helpers as ESM with two-space indentation, camelCase names, structured JSON on stdout, and diagnostics on stderr; keep Python four-space/snake_case conventions and the existing `unittest` validator style. [VERIFIED: AGENTS.md]
+- Preserve deploy evals when user-visible deploy behavior changes. Run `node --check` and the matching helper tests for changed deploy JavaScript; run footprint and live-smoke tests when runtime contracts change. [VERIFIED: AGENTS.md]
+- Keep `brain-deploy-preview` prepare-only: preserve its Kaniko flow and artifacts, evaluate `sealos-deploy` changes manually, and exclude Canvas, Sealos OAuth/Template API deployment, UPDATE, rollout/rollback, and runtime smoke from that branch. Keep the absence of `k8s-buildkit-job`. [VERIFIED: AGENTS.md]
+- Do not merge main-only plugin/marketplace surfaces, main planning history, or unrelated assets into the preview branch; keep branch-owned `AGENTS.md`, `README.md`, `CLAUDE.md`, and the preview containerization diagram. [VERIFIED: AGENTS.md]
+- Obtain explicit confirmation before Kubernetes/database/bucket deletion, public-access changes, credential rotation, rollback, cleanup, or system-tool installation. [VERIFIED: AGENTS.md]
+- Keep passwords, tokens, kubeconfig contents, S3 secrets, `.env` values, and complete connection strings out of committed files and user-facing output. Scope Kubernetes operations to the selected namespace/app and use the Sealos kubeconfig with `--insecure-skip-tls-verify` unless an equivalent active workflow is supplied. [VERIFIED: AGENTS.md]
+- Accept a deployment only after the actual App URL, required setup/login, relevant logs, workload readiness, and complete footprint are verified. Authorized test cleanup must include Instance, App, workloads, Jobs, Services, Ingresses, PVCs, and KubeBlocks. [VERIFIED: AGENTS.md]
+- Inspect `git status --short` and relevant diffs before edits, preserve pre-existing changes/untracked files, keep edits scoped, and remove only artifacts made obsolete by the current change. [VERIFIED: AGENTS.md]
+
 ## Standard Stack
 
 ### Core
