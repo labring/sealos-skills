@@ -7,10 +7,13 @@
  *   node deploy-template.mjs <template-path> [--dry-run]
  *   node deploy-template.mjs <template-path> --args-json '{"KEY":"value"}'
  *   node deploy-template.mjs <template-path> --args-file ./args.json
+ *   node deploy-template.mjs <template-path> --labels-json '{"k":"v"}'
  *
  * Behavior:
  *   - Reads local auth or derives the region from the active kubeconfig API server
  *   - Reads an explicit/active kubeconfig and sends it as encodeURIComponent(kubeconfig)
+ *   - Sends extra labels (CLI --labels-json or SEALAI_DEPLOY_LABELS_JSON) as the
+ *     raw Template API `extraLabels` field so created resources carry task markers
  *   - Posts the template YAML to:
  *       https://template.<region-domain>/api/v2alpha/templates/raw
  *   - Prints a JSON result to stdout
@@ -36,6 +39,7 @@ function parseArgs(argv) {
   let dryRun = false
   let argsJson = null
   let argsFile = null
+  let labelsJson = null
   let region = null
   let kubeconfig = null
 
@@ -45,13 +49,14 @@ function parseArgs(argv) {
       dryRun = true
       continue
     }
-    if (arg === '--args-json' || arg === '--args-file' || arg === '--region' || arg === '--kubeconfig') {
+    if (arg === '--args-json' || arg === '--args-file' || arg === '--labels-json' || arg === '--region' || arg === '--kubeconfig') {
       const value = args[i + 1]
       if (!value || value.startsWith('--')) {
         fail(`${arg} requires a value`)
       }
       if (arg === '--args-json') argsJson = value
       if (arg === '--args-file') argsFile = value
+      if (arg === '--labels-json') labelsJson = value
       if (arg === '--region') region = value
       if (arg === '--kubeconfig') kubeconfig = value
       i += 1
@@ -81,6 +86,7 @@ function parseArgs(argv) {
     dryRun,
     argsJson,
     argsFile: argsFile ? resolve(process.cwd(), argsFile) : null,
+    labelsJson,
     region,
     kubeconfig: kubeconfig ? resolve(process.cwd(), kubeconfig) : null,
   }
@@ -93,11 +99,40 @@ Usage:
   node deploy-template.mjs <template-path> [--dry-run] [--region <url>] [--kubeconfig <path>]
   node deploy-template.mjs <template-path> --args-json '{"KEY":"value"}'
   node deploy-template.mjs <template-path> --args-file ./args.json
+  node deploy-template.mjs <template-path> --labels-json '{"k":"v"}'
 
 Examples:
   node deploy-template.mjs .sealos/template/index.yaml --dry-run
+  node deploy-template.mjs .sealos/template/index.yaml --labels-json '{"brain.io/task-id":"task-123"}'
   node deploy-template.mjs template/myapp/index.yaml
 `)
+}
+
+function loadDeployLabels(input) {
+  const raw = input.labelsJson ?? process.env.SEALAI_DEPLOY_LABELS_JSON
+  if (!raw) return {}
+
+  let parsed
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    fail(input.labelsJson ? 'Failed to parse --labels-json' : 'Failed to parse SEALAI_DEPLOY_LABELS_JSON')
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    fail('Labels must be a JSON object')
+  }
+
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof key !== 'string' || key === '') {
+      fail('Label keys must be non-empty strings')
+    }
+    if (typeof value !== 'string') {
+      fail(`Label value for "${key}" must be a string`)
+    }
+  }
+
+  return parsed
 }
 
 function loadJson(filePath, label) {
@@ -254,7 +289,7 @@ function sanitizeResponse(response, deployArgs) {
   return output
 }
 
-async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun }) {
+async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun, extraLabels }) {
   const response = await fetch(deployUrl, {
     method: 'POST',
     headers: {
@@ -265,6 +300,7 @@ async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun }) {
       yaml,
       args,
       dryRun,
+      ...(extraLabels && Object.keys(extraLabels).length > 0 ? { extraLabels } : {}),
     }),
   })
 
@@ -290,6 +326,7 @@ const input = parseArgs(process.argv)
 const { region, regionDomain, deployUrl } = resolveRegion(input)
 const yaml = loadTemplate(input.templatePath)
 const deployArgs = loadDeployArgs(input)
+const deployLabels = loadDeployLabels(input)
 const kubeconfig = loadKubeconfig(input)
 
 try {
@@ -299,6 +336,7 @@ try {
     yaml,
     args: deployArgs,
     dryRun: input.dryRun,
+    extraLabels: deployLabels,
   })
 
   const payload = {
@@ -309,6 +347,7 @@ try {
     deploy_url: deployUrl,
     template_path: input.templatePath,
     args_supplied: Object.keys(deployArgs).length,
+    labels_supplied: Object.keys(deployLabels).length,
     status: result.status,
     status_text: result.statusText,
     response: sanitizeResponse(result.json, deployArgs),
@@ -327,6 +366,7 @@ try {
     deploy_url: deployUrl,
     template_path: input.templatePath,
     args_supplied: Object.keys(deployArgs).length,
+    labels_supplied: Object.keys(deployLabels).length,
     details: Object.keys(deployArgs).length > 0 ? 'Request details omitted.' : error.message,
   })
 }

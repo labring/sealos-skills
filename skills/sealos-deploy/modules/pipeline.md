@@ -1115,11 +1115,13 @@ Request body fields:
 - `yaml` (required) — the full template YAML string
 - `args` (optional) — template variable key-value pairs that override or supply `spec.inputs` fields. Values from Phase 5.5 `CONFIG.args`.
 - `dryRun` (optional, boolean) — if true, validates resources against K8s API without creating anything. Returns 200 with preview.
+- `extraLabels` (optional, object) — Kubernetes label key-value pairs applied to the created resources. Pass them through `--labels-json` (CLI) or `SEALAI_DEPLOY_LABELS_JSON` (sandbox env) so deployed resources carry task markers (e.g. `brain.io/task-id`) that downstream verification can query by.
 
 **With Node.js (preferred):**
 ```bash
 node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --dry-run
 node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --args-json '{"ADMIN_EMAIL":"user@example.com"}'
+node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --labels-json '{"brain.io/task-id":"task-123"}'
 ```
 
 Sandbox invocation uses its active kubeconfig and non-interactive args file:
@@ -1133,6 +1135,8 @@ node "<SKILL_DIR>/scripts/deploy-template.mjs" \
 ```
 
 Remove `SANDBOX_ARGS_FILE` in a finally-style cleanup when the dry-run/deploy sequence ends or stops, whether it succeeds or fails.
+
+In sandbox mode, prefer injecting task-level labels via the `SEALAI_DEPLOY_LABELS_JSON` environment variable instead of a CLI flag when the value is supplied by the platform (Brain); the script reads either source. Never fabricate or override platform-supplied task labels.
 
 The helper can derive region directly from the minified kubeconfig when `--region` is omitted. In sandbox mode, a 401 is an authentication blocker; never start OAuth or workspace switching.
 

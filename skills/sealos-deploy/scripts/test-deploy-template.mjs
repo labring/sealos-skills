@@ -383,3 +383,120 @@ esac
     assert.equal(request.url, 'https://template.usw-1.sealos.io/api/v2alpha/templates/raw')
   })
 })
+
+test('sends extra labels to the API via --labels-json', () => {
+  withFixture((fixture) => {
+    const result = runDeploy(
+      fixture,
+      ['--labels-json', '{"brain.io/managed-by":"brain","brain.io/task-id":"task-123"}'],
+      {
+        SEALOS_DEPLOY_TEST_RESPONSE: JSON.stringify({ ok: true, name: 'demo-instance' }),
+      },
+    )
+
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const output = JSON.parse(result.stdout)
+    assert.equal(output.success, true)
+    assert.equal(output.labels_supplied, 2)
+
+    const request = JSON.parse(readFileSync(fixture.capturePath, 'utf8'))
+    assert.deepEqual(request.body.extraLabels, {
+      'brain.io/managed-by': 'brain',
+      'brain.io/task-id': 'task-123',
+    })
+  })
+})
+
+test('reads extra labels from SEALAI_DEPLOY_LABELS_JSON', () => {
+  withFixture((fixture) => {
+    const result = runDeploy(
+      fixture,
+      [],
+      {
+        SEALAI_DEPLOY_LABELS_JSON: '{"brain.io/task-id":"task-env-42"}',
+        SEALOS_DEPLOY_TEST_RESPONSE: JSON.stringify({ ok: true, name: 'demo-instance' }),
+      },
+    )
+
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const output = JSON.parse(result.stdout)
+    assert.equal(output.labels_supplied, 1)
+
+    const request = JSON.parse(readFileSync(fixture.capturePath, 'utf8'))
+    assert.deepEqual(request.body.extraLabels, { 'brain.io/task-id': 'task-env-42' })
+  })
+})
+
+test('prefers --labels-json over SEALAI_DEPLOY_LABELS_JSON', () => {
+  withFixture((fixture) => {
+    const result = runDeploy(
+      fixture,
+      ['--labels-json', '{"brain.io/task-id":"task-cli-7"}'],
+      {
+        SEALAI_DEPLOY_LABELS_JSON: '{"brain.io/task-id":"task-env-7"}',
+        SEALOS_DEPLOY_TEST_RESPONSE: JSON.stringify({ ok: true, name: 'demo-instance' }),
+      },
+    )
+
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const request = JSON.parse(readFileSync(fixture.capturePath, 'utf8'))
+    assert.deepEqual(request.body.extraLabels, { 'brain.io/task-id': 'task-cli-7' })
+  })
+})
+
+test('omits extraLabels from the request when no labels are supplied', () => {
+  withFixture((fixture) => {
+    const result = runDeploy(
+      fixture,
+      [],
+      {
+        SEALOS_DEPLOY_TEST_RESPONSE: JSON.stringify({ ok: true, name: 'demo-instance' }),
+      },
+    )
+
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const output = JSON.parse(result.stdout)
+    assert.equal(output.labels_supplied, 0)
+
+    const request = JSON.parse(readFileSync(fixture.capturePath, 'utf8'))
+    assert.equal('extraLabels' in request.body, false)
+  })
+})
+
+test('rejects malformed labels before making a request', () => {
+  withFixture((fixture) => {
+    const malformedJson = runDeploy(fixture, ['--labels-json', '{"brain.io/task-id":'])
+    assert.equal(malformedJson.status, 1)
+    assert.equal(malformedJson.stdout, '')
+    assert.equal(JSON.parse(malformedJson.stderr).error, 'Failed to parse --labels-json')
+
+    const nonObject = runDeploy(fixture, ['--labels-json', '["a","b"]'])
+    assert.equal(nonObject.status, 1)
+    assert.equal(JSON.parse(nonObject.stderr).error, 'Labels must be a JSON object')
+
+    const nonStringValue = runDeploy(fixture, ['--labels-json', '{"brain.io/task-id":123}'])
+    assert.equal(nonStringValue.status, 1)
+    assert.equal(
+      JSON.parse(nonStringValue.stderr).error,
+      'Label value for "brain.io/task-id" must be a string',
+    )
+
+    const malformedEnv = runDeploy(fixture, [], {
+      SEALAI_DEPLOY_LABELS_JSON: '{"brain.io/task-id":',
+    })
+    assert.equal(malformedEnv.status, 1)
+    assert.equal(JSON.parse(malformedEnv.stderr).error, 'Failed to parse SEALAI_DEPLOY_LABELS_JSON')
+
+    assert.equal(existsSync(fixture.capturePath), false)
+  })
+})
+
+test('rejects missing --labels-json option value before making a request', () => {
+  withFixture((fixture) => {
+    const result = runDeploy(fixture, ['--labels-json'])
+    assert.equal(result.status, 1)
+    assert.equal(result.stdout, '')
+    assert.match(JSON.parse(result.stderr).error, /requires/)
+    assert.equal(existsSync(fixture.capturePath), false)
+  })
+})
