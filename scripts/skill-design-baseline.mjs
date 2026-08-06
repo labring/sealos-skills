@@ -22,6 +22,10 @@ export const CANONICAL_SKILLS = [
 const REQUIRED_CASE_FIELDS = [
   'caseId',
   'prompt',
+  'text',
+  'evidence',
+  'safeNextAction',
+  'coverage',
   'sourceRefs',
   'expectedOwner',
   'interactionClass',
@@ -40,6 +44,7 @@ const INTERACTION_CLASSES = new Set([
   'composite-cloud-mutation'
 ])
 const TERMINAL_STATES = new Set(['success', 'stopped', 'error'])
+const COVERAGE_DIMENSIONS = new Set(['routing', 'boundary', 'terminal', 'progressive-loading', 'highest-risk'])
 const SENSITIVE_PATTERNS = [
   /-----BEGIN [^-]+ PRIVATE KEY-----/i,
   /\b(?:AKIA|ASIA)[A-Z0-9]{12,}\b/,
@@ -166,6 +171,10 @@ function validateCase(record, caseData, repoRoot) {
   }
   if (typeof caseData.caseId !== 'string' || caseData.caseId.trim() === '') issues.push(issue('invalid-case-id', 'caseId must be a non-empty string', context))
   if (typeof caseData.prompt !== 'string' || caseData.prompt.trim() === '') issues.push(issue('invalid-prompt', 'prompt must be a non-empty string', context))
+  if (typeof caseData.text !== 'string' || caseData.text.trim() === '') issues.push(issue('invalid-text', 'text must be a non-empty sanitized observable response', context))
+  if (!Array.isArray(caseData.evidence) || caseData.evidence.length === 0 || caseData.evidence.some((item) => typeof item !== 'string' || item.trim() === '')) issues.push(issue('invalid-evidence', 'evidence must contain named observable proof', context))
+  if (typeof caseData.safeNextAction !== 'string' || caseData.safeNextAction.trim() === '') issues.push(issue('invalid-safe-next-action', 'safeNextAction must be a non-empty recovery or handoff action', context))
+  if (!Array.isArray(caseData.coverage) || COVERAGE_DIMENSIONS.size !== new Set(caseData.coverage).size || [...COVERAGE_DIMENSIONS].some((dimension) => !caseData.coverage.includes(dimension))) issues.push(issue('invalid-coverage', 'coverage must include routing, boundary, terminal, progressive-loading, and highest-risk', context))
   if (!['positive', 'violating'].includes(caseData.kind)) issues.push(issue('invalid-kind', 'kind must be positive or violating', context))
   if (caseData.expectedOwner !== record.skill) issues.push(issue('owner-mismatch', `expectedOwner must be ${record.skill}`, context))
   if (!INTERACTION_CLASSES.has(caseData.interactionClass)) issues.push(issue('invalid-interaction-class', `unknown interactionClass: ${caseData.interactionClass}`, context))

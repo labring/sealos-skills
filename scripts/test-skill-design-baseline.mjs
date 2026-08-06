@@ -76,3 +76,14 @@ test('checker keeps the fixture provider-free and secret-safe', () => {
     assert.equal(caseReport.result.issues.length, 0, `${caseReport.caseData.caseId} issues`)
   }
 })
+
+test('observable evidence and coverage fields are required', () => {
+  const record = fixture.skills[0]
+  const caseData = { ...record.cases[0], text: '', evidence: [], safeNextAction: '', coverage: ['routing'] }
+  const result = checkCase(record, caseData, { repoRoot })
+  const codes = new Set(result.issues.map((item) => item.code))
+  assert.ok(codes.has('invalid-text'))
+  assert.ok(codes.has('invalid-evidence'))
+  assert.ok(codes.has('invalid-safe-next-action'))
+  assert.ok(codes.has('invalid-coverage'))
+})

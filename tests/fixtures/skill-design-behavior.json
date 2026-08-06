@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "coverageDimensions": ["routing", "boundary", "terminal", "progressive-loading", "highest-risk"],
+  "mutations": [
+    {"id": "missing-text", "skill": "cloud-native-readiness", "caseId": "readiness-positive-eligible", "field": "text", "expectedCode": "invalid-text"},
+    {"id": "missing-evidence", "skill": "dockerfile-skill", "caseId": "dockerfile-positive-build-runtime", "field": "evidence", "expectedCode": "invalid-evidence"},
+    {"id": "missing-safe-next-action", "skill": "docker-to-sealos", "caseId": "docker-to-sealos-positive-quality-gate", "field": "safeNextAction", "expectedCode": "invalid-safe-next-action"},
+    {"id": "missing-coverage", "skill": "sealos-deploy", "caseId": "deploy-positive-runtime-truth", "field": "coverage", "expectedCode": "invalid-coverage"},
+    {"id": "missing-handoff", "skill": "sealos-database", "caseId": "database-positive-reuse-redacted-connectivity", "field": "handoff", "expectedCode": "missing-handoff"},
+    {"id": "missing-redaction", "skill": "sealos-s3", "caseId": "s3-positive-private-round-trip", "field": "redactionChecks", "expectedCode": "missing-redaction-checks"},
+    {"id": "missing-guard", "skill": "sealos-canvas", "caseId": "canvas-violating-missing-state-or-mutation", "field": "guard", "expectedCode": "missing-guard"},
+    {"id": "missing-owned-resource", "skill": "sealos-app-builder", "caseId": "app-builder-positive-sdk-iframe-publish", "field": "loadedResources", "expectedCode": "missing-loaded-resources"}
+  ],
+  "sideEffectCases": [
+    {"id": "ambiguous-router", "terminalState": "stopped", "toolCalls": [], "files": ["stdout: clarification with no mutation"], "handoffTarget": "none"},
+    {"id": "canvas-read-only", "terminalState": "stopped", "toolCalls": ["kubectl get"], "files": ["stdout: sanitized read-only stop"], "handoffTarget": "sealos-deploy"}
+  ]
+}
