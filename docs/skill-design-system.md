@@ -126,3 +126,4 @@ After the eight core sections, a skill may add domain-specific workflow phases, 
 - `success`, `stopped`, and `error` each include their required evidence and safe next action.
 - Sensitive values are redacted in traces, artifacts, and final responses.
 - Domain extensions preserve existing runtime artifacts and safety gates.
+- Maintainers use the [Skill Design Quality Gate](skill-design-quality-gate.md) for the ordered offline command that composes structural, safety, behavior, and skill-specific validators.
