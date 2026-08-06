@@ -40,7 +40,7 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 - [x] **Phase 6: Inventory, Router, and Validator Foundation** - Derive canonical inventory and build fixture-tested structural and semantic checks. (completed 2026-08-06)
 - [x] **Phase 7: Host Adapter and Public Surface Alignment** - Align every host projection and risk-aware route around the eight canonical skills. (completed 2026-08-06)
 - [x] **Phase 8: Dependency Skill Entry Refactors** - Focus readiness, Dockerfile, and Compose conversion entries while preserving their handoff and quality-gate contracts. (completed 2026-08-06)
-- [ ] **Phase 9: Service and Adjacent Skill Entry Refactors** - Focus database, S3, Canvas, and Desktop app entries around their risk classes and evidence outputs.
+- [x] **Phase 9: Service and Adjacent Skill Entry Refactors** - Focus database, S3, Canvas, and Desktop app entries around their risk classes and evidence outputs. (completed 2026-08-06)
 - [ ] **Phase 10: Deploy Orchestration and Runtime Truth** - Refactor the composite deploy entry around typed inputs and verified live outcomes.
 - [ ] **Phase 11: Behavior Evals, Deterministic Grader, and Maintainer Gate** - Give all eight skills executable behavior coverage and one documented local gate.
 - [ ] **Phase 12: Branch Policy, Documentation, and Release Audit** - Prove preservation and publish aligned, adapted, and excluded change evidence.
@@ -160,10 +160,10 @@ Plans:
 
 Plans:
 
-- [ ] 09-01: Refocus `sealos-database` around account/workspace resolution, create-or-reuse, env mutation, confirmation, redaction, and app verification.
-- [ ] 09-02: Refocus `sealos-s3` around private-by-default buckets, create-or-reuse, env wiring, policy confirmation, redaction, and object verification (depends on 09-01 output vocabulary).
-- [ ] 09-03: Refocus `sealos-canvas` around read-only preconditions, sanitized JSON, exact outputs, and local server lifecycle.
-- [ ] 09-04: Refocus `sealos-app-builder` around starting-path branches, SDK precedence, iframe verification, and publish handoff (depends on the shared outcome vocabulary).
+- [x] 09-01: Refocus `sealos-database` around account/workspace resolution, create-or-reuse, env mutation, confirmation, redaction, and app verification.
+- [x] 09-02: Refocus `sealos-s3` around private-by-default buckets, create-or-reuse, env wiring, policy confirmation, redaction, and object verification (depends on 09-01 output vocabulary).
+- [x] 09-03: Refocus `sealos-canvas` around read-only preconditions, sanitized JSON, exact outputs, and local server lifecycle.
+- [x] 09-04: Refocus `sealos-app-builder` around starting-path branches, SDK precedence, iframe verification, and publish handoff (depends on the shared outcome vocabulary).
 
 **Research flag**: Standard local helpers cover database, S3, and Canvas. Use a focused research pass only if current Desktop SDK/source precedence or external service behavior has changed.
 **UI hint**: yes
@@ -278,7 +278,7 @@ Phases execute in numeric order: 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 | 6. Inventory, Router, and Validator Foundation | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 7. Host Adapter and Public Surface Alignment | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 8. Dependency Skill Entry Refactors | v1.1 | 4/4 | Complete    | 2026-08-06 |
-| 9. Service and Adjacent Skill Entry Refactors | v1.1 | 0/4 | Not started | - |
+| 9. Service and Adjacent Skill Entry Refactors | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 10. Deploy Orchestration and Runtime Truth | v1.1 | 0/4 | Not started | - |
 | 11. Behavior Evals, Deterministic Grader, and Maintainer Gate | v1.1 | 0/4 | Not started | - |
 | 12. Branch Policy, Documentation, and Release Audit | v1.1 | 0/4 | Not started | - |

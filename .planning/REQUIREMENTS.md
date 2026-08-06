@@ -12,7 +12,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 - [x] **SDS-01**: Every one of the eight canonical skill entry points exposes the same contract facets for identity, discovery, scope, boundaries, risk, workflow, output, handoff, and verification.
 - [x] **SDS-02**: A user request with a clear owner selects one skill, a compound request produces an explicit ordered handoff, and an ambiguous mutation request pauses before side effects.
 - [x] **SDS-03**: Each skill declares request-scoped lifecycle behavior and a terminal state; `sealos-canvas` declares the lifecycle and shutdown condition of its temporary local server.
-- [ ] **SDS-04**: Destructive actions, public exposure, credential changes, and system-tool installation remain behind explicit user confirmation gates.
+- [x] **SDS-04**: Destructive actions, public exposure, credential changes, and system-tool installation remain behind explicit user confirmation gates.
 - [x] **SDS-05**: Entry files expose confirmation, secret redaction, kubeconfig scope, read-only boundaries, eligibility stop conditions, quality-gate requirements, and runtime-acceptance rules before branch-specific detail loads.
 - [x] **SDS-06**: Each skill uses one level of progressive disclosure with resolvable links, owned detail, and explicit conditions for loading modules, references, knowledge, or scripts.
 - [ ] **SDS-07**: Each skill reports success, stopped, and error outcomes with domain evidence, artifact paths or URLs where applicable, a safe next action, and redacted sensitive values.
@@ -36,7 +36,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 - [ ] **SDS-12**: Entry refactors preserve existing artifacts, phase order, authentication, confirmation gates, cleanup expectations, runtime verification, host semantics, and branch-specific behavior for the current workflows.
 - [ ] **SDS-D01**: Terminal outputs include the strongest available evidence for the domain, such as an actual App URL and live identity, sanitized resource footprint, connection proof, object round trip, report path, or local Canvas URL.
 - [ ] **SDS-D03**: Existing readiness, build, template, deployment-state, and Canvas handoffs use minimal typed payloads that carry evidence and prevent repeated discovery.
-- [ ] **SDS-D06**: Skills share terminal-state and evidence vocabulary while retaining domain-specific output fields for deployment, data services, conversion, Canvas, and Desktop app development.
+- [x] **SDS-D06**: Skills share terminal-state and evidence vocabulary while retaining domain-specific output fields for deployment, data services, conversion, Canvas, and Desktop app development.
 
 ## v2 Requirements
 
@@ -75,7 +75,7 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | SDS-01 | Phase 5 | Complete |
 | SDS-02 | Phase 7 | Complete |
 | SDS-03 | Phase 5 | Complete |
-| SDS-04 | Phase 9 | Pending |
+| SDS-04 | Phase 9 | Complete |
 | SDS-05 | Phase 5 | Complete |
 | SDS-06 | Phase 8 | Complete |
 | SDS-07 | Phase 11 | Pending |
@@ -90,7 +90,7 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | SDS-12 | Phase 12 | Pending |
 | SDS-D01 | Phase 10 | Pending |
 | SDS-D03 | Phase 10 | Pending |
-| SDS-D06 | Phase 9 | Pending |
+| SDS-D06 | Phase 9 | Complete |
 
 **Coverage:**
 
