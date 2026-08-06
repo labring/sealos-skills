@@ -1,6 +1,6 @@
 ---
 phase: 11-behavior-evals-deterministic-grader-and-maintainer-gate
-verified: 2026-08-06T20:34:00Z
+verified: 2026-08-06T20:37:50Z
 status: passed
 score: 4/4 must-haves verified
 behavior_unverified: 0
@@ -9,7 +9,7 @@ behavior_unverified: 0
 # Phase 11: Behavior Evals, Deterministic Grader, and Maintainer Gate Verification Report
 
 **Phase Goal:** All eight skills and the unified router have executable behavior coverage, and maintainers have one offline quality gate that exercises the complete design contract.
-**Verified:** 2026-08-06T20:34:00Z
+**Verified:** 2026-08-06T20:37:50Z
 **Status:** passed
 
 ## Goal Achievement
@@ -92,5 +92,7 @@ None. Phase 11 acceptance is deterministic and offline; all observable truths an
 **Human checks required:** 0.
 **Verifier:** Codex.
 
+The verification was re-run after the 11-01 summary was added; the refreshed aggregate report remains green.
+
 ---
-*Verified: 2026-08-06T20:34:00Z*
+*Verified: 2026-08-06T20:37:50Z*
