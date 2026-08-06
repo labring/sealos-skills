@@ -72,8 +72,10 @@ class ServiceFixtureTests(unittest.TestCase):
                 for value in case["handoff"].values():
                     self.assertTrue(value)
             else:
+                self.assertIn(case["terminalState"], {"stopped", "error"})
                 self.assertIn("violations", case)
                 self.assertTrue(case["violations"])
+                self.assertIn(case["terminalState"], {"stopped", "error"})
 
     def test_live_entries_keep_shared_and_domain_contract(self) -> None:
         for owner, path in OWNERS.items():
