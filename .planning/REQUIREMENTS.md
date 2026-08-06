@@ -10,7 +10,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 ### Shared Contract and Safety
 
 - [x] **SDS-01**: Every one of the eight canonical skill entry points exposes the same contract facets for identity, discovery, scope, boundaries, risk, workflow, output, handoff, and verification.
-- [ ] **SDS-02**: A user request with a clear owner selects one skill, a compound request produces an explicit ordered handoff, and an ambiguous mutation request pauses before side effects.
+- [x] **SDS-02**: A user request with a clear owner selects one skill, a compound request produces an explicit ordered handoff, and an ambiguous mutation request pauses before side effects.
 - [x] **SDS-03**: Each skill declares request-scoped lifecycle behavior and a terminal state; `sealos-canvas` declares the lifecycle and shutdown condition of its temporary local server.
 - [ ] **SDS-04**: Destructive actions, public exposure, credential changes, and system-tool installation remain behind explicit user confirmation gates.
 - [x] **SDS-05**: Entry files expose confirmation, secret redaction, kubeconfig scope, read-only boundaries, eligibility stop conditions, quality-gate requirements, and runtime-acceptance rules before branch-specific detail loads.
@@ -21,7 +21,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 ### Inventory and Host Distribution
 
 - [x] **SDS-09**: The eight physical skill entry files under `skills/` define the canonical inventory, and every explicit router, plugin manifest, marketplace, context adapter, platform registry, and direct-entry claim matches that inventory.
-- [ ] **SDS-D05**: Codex, Claude-compatible hosts, Qoder, CodeBuddy, Gemini/Qwen context extensions, OpenClaw, and skills.sh expose the canonical skill tree with host-accurate invocation syntax and behavior-free adapters.
+- [x] **SDS-D05**: Codex, Claude-compatible hosts, Qoder, CodeBuddy, Gemini/Qwen context extensions, OpenClaw, and skills.sh expose the canonical skill tree with host-accurate invocation syntax and behavior-free adapters.
 - [ ] **REL-01**: Release preparation produces an aligned/adapted/excluded file audit for `main` and `brain-deploy-preview`, updates affected public inventory and version evidence, and preserves the preview prepare-only workflow.
 
 ### Validation and Behavior
@@ -29,7 +29,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 - [ ] **SDS-10**: All eight skills own behavior coverage for routing, boundaries, terminal outputs, and their highest-risk action, with positive and violating cases represented in machine-readable fixtures or deterministic probes.
 - [ ] **SDS-11**: Maintainers can run one documented local quality gate covering contract shape, inventory, routes, versions, links, safety invariants, behavior probes, and existing skill-specific validators.
 - [x] **SDS-D04**: Semantic safety checks pair static canaries with confirmation, redaction, read-only, eligibility, and fail-closed behavior probes so equivalent wording preserves the operational guard.
-- [ ] **SDS-D02**: The unified router classifies observation, local writes, cloud writes, public exposure, and destructive actions before delegating to an owning skill.
+- [x] **SDS-D02**: The unified router classifies observation, local writes, cloud writes, public exposure, and destructive actions before delegating to an owning skill.
 
 ### Runtime Evidence and Output Design
 
@@ -73,7 +73,7 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SDS-01 | Phase 5 | Complete |
-| SDS-02 | Phase 7 | Pending |
+| SDS-02 | Phase 7 | Complete |
 | SDS-03 | Phase 5 | Complete |
 | SDS-04 | Phase 9 | Pending |
 | SDS-05 | Phase 5 | Complete |
@@ -81,12 +81,12 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | SDS-07 | Phase 11 | Pending |
 | SDS-08 | Phase 8 | Pending |
 | SDS-09 | Phase 6 | Complete |
-| SDS-D05 | Phase 7 | Pending |
+| SDS-D05 | Phase 7 | Complete |
 | REL-01 | Phase 12 | Pending |
 | SDS-10 | Phase 11 | Pending |
 | SDS-11 | Phase 11 | Pending |
 | SDS-D04 | Phase 6 | Complete |
-| SDS-D02 | Phase 7 | Pending |
+| SDS-D02 | Phase 7 | Complete |
 | SDS-12 | Phase 12 | Pending |
 | SDS-D01 | Phase 10 | Pending |
 | SDS-D03 | Phase 10 | Pending |

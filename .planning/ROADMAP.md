@@ -38,7 +38,7 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 
 - [x] **Phase 5: Baseline, Ownership, and Shared Contract** - Capture current behavior and establish the entry contract, lifecycle vocabulary, and entry-visible safety set. (completed 2026-08-06)
 - [x] **Phase 6: Inventory, Router, and Validator Foundation** - Derive canonical inventory and build fixture-tested structural and semantic checks. (completed 2026-08-06)
-- [ ] **Phase 7: Host Adapter and Public Surface Alignment** - Align every host projection and risk-aware route around the eight canonical skills.
+- [x] **Phase 7: Host Adapter and Public Surface Alignment** - Align every host projection and risk-aware route around the eight canonical skills. (completed 2026-08-06)
 - [ ] **Phase 8: Dependency Skill Entry Refactors** - Focus readiness, Dockerfile, and Compose conversion entries while preserving their handoff and quality-gate contracts.
 - [ ] **Phase 9: Service and Adjacent Skill Entry Refactors** - Focus database, S3, Canvas, and Desktop app entries around their risk classes and evidence outputs.
 - [ ] **Phase 10: Deploy Orchestration and Runtime Truth** - Refactor the composite deploy entry around typed inputs and verified live outcomes.
@@ -114,9 +114,9 @@ Plans:
 
 Plans:
 
-- [ ] 07-01: Make `commands/sealos.md` structurally parseable with one route and interaction class per skill (depends on the Phase 6 readers).
-- [ ] 07-02: Align plugin manifests, marketplaces, Qoder packaging, OpenAI metadata, and Canvas exposure (depends on 07-01).
-- [ ] 07-03: Align context adapters, platform evidence, README invocation claims, and direct skills.sh paths while retaining behavior-free adapters (depends on 07-02).
+- [x] 07-01: Make `commands/sealos.md` structurally parseable with one route and interaction class per skill (depends on the Phase 6 readers).
+- [x] 07-02: Align plugin manifests, marketplaces, Qoder packaging, OpenAI metadata, and Canvas exposure (depends on 07-01).
+- [x] 07-03: Align context adapters, platform evidence, README invocation claims, and direct skills.sh paths while retaining behavior-free adapters (depends on 07-02).
 
 **Research flag**: Deep research recommended for host packaging semantics and the product decision on Canvas exposure.
 
@@ -276,7 +276,7 @@ Phases execute in numeric order: 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 |-------|-----------|----------------|--------|-----------|
 | 5. Baseline, Ownership, and Shared Contract | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 6. Inventory, Router, and Validator Foundation | v1.1 | 3/3 | Complete    | 2026-08-06 |
-| 7. Host Adapter and Public Surface Alignment | v1.1 | 0/3 | Not started | - |
+| 7. Host Adapter and Public Surface Alignment | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 8. Dependency Skill Entry Refactors | v1.1 | 0/4 | Not started | - |
 | 9. Service and Adjacent Skill Entry Refactors | v1.1 | 0/4 | Not started | - |
 | 10. Deploy Orchestration and Runtime Truth | v1.1 | 0/4 | Not started | - |
