@@ -14,6 +14,8 @@
 
 Run this pass after Template API deploy or kubectl fallback deploy. Accept the deployment only after the live application entry, Launchpad public network, logs, and first meaningful user workflow are verified.
 
+In managed mode, every command shown below that uses `~/.sealos/kubeconfig` must instead use the kubeconfig/context injected into the Devbox (for example the active `KUBECONFIG` path supplied by the runtime). Do not copy it into the workspace or print it. The target namespace is always `SEALAI_NAMESPACE`; local mode keeps the literal local path and auth behavior shown in these examples.
+
 ## Capture Live Identity
 
 Read the App URL from the live App resource when possible:
@@ -211,6 +213,24 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   get pod/<pod> -n "$NAMESPACE" \
   -o jsonpath='{range .spec.containers[*]}{.name}{" command="}{.command}{" args="}{.args}{"\n"}{end}'
 ```
+
+## Managed completion handshake
+
+When `SEALAI_DEPLOY_MODE=managed`, Runtime Truth is not complete until the Codex has made the task-scoped MCP call below after **all** applicable checks pass:
+
+```text
+deployment_completed({
+  workloads: [{ apiVersion, kind, name, namespace }],
+  publicUrl: "https://<tenant-domain-app-url>"   // optional: include when the deployment exposes a public URL
+})
+```
+
+The call has two valid decisions:
+
+- `decision: "accepted_stop"` — Brain observed the reported workload as Ready and, when `publicUrl` was provided, the public URL returned 2xx. End the turn and report the result through the normal Codex response stream.
+- `decision: "repair"` — Brain found that a reported workload or Pod is missing or not Ready, or the provided `publicUrl` did not return 2xx. Stay in the same turn, inspect the relevant Pod/events/logs, diagnose the cause, repair or re-apply the template, and call `deployment_completed` again with the current workload references.
+
+Respect `SEALAI_TURN_DEADLINE_AT` as the single hard limit; there is no per-turn or per-repair cap. When the deadline is exhausted, stop with a fatal managed failure rather than claiming success. A missing, unavailable, malformed, or unauthorized `deployment_completed` tool is also a fatal managed failure. Do not replace this handshake with `verify-report.json`, `turn-report.json`, a webhook, or a text assertion.
 
 ## Acceptance Checklist
 

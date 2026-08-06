@@ -863,6 +863,47 @@ Any non-zero exit stops Phase 5. Fix the existing `index.yaml` and rerun the com
 
 Template is written to `.sealos/template/index.yaml`. No separate checkpoint file — the template file's existence is sufficient for resume detection.
 
+### Managed-mode handoff after Phase 5.3
+
+When `SEALAI_DEPLOY_MODE=managed`, the generated template must pass through the managed adapter before Brain sees it. This is the only managed mutation of the template artifact:
+
+```bash
+MANAGED_TEMPLATE_RESULT=$(node "<SKILL_DIR>/scripts/managed-adapter.mjs" \
+  prepare-template "$WORK_DIR/.sealos/template/index.yaml")
+TEMPLATE_SHA=$(printf '%s' "$MANAGED_TEMPLATE_RESULT" | jq -r '.sha256')
+```
+
+Run the complete quality gate against the exact file. The SHA sent to Brain must be computed from those final bytes; never hash a rendered copy. The adapter does not inject a Brain-owned Instance name, identity labels, or `extraLabels`.
+
+After the gate passes, call the task-scoped MCP tool exactly once for this template revision:
+
+```text
+template_ready({ sha256: TEMPLATE_SHA })
+```
+
+The tool response is the control decision, not a suggestion:
+
+- `decision: "continue"` — continue to deployment using the same final template.
+- `decision: "awaiting_user"` — end the current Codex turn immediately, before any Template API request, `kubectl apply`, or other deployment mutation. Brain extracts `spec.inputs` from this template, renders the existing form, and resumes the same task after the user submits it.
+- Any error, missing decision, stale task, or unavailable tool — stop managed mode as fatal. Do not write a substitute report or retry through another transport.
+
+Do not create `inputs-required.json` or another control/checkpoint file. The Template's `spec.inputs` is the sole form declaration.
+
+After apply, run the Skill's normal readiness and runtime-truth checks yourself. When those checks pass, report the actual resources created in the task namespace:
+
+```text
+deployment_completed({
+  workloads: [
+    { apiVersion, kind, name, namespace },
+    // include the current Ready Pod or Pods when available
+  ],
+  // optional: the tenant-owned public URL when the deployment exposes one
+  publicUrl: "https://<tenant-domain-app-url>"
+})
+```
+
+Brain only performs a small Ready check on these references and, when `publicUrl` is provided, probes it for a 2xx response. A `repair` response means continue diagnosing and repairing in this Codex turn; Brain does not apply, inspect logs, or debug for you.
+
 ---
 
 ## Phase 5.5: Interactive Configuration
@@ -871,6 +912,25 @@ After generating the template, guide the user through application configuration 
 This is a **critical** step — most applications need user-specific configuration to function properly.
 
 Before categorizing inputs, load `<SKILL_DIR>/../docker-to-sealos/references/bootstrap-account-modes.md` and classify the exact selected release as functional first-user signup, mandatory bootstrap credentials, or optional root reconciliation. For mandatory bootstrap, record whether credentials are deployer-supplied or runtime-generated. Record the selected mode in the deployment analysis.
+
+### Managed-mode configuration override
+
+In managed mode Brain owns the form. The Codex turn never asks the user questions and never copies submitted values into the prompt or `.sealos/template/index.yaml`:
+
+1. On the initial turn, follow the managed handoff above. If `template_ready` returns `awaiting_user`, stop the turn; do not poll or sleep waiting for the form.
+2. After Brain resumes the same task, read the fixed file named by `SEALAI_INPUTS_PATH` (it must equal `/run/sealai/deployment/inputs.json`) as a JSON object. Do not search for another input file and do not invent defaults for missing required keys.
+3. Pass that file to the Template API deploy helper without printing its contents:
+
+   ```bash
+   node "<SKILL_DIR>/scripts/deploy-template.mjs" \
+     "$WORK_DIR/.sealos/template/index.yaml" \
+     --args-file "$SEALAI_INPUTS_PATH"
+   ```
+
+   If the template has no inputs, continue with an empty argument object and do not require an input file.
+4. Re-run the final quality gate against the unchanged template immediately before deployment. User values are request arguments, not a second template artifact.
+
+The interactive/local configuration procedure below applies only when `SEALAI_DEPLOY_MODE` is not `managed`; leave it unchanged for local runs.
 
 ### 5.5.1 Extract Configuration from Template
 
@@ -999,6 +1059,10 @@ Configuration is applied directly to `.sealos/template/index.yaml`. No separate 
 ---
 
 ## Phase 6: Deploy to Sealos Cloud
+
+### Managed-mode execution
+
+In managed mode the Codex performs the deploy itself with the injected user kubeconfig and `SEALAI_NAMESPACE`. Do not call Sealos OAuth or ask Brain to apply the YAML. Use the managed-aware `deploy-template.mjs` path (or an equivalent direct `kubectl`/Template API operation) only after the `template_ready` decision permits continuation, and keep all apply, patch, log, and exec operations inside this Codex turn. Local mode continues to use the auth and kubeconfig instructions below.
 
 ### 6.1 Construct Deploy URL
 

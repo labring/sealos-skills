@@ -323,5 +323,31 @@
         {"name": "proves-redacted-login", "description": "Retrieves the resolved credential without printing it and completes login plus one authenticated action with credential material redacted"}
       ]
     }
+  ,
+{
+      "id": 25,
+"prompt": "Run /sealos-deploy in Brain managed mode with SEALAI_DEPLOY_MODE=managed and the task-scoped MCP tools available.",
+      "expected_output": "Keeps the local workflow unchanged, preserves the final validated Template without injecting a Brain-owned Instance identity, calls template_ready with the final template SHA, ends the turn on awaiting_user, and resumes from the fixed SEALAI_INPUTS_PATH without creating an inputs-required control file.",
+      "files": [],
+      "assertions": [
+        {"name": "managed-mode-is-explicit", "description": "Enters the managed adapter only for SEALAI_DEPLOY_MODE=managed and leaves local mode behavior unchanged"},
+        {"name": "does-not-inject-brain-identity", "description": "Leaves Template resource metadata and workload Pod templates unchanged; the actual Instance name remains owned by Sealos/Template"},
+        {"name": "hashes-final-template", "description": "Runs the final quality gate after label injection and calls template_ready with the SHA-256 of the exact submitted bytes"},
+        {"name": "awaiting-user-ends-turn", "description": "Treats decision=awaiting_user as a turn boundary before any deployment mutation and lets Brain render the existing Template inputs form"},
+        {"name": "resumes-fixed-inputs", "description": "On resume reads only /run/sealai/deployment/inputs.json via SEALAI_INPUTS_PATH and passes it as deployment arguments without printing values"},
+        {"name": "fails-closed-on-missing-tools", "description": "Stops managed mode when template_ready or deployment_completed is unavailable instead of falling back to files or Brain-side mutation"}
+      ]
+    },
+{
+      "id": 26,
+"prompt": "A managed deployment reaches Runtime Truth, then deployment_completed returns decision=repair with readiness observations.",
+      "expected_output": "The same Codex Agent inspects the reported Pod/events/logs, diagnoses and repairs the workload, re-applies the template, reruns Runtime Truth, and calls deployment_completed again; it stops at the configured repair/deadline budget and only accepted_stop ends the managed task.",
+      "files": [],
+      "assertions": [
+        {"name": "repair-stays-agent-owned", "description": "Keeps diagnosis, kubectl repair/re-apply, and re-verification inside the Devbox Codex Agent"},
+        {"name": "accepted-stop-is-final", "description": "Treats deployment_completed decision=accepted_stop as the only successful managed completion signal"},
+        {"name": "bounds-repair-loop", "description": "Repairs as many times as needed while honoring SEALAI_TURN_DEADLINE_AT as the single hard limit and fails closed when the deadline is exhausted"}
+      ]
+    }
   ]
 }
