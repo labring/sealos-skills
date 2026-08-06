@@ -53,16 +53,25 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 **Depends on**: Phase 4 (completed v1.0 milestone)
 **Requirements**: SDS-01, SDS-03, SDS-05
 **Success Criteria** (what must be TRUE):
+
   1. A single contract matrix names discovery, scope, risk, workflow, output, handoff, lifecycle, and verification facets for all eight entry files.
   2. Every entry declares request lifetime and terminal states, and Canvas states the lifetime and shutdown condition of its temporary local server.
   3. Entry content exposes confirmation, secret redaction, kubeconfig scope, read-only boundaries, eligibility stops, quality-gate requirements, and runtime-acceptance rules before branch detail loads.
   4. Positive and violating baseline probes record current routing, mutation, stop, output, handoff, and runtime behavior for each skill.
+
 **Plans**: 3 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 05-01: Capture the eight-skill inventory, adapter matrix, runtime artifacts, and positive/violating baseline probes.
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 05-02: Define the shared entry template, lifecycle vocabulary, risk classes, and per-skill safety canaries (depends on 05-01).
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 05-03: Apply the contract skeleton to all eight entries and approve the runtime-preservation checklist (depends on 05-01 and 05-02).
 
 **Research flag**: Standard local patterns are sufficient. Confirm exact section names and invariant phrases during phase discussion.
@@ -73,10 +82,12 @@ Plans:
 **Depends on**: Phase 5
 **Requirements**: SDS-09, SDS-D04
 **Success Criteria** (what must be TRUE):
+
   1. The validator discovers exactly eight `skills/*/SKILL.md` entries and reports every missing or unexpected host projection against that set.
   2. A removed confirmation, redaction, read-only, eligibility, or fail-closed guard produces a targeted semantic-safety failure even when unrelated prose remains valid.
   3. Fixture tests reject missing routes, broken paths, frontmatter/name mismatches, stale versions, malformed eval records, and invalid progressive links.
   4. The existing Codex plugin validator remains callable, while the physical skill tree and router remain the authoritative sources.
+
 **Plans**: 3 plans
 
 Plans:
@@ -93,10 +104,12 @@ Plans:
 **Depends on**: Phase 6
 **Requirements**: SDS-02, SDS-D02, SDS-D05
 **Success Criteria** (what must be TRUE):
+
   1. A clear request selects one owner, a compound request yields an explicit ordered handoff, and an ambiguous mutation request pauses before side effects.
   2. The unified route records whether a request is observation, a local write, a cloud write, public exposure, or destructive work before delegation.
   3. Codex, Claude-compatible hosts, Qoder, CodeBuddy, Gemini/Qwen context extensions, OpenClaw, and skills.sh expose the canonical tree with their documented `$sealos`, `/sealos`, context-only, or direct-entry semantics.
   4. The Canvas exposure decision is explicit, manifests and marketplaces agree with it, and every advertised direct path resolves to an existing skill.
+
 **Plans**: 3 plans
 
 Plans:
@@ -113,11 +126,13 @@ Plans:
 **Depends on**: Phase 7
 **Requirements**: SDS-06, SDS-08
 **Success Criteria** (what must be TRUE):
+
   1. Each dependency entry names the exact module or reference loaded for a branch, and normal work reaches actionable detail through one resolvable level.
   2. Unsupported or unresolved targets stop with evidence before scoring, build, template generation, or deployment; eligible readiness output carries framework, dependency, configuration, and concern data.
   3. Dockerfile work reports owned file mutations, secret-safe handling, build evidence, HTTP/runtime proof, and a clear success, stopped, or error result.
   4. Compose conversion keeps rule precedence, MUST-map and registry coverage, topology, storage, database, and secret safeguards visible, and template delivery follows the complete quality gate.
   5. Every handoff names its input artifact, evidence, owner, allowed action, failure return, and response owner so downstream work reuses discovery.
+
 **Plans**: 4 plans
 
 Plans:
@@ -135,10 +150,12 @@ Plans:
 **Depends on**: Phase 8
 **Requirements**: SDS-04, SDS-D06
 **Success Criteria** (what must be TRUE):
+
   1. Database and S3 create/reuse decisions, environment-key preservation, connectivity or object-flow proof, redaction, and public/destructive confirmation are visible in their terminal outcomes.
   2. Canvas requires verified deployment state, remains read-only, sanitizes topology data, returns its local URL/cache evidence, and states the temporary server shutdown condition.
   3. App Builder distinguishes code work from tutorials, applies SDK/source precedence, verifies a real Desktop iframe, and returns a publish handoff with the correct owner.
   4. These entries use shared success, stopped, and error vocabulary while retaining evidence fields for resources, objects, local URLs, and application integration.
+
 **Plans**: 4 plans
 
 Plans:
@@ -157,10 +174,12 @@ Plans:
 **Depends on**: Phase 9
 **Requirements**: SDS-D01, SDS-D03
 **Success Criteria** (what must be TRUE):
+
   1. Deploy consumes readiness, Dockerfile, and template payloads with source, owner, preconditions, and evidence, and downstream phases skip repeated discovery.
   2. Preflight, authentication, kubeconfig scope, system-tool installation, public exposure, deletion, cleanup, and secret-redaction gates remain explicit before mutations.
   3. A successful deployment reports the actual App URL and live identity, relevant setup or login proof, logs/events, workload readiness, and the complete resource footprint; stopped and error results name artifacts and the next safe action.
   4. Verified `.sealos/state.json` and deployment artifacts provide the read-only Canvas handoff without changing Canvas or deploy ownership.
+
 **Plans**: 4 plans
 
 Plans:
@@ -178,10 +197,12 @@ Plans:
 **Depends on**: Phase 10
 **Requirements**: SDS-07, SDS-10, SDS-11
 **Success Criteria** (what must be TRUE):
+
   1. Every skill owns positive and violating cases for routing, scope/boundary, terminal outcomes, progressive loading, and its highest-risk action; the unified router has host and compound-request cases.
   2. Structured traces shaped as `{text, toolCalls, files}` let deterministic tests distinguish confirmation, redaction, read-only, eligibility, output, and handoff violations.
   3. One documented local command runs contract shape, inventory, routes, versions, links, safety canaries, eval schemas, behavior probes, and existing skill-specific validators with actionable failures.
   4. Success, stopped, and error outputs across all eight skills include domain evidence, artifact paths or URLs where applicable, redacted sensitive values, and a safe next action.
+
 **Plans**: 4 plans
 
 Plans:
@@ -199,10 +220,12 @@ Plans:
 **Depends on**: Phase 11
 **Requirements**: SDS-12, REL-01
 **Success Criteria** (what must be TRUE):
+
   1. A file-by-file report classifies every release change as aligned, adapted, or excluded, records both source and target commits, and preserves the preview prepare-only pipeline, Railpack delta, and Kaniko executor.
   2. Runtime and safety verification confirms preserved artifacts, phase order, authentication, confirmation gates, cleanup expectations, host semantics, and live acceptance evidence across the current workflows.
   3. README and localized public claims, manifests, platform evidence, and release version/tag fields describe the same eight-skill inventory and host invocation semantics.
   4. The final release report names the executed gates, changed files, retained branch-specific behavior, and any follow-up outside v1.1 scope.
+
 **Plans**: 4 plans
 
 Plans:
