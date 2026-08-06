@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "canonicalSkills": [
+    "cloud-native-readiness",
+    "docker-to-sealos",
+    "dockerfile-skill",
+    "sealos-app-builder",
+    "sealos-canvas",
+    "sealos-database",
+    "sealos-deploy",
+    "sealos-s3"
+  ],
+  "readmes": {
+    "root": "README.md",
+    "localizedGlob": "readmes/README.*.md",
+    "requiredTokens": ["$sealos", "/sealos", "skills.sh"]
+  },
+  "directSkillsShEntries": ["/sealos-deploy", "/sealos-database", "/sealos-s3"],
+  "manifestVersionPaths": [
+    {"path": ".codex-plugin/plugin.json", "field": ["version"]},
+    {"path": ".claude-plugin/plugin.json", "field": ["version"]},
+    {"path": ".qoder-plugin/plugin.json", "field": ["version"]},
+    {"path": "marketplace.json", "field": ["metadata", "version"]},
+    {"path": "marketplace.json", "field": ["plugins", 0, "version"]},
+    {"path": ".claude-plugin/marketplace.json", "field": ["metadata", "version"]},
+    {"path": ".claude-plugin/marketplace.json", "field": ["plugins", 0, "version"]},
+    {"path": ".codebuddy-plugin/marketplace.json", "field": ["version"]},
+    {"path": ".codebuddy-plugin/marketplace.json", "field": ["plugins", 0, "version"]},
+    {"path": "distribution/platforms.json", "field": ["version"]},
+    {"path": "plugin.json", "field": ["version"]},
+    {"path": "gemini-extension.json", "field": ["version"]},
+    {"path": "qwen-extension.json", "field": ["version"]},
+    {"path": "openclaw.plugin.json", "field": ["version"]}
+  ],
+  "inventoryManifests": [
+    {"path": ".claude-plugin/plugin.json", "field": ["skills"]},
+    {"path": ".qoder-plugin/plugin.json", "field": ["skills"]},
+    {"path": "marketplace.json", "field": ["plugins", 0, "skills"]},
+    {"path": ".claude-plugin/marketplace.json", "field": ["plugins", 0, "skills"]},
+    {"path": ".codebuddy-plugin/marketplace.json", "field": ["plugins", 0, "skills"]}
+  ],
+  "rootSkillPointers": [
+    {"path": ".codex-plugin/plugin.json", "field": ["skills"], "value": "./skills/"},
+    {"path": "plugin.json", "field": ["skills"], "value": "./skills/"}
+  ],
+  "hostSemanticFiles": ["commands/sealos.md", "distribution/platforms.json"],
+  "version": {
+    "source": ".codex-plugin/plugin.json",
+    "field": ["version"],
+    "expected": "1.2.0"
+  },
+  "tag": {
+    "required": false,
+    "candidate": "ef8f2aceb2e7f0b915713419cd129fbc0454d717",
+    "policy": "report-observed-tags-only"
+  }
+}
