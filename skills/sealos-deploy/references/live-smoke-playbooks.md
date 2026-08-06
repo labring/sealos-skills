@@ -10,6 +10,23 @@ post-action evidence with credentials, cookies, tokens, Secret data, kubeconfig,
 connection strings redacted. A read-only Runtime Truth report may recommend a mutation;
 the deploy pipeline remains the owner that requests confirmation and performs it.
 
+### Runtime Truth Workload Matrix
+
+Apply the strongest applicable row and keep skipped probes explicit in the report:
+
+| Class | Evidence required | Skipped by design |
+| --- | --- | --- |
+| Public web | App URL/live host, Launchpad network and port, fresh root/entrance, setup or auth, negative route, baseline/final logs/events, readiness, complete footprint | none of the web-entry checks |
+| Private web | live identity, internal route, documented business action, baseline/final logs/events, readiness, complete footprint | Launchpad/public-domain check when no public Ingress exists |
+| Worker | ready Pods, queue/work signal, logs/events/restarts, complete footprint | HTTP route, Launchpad, browser auth |
+| Scheduled job | CronJob schedule, one expected Job/Pod completion, logs/events, full footprint, one schedule stability window | HTTP route and public network |
+| Database-backed | live database objects and migrations plus dependent workload readiness | database checks unrelated to the declared app contract |
+| S3-backed | authenticated upload/read/digest/delete, restricted raw object, bucket/Secret wiring | managed branch when the app explicitly selects local storage |
+
+Every row still needs `runtimeReady`, `collectionOk`, sanitized output, a first/final
+baseline comparison, and a minimum 60-second window. Partial evidence returns a safe
+`stopped` or `error` result and never a success claim.
+
 ## Contents
 
 - [Runtime Truth Pass](#runtime-truth-pass)
