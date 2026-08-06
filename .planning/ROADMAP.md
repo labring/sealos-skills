@@ -36,7 +36,7 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 - Integer phases continue the v1.0 sequence.
 - Decimal phases are reserved for urgent insertions between integer phases.
 
-- [ ] **Phase 5: Baseline, Ownership, and Shared Contract** - Capture current behavior and establish the entry contract, lifecycle vocabulary, and entry-visible safety set.
+- [x] **Phase 5: Baseline, Ownership, and Shared Contract** - Capture current behavior and establish the entry contract, lifecycle vocabulary, and entry-visible safety set. (completed 2026-08-06)
 - [ ] **Phase 6: Inventory, Router, and Validator Foundation** - Derive canonical inventory and build fixture-tested structural and semantic checks.
 - [ ] **Phase 7: Host Adapter and Public Surface Alignment** - Align every host projection and risk-aware route around the eight canonical skills.
 - [ ] **Phase 8: Dependency Skill Entry Refactors** - Focus readiness, Dockerfile, and Compose conversion entries while preserving their handoff and quality-gate contracts.
@@ -64,15 +64,15 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 Plans:
 **Wave 1**
 
-- [ ] 05-01: Capture the eight-skill inventory, adapter matrix, runtime artifacts, and positive/violating baseline probes.
+- [x] 05-01: Capture the eight-skill inventory, adapter matrix, runtime artifacts, and positive/violating baseline probes.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 05-02: Define the shared entry template, lifecycle vocabulary, risk classes, and per-skill safety canaries (depends on 05-01).
+- [x] 05-02: Define the shared entry template, lifecycle vocabulary, risk classes, and per-skill safety canaries (depends on 05-01).
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 05-03: Apply the contract skeleton to all eight entries and approve the runtime-preservation checklist (depends on 05-01 and 05-02).
+- [x] 05-03: Apply the contract skeleton to all eight entries and approve the runtime-preservation checklist (depends on 05-01 and 05-02).
 
 **Research flag**: Standard local patterns are sufficient. Confirm exact section names and invariant phrases during phase discussion.
 
@@ -274,7 +274,7 @@ Phases execute in numeric order: 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
-| 5. Baseline, Ownership, and Shared Contract | v1.1 | 0/3 | Not started | - |
+| 5. Baseline, Ownership, and Shared Contract | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 6. Inventory, Router, and Validator Foundation | v1.1 | 0/3 | Not started | - |
 | 7. Host Adapter and Public Surface Alignment | v1.1 | 0/3 | Not started | - |
 | 8. Dependency Skill Entry Refactors | v1.1 | 0/4 | Not started | - |
