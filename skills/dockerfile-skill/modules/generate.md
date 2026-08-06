@@ -4,6 +4,18 @@
 
 Generate production-ready Dockerfile based on analysis results.
 
+## Input and Mutation Contract
+
+Consume the analysis payload, including `owned_files`, migration/runtime concerns,
+workspace requirements, readiness provenance when available, and `redaction.ok`.
+Before any write, print the named output set and the action for every existing file:
+`preserve`, `create`, or `update_with_authorization`. A missing authorization for a
+replacement returns `stopped` and leaves the project unchanged.
+
+Keep generated secrets and build placeholders synthetic and out of terminal
+results. Generated files must remain inside the selected project and the named
+output set.
+
 ## Input
 
 Project analysis from `analyze.md` module.
@@ -122,6 +134,10 @@ If `analysis.dependencies.external_services` is not empty:
 1. Generate `docker-compose.yml` with required services
 2. Document required environment variables
 3. Add health checks for dependent services
+
+Record generated files and their ownership in the packaging result. Optional
+Compose, entrypoint, environment documentation, and deploy-side evidence remain
+owned outputs only when analysis identifies them as required.
 
 ### Rule 5: Framework-Specific Handling
 

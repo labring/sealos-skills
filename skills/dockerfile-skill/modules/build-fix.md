@@ -4,6 +4,19 @@
 
 Execute docker buildx build (targeting linux/amd64), capture errors, and automatically fix Dockerfile issues through iterative refinement.
 
+## Acceptance Contract
+
+Treat the build loop and runtime validation as one acceptance boundary. A build
+result may be saved for diagnosis, while `success` requires the applicable
+migration/database proof, accepted HTTP/health response, and clean runtime-log
+analysis. Record each check in `docker-build/build-result.json` and
+`docker-build/validation-result.json`, with repository-relative paths and
+`redaction.ok`.
+
+Build-only output is `error` when runtime evidence is required and unavailable.
+An unresolved runtime precondition is `stopped` with the missing evidence and a
+safe next action. Never pass an unaccepted build to `sealos-deploy`.
+
 ## Execution Flow
 
 ```
@@ -410,6 +423,19 @@ The best version of Dockerfile is saved. It may work with additional configurati
 
 After completing all build iterations AND all runtime validation steps (Phase 3 + Phase 4),
 write two artifact files to the `docker-build/` directory.
+
+The final handoff carries:
+
+```yaml
+target: sealos-deploy
+inputArtifact: validated Dockerfile and build/runtime result with source provenance
+allowedAction: build or reuse an image within the selected deployment scope
+failureReturn: failing packaging, migration, HTTP, health, or runtime-log phase
+responseOwner: dockerfile-skill
+```
+
+Emit this handoff only when the acceptance contract passes. Keep image tags,
+connection values, and diagnostics sanitized.
 
 ### Phase 3: Build Result
 
