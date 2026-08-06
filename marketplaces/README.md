@@ -30,10 +30,13 @@ This directory documents the Sealos skill pack distribution surfaces.
 
 - Keep all manifest versions in sync with `.codex-plugin/plugin.json`.
 - Keep all `skills` arrays pointed at root `./skills/...` paths.
+- Keep `./skills/sealos-canvas` in every explicit plugin or marketplace skill array. Directory-pointer hosts inherit Canvas from the canonical root tree.
+- Treat `.codex-plugin/plugin.json` as the sole package-version source; derive comparisons and archive names from its `version` field.
+- Keep `.agents/plugins/marketplace.json`, Codex directory pointers, and OpenClaw's `.claude-plugin/plugin.json` source as pointers. Do not add copied skill trees to pointer hosts.
 - Keep the Qoder skill inventory aligned with every `skills/*/SKILL.md` loaded by the Codex plugin.
 - Do not copy skill directories into host-specific package folders.
 - Keep plugin examples as `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts.
-- Keep `/sealos-deploy` examples only in direct `skills.sh` usage sections.
+- Keep `/sealos-deploy`, `/sealos-database`, and `/sealos-s3` as the direct `skills.sh` subset. Canvas remains available through the installed plugin pack after verified deployment state.
 
 ## Plugin validation
 

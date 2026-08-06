@@ -29,8 +29,9 @@ class DesignValidatorTests(unittest.TestCase):
                 shutil.copytree(source, root / directory, symlinks=True)
         (root / "plugins").mkdir()
         (root / "plugins/sealos").symlink_to("..")
-        for file_name in ("plugin.json", "marketplace.json", "gemini-extension.json", "qwen-extension.json", "openclaw.plugin.json"):
+        for file_name in ("plugin.json", "marketplace.json", "gemini-extension.json", "qwen-extension.json", "openclaw.plugin.json", "README.md", "AGENTS.md", "qoder.md"):
             shutil.copy(ROOT / file_name, root / file_name)
+        (root / "CLAUDE.md").symlink_to("AGENTS.md")
         return temp, root
 
     @staticmethod
@@ -50,6 +51,10 @@ class DesignValidatorTests(unittest.TestCase):
             if "./skills/sealos-canvas" not in values:
                 values.append("./skills/sealos-canvas")
             path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def _diagnostics(root: Path):
+        return validate_design_system(root)
 
     def test_live_validator_is_green_after_canvas_repair(self) -> None:
         diagnostics = validate_design_system(ROOT)
@@ -104,6 +109,86 @@ class DesignValidatorTests(unittest.TestCase):
             path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             diagnostics = validate_design_system(root)
             self.assertTrue(any(item.code == "route.missing_skill" and item.path == "commands/sealos.md" and item.skill == "sealos-canvas" for item in diagnostics))
+        finally:
+            temp.cleanup()
+
+    def test_public_capability_name_is_required(self) -> None:
+        temp, root = self._copy_repo()
+        try:
+            path = root / "README.md"
+            path.write_text(path.read_text(encoding="utf-8").replace("`sealos-canvas`", "`missing-canvas`"), encoding="utf-8")
+            diagnostics = self._diagnostics(root)
+            self.assertTrue(any(item.code == "claim.missing_capability" and item.path == "README.md" and item.target == "sealos-canvas" for item in diagnostics))
+        finally:
+            temp.cleanup()
+
+    def test_canvas_direct_entry_leak_is_rejected(self) -> None:
+        temp, root = self._copy_repo()
+        try:
+            path = root / "README.md"
+            text = path.read_text(encoding="utf-8").replace("After a project has been deployed", "/sealos-canvas\n\nAfter a project has been deployed", 1)
+            path.write_text(text, encoding="utf-8")
+            diagnostics = self._diagnostics(root)
+            self.assertTrue(any(item.code == "claim.direct_entry" and item.path == "README.md" for item in diagnostics))
+        finally:
+            temp.cleanup()
+
+    def test_context_only_slash_claim_is_rejected(self) -> None:
+        temp, root = self._copy_repo()
+        try:
+            path = root / "distribution/platforms.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            next(item for item in payload["platforms"] if item["id"] == "gemini-cli")["commands"] = "supported"
+            path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            diagnostics = self._diagnostics(root)
+            self.assertTrue(any(item.code == "claim.context_only" and item.target == "supported" for item in diagnostics))
+        finally:
+            temp.cleanup()
+
+    def test_context_target_is_required(self) -> None:
+        temp, root = self._copy_repo()
+        try:
+            path = root / "gemini-extension.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["contextFileName"] = "MISSING.md"
+            path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            diagnostics = self._diagnostics(root)
+            self.assertTrue(any(item.code == "claim.context_target" and item.path == "gemini-extension.json" for item in diagnostics))
+        finally:
+            temp.cleanup()
+
+    def test_openclaw_copied_tree_claim_is_rejected(self) -> None:
+        temp, root = self._copy_repo()
+        try:
+            path = root / "openclaw.plugin.json"
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["skills"] = ["./skills/sealos-canvas"]
+            path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+            diagnostics = self._diagnostics(root)
+            self.assertTrue(any(item.code == "claim.pointer" for item in diagnostics))
+        finally:
+            temp.cleanup()
+
+    def test_canvas_precondition_is_required(self) -> None:
+        temp, root = self._copy_repo()
+        try:
+            path = root / "README.md"
+            text = path.read_text(encoding="utf-8")
+            text = text.replace("After a project has been deployed and `.sealos/state.json` contains verified `last_deploy` runtime evidence", "After a project has been deployed", 1)
+            path.write_text(text, encoding="utf-8")
+            diagnostics = self._diagnostics(root)
+            self.assertTrue(any(item.code == "claim.canvas_precondition" and item.path == "README.md" for item in diagnostics))
+        finally:
+            temp.cleanup()
+
+    def test_platform_evidence_requires_phase7_tokens(self) -> None:
+        temp, root = self._copy_repo()
+        try:
+            path = root / "distribution/platforms.json"
+            text = path.read_text(encoding="utf-8").replace("temporary Qoder", "temporary package", 1)
+            path.write_text(text, encoding="utf-8")
+            diagnostics = self._diagnostics(root)
+            self.assertTrue(any(item.code == "claim.evidence" and item.target == "temporary Qoder" for item in diagnostics))
         finally:
             temp.cleanup()
 

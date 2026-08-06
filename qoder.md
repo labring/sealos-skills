@@ -15,4 +15,8 @@ Use the Sealos plugin as the unified entry point for Sealos Cloud development an
 
 Prefer the most specific skill for the task and follow that skill's workflow and safety rules. Treat `/sealos` as the plugin command entry point.
 
+## Host contract
+
+The Qoder pack routes `/sealos` to the shared `commands/sealos.md` adapter and exposes the eight canonical owners listed above. `sealos-canvas` stays read-only and starts only after a verified deployment state exists in `.sealos/state.json`; all detailed lifecycle, confirmation, handoff, and verification behavior remains in the owning `skills/*/SKILL.md` entry. The adapter carries routing and safety references only.
+
 Never expose credentials, kubeconfig contents, `.env` values, S3 secrets, or complete connection strings. Obtain explicit user confirmation before destructive Kubernetes, database, or bucket operations; public-access changes; credential rotation; or system tool installation.

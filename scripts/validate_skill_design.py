@@ -210,6 +210,102 @@ def _openai_metadata_checks(root: Path, names: set[str]) -> list[DesignDiagnosti
     return diagnostics
 
 
+def _public_claim_checks(root: Path, names: set[str]) -> list[DesignDiagnostic]:
+    """Validate public invocation claims without executing a host runtime."""
+
+    diagnostics: list[DesignDiagnostic] = []
+    readme_path = root / "README.md"
+    shared_path = root / "AGENTS.md"
+    qoder_path = root / "qoder.md"
+    try:
+        readme = readme_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [_diag("claim.source_missing", root, readme_path, str(exc), field="README")]
+    try:
+        shared = shared_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        diagnostics.append(_diag("claim.source_missing", root, shared_path, str(exc), field="shared_context"))
+        shared = ""
+    try:
+        qoder = qoder_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        diagnostics.append(_diag("claim.source_missing", root, qoder_path, str(exc), field="qoder_context"))
+        qoder = ""
+
+    for path, text in ((readme_path, readme), (shared_path, shared), (qoder_path, qoder)):
+        for name in sorted(names):
+            if name not in text:
+                diagnostics.append(_diag("claim.missing_capability", root, path, f"public context omits canonical capability {name!r}", field="capabilities", target=name))
+    for token, path, text in (("$sealos", shared_path, shared), ("/sealos", shared_path, shared), ("context-only", shared_path, shared), ("OpenClaw", shared_path, shared), ("skills.sh", shared_path, shared)):
+        if token not in text:
+            diagnostics.append(_diag("claim.invocation", root, path, f"shared context omits host claim token {token!r}", field="host_invocation", target=token))
+
+    direct_heading = "### Alternative: install as a `skills.sh` skill pack"
+    direct_start = readme.find(direct_heading)
+    direct_body = readme[direct_start:] if direct_start >= 0 else ""
+    if direct_start < 0:
+        diagnostics.append(_diag("claim.direct_entry", root, readme_path, "README direct skills.sh section is missing", field="direct_entries"))
+    else:
+        next_section = direct_body.find("\n## ", len(direct_heading))
+        if next_section >= 0:
+            direct_body = direct_body[:next_section]
+        skill_aliases = {f"/{name}" for name in names}
+        claimed = set(re.findall(r"(?<![A-Za-z0-9])/[A-Za-z0-9-]+", direct_body)) & skill_aliases
+        expected_direct = {"/sealos-deploy", "/sealos-database", "/sealos-s3"}
+        if claimed != expected_direct:
+            diagnostics.append(_diag("claim.direct_entry", root, readme_path, "README direct skills.sh entries must be exactly deploy, database, and S3", field="direct_entries", target=",".join(sorted(claimed))))
+
+    gemini, gemini_errors = _load_json(root, "gemini-extension.json")
+    diagnostics.extend(gemini_errors)
+    qwen, qwen_errors = _load_json(root, "qwen-extension.json")
+    diagnostics.extend(qwen_errors)
+    for host_id, payload, relative in (("gemini-cli", gemini, "gemini-extension.json"), ("qwen-code", qwen, "qwen-extension.json")):
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("contextFileName") != "CLAUDE.md":
+            diagnostics.append(_diag("claim.context_target", root, root / relative, "context-only extension must load CLAUDE.md", field="contextFileName", target=str(payload.get("contextFileName"))))
+        if not (root / "CLAUDE.md").exists():
+            diagnostics.append(_diag("claim.context_target", root, root / relative, "context-only extension target CLAUDE.md is missing", field="contextFileName", target="CLAUDE.md"))
+        platform_path = root / "distribution/platforms.json"
+        try:
+            platforms = json.loads(platform_path.read_text(encoding="utf-8"))
+            platform = next(item for item in platforms.get("platforms", []) if item.get("id") == host_id)
+        except (OSError, StopIteration, json.JSONDecodeError):
+            platform = {}
+        if platform.get("commands") != "not_claimed":
+            diagnostics.append(_diag("claim.context_only", root, platform_path, f"{host_id} must keep commands: not_claimed", field="platforms.commands", target=str(platform.get("commands"))))
+
+    platform_path = root / "distribution/platforms.json"
+    platforms, errors = _load_json(root, "distribution/platforms.json")
+    diagnostics.extend(errors)
+    if isinstance(platforms, dict):
+        entries = platforms.get("platforms", [])
+        if isinstance(entries, list):
+            by_id = {entry.get("id"): entry for entry in entries if isinstance(entry, dict)}
+            skills_entry = by_id.get("skills-npx", {})
+            direct_claimed = set(re.findall(r"/(?:sealos-[a-z0-9-]+)", str(skills_entry.get("invoke", ""))))
+            if direct_claimed != {"/sealos-deploy", "/sealos-database", "/sealos-s3"}:
+                diagnostics.append(_diag("claim.direct_entry", root, platform_path, "platform direct skills.sh entries must be exactly deploy, database, and S3", field="platforms.skills-npx.invoke", target=",".join(sorted(direct_claimed))))
+            evidence = " ".join(str(entry.get("evidence", "")) for entry in entries)
+            for token in ("Phase 7 offline", "route", "inventory", "pointer", "version", "link", "temporary Qoder"):
+                if token.lower() not in evidence.lower():
+                    diagnostics.append(_diag("claim.evidence", root, platform_path, f"platform evidence omits {token!r}", field="platforms.evidence", target=token))
+            qoder_entry = by_id.get("qoder", {})
+            if "verified .sealos/state.json deployment state" not in str(qoder_entry.get("invoke", "")):
+                diagnostics.append(_diag("claim.canvas_precondition", root, platform_path, "Qoder Canvas claim must require verified .sealos/state.json deployment state", field="platforms.qoder.invoke"))
+    canvas_readme_evidence = "`.sealos/state.json` contains verified `last_deploy`" in readme
+    if not canvas_readme_evidence:
+        diagnostics.append(_diag("claim.canvas_precondition", root, readme_path, "README Canvas claim must include verified .sealos/state.json deployment state", field="canvas_precondition"))
+    if ".sealos/state.json" not in qoder or "verified deployment state" not in qoder.lower():
+        diagnostics.append(_diag("claim.canvas_precondition", root, qoder_path, "Qoder Canvas claim must include verified .sealos/state.json deployment state", field="canvas_precondition"))
+
+    openclaw, errors = _load_json(root, "openclaw.plugin.json")
+    diagnostics.extend(errors)
+    if isinstance(openclaw, dict) and (openclaw.get("source") != ".claude-plugin/plugin.json" or openclaw.get("commands") != ["./commands/"] or "skills" in openclaw):
+        diagnostics.append(_diag("claim.pointer", root, root / "openclaw.plugin.json", "OpenClaw claim must remain a pointer to the Claude manifest without a copied skill list", field="source"))
+    return diagnostics
+
+
 def _version_checks(root: Path) -> list[DesignDiagnostic]:
     canonical_payload, errors = _load_json(root, ".codex-plugin/plugin.json")
     diagnostics = list(errors)
@@ -340,6 +436,7 @@ def validate_design_system(root: Path) -> list[DesignDiagnostic]:
     diagnostics.extend(_projection_checks(root, names))
     diagnostics.extend(_pointer_checks(root, names))
     diagnostics.extend(_openai_metadata_checks(root, names))
+    diagnostics.extend(_public_claim_checks(root, names))
     diagnostics.extend(_version_checks(root))
     diagnostics.extend(_link_checks(root, entries))
     diagnostics.extend(_eval_checks(root, entries))

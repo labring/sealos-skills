@@ -109,6 +109,23 @@ Root `skills/**` is the only skill source for every host. Do not add a second pa
 
 Plugin usage examples must use `$sealos` for Codex and `/sealos` for Claude Code-compatible hosts and Qoder. Keep `/sealos-deploy`, `/sealos-database`, and `/sealos-s3` examples only in direct `skills.sh` sections.
 
+### Host Capability Map
+
+The canonical capability map contains exactly these eight root skills:
+
+| Capability | Owner |
+| --- | --- |
+| Deploy and update Sealos workloads | `sealos-deploy` |
+| Cloud database operations | `sealos-database` |
+| S3-compatible object storage | `sealos-s3` |
+| Read-only deployed-resource canvas | `sealos-canvas` |
+| Sealos Desktop app building | `sealos-app-builder` |
+| Cloud-native readiness assessment | `cloud-native-readiness` |
+| Dockerfile generation and repair | `dockerfile-skill` |
+| Compose or install-doc conversion | `docker-to-sealos` |
+
+Codex loads the root plugin with `$sealos`. Claude-compatible hosts and Qoder load the shared command with `/sealos`. CodeBuddy command exposure remains host-dependent. Gemini CLI and Qwen Code load this shared context as context-only extensions and carry no slash-command claim. OpenClaw loads the behavior-free pointer in `openclaw.plugin.json`, which resolves to `.claude-plugin/plugin.json`. Direct `skills.sh` entries remain `/sealos-deploy`, `/sealos-database`, and `/sealos-s3`. Canvas is a plugin-pack capability that requires verified `.sealos/state.json` deployment state before its local read-only view starts.
+
 ### Deployment pipeline (sealos-deploy)
 
 ```text

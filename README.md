@@ -132,7 +132,7 @@ Then run the deploy skill directly:
 /sealos-s3 create private object storage for uploads and wire env vars
 ```
 
-After a project has been deployed, use the `sealos-canvas` skill through your installed plugin entry point.
+After a project has been deployed and `.sealos/state.json` contains verified `last_deploy` runtime evidence, use the `sealos-canvas` skill through your installed plugin entry point for a local read-only view. Canvas stays plugin-pack mediated because it consumes verified deployment state.
 
 `/sealos-deploy`, `/sealos-database`, and `/sealos-s3` are direct `skills.sh` skill entries. Plugin usage should go through `$sealos` in Codex or `/sealos` in Claude Code.
 

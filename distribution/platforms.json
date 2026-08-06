@@ -2,7 +2,7 @@
   "name": "sealos",
   "version": "1.2.0",
   "repository": "https://github.com/labring/sealos-skills",
-  "lastUpdated": "2026-07-24",
+  "lastUpdated": "2026-08-07",
   "platforms": [
     {
       "id": "codex",
@@ -13,7 +13,7 @@
       "alternateInstall": "npx plugins add https://github.com/labring/sealos-skills --target codex",
       "invoke": "Use $sealos in Codex CLI; select Sealos from Plugins in Codex App",
       "commands": "supported",
-      "evidence": "Phase 1 native marketplace add/list/install + installed payload assertions + codex_manifest+repo_marketplace",
+      "evidence": "Phase 1 native marketplace add/list/install + Phase 7 offline route/inventory/pointer/version/link checks + codex_manifest+repo_marketplace",
       "lastVerified": "2026-06-15"
     },
     {
@@ -25,7 +25,7 @@
       "alternateInstall": "npx plugins add https://github.com/labring/sealos-skills --target claude-code",
       "invoke": "/sealos",
       "commands": "supported",
-      "evidence": ".claude-plugin/plugin.json + .claude-plugin/marketplace.json + marketplace.json + commands/sealos.md + README native CLI contract validation",
+      "evidence": ".claude-plugin/plugin.json + .claude-plugin/marketplace.json + marketplace.json + commands/sealos.md + Phase 7 offline route/inventory/pointer/version/link validation + README native CLI contract validation",
       "lastVerified": "2026-06-16"
     },
     {
@@ -33,11 +33,11 @@
       "name": "Qoder",
       "claim": "install-target",
       "runtime": "plugin",
-      "install": "Run python3 scripts/package-qoder-plugin.py, then import dist/sealos-1.2.0.zip in Qoder",
-      "invoke": "/sealos or ask Qoder to use a specific Sealos skill",
+      "install": "Run python3 scripts/package-qoder-plugin.py, then import the versioned ZIP in Qoder",
+      "invoke": "/sealos or ask Qoder to use a specific Sealos skill; Canvas requires verified .sealos/state.json deployment state",
       "commands": "supported",
-      "evidence": ".qoder-plugin/plugin.json + qoder.md + commands/sealos.md + root skills/** + local package validation",
-      "lastVerified": "2026-08-03"
+      "evidence": ".qoder-plugin/plugin.json + qoder.md + commands/sealos.md + root skills/** + Phase 7 offline route/inventory/pointer/version/link checks + temporary Qoder package validation",
+      "lastVerified": "2026-08-07"
     },
     {
       "id": "clawhub-openclaw",
@@ -47,7 +47,7 @@
       "install": "clawhub install labring/sealos-skills",
       "manifest": "openclaw.plugin.json",
       "commands": "supported",
-      "evidence": "openclaw.plugin.json",
+      "evidence": "openclaw.plugin.json pointer/version/link validation",
       "lastVerified": "2026-05-20"
     },
     {
@@ -58,7 +58,7 @@
       "install": "/plugin marketplace add labring/sealos-skills",
       "manifest": ".codebuddy-plugin/marketplace.json",
       "commands": "host_dependent",
-      "evidence": ".codebuddy-plugin/marketplace.json",
+      "evidence": ".codebuddy-plugin/marketplace.json explicit inventory and Canvas parity validation",
       "lastVerified": "2026-05-20"
     },
     {
@@ -69,7 +69,7 @@
       "install": "gemini extensions install https://github.com/labring/sealos-skills",
       "manifest": "gemini-extension.json",
       "commands": "not_claimed",
-      "evidence": "CLAUDE.md context file",
+      "evidence": "CLAUDE.md context file + context-only claim validation",
       "lastVerified": "2026-05-20"
     },
     {
@@ -80,7 +80,7 @@
       "install": "qwen extensions install https://github.com/labring/sealos-skills",
       "manifest": "qwen-extension.json",
       "commands": "not_claimed",
-      "evidence": "CLAUDE.md context file",
+      "evidence": "CLAUDE.md context file + context-only claim validation",
       "lastVerified": "2026-05-20"
     },
     {
@@ -91,7 +91,7 @@
       "install": "npx skills add labring/sealos-skills",
       "invoke": "/sealos-deploy, /sealos-database, /sealos-s3",
       "commands": "not_claimed",
-      "evidence": "root skills/**",
+      "evidence": "root skills/** + exact direct-entry subset validation",
       "lastVerified": "2026-05-20"
     },
     {
