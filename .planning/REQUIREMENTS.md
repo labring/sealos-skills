@@ -14,9 +14,9 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 - [x] **SDS-03**: Each skill declares request-scoped lifecycle behavior and a terminal state; `sealos-canvas` declares the lifecycle and shutdown condition of its temporary local server.
 - [ ] **SDS-04**: Destructive actions, public exposure, credential changes, and system-tool installation remain behind explicit user confirmation gates.
 - [x] **SDS-05**: Entry files expose confirmation, secret redaction, kubeconfig scope, read-only boundaries, eligibility stop conditions, quality-gate requirements, and runtime-acceptance rules before branch-specific detail loads.
-- [ ] **SDS-06**: Each skill uses one level of progressive disclosure with resolvable links, owned detail, and explicit conditions for loading modules, references, knowledge, or scripts.
+- [x] **SDS-06**: Each skill uses one level of progressive disclosure with resolvable links, owned detail, and explicit conditions for loading modules, references, knowledge, or scripts.
 - [ ] **SDS-07**: Each skill reports success, stopped, and error outcomes with domain evidence, artifact paths or URLs where applicable, a safe next action, and redacted sensitive values.
-- [ ] **SDS-08**: Every existing cross-skill handoff names its input, evidence, owner, allowed action, failure return, and response owner, allowing downstream work to reuse prior discovery.
+- [x] **SDS-08**: Every existing cross-skill handoff names its input, evidence, owner, allowed action, failure return, and response owner, allowing downstream work to reuse prior discovery.
 
 ### Inventory and Host Distribution
 
@@ -77,9 +77,9 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | SDS-03 | Phase 5 | Complete |
 | SDS-04 | Phase 9 | Pending |
 | SDS-05 | Phase 5 | Complete |
-| SDS-06 | Phase 8 | Pending |
+| SDS-06 | Phase 8 | Complete |
 | SDS-07 | Phase 11 | Pending |
-| SDS-08 | Phase 8 | Pending |
+| SDS-08 | Phase 8 | Complete |
 | SDS-09 | Phase 6 | Complete |
 | SDS-D05 | Phase 7 | Complete |
 | REL-01 | Phase 12 | Pending |

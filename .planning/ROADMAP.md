@@ -39,7 +39,7 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 - [x] **Phase 5: Baseline, Ownership, and Shared Contract** - Capture current behavior and establish the entry contract, lifecycle vocabulary, and entry-visible safety set. (completed 2026-08-06)
 - [x] **Phase 6: Inventory, Router, and Validator Foundation** - Derive canonical inventory and build fixture-tested structural and semantic checks. (completed 2026-08-06)
 - [x] **Phase 7: Host Adapter and Public Surface Alignment** - Align every host projection and risk-aware route around the eight canonical skills. (completed 2026-08-06)
-- [ ] **Phase 8: Dependency Skill Entry Refactors** - Focus readiness, Dockerfile, and Compose conversion entries while preserving their handoff and quality-gate contracts.
+- [x] **Phase 8: Dependency Skill Entry Refactors** - Focus readiness, Dockerfile, and Compose conversion entries while preserving their handoff and quality-gate contracts. (completed 2026-08-06)
 - [ ] **Phase 9: Service and Adjacent Skill Entry Refactors** - Focus database, S3, Canvas, and Desktop app entries around their risk classes and evidence outputs.
 - [ ] **Phase 10: Deploy Orchestration and Runtime Truth** - Refactor the composite deploy entry around typed inputs and verified live outcomes.
 - [ ] **Phase 11: Behavior Evals, Deterministic Grader, and Maintainer Gate** - Give all eight skills executable behavior coverage and one documented local gate.
@@ -137,10 +137,10 @@ Plans:
 
 Plans:
 
-- [ ] 08-01: Refocus `cloud-native-readiness` around eligibility-first routing, report output, and the Dockerfile handoff.
-- [ ] 08-02: Refocus `dockerfile-skill` around owned files, pre-existing-file policy, build/runtime acceptance, and artifact output (depends on 08-01 payload decisions).
-- [ ] 08-03: Refocus `docker-to-sealos` around rule precedence, one-level references, template output, and quality-gate handoff (depends on 08-02 artifact vocabulary).
-- [ ] 08-04: Add typed dependency payload fixtures and run each owning helper gate before handing the contract to deploy (depends on 08-01 through 08-03).
+- [x] 08-01: Refocus `cloud-native-readiness` around eligibility-first routing, report output, and the Dockerfile handoff.
+- [x] 08-02: Refocus `dockerfile-skill` around owned files, pre-existing-file policy, build/runtime acceptance, and artifact output (depends on 08-01 payload decisions).
+- [x] 08-03: Refocus `docker-to-sealos` around rule precedence, one-level references, template output, and quality-gate handoff (depends on 08-02 artifact vocabulary).
+- [x] 08-04: Add typed dependency payload fixtures and run each owning helper gate before handing the contract to deploy (depends on 08-01 through 08-03).
 
 **Research flag**: Deep research recommended for Docker-to-Sealos MUST-map and registry coupling, plus the `brain-deploy-preview` Railpack/Kaniko adaptation boundary.
 
@@ -277,7 +277,7 @@ Phases execute in numeric order: 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 | 5. Baseline, Ownership, and Shared Contract | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 6. Inventory, Router, and Validator Foundation | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 7. Host Adapter and Public Surface Alignment | v1.1 | 3/3 | Complete    | 2026-08-06 |
-| 8. Dependency Skill Entry Refactors | v1.1 | 0/4 | Not started | - |
+| 8. Dependency Skill Entry Refactors | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 9. Service and Adjacent Skill Entry Refactors | v1.1 | 0/4 | Not started | - |
 | 10. Deploy Orchestration and Runtime Truth | v1.1 | 0/4 | Not started | - |
 | 11. Behavior Evals, Deterministic Grader, and Maintainer Gate | v1.1 | 0/4 | Not started | - |
