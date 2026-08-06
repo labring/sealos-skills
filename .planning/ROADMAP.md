@@ -42,7 +42,7 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 - [x] **Phase 8: Dependency Skill Entry Refactors** - Focus readiness, Dockerfile, and Compose conversion entries while preserving their handoff and quality-gate contracts. (completed 2026-08-06)
 - [x] **Phase 9: Service and Adjacent Skill Entry Refactors** - Focus database, S3, Canvas, and Desktop app entries around their risk classes and evidence outputs. (completed 2026-08-06)
 - [x] **Phase 10: Deploy Orchestration and Runtime Truth** - Refactor the composite deploy entry around typed inputs and verified live outcomes. (completed 2026-08-06)
-- [ ] **Phase 11: Behavior Evals, Deterministic Grader, and Maintainer Gate** - Give all eight skills executable behavior coverage and one documented local gate.
+- [x] **Phase 11: Behavior Evals, Deterministic Grader, and Maintainer Gate** - Give all eight skills executable behavior coverage and one documented local gate. (completed 2026-08-06)
 - [ ] **Phase 12: Branch Policy, Documentation, and Release Audit** - Prove preservation and publish aligned, adapted, and excluded change evidence.
 
 ## Phase Details
@@ -207,10 +207,10 @@ Plans:
 
 Plans:
 
-- [ ] 11-01: Add missing readiness, Dockerfile, Docker-to-Sealos, and App Builder eval suites; extend the existing four suites and add router cases.
-- [ ] 11-02: Implement the structured-trace behavior grader and `node:test` positive/violating tests (depends on 11-01 schemas).
-- [ ] 11-03: Add fixture-driven validator tests and a single standard-library quality-gate command (depends on Phase 6 validator foundation and 11-02).
-- [ ] 11-04: Publish the maintainer design-system guide with the local verification sequence and evidence policy (depends on 11-03).
+- [x] 11-01: Add missing readiness, Dockerfile, Docker-to-Sealos, and App Builder eval suites; extend the existing four suites and add router cases.
+- [x] 11-02: Implement the structured-trace behavior grader and `node:test` positive/violating tests (depends on 11-01 schemas).
+- [x] 11-03: Add fixture-driven validator tests and a single standard-library quality-gate command (depends on Phase 6 validator foundation and 11-02).
+- [x] 11-04: Publish the maintainer design-system guide with the local verification sequence and evidence policy (depends on 11-03).
 
 **Research flag**: Deep research recommended for a pinned provider or trajectory runner, repeat/retry/cost policy, secret scope, and evidence storage. Offline deterministic checks remain the required gate.
 
@@ -280,5 +280,5 @@ Phases execute in numeric order: 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 | 8. Dependency Skill Entry Refactors | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 9. Service and Adjacent Skill Entry Refactors | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 10. Deploy Orchestration and Runtime Truth | v1.1 | 4/4 | Complete    | 2026-08-06 |
-| 11. Behavior Evals, Deterministic Grader, and Maintainer Gate | v1.1 | 0/4 | Not started | - |
+| 11. Behavior Evals, Deterministic Grader, and Maintainer Gate | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 12. Branch Policy, Documentation, and Release Audit | v1.1 | 0/4 | Not started | - |

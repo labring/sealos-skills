@@ -15,7 +15,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 - [x] **SDS-04**: Destructive actions, public exposure, credential changes, and system-tool installation remain behind explicit user confirmation gates.
 - [x] **SDS-05**: Entry files expose confirmation, secret redaction, kubeconfig scope, read-only boundaries, eligibility stop conditions, quality-gate requirements, and runtime-acceptance rules before branch-specific detail loads.
 - [x] **SDS-06**: Each skill uses one level of progressive disclosure with resolvable links, owned detail, and explicit conditions for loading modules, references, knowledge, or scripts.
-- [ ] **SDS-07**: Each skill reports success, stopped, and error outcomes with domain evidence, artifact paths or URLs where applicable, a safe next action, and redacted sensitive values.
+- [x] **SDS-07**: Each skill reports success, stopped, and error outcomes with domain evidence, artifact paths or URLs where applicable, a safe next action, and redacted sensitive values.
 - [x] **SDS-08**: Every existing cross-skill handoff names its input, evidence, owner, allowed action, failure return, and response owner, allowing downstream work to reuse prior discovery.
 
 ### Inventory and Host Distribution
@@ -26,8 +26,8 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 
 ### Validation and Behavior
 
-- [ ] **SDS-10**: All eight skills own behavior coverage for routing, boundaries, terminal outputs, and their highest-risk action, with positive and violating cases represented in machine-readable fixtures or deterministic probes.
-- [ ] **SDS-11**: Maintainers can run one documented local quality gate covering contract shape, inventory, routes, versions, links, safety invariants, behavior probes, and existing skill-specific validators.
+- [x] **SDS-10**: All eight skills own behavior coverage for routing, boundaries, terminal outputs, and their highest-risk action, with positive and violating cases represented in machine-readable fixtures or deterministic probes.
+- [x] **SDS-11**: Maintainers can run one documented local quality gate covering contract shape, inventory, routes, versions, links, safety invariants, behavior probes, and existing skill-specific validators.
 - [x] **SDS-D04**: Semantic safety checks pair static canaries with confirmation, redaction, read-only, eligibility, and fail-closed behavior probes so equivalent wording preserves the operational guard.
 - [x] **SDS-D02**: The unified router classifies observation, local writes, cloud writes, public exposure, and destructive actions before delegating to an owning skill.
 
@@ -78,13 +78,13 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | SDS-04 | Phase 9 | Complete |
 | SDS-05 | Phase 5 | Complete |
 | SDS-06 | Phase 8 | Complete |
-| SDS-07 | Phase 11 | Pending |
+| SDS-07 | Phase 11 | Complete |
 | SDS-08 | Phase 8 | Complete |
 | SDS-09 | Phase 6 | Complete |
 | SDS-D05 | Phase 7 | Complete |
 | REL-01 | Phase 12 | Pending |
-| SDS-10 | Phase 11 | Pending |
-| SDS-11 | Phase 11 | Pending |
+| SDS-10 | Phase 11 | Complete |
+| SDS-11 | Phase 11 | Complete |
 | SDS-D04 | Phase 6 | Complete |
 | SDS-D02 | Phase 7 | Complete |
 | SDS-12 | Phase 12 | Pending |
