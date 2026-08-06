@@ -143,7 +143,7 @@ Load and execute: [modules/generate.md](modules/generate.md)
 - `Dockerfile` (with migration handling, build optimization)
 - `.dockerignore` (workspace-aware)
 - `docker-compose.yml` (if external services needed)
-- `.env.docker.local` (auto-generated with test secrets)
+- `.env.docker.local` (optional placeholder keys only; never secret values)
 - `docker-entrypoint.sh` (with migration execution)
 - `DOCKER.md` (complete deployment guide)
 - Environment variable documentation

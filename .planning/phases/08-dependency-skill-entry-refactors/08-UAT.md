@@ -72,7 +72,7 @@ blocked: 0
 - Dependency contract suite: 7 passed.
 - Skill inventory: 6 passed; router: 7 passed; safety: 9 passed; aggregate: 18 passed.
 - Baseline design checker: 5 passed; Dockerfile syntax: passed.
-- Docker-to-Sealos MUST coverage passed; consistency: 58 rules; consistency tests: 213 passed; converter tests: 48 passed; MUST tests: 5 passed; quality tests: 15 passed.
+- Docker-to-Sealos MUST coverage passed; consistency: 58 rules; consistency tests: 213 passed; converter tests: 48 passed; MUST tests: 5 passed; quality tests: 15 passed; strict artifact quality gate passed with topology evidence.
 
 ## UAT Decision
 

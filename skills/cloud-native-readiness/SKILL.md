@@ -39,7 +39,7 @@ When eligible and the route requires packaging, send the complete typed handoff 
 
 ```yaml
 target: dockerfile-skill
-inputArtifact: readiness report with source, workload, score, dimensions, concerns, and artifact inventory
+inputArtifact: readiness report with source, project language/framework/package manager, dependencies/configuration, workload, score, dimensions, concerns, and artifact inventory
 allowedAction: generate Docker packaging within the receiving skill's owned file scope
 failureReturn: readiness findings and the failed route condition
 responseOwner: cloud-native-readiness
@@ -57,6 +57,12 @@ Keep this payload request-scoped and repository-relative. A downstream handoff m
 source:
   kind: local-path | github-url
   display: redacted repository identifier
+project:
+  language: detected language
+  framework: detected framework or null
+  package_manager: detected package manager or null
+  dependencies: redacted external dependency types and versions
+  configuration: redacted configuration and environment-key observations
 workload:
   type: server | static-web | worker | scheduled-job | reviewed-remote-desktop | unresolved
   eligibility: eligible | ineligible | needs_review
@@ -113,11 +119,11 @@ cloud-native-readiness
 
 ## Quick Start
 
-When invoked, ALWAYS follow this sequence:
-
-1. Read and execute [modules/assess.md](modules/assess.md) — Cloud-native readiness evaluation
-2. Read and execute [modules/detect.md](modules/detect.md) — Existing Docker artifacts detection
-3. Read and execute [modules/route.md](modules/route.md) — Decision routing
+When invoked, read and execute [modules/assess.md](modules/assess.md) first. Continue to
+[modules/detect.md](modules/detect.md) and [modules/route.md](modules/route.md) only when
+the assessment report resolves the requested root as `eligible`. An `ineligible`,
+unresolved `needs_review`, or error result ends the request with its evidence and safe
+next action before artifact detection or downstream routing.
 
 ## Phase 1: Cloud-Native Readiness Assessment
 

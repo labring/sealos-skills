@@ -48,6 +48,9 @@ def main() -> int:
     run("Dockerfile helper syntax", ["node", "--check", "skills/dockerfile-skill/scripts/validate-dockerfile.mjs"])
     run("baseline checker", ["node", "scripts/skill-design-baseline.mjs", "--fixture", "tests/fixtures/skill-design-baseline.json", "--check"])
     run("baseline Node suite", ["node", "scripts/test-skill-design-baseline.mjs"])
+    run("aggregate live validator", [sys.executable, "scripts/validate_skill_design.py", "--root", ".", "--check"])
+    run("Codex plugin validator", [sys.executable, "scripts/validate-codex-plugin.py", "--root", "."])
+    run("dependency fixture JSON syntax", [sys.executable, "-m", "json.tool", "tests/fixtures/skill-design-dependencies.json"])
     docker_dir = ROOT / "skills" / "docker-to-sealos"
     run("MUST coverage", [yaml_python, "scripts/check_must_coverage.py", "--skill", "SKILL.md", "--mapping", "references/must-rules-map.yaml", "--rules-file", "references/rules-registry.yaml"], docker_dir)
     run("consistency validator", [yaml_python, "scripts/check_consistency.py", "--skill", "SKILL.md", "--references", "references", "--rules-file", "references/rules-registry.yaml"], docker_dir)
@@ -55,9 +58,14 @@ def main() -> int:
     run("Compose converter tests", [yaml_python, "scripts/test_compose_to_template.py"], docker_dir)
     run("MUST coverage tests", [yaml_python, "scripts/test_check_must_coverage.py"], docker_dir)
     run("quality gate tests", [yaml_python, "scripts/test_quality_gate.py"], docker_dir)
-    gate_env = os.environ.copy()
-    gate_env["DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS"] = "1"
-    run("quality gate without artifacts", [yaml_python, "scripts/quality_gate.py"], docker_dir, gate_env)
+    fixture_template = ROOT / "tests" / "fixtures" / "docker-to-sealos" / "template" / "synthetic-app" / "index.yaml"
+    fixture_topology = ROOT / "tests" / "fixtures" / "docker-to-sealos" / ".sealos" / "topology-evidence" / "synthetic-app.yaml"
+    fixture_artifacts = f"{fixture_template},{fixture_topology}"
+    run(
+        "quality gate with topology fixture",
+        [yaml_python, "scripts/quality_gate.py", "--require-topology-evidence", "--artifacts", fixture_artifacts],
+        docker_dir,
+    )
     print("[PASS] Phase 8 dependency gates complete")
     return 0
 

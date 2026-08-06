@@ -29,7 +29,7 @@ key-files:
 key-decisions:
   - "Unsupported or unresolved workloads stop before score, artifact detection, packaging, or deployment."
   - "A standalone readiness request keeps its report request-scoped; composed deploy may persist a sanitized snapshot under deploy ownership."
-  - "Readiness passes source, workload, score, dimensions, concerns, artifacts, verification, and redaction evidence through the five-field Dockerfile handoff."
+  - "Readiness passes source, language/framework/package-manager, dependencies/configuration, workload, score, dimensions, concerns, artifacts, verification, and redaction evidence through the five-field Dockerfile handoff."
 
 requirements-completed: [SDS-06, SDS-08]
 
@@ -75,6 +75,7 @@ Readiness now owns eligibility and produces a small, reusable report for downstr
 ## Verification Evidence
 
 - Contract assertions for eligibility ordering and typed fields passed.
+- The entry contract loads detect and route only after the assessment resolves `eligible`.
 - `node scripts/skill-design-baseline.mjs --fixture tests/fixtures/skill-design-baseline.json --check` -> `ok: true`.
 - `python3 scripts/test_skill_design_safety.py` -> 9 tests passed.
 - `python3 scripts/validate_skill_design.py --root . --check` -> no diagnostics.

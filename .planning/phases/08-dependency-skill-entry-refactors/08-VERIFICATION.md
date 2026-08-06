@@ -20,6 +20,7 @@ Status: VERIFIED
 
 Evidence:
 
+- `skills/cloud-native-readiness/SKILL.md` conditionally loads detect and route only after the assessment resolves `eligible`.
 - `skills/cloud-native-readiness/modules/assess.md` records eligibility before score or artifact work.
 - `skills/cloud-native-readiness/modules/route.md` defines the stopped branch, report contract, and five-field packaging handoff.
 - Positive and violating readiness fixtures pass the dependency contract suite and baseline checker.
@@ -42,7 +43,7 @@ Evidence:
 
 - `skills/docker-to-sealos/SKILL.md` defines source precedence, topology-preserving conversion, KubeBlocks database handling, and the preview branch boundary.
 - Conversion handoff requires consistency, MUST-map, registry, topology, and quality evidence against the final artifact.
-- MUST coverage, 58-rule consistency, 213 consistency tests, 48 converter tests, 5 MUST tests, 15 quality tests, and the empty-artifact gate pass.
+- MUST coverage, 58-rule consistency, 213 consistency tests, 48 converter tests, 5 MUST tests, 15 quality tests, and the strict synthetic Template + TopologyEvidence quality gate pass.
 
 ## Artifact and Integration Trace
 
@@ -51,7 +52,7 @@ Evidence:
 | Readiness report | Dockerfile packaging | source, workload, score, dimensions, concerns, artifacts, verification, redaction |
 | Dockerfile packaging result | Deploy orchestration | validated Dockerfile, build/runtime artifacts, verification, redaction |
 | Compose conversion payload | Template/deploy handoff | source, inference, topology, ordered resources, artifact, validators, terminal state, redaction |
-| Dependency fixture | Sequential gate runner | positive/violating contract pairs and mutation evidence |
+| Dependency fixture | Sequential gate runner | positive/violating contract pairs, link checks, and mutation evidence |
 
 ## Requirements
 

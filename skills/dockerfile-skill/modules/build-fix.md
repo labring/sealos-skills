@@ -366,7 +366,7 @@ Application health check passed
 - Dockerfile
 - .dockerignore
 - docker-compose.yml
-- .env.docker.local (auto-generated with test secrets)
+- .env.docker.local (optional placeholder keys only; never secret values)
 - docker-entrypoint.sh
 - DOCKER.md (deployment guide)
 
@@ -448,8 +448,9 @@ connection values, and diagnostics sanitized.
 4. `iterations`: one entry per docker build execution, with `status`, `error_category`,
    `error_excerpt` (first 200 chars of error), `fix_applied`, `duration_seconds`
 5. `fixes_applied`: only include iterations where a fix was applied
-6. `errors_not_matched`: include the raw error text for any error where no pattern from
-   `knowledge/error-patterns.md` matched — these are candidates for new patterns
+6. `errors_not_matched`: include a short redacted diagnostic category and sanitized
+   excerpt for any error where no pattern from `knowledge/error-patterns.md` matched;
+   never persist raw error text, credentials, connection strings, or environment values
 7. `build.image_size_mb`: capture from `docker images` output after successful build
 
 **Schema**:

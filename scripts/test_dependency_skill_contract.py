@@ -42,11 +42,31 @@ def missing_tokens(text: str, tokens: list[str]) -> list[str]:
 def validate_entry(text: str, owner: str) -> list[str]:
     required = list(CORE_HEADINGS)
     if owner == "cloud-native-readiness":
-        required += ["eligibility", "redacted", "readiness report", "target: dockerfile-skill"]
+        required += [
+            "eligibility",
+            "redacted",
+            "readiness report",
+            "target: dockerfile-skill",
+            "language",
+            "framework",
+            "package_manager",
+            "dependencies",
+            "configuration",
+            "CNR-ELIGIBILITY-STOP",
+        ]
     elif owner == "dockerfile-skill":
-        required += ["owned_files", "pre-existing", "migration", "HTTP", "health", "target: sealos-deploy"]
+        required += [
+            "owned_files",
+            "pre-existing",
+            "migration",
+            "HTTP",
+            "health",
+            "target: sealos-deploy",
+            "DFS-OWNED-FILES",
+            "DFS-RUNTIME-ACCEPT",
+        ]
     else:
-        required += ["Source Precedence", "must-rules-map.yaml", "rules-registry.yaml", "quality_gate.py", "target: sealos-deploy"]
+        required += ["Source Precedence", "must-rules-map.yaml", "rules-registry.yaml", "quality_gate.py", "target: sealos-deploy", "DTS-QUALITY-GATE"]
     return missing_tokens(text, required)
 
 
@@ -82,6 +102,7 @@ class DependencyFixtureTests(unittest.TestCase):
                 self.assertFalse(target.startswith("/"), f"{owner}: {target}")
                 self.assertNotIn("..", Path(target).parts, f"{owner}: {target}")
                 self.assertLessEqual(len([part for part in Path(target).parts if part not in {".", ""}]), 3, f"{owner}: {target}")
+                self.assertTrue((path.parent / target).exists(), f"{owner}: missing link target {target}")
 
     def test_readiness_eligibility_gate_precedes_artifact_and_route(self) -> None:
         assess = (ROOT / "skills/cloud-native-readiness/modules/assess.md").read_text(encoding="utf-8")
@@ -106,17 +127,19 @@ class DependencyFixtureTests(unittest.TestCase):
 
     def test_mutations_remove_targeted_guards(self) -> None:
         mutations = {
-            "readiness": (OWNERS["cloud-native-readiness"], "CNR-ELIGIBILITY-STOP", ["CNR-ELIGIBILITY-STOP"]),
-            "dockerfile": (OWNERS["dockerfile-skill"], "DFS-RUNTIME-ACCEPT", ["DFS-RUNTIME-ACCEPT"]),
-            "compose": (OWNERS["docker-to-sealos"], "DTS-QUALITY-GATE", ["DTS-QUALITY-GATE"]),
+            "readiness": (OWNERS["cloud-native-readiness"], "CNR-ELIGIBILITY-STOP", "cloud-native-readiness"),
+            "dockerfile-owned-files": (OWNERS["dockerfile-skill"], "DFS-OWNED-FILES", "dockerfile-skill"),
+            "dockerfile-runtime": (OWNERS["dockerfile-skill"], "DFS-RUNTIME-ACCEPT", "dockerfile-skill"),
+            "compose": (OWNERS["docker-to-sealos"], "DTS-QUALITY-GATE", "docker-to-sealos"),
         }
         with tempfile.TemporaryDirectory(prefix="phase8-contract-") as tmp:
             tmp_root = Path(tmp)
-            for name, (source, removed, tokens) in mutations.items():
+            for name, (source, removed, owner) in mutations.items():
                 copy = tmp_root / f"{name}.md"
                 text = source.read_text(encoding="utf-8").replace(removed, "")
                 copy.write_text(text, encoding="utf-8")
-                self.assertTrue(missing_tokens(text, tokens), name)
+                self.assertTrue(missing_tokens(text, [removed]), name)
+                self.assertNotEqual([], validate_entry(text, owner), name)
 
 
 if __name__ == "__main__":

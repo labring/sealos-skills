@@ -1,0 +1,12 @@
+apiVersion: docker-to-sealos/v1
+kind: TopologyEvidence
+metadata:
+  name: synthetic-app-topology
+spec:
+  appName: synthetic-app
+  source: tests/fixtures/docker-to-sealos/template/synthetic-app/index.yaml@fixture
+  resources:
+    - kind: Deployment
+      name: synthetic-app
+      when: always
+      replicas: 1

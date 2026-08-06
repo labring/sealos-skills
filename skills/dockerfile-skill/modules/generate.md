@@ -982,7 +982,7 @@ After writing all Docker configuration files to disk, write two additional artif
     { "path": "Dockerfile", "size_bytes": 3240, "description": "Multi-stage production Dockerfile" },
     { "path": ".dockerignore", "size_bytes": 892, "description": "Build context exclusions" },
     { "path": "docker-compose.yml", "size_bytes": 2100, "description": "Compose file with postgres, redis" },
-    { "path": ".env.docker.local", "size_bytes": 580, "description": "Auto-generated test secrets" },
+    { "path": ".env.docker.local", "size_bytes": 580, "description": "Optional placeholder keys; no secret values" },
     { "path": "docker-entrypoint.sh", "size_bytes": 620, "description": "Startup script with migration handling" },
     { "path": "docker-build/deploy.md", "size_bytes": 1800, "description": "Deployment guide with env vars and run commands" }
   ],

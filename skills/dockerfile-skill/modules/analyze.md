@@ -260,9 +260,14 @@ Look for:
 - `Dockerfile` / `Dockerfile.*`
 - `docker-compose.yml` / `docker-compose.yaml`
 - `.dockerignore`
+- `docker-entrypoint.sh` / `docker-entrypoint-*.sh`
+- `DOCKER.md` / `docker-deploy.md`
+- `.env.docker.local` as a placeholder-only environment template
 
 If found, extract key decisions for reference and add each path to the owned-file
-decision table. Do not blindly copy or replace an existing file.
+decision table. Do not blindly copy or replace an existing file. Preserve existing
+documentation, entrypoints, and environment templates unless the user authorizes a
+specific replacement.
 
 For each candidate file, record:
 

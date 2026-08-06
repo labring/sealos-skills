@@ -24,11 +24,13 @@ affects: [09-service-entry-refactors, 10-deploy-orchestration, 11-host-integrati
 # Tech tracking
 tech-stack:
   added: [JSON dependency fixture, Python contract gate runner]
-  patterns: [positive and violating contract pairs, auto-detected PyYAML runtime]
+  patterns: [positive and violating contract pairs, strict topology fixture, auto-detected PyYAML runtime]
 
 key-files:
   created:
     - tests/fixtures/skill-design-dependencies.json
+    - tests/fixtures/docker-to-sealos/template/synthetic-app/index.yaml
+    - tests/fixtures/docker-to-sealos/.sealos/topology-evidence/synthetic-app.yaml
     - scripts/test_dependency_skill_contract.py
     - scripts/test_dependency_skill_gates.py
 
@@ -75,14 +77,15 @@ Phase 8 now has machine-readable evidence for the dependency entry contracts and
 ## Accomplishments
 
 - Added positive and violating fixtures for readiness, Dockerfile, Compose, and the prepare-only preview boundary.
-- Added mutation-backed contract checks for eligibility stop, runtime acceptance, quality-gate coupling, typed handoffs, and redaction.
-- Added a gate runner that executes contract, inventory, routing, safety, aggregate, syntax, baseline, and Docker-to-Sealos suites in order.
+- Added mutation-backed contract checks for eligibility stop, owned-file/runtime acceptance, quality-gate coupling, typed handoffs, link resolution, and redaction.
+- Added a deterministic Template and TopologyEvidence fixture so the quality gate runs in strict artifact mode.
+- Added a gate runner that executes contract, inventory, routing, safety, aggregate, syntax, baseline, host validators, and Docker-to-Sealos suites in order.
 
 ## Verification Evidence
 
 - `python3 scripts/test_dependency_skill_contract.py` -> 7 tests passed.
-- `python3 scripts/test_dependency_skill_gates.py` -> all dependency, baseline, Dockerfile, and Docker-to-Sealos gates passed.
-- Docker-to-Sealos suites passed with the PyYAML-capable Miniforge runtime; the empty-artifact check emitted its documented warning.
+- `python3 scripts/test_dependency_skill_gates.py` -> all dependency, baseline, host, Dockerfile, and Docker-to-Sealos gates passed.
+- The strict quality gate passed against `tests/fixtures/docker-to-sealos/template/synthetic-app/index.yaml` and its matching `TopologyEvidence` artifact.
 
 ## Deviations
 
