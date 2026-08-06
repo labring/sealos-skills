@@ -2,6 +2,14 @@
 
 Use these playbooks after a Sealos Template API deployment reaches rollout success. A running Pod is a scheduling signal; the acceptance signal is the real Sealos App entry URL, app logs, and the first meaningful user workflow.
 
+### Safety Contract: Confirmation and Evidence
+
+Runtime repair, credential changes, public exposure, deletion, cleanup, and rollback are
+explicitly confirmed operations. Record the operation, target, impact, confirmation, and
+post-action evidence with credentials, cookies, tokens, Secret data, kubeconfig, and full
+connection strings redacted. A read-only Runtime Truth report may recommend a mutation;
+the deploy pipeline remains the owner that requests confirmation and performs it.
+
 ## Contents
 
 - [Runtime Truth Pass](#runtime-truth-pass)
@@ -48,6 +56,11 @@ Run this pass after Phase 6 for every deployment unless the user explicitly asks
    - matching `ObjectStorageBucket` resources when created for the test
 
 The footprint helper must report `collectionOk: true` before cleanup is called complete. Deployment acceptance also requires `runtimeReady: true` and the expected resource inventory. Permission or listing errors keep cleanup unresolved even when the visible workload list is empty.
+
+Cleanup evidence keeps the named `Instance`, App, workloads, Jobs, Services, Ingresses,
+PVCs, KubeBlocks resources, and `ObjectStorageBucket` resources together with the
+collection report. Retained credential key names and historical Secret/annotation residue
+remain rotation findings until the user confirms the cleanup or rotation action.
 
 ## First-User Signup and Mandatory Bootstrap
 
