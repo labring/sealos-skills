@@ -22,6 +22,8 @@ Accept a local path or GitHub URL and scope all work to the selected namespace/a
 
 Keep auth/workspace, kubeconfig scope, system-tool installation, public exposure, credential changes, deletion, rollback, and cleanup confirmation visible before module detail. Redact passwords, tokens, cookies, env values, kubeconfig, Secret data, and full connection strings. A quality gate and actual Runtime Truth evidence are acceptance conditions.
 
+For every gated mutation, report the exact operation, impact, confirmation, and post-action evidence. Keep sanitized logs, state, diagnostics, and footprint evidence free of secret data.
+
 ## Lifecycle Workflow
 
 For each request, run preflight/auth/workspace, detect mode, enforce eligibility, assess/detect/build or reuse, generate/validate the template, deploy or update, run Runtime Truth, and record state/cleanup evidence. Emit request-scoped `success`, `stopped`, or `error`; the existing phase modules below remain authoritative for detailed behavior.
