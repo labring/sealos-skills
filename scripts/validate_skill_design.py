@@ -392,6 +392,7 @@ def _eval_checks(root: Path, entries: list[Any]) -> list[DesignDiagnostic]:
         relative = f"skills/{entry.name}/evals/evals.json"
         path = root / relative
         if not path.exists():
+            diagnostics.append(_diag("eval.missing", root, path, "canonical skill requires an evals/evals.json suite", skill=entry.name, target=relative))
             continue
         payload, errors = _load_json(root, relative)
         diagnostics.extend(errors)
@@ -400,6 +401,11 @@ def _eval_checks(root: Path, entries: list[Any]) -> list[DesignDiagnostic]:
         if not isinstance(payload, dict) or payload.get("skill_name") != entry.name or not isinstance(payload.get("evals"), list):
             diagnostics.append(_diag("eval.malformed", root, path, "evals.json requires matching skill_name and evals array", skill=entry.name))
             continue
+        coverage = payload.get("coverage")
+        if not isinstance(coverage, dict) or coverage.get("positive") is not True or coverage.get("violating") is not True:
+            diagnostics.append(_diag("eval.coverage", root, path, "evals.json must declare positive and violating coverage", field="coverage", skill=entry.name))
+        if len(payload["evals"]) < 2:
+            diagnostics.append(_diag("eval.coverage", root, path, "evals.json requires at least two behavior cases", field="evals", skill=entry.name))
         seen_ids: set[str] = set()
         for index, record in enumerate(payload["evals"]):
             if not isinstance(record, dict):

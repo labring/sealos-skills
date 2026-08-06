@@ -218,6 +218,20 @@ class DesignValidatorTests(unittest.TestCase):
         finally:
             temp.cleanup()
 
+    def test_missing_eval_suite_is_required_and_targeted(self) -> None:
+        temp, root = self._copy_repo()
+        try:
+            (root / "skills/cloud-native-readiness/evals/evals.json").unlink()
+            diagnostics = validate_design_system(root)
+            self.assertTrue(any(
+                item.code == "eval.missing"
+                and item.skill == "cloud-native-readiness"
+                and item.path == "skills/cloud-native-readiness/evals/evals.json"
+                for item in diagnostics
+            ))
+        finally:
+            temp.cleanup()
+
     def test_malformed_canary_fixture_is_targeted(self) -> None:
         temp, root = self._copy_repo()
         try:

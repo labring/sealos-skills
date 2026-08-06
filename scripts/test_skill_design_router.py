@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import shutil
+import json
 import sys
 import tempfile
 import unittest
@@ -19,9 +20,36 @@ from scripts.skill_design_inventory import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
+ROUTER_FIXTURE = ROOT / "tests/fixtures/skill-design-router.json"
 
 
 class RouterContractTests(unittest.TestCase):
+    def test_behavior_fixture_covers_owner_compound_and_ambiguous_cases(self) -> None:
+        payload = json.loads(ROUTER_FIXTURE.read_text(encoding="utf-8"))
+        self.assertEqual(payload["schemaVersion"], 1)
+        self.assertEqual({trace["caseId"] for trace in payload["traces"]}, {
+            "router-clear-owner",
+            "router-compound-deploy",
+            "router-ambiguous-mutation",
+        })
+        clear_owner = next(trace for trace in payload["traces"] if trace["caseId"] == "router-clear-owner")
+        self.assertEqual(clear_owner["selectedOwner"], "cloud-native-readiness")
+        self.assertEqual(clear_owner["terminalState"], "success")
+        compound = next(trace for trace in payload["traces"] if trace["caseId"] == "router-compound-deploy")
+        self.assertEqual(compound["handoffSequence"], [
+            "cloud-native-readiness",
+            "dockerfile-skill",
+            "docker-to-sealos",
+            "sealos-deploy",
+            "sealos-canvas",
+        ])
+        ambiguous = next(trace for trace in payload["traces"] if trace["caseId"] == "router-ambiguous-mutation")
+        self.assertEqual(ambiguous["terminalState"], "stopped")
+        self.assertEqual(ambiguous["toolCalls"], [])
+        self.assertEqual(ambiguous["guard"], "router-ambiguous-mutation")
+        for trace in payload["traces"]:
+            self.assertEqual(trace["redaction"], "complete")
+            self.assertTrue(trace["text"])
     def _copy_router(self) -> tuple[tempfile.TemporaryDirectory[str], Path, Path]:
         temp = tempfile.TemporaryDirectory()
         root = Path(temp.name)
