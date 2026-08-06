@@ -28,6 +28,10 @@
           "description": "Returns ok=false with reason kubeconfig_missing"
         },
         {
+          "name": "stops-on-read-access-failure",
+          "description": "Returns ok=false with reason read_access_unavailable when kubectl reads fail"
+        },
+        {
           "name": "view-only",
           "description": "Does not run kubectl apply, patch, delete, rollout, restart, or set image commands"
         }
