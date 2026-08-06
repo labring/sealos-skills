@@ -191,7 +191,7 @@ Paths used in pipeline.md follow the pattern:
 | 0.4 — Eligibility | Confirm the repository root is a supported cloud workload | Any non-eligible result → stop |
 | 0.5 — Template Fast Path | Match GitHub repo to a configured Sealos template | No match, or match cannot materialize template YAML |
 | 1 — Assess | Clone repo (or use current project), analyze deployability | Score too low → stop |
-| 2 — Detect | Find existing image (Docker Hub / GHCR / README) | Found → jump to Phase 5 |
+| 2 — Detect | Route an evidence-confirmed source-ready static tree to the pinned Nginx image build; otherwise find an existing image | Existing image → jump to Phase 5 |
 | 3 — Dockerfile | Generate Dockerfile if missing | Already has one → skip |
 | 4 — Build & Push | `docker buildx` → GHCR (auto via gh CLI) or Docker Hub (fallback) | — |
 | 5 — Template | Generate Sealos application template | — |

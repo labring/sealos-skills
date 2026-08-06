@@ -283,6 +283,35 @@
     },
     {
       "id": 22,
+      "prompt": "Deploy a source-ready static repository with root index.html, site.css, and site.js but no package.json or build tool.",
+      "expected_output": "Classifies the target as an eligible source-ready static site, scores it above the deployment threshold, packages every static asset in a pinned unprivileged Nginx image, and continues through the normal registry, template, deploy, and runtime-verification flow.",
+      "files": ["index.html", "site.css", "site.js"],
+      "assertions": [
+        {"name": "recognizes-source-ready-assets", "description": "Returns eligible static_web with SOURCE_READY_STATIC_SITE evidence for root index.html plus a source-ready asset tree and no higher-priority build, runtime, container, or sensitive-file signal"},
+        {"name": "scores-static-readiness", "description": "Reports HTML/static_html on port 8080 with a readiness score >= 4"},
+        {"name": "builds-static-nginx-image", "description": "Generates the pinned static Nginx Dockerfile and runs the normal build-push path instead of publishing assets through a ConfigMap"},
+        {"name": "uses-pinned-unprivileged-runtime", "description": "Uses the exact-version nginxinc/nginx-unprivileged base image on port 8080"},
+        {"name": "copies-all-assets-into-image", "description": "Preserves index.html, site.css, site.js, and nested public assets in the image without publishing repository metadata or sensitive files"},
+        {"name": "keeps-runtime-truth", "description": "Still verifies Launchpad networking, the real App URL, logs, missing-static-asset behavior, Event convergence, and the resource footprint"}
+      ]
+    },
+    {
+      "id": 23,
+      "prompt": "A locally built image was pushed to GHCR and the new package is private. Continue the Sealos deployment.",
+      "expected_output": "Keeps the private GHCR image, deploys first to obtain the real instance name, immediately creates the same-named image pull Secret from the local gh CLI session, and lets kubelet pull retries recover the Pod without changing package visibility or recreating the Pod.",
+      "files": [],
+      "assertions": [
+        {"name": "deploys-before-fresh-secret", "description": "For a fresh Template API deploy, waits for the successful response before creating the pull Secret"},
+        {"name": "uses-real-instance-name", "description": "Reads the authoritative instance name from the deploy response and creates a Secret with exactly that name"},
+        {"name": "uses-built-in-pull-secret", "description": "Runs ensure-image-pull-secret.mjs or the equivalent built-in Secret path immediately after fresh deployment; an update may refresh the already-known same-named Secret before changing the image"},
+        {"name": "relies-on-kubelet-retry", "description": "Allows kubelet image-pull retries to recover the Pod after Secret creation instead of deleting or recreating the Pod"},
+        {"name": "does-not-change-visibility", "description": "Does not call REST, GraphQL, package settings, or other visibility-changing mechanisms"},
+        {"name": "keeps-credentials-out-of-template-inputs", "description": "Uses local gh CLI credentials to create the namespace Secret without exposing registry credentials as template inputs"},
+        {"name": "continues-with-private-image", "description": "Continues deployment with the pushed GHCR reference instead of rebuilding or switching registries"}
+      ]
+    },
+    {
+      "id": 24,
       "prompt": "Prepare a static Sealos deployment contract for a mail platform release whose official startup requires an administrator account before HTTP is served. The selected runtime supports generated initialization and reads the resolved password from a Kubernetes Secret. Upstream requires a 20-character password containing uppercase, lowercase, digit, and symbol characters, and the deployer does not choose the administrator credential. Keep the task static: describe Template inputs, credential construction and storage, startup validation, and live authentication proof.",
       "expected_output": "Classifies the release as runtime-generated mandatory bootstrap, omits administrator inputs, deterministically constructs and validates the exact 20-character password format before serving, retains the resolved credential in a Kubernetes Secret, retrieves it without printing, and completes login plus one authenticated action with all credential material redacted.",
       "files": [],
