@@ -43,7 +43,7 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 - [x] **Phase 9: Service and Adjacent Skill Entry Refactors** - Focus database, S3, Canvas, and Desktop app entries around their risk classes and evidence outputs. (completed 2026-08-06)
 - [x] **Phase 10: Deploy Orchestration and Runtime Truth** - Refactor the composite deploy entry around typed inputs and verified live outcomes. (completed 2026-08-06)
 - [x] **Phase 11: Behavior Evals, Deterministic Grader, and Maintainer Gate** - Give all eight skills executable behavior coverage and one documented local gate. (completed 2026-08-06)
-- [ ] **Phase 12: Branch Policy, Documentation, and Release Audit** - Prove preservation and publish aligned, adapted, and excluded change evidence.
+- [x] **Phase 12: Branch Policy, Documentation, and Release Audit** - Prove preservation and publish aligned, adapted, and excluded change evidence. (completed 2026-08-06)
 
 ## Phase Details
 
@@ -230,10 +230,10 @@ Plans:
 
 Plans:
 
-- [ ] 12-01: Compare the refactored entries and helpers with the preservation baseline, including artifacts, phase order, auth, cleanup, and runtime evidence.
-- [ ] 12-02: Audit `main` and `brain-deploy-preview` file by file as aligned, adapted, or excluded, preserving the preview identity and prepare-only architecture (depends on 12-01).
-- [ ] 12-03: Synchronize README/localized claims, inventory evidence, version fields, and release-tag checks (depends on the final adapter and validator outputs).
-- [ ] 12-04: Run the complete root and owning-skill gates and publish the release audit with source-commit evidence (depends on 12-02 and 12-03).
+- [x] 12-01: Compare the refactored entries and helpers with the preservation baseline, including artifacts, phase order, auth, cleanup, and runtime evidence.
+- [x] 12-02: Audit `main` and `brain-deploy-preview` file by file as aligned, adapted, or excluded, preserving the preview identity and prepare-only architecture (depends on 12-01).
+- [x] 12-03: Synchronize README/localized claims, inventory evidence, version fields, and release-tag checks (depends on the final adapter and validator outputs).
+- [x] 12-04: Run the complete root and owning-skill gates and publish the release audit with source-commit evidence (depends on 12-02 and 12-03).
 
 **Research flag**: Standard repository policy is sufficient. Require an explicit current-source comparison and file-level merge audit.
 
@@ -281,4 +281,4 @@ Phases execute in numeric order: 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 | 9. Service and Adjacent Skill Entry Refactors | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 10. Deploy Orchestration and Runtime Truth | v1.1 | 4/4 | Complete    | 2026-08-06 |
 | 11. Behavior Evals, Deterministic Grader, and Maintainer Gate | v1.1 | 4/4 | Complete    | 2026-08-06 |
-| 12. Branch Policy, Documentation, and Release Audit | v1.1 | 0/4 | Not started | - |
+| 12. Branch Policy, Documentation, and Release Audit | v1.1 | 4/4 | Complete    | 2026-08-06 |

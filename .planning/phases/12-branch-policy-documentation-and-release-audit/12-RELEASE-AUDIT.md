@@ -4,7 +4,7 @@ status: passed
 candidate: ef8f2aceb2e7f0b915713419cd129fbc0454d717
 source: a2efc15e95b86582469f423f6e9cae1bcfce4585
 target: dbc55f0d4e572d283d3244581246823a1ca6b932
-updated: 2026-08-07T05:20:00+08:00
+updated: 2026-08-07T05:17:30+08:00
 ---
 
 # v1.1 Release Audit
@@ -111,3 +111,5 @@ The optional Docker runtime is the only maintainer-gate conditional. Provider-ba
 - Run provider-backed deploy, database, S3, Desktop, and live Runtime Truth scenarios in a named environment with explicit cleanup authorization.
 
 No follow-up is an unresolved required gate failure. The current audit status is `passed` with two scoped publication/environment conditionals.
+
+Audit refreshed after all four plan summaries were written; the recorded command results remain unchanged.

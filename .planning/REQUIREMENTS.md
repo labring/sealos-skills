@@ -22,7 +22,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 
 - [x] **SDS-09**: The eight physical skill entry files under `skills/` define the canonical inventory, and every explicit router, plugin manifest, marketplace, context adapter, platform registry, and direct-entry claim matches that inventory.
 - [x] **SDS-D05**: Codex, Claude-compatible hosts, Qoder, CodeBuddy, Gemini/Qwen context extensions, OpenClaw, and skills.sh expose the canonical skill tree with host-accurate invocation syntax and behavior-free adapters.
-- [ ] **REL-01**: Release preparation produces an aligned/adapted/excluded file audit for `main` and `brain-deploy-preview`, updates affected public inventory and version evidence, and preserves the preview prepare-only workflow.
+- [x] **REL-01**: Release preparation produces an aligned/adapted/excluded file audit for `main` and `brain-deploy-preview`, updates affected public inventory and version evidence, and preserves the preview prepare-only workflow.
 
 ### Validation and Behavior
 
@@ -33,7 +33,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 
 ### Runtime Evidence and Output Design
 
-- [ ] **SDS-12**: Entry refactors preserve existing artifacts, phase order, authentication, confirmation gates, cleanup expectations, runtime verification, host semantics, and branch-specific behavior for the current workflows.
+- [x] **SDS-12**: Entry refactors preserve existing artifacts, phase order, authentication, confirmation gates, cleanup expectations, runtime verification, host semantics, and branch-specific behavior for the current workflows.
 - [x] **SDS-D01**: Terminal outputs include the strongest available evidence for the domain, such as an actual App URL and live identity, sanitized resource footprint, connection proof, object round trip, report path, or local Canvas URL.
 - [x] **SDS-D03**: Existing readiness, build, template, deployment-state, and Canvas handoffs use minimal typed payloads that carry evidence and prevent repeated discovery.
 - [x] **SDS-D06**: Skills share terminal-state and evidence vocabulary while retaining domain-specific output fields for deployment, data services, conversion, Canvas, and Desktop app development.
@@ -82,12 +82,12 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | SDS-08 | Phase 8 | Complete |
 | SDS-09 | Phase 6 | Complete |
 | SDS-D05 | Phase 7 | Complete |
-| REL-01 | Phase 12 | Pending |
+| REL-01 | Phase 12 | Complete |
 | SDS-10 | Phase 11 | Complete |
 | SDS-11 | Phase 11 | Complete |
 | SDS-D04 | Phase 6 | Complete |
 | SDS-D02 | Phase 7 | Complete |
-| SDS-12 | Phase 12 | Pending |
+| SDS-12 | Phase 12 | Complete |
 | SDS-D01 | Phase 10 | Complete |
 | SDS-D03 | Phase 10 | Complete |
 | SDS-D06 | Phase 9 | Complete |

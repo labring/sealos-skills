@@ -1,6 +1,6 @@
 ---
 phase: 12-branch-policy-documentation-and-release-audit
-verified: 2026-08-07T05:25:00+08:00
+verified: 2026-08-07T05:17:30+08:00
 status: passed
 score: 4/4 must-haves verified
 behavior_unverified: 0
@@ -90,4 +90,4 @@ The optional Docker runtime and absent candidate tag are scoped conditionals. Th
 **Verifier:** Codex.
 
 ---
-*Verified: 2026-08-07T05:25:00+08:00*
+*Verified: 2026-08-07T05:17:30+08:00*
