@@ -249,20 +249,15 @@ inputs:
 
 ### Startup-Critical Input Defaults
 
-Some applications validate bootstrap values before the HTTP server becomes ready. Admin passwords, API keys, salts, install tokens, and feature toggles used by entrypoints must have defaults that pass the application's own startup checks.
+Some applications validate bootstrap values before the HTTP server becomes ready. Classify the selected release's account mode before adding administrator inputs; use [bootstrap-account-modes.md](bootstrap-account-modes.md) for the complete decision contract.
 
-When an app documents password complexity, generate defaults with deterministic required character classes around the random segment:
+Template inputs may express `type`, `description`, `default`, `required`, `options`, and `if`. Enforce regular expressions, length ranges, character classes, equality, and cross-field rules during Phase 5.5 pre-deploy validation.
 
-```yaml
-inputs:
-  admin_password:
-    description: Admin password. Leave the generated default or use at least 8 characters with uppercase, lowercase, number, and special character.
-    type: string
-    default: "Example@${{ random(16) }}!1"
-    required: true
-```
-
-Avoid empty strings, weak examples, and bare `${{ random(n) }}` for startup-critical passwords, because the random function may not emit all required classes. During live validation, check first boot logs and the login/setup path using the generated default.
+- For functional first-user signup, omit optional administrator/root inputs and their bootstrap env/config injection. Complete registration after readiness and prove an authenticated action.
+- For deployer-supplied mandatory bootstrap, use required administrator inputs with no default, include the exact upstream constraints in the English descriptions, validate the supplied values before deployment, and keep those values unchanged for live login.
+- For runtime-generated mandatory bootstrap, omit administrator inputs, deterministically construct and validate the exact documented format before startup, retain the resolved credential in a Secret or documented live runtime source, and retrieve it without printing for live login.
+- For startup-critical generated values such as API keys, salts, and install tokens, construct deterministic defaults that satisfy the documented format. Bare `${{ random(n) }}` is suitable only for an unconstrained opaque value.
+- Diagnose startup configuration-validation exits before resource tuning.
 
 ### Runtime-Specific Environment Contracts
 

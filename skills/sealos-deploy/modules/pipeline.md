@@ -870,6 +870,8 @@ Template is written to `.sealos/template/index.yaml`. No separate checkpoint fil
 After generating the template, guide the user through application configuration before deployment.
 This is a **critical** step — most applications need user-specific configuration to function properly.
 
+Before categorizing inputs, load `<SKILL_DIR>/../docker-to-sealos/references/bootstrap-account-modes.md` and classify the exact selected release as functional first-user signup, mandatory bootstrap credentials, or optional root reconciliation. For mandatory bootstrap, record whether credentials are deployer-supplied or runtime-generated. Record the selected mode in the deployment analysis.
+
 ### 5.5.1 Extract Configuration from Template
 
 Parse the generated template YAML and categorize all environment variables and inputs:
@@ -880,13 +882,15 @@ Parse the generated template YAML and categorize all environment variables and i
 - Object storage credentials via `secretKeyRef`
 - Composed URLs that reference auto-managed vars (e.g., `DATABASE_URL` built from `$(DB_HOST):$(DB_PORT)`)
 - Internal service FQDNs (`*.${{ SEALOS_NAMESPACE }}.svc.cluster.local`)
+- Functional first-user signup: the registration flow owns the initial account, so optional administrator/root inputs and bootstrap env/config are absent
+- Runtime-generated mandatory bootstrap: the selected runtime deterministically constructs the exact documented credential format, retains the resolved credential in a Secret or documented live runtime source, and exposes no administrator input unless deployer selection is documented
 
 **Category B — User-required inputs:**
 - Template `inputs` with `required: true` and no sensible default
 - Template `inputs` with `required: true` and `default: ''` for non-administrator fields; the empty default means the deployer must provide the value before deploy
-- Administrator username/password inputs are user-required when the app supports bootstrap admin customization; both fields must be required and omit `default`
+- Deployer-supplied mandatory bootstrap identity/password inputs: every documented field is required, omits `default`, and carries the exact upstream constraints in its English description
 - Env vars with empty or placeholder values that the app cannot function without
-- Common examples: admin username, admin password, admin email, external API keys (OpenAI, SMTP credentials, OAuth client ID/secret)
+- Common examples: mandatory bootstrap username/email/password, external API keys (OpenAI, SMTP credentials, OAuth client ID/secret)
 
 **Category C — Optional with defaults:**
 - Template `inputs` with `required: false` and reasonable defaults
@@ -928,7 +932,7 @@ Configuration for <app-name>:
 2. If user doesn't have a value, explain what it's used for and how to obtain it
    - Example: "OPENAI_API_KEY is needed for AI features. Get one at https://platform.openai.com/api-keys"
 3. If user wants to skip a feature-gating input (e.g., SMTP), explain which features will be unavailable and set an empty value
-4. For administrator username/password inputs, collect both values from the user and pass them to the Template API args; keep the template input definitions required with no defaults.
+4. For deployer-supplied mandatory bootstrap credentials, collect every documented identity/password field, validate each value against the exact selected-release rules, and preserve the value byte-for-byte through Template API args and live login.
 
 **For optional inputs:**
 1. Show the default values
@@ -940,7 +944,7 @@ If the AI is unsure what a variable does, read the project README, `.env.example
 
 ### 5.5.4 Apply Configuration to Template
 
-Keep user-required `inputs` definitions in the template and pass user-provided values through Template API args:
+Keep user-required `inputs` definitions in the template and pass user-provided values through Template API args. The following example represents a deployer-supplied mandatory bootstrap flow; replace its description constraints with the exact selected-release rules:
 
 ```yaml
 inputs:
@@ -949,7 +953,7 @@ inputs:
     type: string
     required: true
   ADMIN_PASSWORD:
-    description: 'Administrator login password'
+    description: 'Administrator password. Use 12-128 characters including uppercase, lowercase, number, and symbol.'
     type: string
     required: true
 ```
@@ -960,9 +964,13 @@ CONFIG.args = { ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "<secret>", OPENAI_API_
 ```
 These `args` will be passed to the Template API's `args` field (Phase 6.2), which overrides or supplies `spec.inputs` in the template.
 
+For runtime-generated mandatory bootstrap, keep administrator inputs absent unless the selected release documents deployer selection. Construct and validate the exact documented credential format before the server starts, retain the resolved credential in a Kubernetes Secret or documented live runtime source, and reserve retrieval for the redacted live login smoke.
+
 ### 5.5.5 Deployment Confirmation
 
 Immediately before presenting the deployment confirmation, run the complete quality gate again against the exact final template:
+
+For deployer-supplied mandatory bootstrap credentials, complete the release-specific value validation first. A validation failure returns to Phase 5.5.3 while preserving the user's original value for correction and keeping credentials out of logs. For runtime-generated mandatory bootstrap, verify deterministic format construction, startup validation, and resolved-credential retention before deployment.
 
 ```bash
 "$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/quality_gate.py" \
@@ -1020,10 +1028,22 @@ Request body fields:
 - `args` (optional) — template variable key-value pairs that override or supply `spec.inputs` fields. Values from Phase 5.5 `CONFIG.args`.
 - `dryRun` (optional, boolean) — if true, validates resources against K8s API without creating anything. Returns 200 with preview.
 
+`deploy-template.mjs` sends the original args to Template API and emits only `args_supplied` plus an allowlisted response. Credential values, raw response messages, nested response details, and request exception text stay out of stdout/stderr.
+
 **With Node.js (preferred):**
 ```bash
 node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --dry-run
-node "<SKILL_DIR>/scripts/deploy-template.mjs" ".sealos/template/index.yaml" --args-json '{"ADMIN_EMAIL":"user@example.com"}'
+
+DEPLOY_ARGS_FILE=$(mktemp "${TMPDIR:-/tmp}/sealos-template-args.XXXXXX")
+chmod 600 "$DEPLOY_ARGS_FILE"
+trap 'rm -f "$DEPLOY_ARGS_FILE"' EXIT
+
+# Serialize Phase 5.5 CONFIG.args directly to this file without printing values.
+node "<SKILL_DIR>/scripts/deploy-template.mjs" \
+  ".sealos/template/index.yaml" --args-file "$DEPLOY_ARGS_FILE"
+
+rm -f "$DEPLOY_ARGS_FILE"
+trap - EXIT
 ```
 
 This script is the preferred execution path because it:
@@ -1032,57 +1052,109 @@ This script is the preferred execution path because it:
 - always posts to the concrete `DEPLOY_URL`
 - emits structured JSON on success or failure
 
-**Without Node.js (curl fallback):**
+Use `--args-json` only for values confirmed to be non-sensitive. Passwords, tokens, API keys, email addresses, and other account values use the private `--args-file` path. On POSIX systems, the helper rejects argument files that grant access to group or other users.
+
+**Without Node.js (curl + jq fallback):**
 ```bash
-# encodeURIComponent via Python (almost always available)
+umask 077
+DEPLOY_ARGS_FILE=$(mktemp "${TMPDIR:-/tmp}/sealos-template-args.XXXXXX")
+DEPLOY_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/sealos-template-body.XXXXXX")
+DEPLOY_RESPONSE_FILE=$(mktemp "${TMPDIR:-/tmp}/sealos-template-response.XXXXXX")
+trap 'rm -f "$DEPLOY_ARGS_FILE" "$DEPLOY_BODY_FILE" "$DEPLOY_RESPONSE_FILE"' EXIT
+
+# Serialize Phase 5.5 CONFIG.args directly to DEPLOY_ARGS_FILE without printing values.
+# encodeURIComponent via Python.
 KUBECONFIG_ENCODED=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read(), safe=''))" < ~/.sealos/kubeconfig)
 
-# Build JSON body with args — use jq if available
-TEMPLATE_YAML=$(cat .sealos/template/index.yaml)
-jq -n --arg yaml "$TEMPLATE_YAML" \
-  --argjson args '{"ADMIN_EMAIL":"user@example.com"}' \
-  '{yaml: $yaml, args: $args}' | \
-  curl -sf -X POST "$DEPLOY_URL" \
-    -H "Authorization: $KUBECONFIG_ENCODED" \
-    -H "Content-Type: application/json" \
-    -d @-
-```
+jq -n \
+  --rawfile yaml .sealos/template/index.yaml \
+  --slurpfile args "$DEPLOY_ARGS_FILE" \
+  '{yaml: $yaml, args: $args[0], dryRun: false}' > "$DEPLOY_BODY_FILE"
 
-**Without jq:**
-The AI should read the template YAML (already in context), construct the JSON body directly, write it to a temp file, and curl it:
-```bash
-# AI writes properly escaped JSON to temp file including args from Phase 5.5
-cat > /tmp/sealos-deploy-body.json << 'DEPLOY_EOF'
-{"yaml": "<AI inserts JSON-escaped template YAML here>", "args": {"ADMIN_EMAIL": "user@example.com"}}
-DEPLOY_EOF
-
-curl -sf -X POST "$DEPLOY_URL" \
+if ! HTTP_STATUS=$(curl -sS -o "$DEPLOY_RESPONSE_FILE" -w '%{http_code}' -X POST "$DEPLOY_URL" \
   -H "Authorization: $KUBECONFIG_ENCODED" \
   -H "Content-Type: application/json" \
-  -d @/tmp/sealos-deploy-body.json
+  --data-binary @"$DEPLOY_BODY_FILE"); then
+  jq -n '{success: false, response: {details_omitted: true}}'
+  exit 1
+fi
 
-rm -f /tmp/sealos-deploy-body.json
+if jq -e . "$DEPLOY_RESPONSE_FILE" >/dev/null 2>&1; then
+  jq --arg status "$HTTP_STATUS" '
+    ($status | tonumber) as $statusCode |
+    . as $body |
+    {
+      success: ($statusCode >= 200 and $statusCode < 300),
+      status: $statusCode,
+      response:
+        (({
+          ok: $body.ok,
+          success: $body.success,
+          name: $body.name,
+          uid: $body.uid,
+          resourceType: $body.resourceType,
+          createdAt: $body.createdAt
+        } | with_entries(select(.value != null)))
+        + (if ($body.resources | type) == "array" then {
+            resources: [$body.resources[] as $resource | ({
+              name: $resource.name,
+              uid: $resource.uid,
+              resourceType: $resource.resourceType,
+              kind: $resource.kind,
+              quota: (($resource.quota // {}) | ({
+                cpu,
+                memory,
+                storage,
+                replicas
+              } | with_entries(select(.value != null))))
+            } | with_entries(select(.value != null)))]
+          } else {} end)
+        + (if ($body.error | type) == "object" then {
+            error: ({
+              type: $body.error.type,
+              code: $body.error.code,
+              details_omitted: true
+            } | with_entries(select(.value != null)))
+          } else {} end))
+    }
+  ' "$DEPLOY_RESPONSE_FILE"
+else
+  jq -n --arg status "$HTTP_STATUS" \
+    '{success: false, status: ($status | tonumber), response: {details_omitted: true}}'
+fi
+
+rm -f "$DEPLOY_ARGS_FILE" "$DEPLOY_BODY_FILE" "$DEPLOY_RESPONSE_FILE"
+trap - EXIT
 ```
+
+This fallback requires `jq` so request construction and response allowlisting stay structured. Use the Node.js helper when `jq` is unavailable.
 
 ### 6.3 Handle Response
 
-All error responses use a unified format:
+Template API error bodies may contain a message and nested details. `deploy-template.mjs` exposes only the safe diagnostic fields:
 ```json
-{ "error": { "type": "...", "code": "...", "message": "...", "details": ... } }
+{
+  "success": false,
+  "status": 400,
+  "args_supplied": 2,
+  "response": {
+    "error": { "type": "ValidationError", "code": "INVALID_VALUE", "details_omitted": true }
+  }
+}
 ```
 
 | Status | Meaning | Action |
 |--------|---------|--------|
 | 201 | Deployed successfully | Extract instance name and resources from response |
 | 200 | Dry-run preview (`dryRun: true`) | Show resource preview and quota |
-| 400 | Validation error — `INVALID_PARAMETER` (missing yaml/name) or `INVALID_VALUE` (bad YAML, missing required args) | Read `error.message`, fix template or provide missing `args`, retry |
+| 400 | Validation error — `INVALID_PARAMETER` (missing yaml/name) or `INVALID_VALUE` (bad YAML, missing required args) | Use `error.type/code`, rerun the local quality gate, compare required inputs with `args_supplied`, inspect the selected release's schema, then repair and retry |
 | 401 | `AUTHENTICATION_REQUIRED` — missing or invalid kubeconfig | Re-run auth: `node sealos-auth.mjs login`, or switch workspace: `node sealos-auth.mjs switch <ns>` |
 | 403 | `FORBIDDEN` — insufficient permissions | Inform user, check kubeconfig namespace permissions |
 | 409 | `ALREADY_EXISTS` — instance already exists | Inform user, suggest different app name |
-| 422 | `RESOURCE_ERROR` — K8s rejected resource spec | Read `error.details` for K8s rejection reason, fix template |
+| 422 | `RESOURCE_ERROR` — K8s rejected resource spec | Use `error.type/code`, rerun the local quality gate, inspect rendered resource fields and server-side dry-run through the redacted helper, then repair the template |
 | 503 | `SERVICE_UNAVAILABLE` — K8s cluster unreachable | **Fall back to kubectl (6.4)** |
 
-On 201 success, the response contains:
+On 201 success, the helper's allowlisted response contains:
 ```json
 {
   "name": "myapp-abcdefgh",
@@ -1090,7 +1162,6 @@ On 201 success, the response contains:
   "resourceType": "instance",
   "displayName": "...",
   "createdAt": "...",
-  "args": { ... },
   "resources": [
     { "name": "myapp-abcdefgh", "uid": "...", "resourceType": "deployment", "quota": { "cpu": 0.1, "memory": 0.25, "storage": 0, "replicas": 1 } }
   ]
@@ -1156,6 +1227,7 @@ For the public app Service, endpoints must be non-empty before the Ingress can s
 3. Look for common signatures:
    - `OOMKilled` or exit `137`: increase init container memory and recreate the Pod.
    - `Permission denied` on mounted paths: add `fsGroup` or a one-shot permission repair for existing PVCs.
+   - Password policy, invalid bootstrap configuration, or root reconciliation validation: return to the account-mode classification and Phase 5.5 credential contract before changing resources.
    - App-specific migration/bootstrap errors: repair the failed bootstrap state, then rerun the init path.
 4. Only report the app as usable after the endpoint exists and an HTTP request to the public URL returns a non-5xx response.
 5. Continue to Phase 6.5 before writing deployment state or reporting success.
