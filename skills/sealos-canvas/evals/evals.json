@@ -28,10 +28,6 @@
           "description": "Returns ok=false with reason kubeconfig_missing"
         },
         {
-          "name": "stops-on-read-access-failure",
-          "description": "Returns ok=false with reason read_access_unavailable when kubectl reads fail"
-        },
-        {
           "name": "view-only",
           "description": "Does not run kubectl apply, patch, delete, rollout, restart, or set image commands"
         }
@@ -82,6 +78,26 @@
         {
           "name": "redacts-diagnostics",
           "description": "Event and read-error messages omit credential-shaped values"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "/sealos-canvas in a deployed repo when kubectl cannot read namespace resources",
+      "expected_output": "Stops with a sanitized read-access message, does not generate HTML, and does not start a local server",
+      "files": [],
+      "assertions": [
+        {
+          "name": "stops-on-read-access-failure",
+          "description": "Returns ok=false with reason read_access_unavailable"
+        },
+        {
+          "name": "does-not-create-canvas-on-read-failure",
+          "description": "Does not create .sealos/canvas/index.html"
+        },
+        {
+          "name": "redacts-read-diagnostic",
+          "description": "Read errors omit credential-shaped values"
         }
       ]
     }
