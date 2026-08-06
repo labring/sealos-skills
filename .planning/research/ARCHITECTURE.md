@@ -1,348 +1,588 @@
-# Architecture Research: Codex Plugin Installation Upgrade
+# Architecture Research
 
-**Project:** Sealos Codex Plugin Installation Upgrade  
-**Domain:** Codex plugin distribution and installation documentation  
-**Researched:** 2026-06-15  
-**Overall confidence:** HIGH
+**Domain:** Multi-host agent skill design system for Sealos Skills v1.1
+**Researched:** 2026-08-06
+**Confidence:** HIGH
+**Local baselines:** Sealos Skills current worktree; Ponytail commit `16f29800fd2681bdf24f3eb4ccffe38be3baec6b`
 
 ## Recommendation
 
-Make README the user-facing install guide, keep `.codex-plugin/plugin.json` as the Codex plugin contract, keep `.agents/plugins/marketplace.json` as the local Codex marketplace fixture, use `distribution/platforms.json` as the support-claim registry, and extend `scripts/validate-codex-plugin.py` as the guardrail that proves those files agree.
+Keep the physical `skills/*/SKILL.md` set as the canonical inventory, make `commands/sealos.md` the canonical intent-to-skill routing contract, and keep every runtime rule in its owning skill, module, reference, or deterministic helper. Treat manifests, marketplaces, `qoder.md`, `CLAUDE.md`, and `skills/*/agents/openai.yaml` as projections of those sources. Extend the existing `scripts/validate-codex-plugin.py` gate so every projection is checked against the physical inventory and the shared router.
 
-The Codex installation upgrade should be structured as a documentation-first distribution change with validator-backed metadata parity. The root `skills/**` tree remains the only source of skill behavior. Codex installation copy should point users to native Codex marketplace commands first, with `npx plugins add ... --target codex` positioned as the compatibility/local install path.
+This is the smallest architecture that covers all eight skills and every current host. It uses one packaged skill source, a stateless task-scoped execution model, and the existing dependency set. Ponytail's transferable mechanism is its ownership discipline and executable drift detection. Ponytail retains ownership of its persistent mode, hook injection, state files, generated OpenClaw package, and host-specific runtime code; Sealos Skills retains task-scoped cloud workflows.
+
+The design must preserve Sealos safety placement. Cross-cutting warnings remain visible before routing in `AGENTS.md`, `commands/sealos.md`, and `qoder.md`. Skill-specific gates remain visible in the relevant `SKILL.md`. Detailed execution stays in existing modules and references. Deterministic helpers remain the final enforcement layer where a fixed oracle exists.
 
 ## Evidence Reviewed
 
-| Source | Finding | Confidence |
-|--------|---------|------------|
-| `.planning/PROJECT.md` | Milestone targets Codex native marketplace installation copy and metadata alignment. | HIGH |
-| `.planning/codebase/ARCHITECTURE.md` | Existing architecture is plugin-first with root `skills/**` as canonical source. | HIGH |
-| `.planning/codebase/STRUCTURE.md` | Distribution files are already separated by host: `.codex-plugin/`, `.agents/`, `distribution/`, `marketplace.json`. | HIGH |
-| `.planning/codebase/CONCERNS.md` | Distribution metadata duplication is the main drift risk; Codex validator coverage is intentionally narrow. | HIGH |
-| `README.md` | Current primary Codex install path is `npx plugins add https://github.com/labring/sealos-skills --target codex`. | HIGH |
-| `.codex-plugin/plugin.json` | Codex plugin name is `sealos`; skills path is `./skills/`; display name is `Sealos`. | HIGH |
-| `.agents/plugins/marketplace.json` | Local Codex marketplace fixture exposes one plugin named `sealos` from repo root. | HIGH |
-| `marketplace.json` | Root marketplace name is `sealos`; plugin name is `sealos`; source is `./`. | HIGH |
-| `distribution/platforms.json` | Codex install claim still points to `npx plugins add ... --target codex`. | HIGH |
-| `scripts/validate-codex-plugin.py` | Validator checks Codex manifest, local marketplace, registry evidence, and asset paths. | HIGH |
-| `/tmp/pm-skills-ref/README.md` | Reference README presents Codex as two native commands: add marketplace, then add plugin. | HIGH |
-| Local `codex plugin --help` | Codex CLI supports `plugin marketplace add` and `plugin add`. | HIGH |
+| Evidence | Observed behavior | Confidence |
+|---|---|---|
+| `skills/*/SKILL.md` | Eight canonical skills exist. Entry files range from 116 to 383 lines. | HIGH |
+| `.codex-plugin/plugin.json` | Codex points at the complete root `./skills/` directory. | HIGH |
+| `.qoder-plugin/plugin.json` | Qoder explicitly lists all eight skill paths and reuses `commands/sealos.md`. | HIGH |
+| `.claude-plugin/plugin.json`, `marketplace.json`, `.claude-plugin/marketplace.json`, `.codebuddy-plugin/marketplace.json` | Each explicit inventory currently contains seven skills and omits `sealos-canvas`. | HIGH |
+| `scripts/validate-codex-plugin.py` | The current gate compares the Claude and marketplace lists with each other, while only Qoder is compared with physical `skills/*/SKILL.md`. The gate passed while the seven-versus-eight drift remained. | HIGH |
+| `skills/*/agents/openai.yaml` | All eight skills already have Codex presentation metadata and `$skill-name` default prompts. | HIGH |
+| `skills/*/evals/evals.json` | Deploy, database, S3, and canvas have eval fixtures. Readiness, Dockerfile, Docker-to-Sealos, and app-builder require new skill-local eval files. | HIGH |
+| Ponytail `skills/*/SKILL.md` | Six focused skills range from 41 to 120 lines and keep one task boundary per skill. | HIGH |
+| Ponytail `scripts/check-rule-copies.js` | Compact host rule files are byte-checked against `AGENTS.md`; nine load-bearing phrases are checked in both `AGENTS.md` and the primary skill. | HIGH |
+| Ponytail `scripts/check-versions.js` | Eight version-bearing files are checked against one pinned version and the release tag. | HIGH |
+| Ponytail adapter tests | The selected rule, version, command, Gemini, Qoder, OpenClaw, and behavior checks passed at commit `16f2980` (40 selected adapter/behavior tests passed). | HIGH |
 
-## Recommended Architecture
+The local checkout is more current than the June codebase map in one area: four Sealos skills now have eval fixtures, while `.planning/PROJECT.md` still describes deploy as the only skill with dedicated evals. Roadmap planning should use the live file inventory above.
+
+## Standard Architecture
+
+### System Overview
 
 ```text
-README.md
-  |
-  | user-facing install contract
-  v
-Codex marketplace source
-  |
-  | codex plugin marketplace add labring/sealos-skills
-  v
-Root marketplace metadata
-  |
-  | marketplace name: sealos
-  | plugin name: sealos
-  v
-Codex plugin installation
-  |
-  | codex plugin add sealos@sealos
-  v
-.codex-plugin/plugin.json
-  |
-  | plugin identity, UI copy, asset paths, skills path
-  v
-skills/**
-  |
-  | canonical skill behavior for all hosts
-  v
-Agent runtime invocation
-  |
-  | Codex CLI: $sealos
-  | Codex App: select Sealos from Plugins
-  v
-Validation
-  |
-  | scripts/validate-codex-plugin.py
-  | JSON syntax checks
-  | optional local install/discover smoke
++-----------------------------------------------------------------------+
+| Host entry surfaces                                                   |
+| Codex $sealos | Claude /sealos | Qoder /sealos | skills.sh direct     |
+| Gemini/Qwen context | CodeBuddy | OpenClaw | generic repo importers   |
++-------------------------------+---------------------------------------+
+                                |
+                                v
++-----------------------------------------------------------------------+
+| Thin host projections                                                 |
+| manifests | marketplaces | commands/sealos.md | qoder.md | AGENTS.md  |
+| skills/*/agents/openai.yaml | distribution/platforms.json             |
++-------------------------------+---------------------------------------+
+                                |
+             inventory = discover skills/*/SKILL.md
+             routing   = parse commands/sealos.md
+                                |
+                                v
++-----------------------------------------------------------------------+
+| Canonical skill entry contracts                                       |
+| eight skills/*/SKILL.md files                                         |
+| triggers | scope | safety | workflow | output | handoffs | navigation  |
++-------------------------------+---------------------------------------+
+                                |
+                                v
++-----------------------------------------------------------------------+
+| Owned implementation detail                                           |
+| modules/ | references/ | knowledge/ | scripts/ | schemas/ | assets/    |
+| templates/ | target-project .sealos/* artifacts                        |
++-------------------------------+---------------------------------------+
+                                |
+                                v
++-----------------------------------------------------------------------+
+| Verification                                                          |
+| deterministic: validator + unittest + existing helper tests           |
+| behavioral: skill evals + unified router evals                         |
++-----------------------------------------------------------------------+
 ```
 
-## Component Boundaries
+### Component Responsibilities
 
-| Component | Responsibility | Files | Change Scope |
-|-----------|----------------|-------|--------------|
-| Install guide | Teaches Codex users the shortest native install path and the correct invocation surface. | `README.md` | Primary change area |
-| Codex plugin manifest | Defines plugin identity, display metadata, prompts, asset paths, and `skills` pointer. | `.codex-plugin/plugin.json` | Keep stable unless README exposes a mismatched claim |
-| Local Codex marketplace fixture | Enables local Codex marketplace testing for this repository. | `.agents/plugins/marketplace.json` | Keep aligned with plugin name and local source |
-| Root marketplace metadata | Provides marketplace name and plugin entry used by native marketplace-style install flows. | `marketplace.json` | Verify name/source consistency; avoid broad host churn |
-| Platform registry | Records support claims, install command, invocation, evidence, and verification date. | `distribution/platforms.json` | Update Codex install claim and evidence after README change |
-| Validator | Enforces metadata parity for Codex-facing distribution files. | `scripts/validate-codex-plugin.py` | Extend only for new parity rules introduced by this milestone |
-| Canonical skills | Own all deploy, database, S3, canvas, app-builder, readiness, Dockerfile, and template behavior. | `skills/**` | Out of scope for installation upgrade |
+| Component | Responsibility | Implementation |
+|---|---|---|
+| Physical skill inventory | Defines exactly which skills ship. | Discover directories matching `skills/*/SKILL.md`; currently eight. |
+| Unified routing contract | Maps broad Sealos intents to one specific skill and records the public entry surface. | `commands/sealos.md` with one structured row per physical skill. |
+| Skill entry contract | Owns triggers, scope, required safety, workflow outline, output, handoffs, and progressive-loading links. | Each `skills/<name>/SKILL.md`. |
+| Detail layer | Owns phase instructions, protocol details, examples, and decision knowledge loaded only when relevant. | Skill-local `modules/`, `references/`, `knowledge/`, `examples/`. |
+| Deterministic execution | Parses inputs, validates artifacts, performs scoped operations, and emits structured outputs. | Existing skill-local Node.js and Python helpers. |
+| Host adapter | Exposes canonical skills through host-native paths and syntax while preserving behavior. | Plugin manifests, marketplaces, context files, and command metadata. |
+| Support-claim registry | Records install, invoke, runtime, evidence, and verification status per host. | `distribution/platforms.json`. |
+| Design-system gate | Checks inventory, routing, descriptions, versions, path ownership, safety canaries, eval presence, and host parity. | Expanded `scripts/validate-codex-plugin.py`. |
+| Deterministic gate tests | Prove the validator rejects known drift, including a missing skill, route, safety phrase, or version mismatch. | New `scripts/test_validate_codex_plugin.py` using `unittest`. |
+| Behavior evals | Exercise probabilistic selection, progressive loading, confirmation, outputs, and handoffs. | `skills/*/evals/evals.json` plus a router-owned eval file. |
 
-## Data Flow
+## Canonical Ownership Boundaries
 
-### Codex Native Installation Flow
+### 1. Inventory Ownership
 
-1. User reads `README.md`.
-2. README instructs the user to add the Sealos marketplace:
+The directory set discovered from `skills/*/SKILL.md` is the inventory source. A second hand-maintained inventory file would duplicate the strongest existing source and introduce another drift edge.
 
-   ```bash
-   codex plugin marketplace add labring/sealos-skills
-   ```
+The validator should derive:
 
-3. README instructs the user to install the single Sealos plugin:
-
-   ```bash
-   codex plugin add sealos@sealos
-   ```
-
-4. Codex resolves marketplace name `sealos` from root `marketplace.json`.
-5. Codex resolves plugin entry `sealos` from that marketplace.
-6. The plugin resolves Codex-specific metadata from `.codex-plugin/plugin.json`.
-7. `.codex-plugin/plugin.json` points to `./skills/`.
-8. Codex exposes the installed plugin as `$sealos` in CLI and as `Sealos` in the app plugin picker.
-
-### Compatibility Installation Flow
-
-1. README keeps the existing compatibility/local path:
-
-   ```bash
-   npx plugins add https://github.com/labring/sealos-skills --target codex
-   ```
-
-2. This path still resolves the same repository root and Codex plugin manifest.
-3. It should be visually secondary to the native `codex plugin` path.
-
-### Validation Flow
-
-1. `README.md` install commands define the expected user path.
-2. `distribution/platforms.json` records the same Codex install and invocation claims.
-3. `.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json` provide machine-readable plugin metadata.
-4. `scripts/validate-codex-plugin.py` should assert:
-   - Codex plugin name is `sealos`.
-   - Codex plugin skills path is `./skills/`.
-   - Local Codex marketplace has one plugin named `sealos`.
-   - Local Codex marketplace points at repo root.
-   - Platform registry Codex entry contains the native Codex install command.
-   - Platform registry Codex invocation mentions `$sealos` and Codex App plugin selection.
-   - Root `marketplace.json` name is `sealos`.
-   - Root `marketplace.json` contains one plugin named `sealos`.
-   - Root `marketplace.json` plugin source is `./`.
-
-## Patterns to Follow
-
-### Pattern 1: README Leads, Metadata Proves
-
-**What:** Put the native Codex install sequence in README first, then make manifests and registry prove that sequence.
-
-**When:** Any change affects install, invocation, marketplace naming, or support claims.
-
-**Implementation shape:**
-
-```markdown
-### Codex CLI / Codex App
-
-```bash
-codex plugin marketplace add labring/sealos-skills
-codex plugin add sealos@sealos
-```
-
-Use `$sealos` in Codex CLI. In Codex App, open Plugins and select Sealos.
-```
-
-**Why:** README is where users make install decisions; manifests and validator keep the instructions grounded in actual package metadata.
-
-### Pattern 2: Single Plugin, Single Skill Source
-
-**What:** Treat Sealos as one Codex plugin named `sealos` that loads the root `skills/**` pack.
-
-**When:** Codex copy, manifest fields, marketplace entries, registry claims, and validator checks are updated.
-
-**Implementation shape:**
-
-```json
-{
-  "name": "sealos",
-  "skills": "./skills/"
+```python
+canonical_skills = {
+    f"./{skill_md.parent.relative_to(root).as_posix()}"
+    for skill_md in (root / "skills").glob("*/SKILL.md")
 }
 ```
 
-**Why:** This project bundles multiple task skills behind one Sealos plugin. A second packaged skill copy would create drift.
+Every explicit host `skills` array must equal this set exactly. Directory-pointer hosts such as Codex must resolve to the same root directory. Stable display order can come from the order in `commands/sealos.md`; equality checks should remain set-based.
 
-### Pattern 3: Cross-Host Changes Stay Deliberate
+### 2. Routing Ownership
 
-**What:** Limit this milestone to Codex install docs, Codex metadata parity, platform registry Codex fields, and Codex validation.
+`commands/sealos.md` should become the single broad router. Use a structured table with these fields:
 
-**When:** README touches the tool matrix or shared distribution sections.
+| Intent | Canonical skill | Plugin entry | Direct skills.sh entry |
+|---|---|---|---|
+| Deploy or update | `sealos-deploy` | `$sealos` / `/sealos` | `/sealos-deploy` |
+| Database | `sealos-database` | `$sealos` / `/sealos` | `/sealos-database` |
+| Object storage | `sealos-s3` | `$sealos` / `/sealos` | `/sealos-s3` |
+| Read-only topology | `sealos-canvas` | `$sealos` / `/sealos` | host selection through the installed pack |
+| Desktop app integration | `sealos-app-builder` | `$sealos` / `/sealos` | host selection through the installed pack |
+| Readiness assessment | `cloud-native-readiness` | `$sealos` / `/sealos` | host selection through the installed pack |
+| Dockerfile generation | `dockerfile-skill` | `$sealos` / `/sealos` | host selection through the installed pack |
+| Compose conversion | `docker-to-sealos` | `$sealos` / `/sealos` | host selection through the installed pack |
 
-**Implementation shape:** Update Claude, Gemini, Qwen, CodeBuddy, OpenClaw, and skills.sh wording only where Codex wording creates a direct inconsistency in shared tables.
+This preserves the current documented public surfaces: Codex uses `$sealos`, Claude-compatible hosts and Qoder use `/sealos`, and README examples reserve direct `skills.sh` invocation for deploy, database, and S3. The design system covers all eight skills and retains the existing public command set.
 
-**Why:** Existing non-Codex paths have separate manifests and support-claim semantics. Codex install copy can improve without triggering broad distribution churn.
+`qoder.md` remains a small Qoder context adapter. `.qoder-plugin/plugin.json` should continue to point its command at `commands/sealos.md`. `AGENTS.md` remains the context source for Gemini/Qwen through the existing `CLAUDE.md -> AGENTS.md` symlink.
 
-## Anti-Patterns to Avoid
+### 3. Behavior Ownership
 
-### Anti-Pattern 1: Adding a Codex-Specific Skill Copy
+Behavior lives in the narrowest owner:
 
-**What:** Creating `.codex-plugin/skills/` or another host-specific skill tree.
+- `SKILL.md`: selection trigger, user-visible boundary, load-bearing safety, workflow outline, output contract, cross-skill handoff.
+- `modules/*.md`: phase sequencing and detailed execution logic.
+- `references/*.md` and `knowledge/*.md`: conditional domain knowledge, protocols, examples, and exception handling.
+- `scripts/*`: deterministic parsing, validation, structured I/O, and runtime operations.
+- `schemas/*`: target-project artifact shape.
+- `evals/evals.json`: expected agent decisions and observable outcomes.
 
-**Consequence:** Skill behavior drifts across Codex, Claude-compatible hosts, `skills.sh`, Gemini, Qwen, and generic importers.
+Host files name and select the skill, then carry the shared safety boundary required before the selected skill loads. Canonical behavior remains with the owning skill.
 
-**Preferred structure:** Keep `.codex-plugin/plugin.json` pointing to `./skills/`.
+### 4. Version Ownership
 
-### Anti-Pattern 2: Updating README Without Registry Parity
+Use `.codex-plugin/plugin.json.version` as the package version source. Remove the hard-coded `CURRENT_VERSION` duplication from the validator and compare every version-bearing projection against the loaded canonical value:
 
-**What:** README says `codex plugin marketplace add ...` while `distribution/platforms.json` still records only `npx plugins add ... --target codex`.
+- `plugin.json`
+- `.claude-plugin/plugin.json`
+- `.qoder-plugin/plugin.json`
+- `marketplace.json` metadata and plugin entry
+- `.claude-plugin/marketplace.json` metadata and plugin entry
+- `.codebuddy-plugin/marketplace.json` root and plugin entry
+- `gemini-extension.json`
+- `qwen-extension.json`
+- `openclaw.plugin.json`
+- `distribution/platforms.json`
 
-**Consequence:** Future maintainers see two competing install contracts.
+`.agents/plugins/marketplace.json` is intentionally versionless and should keep its current local-source role.
 
-**Preferred structure:** Update `distribution/platforms.json` in the same phase as README and validate it.
+## Focused Skill Contract
 
-### Anti-Pattern 3: Treating Codex as Slash-Command Equivalent
+Every entry file should present the same decision sequence while retaining skill-specific semantics:
 
-**What:** Claiming Codex exposes `/sealos` or direct `/sealos-deploy` as the primary plugin interface.
+1. Frontmatter: canonical `name`, selection-quality `description`, existing compatibility metadata where required.
+2. Scope: the outcome this skill owns and its stopping conditions.
+3. Safety and boundaries: rules needed before any module or reference loads.
+4. Workflow: short ordered steps and the files loaded at each step.
+5. Output contract: observable files, structured output, or user-facing result.
+6. Handoffs: the exact next skill, required input, and stop/return behavior.
+7. Reference navigation: conditional links with explicit load conditions.
 
-**Consequence:** Users expect Claude-compatible command behavior in Codex.
+Use section presence and link validity as gates. A universal line-count gate would conflict with load-bearing rule surfaces. The 383-line `docker-to-sealos/SKILL.md` carries a machine-checked MUST-rule surface through `references/must-rules-map.yaml` and `references/rules-registry.yaml`; shrinking it by moving enforceable rules would change its validation architecture. Its v1.1 pass should remove duplicated explanation and Edge Policy text while retaining rule bullets until a dedicated rule-source migration is planned.
 
-**Preferred structure:** Codex examples use `$sealos`; Claude-compatible examples use `/sealos`; direct `skills.sh` examples use `/sealos-deploy`, `/sealos-database`, and `/sealos-s3`.
+### Skill-Specific Progressive Disclosure
 
-### Anti-Pattern 4: Broad Marketplace Refactors During Install Copy Work
+| Skill | Keep visible in `SKILL.md` | Load on demand from existing owners |
+|---|---|---|
+| `cloud-native-readiness` | Eligibility-first order, scoring decision, stop routes, Dockerfile handoff, report contract. | `modules/assess.md`, `modules/detect.md`, `modules/route.md`, `knowledge/*`, `examples/sample-report.md`. |
+| `dockerfile-skill` | Trigger, phase order, mutation boundary, build/runtime success criteria, output and handoff. | `modules/analyze.md`, `modules/generate.md`, `modules/build-fix.md`, `knowledge/error-patterns.md`, templates and examples. The long duplicated issue catalog and shell transcript belong in these existing files. |
+| `docker-to-sealos` | Rule precedence, topology source, critical secret/storage/database gates, required quality gate, output, conditional reference map. | Existing `references/*`, registries, converter, checker, and tests. Preserve MUST-map compatibility. |
+| `sealos-app-builder` | Starting-path decision, root SDK integration, real iframe verification, output/handoff. | Existing SDK, framework, data, debugging, and publish references. |
+| `sealos-canvas` | Read-only boundary, deployed-state precondition, single script call, stop/success outputs, server lifecycle. | `scripts/generate-canvas.mjs` and `assets/canvas-template.html`. |
+| `sealos-database` | Secret/public/destructive gates, create-or-reuse flow, env mutation boundary, app-level verification, output. | Existing CLI and env references plus analyzer. |
+| `sealos-deploy` | Kubeconfig/deletion/tool-install gates, module order, target artifacts, runtime-truth acceptance, dependency handoffs. | `modules/preflight.md`, `modules/pipeline.md`, `modules/runtime-truth.md`, live-smoke reference, helper scripts, schemas. Move verbose logging examples into `modules/pipeline.md` while keeping the one-log invariant visible. |
+| `sealos-s3` | Secret/public/destructive gates, create-or-reuse flow, credential boundary, real object-flow verification, output. | Existing CLI and env references plus analyzer. |
 
-**What:** Rewriting Claude, CodeBuddy, Gemini, Qwen, OpenClaw, and skills.sh metadata while improving Codex installation copy.
+## Safety Placement
 
-**Consequence:** The milestone grows into a distribution-wide migration with larger validation needs.
+Safety is layered so progressive loading cannot hide a required gate.
 
-**Preferred structure:** Keep host-specific files stable unless Codex consistency requires a direct edit.
+| Invariant | Pre-routing copy | Canonical skill owner | Deterministic or eval seam |
+|---|---|---|---|
+| Destructive operations require explicit confirmation. | `AGENTS.md`, `commands/sealos.md`, `qoder.md`. | `sealos-deploy/SKILL.md`, `sealos-database/SKILL.md`, `sealos-s3/SKILL.md`. | Safety canary validation plus confirmation-gate evals. |
+| Credentials, kubeconfig, env values, and complete connection strings stay out of output and commits. | Same three adapter/context files. | Deploy, database, and S3 entry files; redacting helper behavior remains in current scripts. | Static phrase checks, structured-output tests, and secret-handling evals. |
+| Public database/bucket access and credential rotation require confirmation. | Compact shared warning before routing. | Database and S3 entry files. | Direct evals for ambiguous/public requests. |
+| Canvas stays read-only and hides Secret/ConfigMap content. | Router labels it read-only. | `sealos-canvas/SKILL.md`. | Canvas eval plus helper tests for command allowlists and sanitized model output. |
+| Unsupported workloads stop before scoring/build/deploy. | Router sends assessment and deploy to their owners. | `cloud-native-readiness/SKILL.md`, `sealos-deploy/SKILL.md`, eligibility knowledge/module. | Existing workload helper tests and deploy evals. |
+| Template output passes the complete quality gate before delivery/deploy. | Deploy handoff identifies Docker-to-Sealos as the owner. | `docker-to-sealos/SKILL.md` and its rule registries. | Existing Python test suite and quality gate. |
+| Deployment success requires actual App URL, login/setup when relevant, logs, readiness, and full footprint. | Shared high-level runtime warning. | Deploy entry and `modules/runtime-truth.md`. | Existing live-smoke/footprint/log tests and deploy evals. |
+| Env updates preserve unrelated keys and existing values. | Shared secret-handling warning. | Database and S3 entries plus `references/env-integration.md`. | Analyzer tests and behavior evals. |
 
-## Suggested Build Order
+The validator should use a small `SAFETY_INVARIANTS` map of owner path, adapter path, and exact phrase or normalized phrase. This map acts as a canary. The Markdown owner remains the policy source. Any intentional rewording updates the canary and its regression test in the same change.
 
-### Phase 1: Establish Codex Install Contract
+## Host Adapter Contract
 
-**Files:** `README.md`
+| Host/surface | Current files | v1.1 contract |
+|---|---|---|
+| Codex | `plugin.json`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `plugins/sealos` symlink, `skills/*/agents/openai.yaml` | Keep root directory pointer. Discover all eight. Keep root and Codex manifests in field parity. Validate every OpenAI metadata file and `$skill-id` prompt. |
+| Claude-compatible | `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `marketplace.json`, `commands/sealos.md` | Explicit arrays equal physical inventory. Shared command routes all eight. Add the currently omitted canvas path. |
+| Qoder | `.qoder-plugin/plugin.json`, `qoder.md`, `commands/sealos.md`, `scripts/package-qoder-plugin.py` | Retain current eight-skill inventory and shared command source. Validate ZIP inputs against inventory; keep context adapter thin. |
+| CodeBuddy | `.codebuddy-plugin/marketplace.json` | Explicit array equals physical inventory. Add the currently omitted canvas path. |
+| Gemini CLI | `gemini-extension.json`, `CLAUDE.md -> AGENTS.md` | Context-only. Validate context target, version, and route/safety canaries. Keep command support unclaimed. |
+| Qwen Code | `qwen-extension.json`, `CLAUDE.md -> AGENTS.md` | Context-only. Same contract as Gemini; retain empty MCP map. |
+| OpenClaw/ClawHub | `openclaw.plugin.json` | Keep the existing bundle pointer to `.claude-plugin/plugin.json`; validate source, command directory, command count, and version. No generated skill copy is needed. |
+| skills.sh | Root `skills/**`, README direct examples | Consume canonical skill files directly. Preserve the currently documented direct-entry subset and validate that every advertised path exists. |
+| Generic importers | Root `skills/**`, `AGENTS.md`, `distribution/platforms.json` | Treat repository import as host-dependent; limit claims to repository import support. |
 
-**Work:**
-- Put `codex plugin marketplace add labring/sealos-skills` first for Codex.
-- Put `codex plugin add sealos@sealos` second.
-- Keep `npx plugins add https://github.com/labring/sealos-skills --target codex` as compatibility/local install.
-- Keep Codex invocation as `$sealos` and Codex App plugin selection.
+## Data Flow
 
-**Verification:**
-- Confirm every Codex install example uses the plugin name `sealos`.
-- Confirm README keeps `skills.sh` direct skill commands in the `skills.sh` section.
+### Request Flow
 
-### Phase 2: Align Registry and Metadata Claims
-
-**Files:** `distribution/platforms.json`, potentially `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `marketplace.json`
-
-**Work:**
-- Update the Codex `install` value to the native Codex command sequence or add a primary/alternate install split.
-- Keep `invoke` aligned with `$sealos` and Codex App selection.
-- Keep `.codex-plugin/plugin.json` stable if its fields already match README.
-- Keep `.agents/plugins/marketplace.json` stable if local source and plugin name remain correct.
-- Verify `marketplace.json` supports `sealos@sealos` through marketplace name `sealos` and plugin name `sealos`.
-
-**Verification:**
-- Run JSON syntax checks.
-- Inspect fields with a structured JSON reader before editing validator logic.
-
-### Phase 3: Extend Codex Validator
-
-**Files:** `scripts/validate-codex-plugin.py`
-
-**Work:**
-- Add root `marketplace.json` validation.
-- Add Codex install command parity validation against `distribution/platforms.json`.
-- Add invocation parity checks for `$sealos` and Codex App selection.
-- Preserve current checks for asset paths, category, capabilities, and `./skills/`.
-
-**Verification:**
-
-```bash
-python3 scripts/validate-codex-plugin.py
-python3 -m json.tool .codex-plugin/plugin.json >/dev/null
-python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
-python3 -m json.tool marketplace.json >/dev/null
-python3 -m json.tool distribution/platforms.json >/dev/null
+```text
+User request
+  |
+  +-- Codex: $sealos -----------------------------+
+  +-- Claude/Qoder: /sealos ----------------------+--> commands/sealos.md
+  +-- direct skills.sh entry ---------------------+         |
+  +-- natural-language host selection ---------------------+
+                                                            v
+                                                 one canonical SKILL.md
+                                                            |
+                                      +---------------------+------------------+
+                                      |                                        |
+                                      v                                        v
+                               conditional detail                     deterministic helper
+                         modules/references/knowledge              scripts/schema validation
+                                      |                                        |
+                                      +---------------------+------------------+
+                                                            v
+                                               observable output or handoff
 ```
 
-### Phase 4: Optional Local Codex Smoke
+### Deploy Dependency Flow
 
-**Files:** no source edits expected
+```text
+sealos-deploy
+  -> cloud-native-readiness
+       -> dockerfile-skill when eligible and packaging is missing
+  -> docker-to-sealos for template generation and validation
+  -> deploy/runtime helpers
+  -> sealos-canvas only after state.json contains a verified last_deploy
 
-**Work:**
-- Use local Codex commands to confirm command syntax remains current:
+sealos-database and sealos-s3
+  -> operate as independent development-service workflows
+  -> hand back redacted env-file location and verified application behavior
 
-  ```bash
-  codex plugin marketplace add --help
-  codex plugin add --help
-  ```
+sealos-app-builder
+  -> may recommend database, S3, or deploy based on explicit app needs
+  -> keeps SDK and iframe behavior inside its own owner
+```
 
-- If safe for the maintainer environment, test a local marketplace install from a disposable Codex config.
+### Validation Flow
 
-**Verification:**
-- Confirm the CLI accepts the documented command shape.
-- Confirm installed plugin resolves as `sealos` when a disposable config is used.
+1. Discover canonical skills and parse each frontmatter name/description.
+2. Parse the canonical route table in `commands/sealos.md` and require one row per discovered skill.
+3. Compare every explicit host inventory with the discovered set.
+4. Resolve every manifest, command, context, asset, and skill path inside repository root.
+5. Load canonical package version and compare every version-bearing projection.
+6. Check OpenAI presentation metadata for every skill.
+7. Check cross-host entry syntax: `$sealos`, `/sealos`, and the documented direct skills.sh subset.
+8. Check safety canaries in adapter and owning skill locations.
+9. Require one valid `evals/evals.json` per skill and the router eval file.
+10. Run deterministic helper tests for every changed runtime owner.
+11. Run behavior evals for changed skills and the unified router.
 
-## Scalability Considerations
+## Deterministic And Behavioral Test Seams
 
-| Concern | Near Term | Later |
-|---------|-----------|-------|
-| More Codex install surfaces | Keep README plus registry in sync through validator checks. | Add an automated README-command extraction check if install docs grow. |
-| More Sealos skills | Add skills under root `skills/**`; keep `.codex-plugin/plugin.json` pointing to `./skills/`. | Add distribution-wide validation for all advertised skill paths. |
-| More host manifests | Keep this milestone Codex-scoped. | Add a sibling validator for Claude, CodeBuddy, Gemini, Qwen, OpenClaw, and marketplace parity. |
-| Codex CLI command evolution | Prefer documented `codex plugin` commands and local `--help` verification. | Revalidate during release updates and update README plus registry together. |
+### Deterministic Gate
 
-## Roadmap Implications
+Refactor `scripts/validate-codex-plugin.py` into importable functions that accept a repository root, while preserving the current CLI command. Keep the implementation in one file and add `scripts/test_validate_codex_plugin.py`.
 
-Recommended phase structure:
+The unit tests should create minimal temporary fixtures and prove failure for:
 
-1. **Codex README Install Copy** - Highest user impact, lowest blast radius.
-   - Addresses native Codex install path and invocation clarity.
-   - Avoids manifest churn before the target user contract is written.
+- one physical skill missing from an explicit host manifest;
+- a manifest path escaping or missing from the root;
+- one route missing from `commands/sealos.md`;
+- a duplicate or mismatched frontmatter `name`;
+- a missing `skills/<name>/agents/openai.yaml` or wrong `$name` default prompt;
+- a version mismatch in any version-bearing file;
+- a removed safety canary;
+- an absent or malformed eval file;
+- a context-only host claiming commands;
+- a direct skills.sh example appearing in a plugin-only section.
 
-2. **Registry and Manifest Parity** - Makes README claims machine-readable.
-   - Addresses `distribution/platforms.json`, `marketplace.json`, `.codex-plugin/plugin.json`, and `.agents/plugins/marketplace.json` agreement.
-   - Avoids support-claim drift.
+Pair fixed-oracle behavior with existing helper tests. JSON eval descriptions serve as evidence definitions; executable CI enforcement comes from validator and helper tests.
 
-3. **Validation Upgrade** - Turns the install contract into a durable guardrail.
-   - Addresses future drift across README-facing fields and Codex metadata.
-   - Avoids repeating manual parity checks.
+### Behavioral Evals
 
-4. **Codex Smoke Verification** - Confirms the documented command shape against the installed CLI.
-   - Addresses confidence in native `codex plugin` command syntax.
-   - Keeps runtime skill behavior out of scope.
+Keep the existing fixture shape (`skill_name`, `evals`, prompt, expected output, assertions) and extend it consistently.
 
-## Open Questions
+Add skill-local evals for the four missing owners:
 
-| Question | Impact | Recommendation |
-|----------|--------|----------------|
-| Should `distribution/platforms.json` store both primary and alternate Codex install commands? | Medium | Use `install` for native Codex commands and `alternateInstall` for `npx plugins add ... --target codex`. |
-| Should README call `npx plugins` a compatibility path or a local testing path? | Low | Use "compatibility/local install" because the existing repo already supports it. |
-| Should validator parse README install commands directly? | Low | Defer. Registry parity gives enough protection for this milestone. |
-| Should non-Codex marketplace files be normalized now? | Medium | Defer to a distribution-wide validation milestone. |
+- `skills/cloud-native-readiness/evals/evals.json`
+- `skills/dockerfile-skill/evals/evals.json`
+- `skills/docker-to-sealos/evals/evals.json`
+- `skills/sealos-app-builder/evals/evals.json`
+
+Extend the current files:
+
+- `skills/sealos-deploy/evals/evals.json`
+- `skills/sealos-database/evals/evals.json`
+- `skills/sealos-s3/evals/evals.json`
+- `skills/sealos-canvas/evals/evals.json`
+
+Add `commands/evals/evals.json` for unified routing and host-entry behavior. It should cover one positive route for every skill, ambiguous deploy-versus-readiness and database-versus-S3 cases, `$sealos` versus `/sealos`, and the documented direct skills.sh subset.
+
+Each skill suite should include observable assertions in these categories where applicable:
+
+- selection and out-of-scope stop;
+- progressive reference loading;
+- destructive/public/credential confirmation gate;
+- secret-safe output;
+- exact output artifact or JSON contract;
+- cross-skill handoff payload;
+- runtime verification before success.
+
+An eval runner remains a separate execution concern. v1.1 should document the supported runner command once chosen and keep deterministic schema/coverage checks active in the repository gate. Keep Ponytail's promptfoo benchmark stack outside this milestone's dependency set.
+
+## Recommended Project Structure
+
+```text
+sealos-skills/
+|-- skills/                              # Canonical behavior and inventory
+|   |-- <each-of-eight>/
+|       |-- SKILL.md                     # Focused entry contract
+|       |-- agents/openai.yaml           # Codex presentation projection
+|       |-- evals/evals.json             # Behavioral contract
+|       |-- modules/ references/ ...     # Owned progressive detail
+|-- commands/
+|   |-- sealos.md                        # Canonical broad router
+|   `-- evals/evals.json                 # Router behavior evals (new)
+|-- docs/
+|   `-- skill-design-system.md           # Maintainer contract/template (new)
+|-- scripts/
+|   |-- validate-codex-plugin.py         # Expanded all-host/design gate
+|   `-- test_validate_codex_plugin.py    # Gate regression tests (new)
+|-- distribution/platforms.json          # Support-claim projection
+|-- .codex-plugin/ .claude-plugin/ ...   # Thin host projections
+|-- AGENTS.md                            # Repo and context-host rules
+`-- CLAUDE.md -> AGENTS.md               # Retain symlink
+```
+
+### Structure Rationale
+
+- `skills/` already provides the strongest canonical inventory and behavior boundary.
+- `commands/sealos.md` already routes all eight intents and is directly reused by Qoder, so promoting its structure keeps a single registry.
+- `docs/skill-design-system.md` gives maintainers a stable template while runtime ownership remains in skills and helpers.
+- One expanded validator keeps the existing release command and consolidates overlapping path logic.
+- Co-located evals keep each behavior suite with its owner; command routing receives its own co-located suite.
+
+## File Disposition
+
+### Retain As Canonical Or Thin Projections
+
+| Files | Decision |
+|---|---|
+| All existing `skills/*/modules/**`, `references/**`, `knowledge/**`, `scripts/**`, `schemas/**`, `templates/**`, and `assets/**` | Retain ownership and runtime semantics. Update only links or moved explanatory text tied to the entry-file refactor. |
+| `.agents/plugins/marketplace.json` and `plugins/sealos` symlink | Retain local Codex source wiring. |
+| `.qoder-plugin/plugin.json` | Retain its complete eight-skill list and shared command source. |
+| `gemini-extension.json`, `qwen-extension.json`, `openclaw.plugin.json` | Retain the current host model and add validation around it. |
+| `scripts/package-qoder-plugin.py` | Retain packaging behavior; validate its input roots and produced inventory. |
+| `CLAUDE.md` symlink | Retain as a symlink to `AGENTS.md`; edit `AGENTS.md` only. |
+| Six already consistent `skills/*/agents/openai.yaml` files | Retain copy unless the owning skill description changes. Validate all eight. |
+
+### Modify
+
+| Files | Required change |
+|---|---|
+| All eight `skills/*/SKILL.md` | Apply the focused entry contract and progressive navigation while preserving behavior and safety. |
+| `skills/sealos-deploy/modules/pipeline.md` | Receive verbose logging/script detail removed from the deploy entry, while preserving the one-log and phase-order contracts. |
+| `commands/sealos.md` | Make its route table structurally parseable, cover all eight exactly once, record host surfaces, and retain pre-routing safety. |
+| `qoder.md` | Keep a compact all-eight router/context projection and safety canaries; delegate command semantics to `commands/sealos.md`. |
+| `AGENTS.md` | Add the v1.1 design-system ownership/gate rule and an explicit all-eight routing view while preserving the merge policy and runtime safety. |
+| `.claude-plugin/plugin.json`, `marketplace.json`, `.claude-plugin/marketplace.json`, `.codebuddy-plugin/marketplace.json` | Add `./skills/sealos-canvas` so explicit inventories equal the physical set. |
+| `plugin.json`, `.codex-plugin/plugin.json` | Keep parity and align interface copy with all eight capabilities, including read-only canvas inspection. |
+| `distribution/platforms.json` | Align inventory evidence, host claims, version derivation, and documented invocation surfaces. |
+| `marketplaces/README.md` | Document physical-inventory parity, router ownership, version source, and the expanded gate. |
+| `skills/sealos-canvas/agents/openai.yaml`, `skills/sealos-database/agents/openai.yaml` | Normalize duplicated display labels (`Sealos: Sealos ...`) while retaining `$skill-id` prompts. |
+| `scripts/validate-codex-plugin.py` | Expand from partial plugin checks to the all-host/design-system gate and make functions fixture-testable. |
+| Existing four skill eval files | Add design-contract, safety, progressive-loading, output, and handoff coverage. |
+| `README.md` and `readmes/README.*.md` | Update together only where public inventory, validation, or invocation wording changes. Preserve current host-specific syntax. |
+
+### Add
+
+| File | Purpose |
+|---|---|
+| `docs/skill-design-system.md` | Maintainer template, ownership rules, progressive-disclosure criteria, safety placement, adapter checklist, and gate commands. |
+| `scripts/test_validate_codex_plugin.py` | `unittest` regression suite for inventory, routing, versions, safety canaries, and eval structure. |
+| `commands/evals/evals.json` | Unified router and host-entry behavior cases. |
+| `skills/cloud-native-readiness/evals/evals.json` | Readiness selection, fail-closed stop, report, and Dockerfile handoff cases. |
+| `skills/dockerfile-skill/evals/evals.json` | Containerization selection, progressive loading, mutation/output, and runtime-validation cases. |
+| `skills/docker-to-sealos/evals/evals.json` | Direct conversion selection, rule-source loading, quality-gate, output, and deploy handoff cases. |
+| `skills/sealos-app-builder/evals/evals.json` | SDK selection, framework-specific loading, iframe verification, identity boundary, and publish handoff cases. |
+
+No host-specific `skills/` copy, generated rule tree, hook bundle, package runtime, or second inventory manifest should be added.
+
+## Dependency-Aware Build Order
+
+1. **Record the baseline and write failing validator tests.**
+   - Capture the eight physical skills, current host lists, existing safety phrases, and current eval files.
+   - Add fixture tests that expose the current seven-skill Claude/marketplace gap.
+   - Verification: tests fail for the intended missing-canvas reason.
+
+2. **Establish the design contract and expand the deterministic gate.**
+   - Add `docs/skill-design-system.md`.
+   - Refactor `scripts/validate-codex-plugin.py` to discover inventory, parse routes, derive version, and check adapters, metadata, safety canaries, and eval structure.
+   - Verification: validator unit tests pass against synthetic fixtures; the live repository reports the known adapter gaps.
+
+3. **Align host projections.**
+   - Fix explicit skill arrays, route/context projections, plugin interface copy, platform evidence, and OpenAI display metadata.
+   - Preserve `$sealos`, `/sealos`, and direct skills.sh semantics.
+   - Verification: the expanded live validator passes before skill behavior text changes.
+
+4. **Refocus dependency skills.**
+   - Apply the entry contract to `cloud-native-readiness`, then `dockerfile-skill`, then `docker-to-sealos`.
+   - Retain Docker-to-Sealos MUST-map and registry coupling.
+   - Verification: each skill's existing helper tests/quality gate plus new local eval schema checks pass.
+
+5. **Refocus independent and adjacent skills.**
+   - Update database, S3, app-builder, and canvas.
+   - Verification: analyzer/helper tests where available, confirmation/output evals, and the design validator pass per skill.
+
+6. **Refocus deploy last.**
+   - Deploy depends on the stabilized readiness, Dockerfile, and template contracts.
+   - Keep preflight, kubeconfig, deletion confirmation, artifact, and runtime-truth rules load-bearing.
+   - Verification: deploy helper tests, fast-path test, eval schema, runtime-truth assertions, and Docker-to-Sealos quality gate pass.
+
+7. **Complete behavior coverage and public documentation.**
+   - Add router evals and all missing skill evals; extend existing suites.
+   - Update root and localized READMEs together when public claims change.
+   - Verification: one documented quality-gate sequence passes from a clean checkout.
+
+8. **Audit `brain-deploy-preview` integration explicitly.**
+   - Classify every changed file as aligned, adapted, or excluded under `AGENTS.md`.
+   - Verification: shared-skill diffs and documented Dockerfile Railpack delta match the recorded source commit; preview-only and main-only surfaces remain intact.
+
+## `main` To `brain-deploy-preview` Boundary
+
+The v1.1 architecture must follow the existing merge policy:
+
+- Merge the focused-entry and eval changes for `cloud-native-readiness`, `sealos-app-builder`, `sealos-database`, `sealos-s3`, and `docker-to-sealos` as aligned skill-directory changes.
+- Use main's `dockerfile-skill` as the baseline while retaining only the documented Railpack evidence and Kaniko-path additions on preview.
+- Review every `sealos-deploy` entry, module, and eval change manually against the prepare-only pipeline. Runtime deploy/update, Template API, OAuth, rollout/rollback, and live-smoke semantics remain main-owned.
+- Keep `sealos-canvas` out of preview.
+- Keep main's plugin manifests, marketplaces, `commands/`, `distribution/`, validator, assets, and `.planning/` history out of preview.
+- Preserve preview's `AGENTS.md`, `README.md`, and `CLAUDE.md`; port generic design guidance manually where accurate.
+- Treat new shared-skill eval files as part of their owning skill directories. Treat `commands/evals/evals.json`, `docs/skill-design-system.md`, and the expanded root validator as main-only unless preview adopts an explicit branch-specific equivalent.
+
+## Scaling Considerations
+
+| Scale | Architecture adjustment |
+|---|---|
+| Current: 8 skills, current hosts | Filesystem discovery, one Markdown router, and set comparisons are sufficient. |
+| More skills in current hosts | A new skill fails the gate until its route, OpenAI metadata, eval file, and every explicit host projection exist. No generator is required. |
+| New host adapter | Add one thin manifest/context projection and one validator function/test. Point to root skills or shared context. |
+| Host requires transformed copies | Add a deterministic generator whose output body is compared with canonical skills, following Ponytail's OpenClaw pattern. Use this only when the host format requires a copy. |
+| Large behavioral suite | Separate deterministic contract checks from model-run eval jobs; shard eval execution by skill while retaining one router suite. |
+
+The first scaling bottleneck is adapter list drift, already visible in the seven-versus-eight inventory. The expanded validator removes it. The second is behavior-eval execution time; sharding by skill addresses it while source ownership stays stable.
+
+## Anti-Patterns
+
+### Host-Specific Skill Copies
+
+**Failure:** Add `.codex-plugin/skills/`, `.claude-plugin/skills/`, or another packaged behavior tree.
+
+**Consequence:** Runtime and safety fixes diverge by host.
+
+**Preferred pattern:** Point every capable host at root `skills/**`; introduce generated copies only for a proven host-format constraint and test them byte-for-byte.
+
+### Moving Load-Bearing Safety Into Deep References
+
+**Failure:** Shorten entry files by relocating confirmation, credential, read-only, eligibility, quality-gate, or runtime-acceptance rules below the initial load boundary.
+
+**Consequence:** An agent can mutate resources or report success before loading the rule.
+
+**Preferred pattern:** Keep the gate in `SKILL.md`; place detailed execution and examples in modules/references.
+
+### Copying Ponytail Runtime Behavior
+
+**Failure:** Add mode state, lifecycle hooks, per-turn prompt injection, status lines, or subagent propagation.
+
+**Consequence:** Sealos gains a persistent runtime unrelated to task-scoped cloud workflows and expands the safety surface.
+
+**Preferred pattern:** Transfer source ownership, thin adapters, canary checks, version parity, and behavior-test structure only.
+
+### Treating Mutual Drift As Parity
+
+**Failure:** Compare Claude, root marketplace, and CodeBuddy lists only with each other.
+
+**Consequence:** Every copied list can omit the same skill and still pass, as the current canvas gap demonstrates.
+
+**Preferred pattern:** Compare every projection with the physical canonical inventory.
+
+### Treating Eval JSON As An Executable Gate
+
+**Failure:** Count prompt/assertion fixtures as CI coverage.
+
+**Consequence:** Deterministic routing, path, secret, and output regressions remain unenforced.
+
+**Preferred pattern:** Pair each fixed-oracle assertion with validator or helper tests; reserve model evals for probabilistic behavior.
+
+### Applying Main Distribution Changes To Preview
+
+**Failure:** Merge root plugin, command, distribution, canvas, or full-deploy changes into `brain-deploy-preview` as a repository-wide update.
+
+**Consequence:** The prepare-only branch changes product identity and execution architecture.
+
+**Preferred pattern:** Apply the documented aligned/adapted/excluded policy file by file.
+
+## Integration Points
+
+### External Services And Hosts
+
+| Integration | Pattern | Architecture note |
+|---|---|---|
+| Codex | Root plugin manifest points to `./skills/`; per-skill OpenAI metadata supplies presentation. | Validate physical inventory and metadata; retain the single root skill source. |
+| Claude-compatible hosts | Explicit skill arrays and shared `/sealos` command. | Exact set parity with physical inventory. |
+| Qoder | Explicit array, shared command source, packaged ZIP. | Validate package contents and version from the canonical manifest. |
+| Gemini/Qwen | Context manifest loads `CLAUDE.md`, which resolves to `AGENTS.md`. | Preserve context-only claims and symlink. |
+| Sealos Cloud/Kubernetes | Skill-local scripts and modules execute auth, deploy, database, S3, and read-only queries. | Design-system work must preserve current runtime and safety contracts. |
+| skills.sh/generic importers | Discover root skill directories. | Physical `SKILL.md` set remains canonical. |
+
+### Internal Boundaries
+
+| Boundary | Communication | Contract |
+|---|---|---|
+| Router to skill | Skill ID and user task context | Exactly one canonical route; selected skill owns behavior. |
+| Deploy to readiness | Assessment request and project evidence | Eligibility stops before score/build; report feeds deploy. |
+| Readiness to Dockerfile | Project metadata, services, and concerns | Handoff occurs only for eligible targets lacking artifacts. |
+| Deploy to Docker-to-Sealos | Image/project analysis and target artifact path | Template quality gate passes before deployment. |
+| Deploy to canvas | `.sealos/state.json.last_deploy` plus live read access | Canvas remains view-only and starts only after deployment state exists. |
+| Skill entry to detail | Explicit relative link and load condition | Detail stays inside the owning skill directory or documented sibling dependency. |
+| Eval to deterministic test | Assertion classified by fixed versus probabilistic oracle | Fixed behavior becomes code-level coverage; model behavior remains eval coverage. |
 
 ## Confidence Assessment
 
-| Area | Confidence | Notes |
-|------|------------|-------|
-| Component boundaries | HIGH | Confirmed by current architecture docs and actual files. |
-| Native Codex command shape | HIGH | Confirmed with local `codex plugin --help`, `codex plugin marketplace add --help`, and `codex plugin add --help`. |
-| Marketplace selector `sealos@sealos` | HIGH | Root `marketplace.json` name is `sealos` and plugin entry is `sealos`; Codex help documents `PLUGIN@MARKETPLACE`. |
-| Validator upgrade scope | HIGH | Existing Python validator already covers the right Codex files and can be extended surgically. |
-| Cross-host impact | MEDIUM | Existing files are clear, but this research did not run full installs for Claude, CodeBuddy, Gemini, Qwen, or OpenClaw. |
+| Area | Confidence | Reason |
+|---|---|---|
+| Canonical ownership | HIGH | Confirmed in project instructions, manifests, symlink layout, physical skills, and Ponytail fixed-commit mechanisms. |
+| Adapter parity gap | HIGH | Direct set comparison shows four explicit Sealos projections omit canvas while Qoder and physical inventory include it; current validator still passes. |
+| Safety placement | HIGH | Entry files, AGENTS runtime safety, helper contracts, and current tests provide concrete owners. |
+| Progressive-disclosure plan | HIGH | Existing modules/references already provide destinations; Docker-to-Sealos MUST-map coupling is directly observed. |
+| Behavior-eval execution | MEDIUM | Fixture locations and deterministic seams are clear; a documented root model-eval runner remains an open requirement. |
 
 ## Sources
+
+### Sealos Skills Local Sources
 
 - `.planning/PROJECT.md`
 - `.planning/codebase/ARCHITECTURE.md`
 - `.planning/codebase/STRUCTURE.md`
 - `.planning/codebase/CONCERNS.md`
-- `README.md`
-- `.codex-plugin/plugin.json`
-- `.agents/plugins/marketplace.json`
-- `marketplace.json`
-- `distribution/platforms.json`
-- `scripts/validate-codex-plugin.py`
-- `/tmp/pm-skills-ref/README.md`
-- `/tmp/pm-skills-ref/.claude-plugin/marketplace.json`
-- Local CLI: `codex plugin --help`, `codex plugin marketplace add --help`, `codex plugin add --help`
+- `.planning/codebase/TESTING.md`
+- `AGENTS.md` and `CLAUDE.md`
+- `commands/sealos.md` and `qoder.md`
+- `plugin.json`, `.codex-plugin/plugin.json`, `.claude-plugin/plugin.json`, `.qoder-plugin/plugin.json`
+- `marketplace.json`, `.claude-plugin/marketplace.json`, `.codebuddy-plugin/marketplace.json`, `.agents/plugins/marketplace.json`
+- `gemini-extension.json`, `qwen-extension.json`, `openclaw.plugin.json`, `distribution/platforms.json`
+- All eight `skills/*/SKILL.md` files, their OpenAI metadata, representative modules/references, existing evals, helper scripts, and tests
+- `scripts/validate-codex-plugin.py` and `scripts/package-qoder-plugin.py`
+
+### Ponytail Fixed-Commit Sources
+
+- `/Users/longnv/bin/repo/ponytail/AGENTS.md`
+- `/Users/longnv/bin/repo/ponytail/skills/*/SKILL.md`
+- `/Users/longnv/bin/repo/ponytail/scripts/check-rule-copies.js`
+- `/Users/longnv/bin/repo/ponytail/scripts/check-versions.js`
+- `/Users/longnv/bin/repo/ponytail/scripts/build-openclaw-skills.js`
+- `/Users/longnv/bin/repo/ponytail/hooks/*`
+- `/Users/longnv/bin/repo/ponytail/.claude-plugin/`, `.codex-plugin/`, `.qoder-plugin/`, `.github/plugin/`, `.opencode/`, `pi-extension/`, and `ponytail-mcp/`
+- `/Users/longnv/bin/repo/ponytail/tests/*`, `pi-extension/test/*`, and `ponytail-mcp/test/*`
+
+### External Cross-Check
+
+- [Acceptance-Test-Driven Evaluation Protocols for Business-Centric LLM Systems](https://arxiv.org/abs/2606.02755) - MEDIUM confidence cross-check for separating executable behavioral contracts and release gates from post-hoc benchmarks.
+
+---
+*Architecture research for: Sealos Skills v1.1 Skill Design System Optimization*
+*Researched: 2026-08-06*
