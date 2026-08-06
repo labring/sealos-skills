@@ -28,6 +28,8 @@ Phase 11 provides executable behavior coverage for all eight canonical skills an
 - **D-08:** One documented command runs contract shape, inventory, routes, versions, links, safety canaries, eval schemas, behavior traces, and existing skill-specific validators. The command returns a nonzero exit code for any failed component and emits an aggregated JSON summary.
 - **D-09:** The gate remains offline by default and does not install tools, call providers, mutate a cluster, or require credentials. Environment-dependent checks report a clear conditional status when a local prerequisite is unavailable.
 - **D-10:** The maintainer guide documents the command, required optional tools, fixture ownership, redaction rules, failure triage, and evidence retention. It uses English operational prose consistent with repository documentation.
+- **D-11:** Missing skill-local eval suites are required diagnostics in the aggregate design validator. The eight-suite inventory is part of the maintainer gate.
+- **D-12:** Baseline traces carry explicit `evidence`, `safeNextAction`, and `coverage` fields in addition to the `{text, toolCalls, files}` tuple so terminal output and five behavior dimensions are machine-checkable.
 
 ### the agent's Discretion
 - Exact module names, helper boundaries, assertion implementation, and test runner composition may follow existing repository patterns.
