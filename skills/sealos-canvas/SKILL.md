@@ -17,11 +17,11 @@ Require `.sealos/state.json` with `last_deploy`, `~/.sealos/kubeconfig`, and liv
 
 ## Risk and Confirmation
 
-Keep the read-only boundary, Sealos kubeconfig scope, and Secret/ConfigMap sanitization visible before generator detail. A missing state or kubeconfig stops the request without fallback generation. Never expose Secret data, complete ConfigMap contents, kubeconfig contents, or credentials.
+Keep the read-only boundary, Sealos kubeconfig scope, and Secret/ConfigMap sanitization visible before generator detail. Omit `Secret.data` and `ConfigMap.data` from every result. A missing state or kubeconfig stops the request without fallback generation. Never expose Secret data, complete ConfigMap contents, kubeconfig contents, or credentials.
 
 ## Lifecycle Workflow
 
-For each request, resolve the project, check deployed state and kubeconfig, run the single generator, open the loopback UI, and report sanitized counts. The temporary `127.0.0.1` server lives only for the current request and stops when the task ends or on `SIGINT`/`SIGTERM`; stop the server before closing the request.
+For each request, resolve the project, check deployed state and kubeconfig, run the single generator, open the loopback UI, and report sanitized counts. The temporary `127.0.0.1` server runs only for the current process and stops when the process ends or on `SIGINT`/`SIGTERM`; stop the server before closing the request.
 
 ## Progressive Disclosure
 
@@ -33,7 +33,7 @@ Load `scripts/generate-canvas.mjs` and its owned template/reference paths only a
 - `stopped`: `not_deployed`, `kubeconfig_missing`, `kubectl_missing`, or unavailable read access with the exact safe next action, `server_lifetime.status: not_started`, and no HTML/server fallback.
 - `error`: generation or server-start path, sanitized diagnostic category, `server_lifetime`, and recovery action with secrets and kubeconfig redacted.
 
-Success with `--no-serve` returns `local_url: null` and `server_lifetime.status: not_started`; normal success returns `local_url` and `server_lifetime.status: running` with shutdown `SIGINT/SIGTERM or request end`.
+Success with `--no-serve` returns `local_url: null` and `server_lifetime.status: not_started`; normal success returns `local_url` and `server_lifetime.status: running` with shutdown `process exit or SIGINT/SIGTERM`.
 
 ## Handoffs
 
