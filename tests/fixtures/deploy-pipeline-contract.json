@@ -1,0 +1,70 @@
+{
+  "version": "1.0",
+  "phaseOrder": [
+    "preflight",
+    "eligibility",
+    "template-fast-path",
+    "mode-detection",
+    "assess-detect",
+    "dockerfile-build-or-reuse",
+    "template-configure",
+    "deploy-or-update",
+    "runtime-truth",
+    "state-handoff"
+  ],
+  "traces": [
+    {
+      "id": "typed-dependency-success",
+      "terminalState": "success",
+      "reads": ["eligibility", "analysis", "build-result", "template", "runtime-truth"],
+      "artifactPaths": [
+        ".sealos/analysis.json",
+        ".sealos/build/build-result.json",
+        ".sealos/template/index.yaml",
+        ".sealos/runtime-truth.json",
+        ".sealos/state.json"
+      ],
+      "redaction": "complete"
+    },
+    {
+      "id": "incomplete-handoff",
+      "terminalState": "stopped",
+      "reason": "dependency_handoff_missing",
+      "reads": ["eligibility", "analysis"],
+      "artifactPaths": [".sealos/analysis.json"],
+      "redaction": "complete",
+      "nextAction": "return to readiness owner"
+    },
+    {
+      "id": "state-live-mismatch",
+      "terminalState": "stopped",
+      "reason": "state_live_identity_mismatch",
+      "reads": ["state", "live-identity"],
+      "artifactPaths": [".sealos/state.json"],
+      "redaction": "complete",
+      "nextAction": "reconcile state with the selected live app"
+    },
+    {
+      "id": "image-reuse-no-build",
+      "terminalState": "success",
+      "reads": ["eligibility", "template-match", "analysis", "runtime-truth"],
+      "artifactPaths": [
+        ".sealos/template-match.json",
+        ".sealos/analysis.json",
+        ".sealos/template/index.yaml",
+        ".sealos/runtime-truth.json",
+        ".sealos/state.json"
+      ],
+      "absentArtifactPaths": [".sealos/build/build-result.json"],
+      "redaction": "complete"
+    },
+    {
+      "id": "canvas-ready-state",
+      "terminalState": "success",
+      "reads": ["state", "runtime-truth"],
+      "artifactPaths": [".sealos/state.json", ".sealos/runtime-truth.json"],
+      "handoff": "read-only Canvas observation",
+      "redaction": "complete"
+    }
+  ]
+}
