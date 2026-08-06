@@ -13,6 +13,7 @@ metadata:
 - **Owner:** `sealos-deploy` (`/sealos-deploy` and deploy, update, publish, or cloud-runtime requests).
 - **Class:** `composite-orchestration` across readiness, Dockerfile, template, build, deployment, and Runtime Truth.
 - **Canaries:** `DEP-KUBECONFIG-SCOPE`, `DEP-CONFIRM-MUTATION`, `DEP-REDACT`, and `DEP-RUNTIME-TRUTH`.
+- **Contract:** Read [`references/deploy-contract.md`](references/deploy-contract.md) after the canaries pass. It defines the typed phase handoffs, owned `.sealos` artifacts, terminal states, and the read-only Canvas boundary.
 
 ## Scope and Boundaries
 
