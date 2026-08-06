@@ -92,9 +92,9 @@ Plans:
 
 Plans:
 
-- [ ] 06-01-PLAN.md - Implement physical inventory discovery and constrained route/frontmatter readers (depends on the Phase 5 matrix).
-- [ ] 06-02-PLAN.md - Add semantic safety canaries and red/green fixture mutations for confirmation, redaction, read-only, eligibility, and fail-closed behavior (depends on 06-01).
-- [ ] 06-03-PLAN.md - Add version, path, link, metadata, and eval-schema diagnostics without introducing a second hand-maintained inventory (depends on 06-01 and 06-02).
+- [ ] 06-01: Implement physical inventory discovery and constrained route/frontmatter readers (depends on the Phase 5 matrix).
+- [ ] 06-02: Add semantic safety canaries and red/green fixture mutations for confirmation, redaction, read-only, eligibility, and fail-closed behavior (depends on 06-01).
+- [ ] 06-03: Add version, path, link, metadata, and eval-schema diagnostics without introducing a second hand-maintained inventory (depends on 06-01 and 06-02).
 
 **Research flag**: Deep research recommended for exact manifest/version fields and the boundary between derived reports and host-required files.
 
