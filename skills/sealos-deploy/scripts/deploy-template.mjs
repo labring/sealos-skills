@@ -124,7 +124,7 @@ function loadDeployLabels(input) {
   }
 
   for (const [key, value] of Object.entries(parsed)) {
-    if (typeof key !== 'string' || key === '') {
+    if (key === '') {
       fail('Label keys must be non-empty strings')
     }
     if (typeof value !== 'string') {

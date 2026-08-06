@@ -82,6 +82,7 @@ function runDeploy(fixture, args = [], env = {}) {
     encoding: 'utf8',
     env: {
       ...process.env,
+      SEALAI_DEPLOY_LABELS_JSON: undefined,
       HOME: fixture.homeDir,
       NODE_OPTIONS: nodeOptions,
       SEALOS_DEPLOY_TEST_CAPTURE: fixture.capturePath,
