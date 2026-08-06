@@ -1395,7 +1395,41 @@ rm -rf "$WORK_DIR"
 
 Do NOT clean up if `WORK_DIR` is the user's local project directory.
 
-For test deployments, delete the Sealos `Instance` and application resources before database RBAC. Keep KubeBlocks ServiceAccount, Role, and RoleBinding resources until the database `Cluster` finalizer has converged. When a `Cluster` or `Component` remains in `Deleting` after dependent pods and InstanceSets are gone, inspect the finalizers and use finalizer removal only as the last recovery step after recording the stuck resource and owner references.
+### Safety Contract: Full-Footprint Cleanup
+
+For test deployments, obtain explicit confirmation immediately before deletion and collect
+the complete footprint with `sealos-footprint.mjs`. Cleanup is complete only when the
+report has `collectionOk: true`, `cleanupComplete: true`, and an empty filtered list for
+every selected resource kind:
+
+- `instances.app.sealos.io` and `apps.app.sealos.io`
+- Deployments, StatefulSets, DaemonSets, CronJobs, Jobs, and Pods
+- Services and Ingresses
+- PVCs
+- KubeBlocks `Cluster`, `Component`, and related InstanceSets
+- managed `ObjectStorageBucket` resources and their app-scoped Secrets
+
+A kubectl listing error, permission error, timeout, or unavailable kubeconfig leaves
+cleanup unresolved even when the visible list is empty. Keep the last footprint report,
+the named owner references, and the safe recovery action. Delete the Sealos `Instance`
+and application resources before database RBAC. Keep KubeBlocks ServiceAccount, Role, and
+RoleBinding resources until the database `Cluster` finalizer has converged. A stuck
+`Cluster` or `Component` requires recorded finalizers and owner references before any
+last-resort recovery.
+
+### Safety Contract: Rollback and Branch Boundary
+
+Ask for explicit rollback confirmation before `rollout undo`, image reversal, or any
+resource mutation triggered by a failed update. Retain the previous image, previous
+validated state, failed rollout evidence, post-rollback live identity, and a fresh
+Runtime Truth report. A rollback with incomplete evidence returns `error` and keeps
+`last_deploy.image` at the previous value.
+
+The main-like branch owns OAuth deployment, UPDATE, Runtime Truth, rollback, cleanup, and
+Canvas handoff. `brain-deploy-preview` stays prepare-only with assessment, optional
+Railpack evidence, Dockerfile preparation, `build-request.json`, sandbox Kaniko or image
+reuse, template generation, and `delivery-manifest.json`. Preview work does not invoke
+OAuth deploy, UPDATE, Runtime Truth, or Canvas.
 
 ---
 
