@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 1,
+  "owners": [
+    "cloud-native-readiness",
+    "dockerfile-skill",
+    "docker-to-sealos"
+  ],
+  "cases": [
+    {
+      "caseId": "readiness-positive-typed-report",
+      "owner": "cloud-native-readiness",
+      "kind": "positive",
+      "terminalState": "success",
+      "source": "local-path: synthetic-web-service",
+      "artifacts": ["stdout: readiness report", "in-memory: artifact inventory"],
+      "handoff": {
+        "target": "dockerfile-skill",
+        "inputArtifact": "readiness report with eligibility, score, dimensions, concerns, and artifact inventory",
+        "allowedAction": "generate Docker packaging within the receiving skill file scope",
+        "failureReturn": "readiness findings and failed route condition",
+        "responseOwner": "cloud-native-readiness"
+      },
+      "verification": ["eligibility helper", "six score dimensions", "redaction.ok=true"],
+      "redaction": {"ok": true}
+    },
+    {
+      "caseId": "readiness-violating-eligibility-stop",
+      "owner": "cloud-native-readiness",
+      "kind": "violating",
+      "terminalState": "stopped",
+      "source": "local-path: synthetic-cli-only",
+      "artifacts": ["stdout: eligibility reason codes; score withheld"],
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "eligibility result with workload type and observed evidence",
+        "allowedAction": "stop before score, artifact detection, packaging, or deployment",
+        "failureReturn": "safe remediation and re-assessment instruction",
+        "responseOwner": "cloud-native-readiness"
+      },
+      "verification": ["eligibility gate", "no downstream artifact claim"],
+      "redaction": {"ok": true}
+    },
+    {
+      "caseId": "dockerfile-positive-runtime-accepted",
+      "owner": "dockerfile-skill",
+      "kind": "positive",
+      "terminalState": "success",
+      "source": "readiness-report: synthetic-web-service",
+      "artifacts": ["Dockerfile", ".dockerignore", "docker-build/build-result.json", "docker-build/validation-result.json"],
+      "handoff": {
+        "target": "sealos-deploy",
+        "inputArtifact": "validated Dockerfile and build/runtime result with source provenance",
+        "allowedAction": "build or reuse an image within selected deployment scope",
+        "failureReturn": "failed packaging, migration, HTTP, health, or runtime-log phase",
+        "responseOwner": "dockerfile-skill"
+      },
+      "verification": ["Dockerfile validation", "migration or database proof", "HTTP/health proof", "clean logs"],
+      "redaction": {"ok": true}
+    },
+    {
+      "caseId": "dockerfile-violating-replacement-stop",
+      "owner": "dockerfile-skill",
+      "kind": "violating",
+      "terminalState": "stopped",
+      "source": "local-path: synthetic-existing-dockerfile",
+      "artifacts": ["stdout: replacement decision and named file scope"],
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "existing Dockerfile and proposed replacement plan",
+        "allowedAction": "wait for explicit replacement authorization",
+        "failureReturn": "return the preserved file scope and safe next action",
+        "responseOwner": "dockerfile-skill"
+      },
+      "verification": ["DFS-OWNED-FILES", "no mutation before authorization"],
+      "redaction": {"ok": true}
+    },
+    {
+      "caseId": "dockerfile-violating-build-only",
+      "owner": "dockerfile-skill",
+      "kind": "violating",
+      "terminalState": "error",
+      "source": "local-path: synthetic-migration-service",
+      "artifacts": ["docker-build/build-result.json", "stdout: runtime evidence missing"],
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "build result without migration, HTTP, health, or log evidence",
+        "allowedAction": "keep the build unaccepted and run runtime validation",
+        "failureReturn": "name the missing runtime evidence and return to build/runtime",
+        "responseOwner": "dockerfile-skill"
+      },
+      "verification": ["DFS-RUNTIME-ACCEPT", "success withheld"],
+      "redaction": {"ok": true}
+    },
+    {
+      "caseId": "compose-positive-quality-gate",
+      "owner": "docker-to-sealos",
+      "kind": "positive",
+      "terminalState": "success",
+      "source": "compose: synthetic-multi-service",
+      "artifacts": ["template/synthetic-app/index.yaml", ".sealos/topology-evidence/synthetic-app.yaml"],
+      "handoff": {
+        "target": "sealos-deploy",
+        "inputArtifact": "final Template YAML plus consistency, MUST-map, registry, topology, and quality-gate evidence",
+        "allowedAction": "deploy after required inputs and all downstream gates pass",
+        "failureReturn": "failed rule, registry, topology, artifact, or quality-gate diagnostics",
+        "responseOwner": "docker-to-sealos"
+      },
+      "verification": ["consistency", "MUST coverage", "registry", "topology evidence", "quality gate"],
+      "redaction": {"ok": true}
+    },
+    {
+      "caseId": "compose-violating-missing-rule-evidence",
+      "owner": "docker-to-sealos",
+      "kind": "violating",
+      "terminalState": "error",
+      "source": "compose: synthetic-missing-rule",
+      "artifacts": ["stdout: template withheld until registry/MUST coverage passes"],
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "failed MUST-map or rules-registry report",
+        "allowedAction": "hold template output and repair rule evidence",
+        "failureReturn": "return to the failed rule source with a redacted diagnostic",
+        "responseOwner": "docker-to-sealos"
+      },
+      "verification": ["quality gate fails closed", "no deploy handoff"],
+      "redaction": {"ok": true}
+    },
+    {
+      "caseId": "preview-positive-normalized-build-environment",
+      "owner": "docker-to-sealos",
+      "kind": "positive",
+      "terminalState": "success",
+      "source": "analysis.json.build_environment: normalized synthetic evidence",
+      "artifacts": ["Dockerfile", "build-request.json", "template/synthetic-app/index.yaml"],
+      "handoff": {
+        "target": "sealos-deploy",
+        "inputArtifact": "validated template and prepare-only build evidence",
+        "allowedAction": "continue the prepare-only delivery path",
+        "failureReturn": "return to the prepare-only conversion or Kaniko boundary",
+        "responseOwner": "docker-to-sealos"
+      },
+      "verification": ["normalized build environment", "Dockerfile plus Kaniko boundary", "no raw Railpack JSON"],
+      "redaction": {"ok": true}
+    },
+    {
+      "caseId": "preview-violating-railpack-build-drift",
+      "owner": "docker-to-sealos",
+      "kind": "violating",
+      "terminalState": "stopped",
+      "source": "raw Railpack JSON: synthetic unsupported input",
+      "artifacts": ["stdout: raw provider evidence rejected before conversion"],
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "untrusted raw Railpack JSON without normalized build_environment",
+        "allowedAction": "request normalized analysis evidence and retain the Kaniko path",
+        "failureReturn": "return to the prepare-only source boundary",
+        "responseOwner": "docker-to-sealos"
+      },
+      "verification": ["railpack build path absent", "raw provider JSON rejected"],
+      "redaction": {"ok": true}
+    }
+  ]
+}
