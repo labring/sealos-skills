@@ -1,25 +1,31 @@
 {
   "schemaVersion": 1,
+  "auditId": "phase-12-01-release-preservation",
+  "policyAuthority": "AGENTS.md",
   "anchors": {
     "source": {
       "ref": "main",
       "sha": "a2efc15e95b86582469f423f6e9cae1bcfce4585",
-      "role": "full plugin-first source baseline"
+      "role": "full plugin-first source baseline",
+      "label": "main source"
     },
     "target": {
       "ref": "upstream/brain-deploy-preview",
       "sha": "dbc55f0d4e572d283d3244581246823a1ca6b932",
-      "role": "prepare-only preview baseline"
+      "role": "prepare-only preview baseline",
+      "label": "brain-deploy-preview baseline"
     },
     "candidate": {
       "ref": "ef8f2aceb2e7f0b915713419cd129fbc0454d717",
       "sha": "ef8f2aceb2e7f0b915713419cd129fbc0454d717",
-      "role": "release candidate captured before Phase 12 audit commits"
+      "role": "release candidate captured before Phase 12 audit commits",
+      "label": "release candidate"
     }
   },
   "checks": [
     {
       "id": "source-policy",
+      "owner": "AGENTS.md",
       "branch": "source",
       "path": "AGENTS.md",
       "markers": ["brain-deploy-preview", "Branch Merge Policy"],
@@ -27,15 +33,44 @@
       "required": true
     },
     {
+      "id": "source-deploy-update-order",
+      "owner": "AGENTS.md",
+      "branch": "source",
+      "path": "AGENTS.md",
+      "markers": ["DEPLOY: Assess", "UPDATE: Build & Push", "auto-rollback"],
+      "category": "phase-order",
+      "required": true
+    },
+    {
       "id": "source-runtime-entry",
+      "owner": "skills/sealos-deploy/SKILL.md",
       "branch": "source",
       "path": "skills/sealos-deploy/SKILL.md",
-      "markers": ["Runtime Truth", "confirmation"],
+      "markers": ["sealos-auth.mjs", "confirmation"],
       "category": "runtime-safety",
       "required": true
     },
     {
+      "id": "source-authentication",
+      "owner": "skills/sealos-deploy/SKILL.md",
+      "branch": "source",
+      "path": "skills/sealos-deploy/SKILL.md",
+      "markers": ["sealos-auth.mjs", "auth/workspace"],
+      "category": "authentication",
+      "required": true
+    },
+    {
+      "id": "source-confirmation",
+      "owner": "skills/sealos-deploy/SKILL.md",
+      "branch": "source",
+      "path": "skills/sealos-deploy/SKILL.md",
+      "markers": ["user confirmation", "KUBECONFIG"],
+      "category": "confirmation",
+      "required": true
+    },
+    {
       "id": "source-state-contract",
+      "owner": "skills/sealos-deploy/modules/pipeline.md",
       "branch": "source",
       "path": "skills/sealos-deploy/modules/pipeline.md",
       "markers": ["state.json", "UPDATE mode"],
@@ -43,15 +78,26 @@
       "required": true
     },
     {
+      "id": "source-cleanup-rollback",
+      "owner": "skills/sealos-deploy/modules/pipeline.md",
+      "branch": "source",
+      "path": "skills/sealos-deploy/modules/pipeline.md",
+      "markers": ["cleanup", "rollback", "Instance"],
+      "category": "cleanup",
+      "required": true
+    },
+    {
       "id": "source-preflight-confirmation",
+      "owner": "skills/sealos-deploy/modules/preflight.md",
       "branch": "source",
       "path": "skills/sealos-deploy/modules/preflight.md",
-      "markers": ["confirm", "access_token"],
+      "markers": ["confirm", "KUBECONFIG"],
       "category": "mutation-safety",
       "required": true
     },
     {
       "id": "preview-identity",
+      "owner": "AGENTS.md",
       "branch": "target",
       "path": "AGENTS.md",
       "markers": ["prepare-only", "Kaniko"],
@@ -60,6 +106,7 @@
     },
     {
       "id": "preview-public-contract",
+      "owner": "README.md",
       "branch": "target",
       "path": "README.md",
       "markers": [".sealos/build-request.json", ".sealos/delivery-manifest.json"],
@@ -68,6 +115,7 @@
     },
     {
       "id": "preview-flow",
+      "owner": "skills/sealos-deploy/modules/pipeline.md",
       "branch": "target",
       "path": "skills/sealos-deploy/modules/pipeline.md",
       "markers": ["build-request.json", "delivery-manifest.json", "build-result.json"],
@@ -76,6 +124,7 @@
     },
     {
       "id": "preview-kaniko-entry",
+      "owner": "skills/k8s-kaniko-job/SKILL.md",
       "branch": "target",
       "path": "skills/k8s-kaniko-job/SKILL.md",
       "markers": ["Kaniko", "build-request.json", "build-result.json"],
@@ -84,6 +133,7 @@
     },
     {
       "id": "candidate-runtime-evidence",
+      "owner": "docs/skill-runtime-preservation-checklist.md",
       "branch": "candidate",
       "path": "docs/skill-runtime-preservation-checklist.md",
       "markers": ["Runtime Truth", "redact", "approved"],
@@ -91,7 +141,26 @@
       "required": true
     },
     {
+      "id": "candidate-runtime-acceptance",
+      "owner": "skills/sealos-deploy/SKILL.md",
+      "branch": "candidate",
+      "path": "skills/sealos-deploy/SKILL.md",
+      "markers": ["Runtime Truth", "actual returned App URL", "full footprint"],
+      "category": "runtime-acceptance",
+      "required": true
+    },
+    {
+      "id": "candidate-host-semantics",
+      "owner": "README.md",
+      "branch": "candidate",
+      "path": "README.md",
+      "markers": ["$sealos", "/sealos", "skills.sh", "context-only"],
+      "category": "host-semantics",
+      "required": true
+    },
+    {
       "id": "candidate-phase10-evidence",
+      "owner": ".planning/phases/10-deploy-orchestration-and-runtime-truth/10-VERIFICATION.md",
       "branch": "candidate",
       "path": ".planning/phases/10-deploy-orchestration-and-runtime-truth/10-VERIFICATION.md",
       "markers": ["VERIFIED", "Runtime Truth", "git diff --check"],
@@ -100,6 +169,7 @@
     },
     {
       "id": "candidate-phase11-evidence",
+      "owner": ".planning/phases/11-behavior-evals-deterministic-grader-and-maintainer-gate/11-VERIFICATION.md",
       "branch": "candidate",
       "path": ".planning/phases/11-behavior-evals-deterministic-grader-and-maintainer-gate/11-VERIFICATION.md",
       "markers": ["status: passed", "maintainer", "git diff --check"],
@@ -107,9 +177,10 @@
       "required": true
     }
   ],
-  "forbidden": [
+  "forbiddenPreview": [
     {
       "id": "preview-no-canvas",
+      "owner": "AGENTS.md",
       "branch": "target",
       "path": "skills/sealos-canvas",
       "kind": "path",
@@ -118,6 +189,7 @@
     },
     {
       "id": "preview-no-buildkit",
+      "owner": "AGENTS.md",
       "branch": "target",
       "path": "skills/k8s-buildkit-job",
       "kind": "path",
@@ -126,6 +198,7 @@
     },
     {
       "id": "preview-no-codex-plugin-surface",
+      "owner": "AGENTS.md",
       "branch": "target",
       "path": ".codex-plugin",
       "kind": "path",
@@ -134,6 +207,7 @@
     },
     {
       "id": "preview-no-claude-plugin-surface",
+      "owner": "AGENTS.md",
       "branch": "target",
       "path": ".claude-plugin",
       "kind": "path",
@@ -142,22 +216,38 @@
     },
     {
       "id": "preview-no-distribution-surface",
+      "owner": "AGENTS.md",
       "branch": "target",
       "path": "distribution",
       "kind": "path",
       "category": "main-only-surface",
       "required": true
+    },
+    {
+      "id": "preview-no-runtime-helper-markers",
+      "owner": "skills/sealos-deploy/SKILL.md",
+      "branch": "target",
+      "path": "skills/sealos-deploy/SKILL.md",
+      "markers": ["sealos-auth.mjs", "sealos-live-smoke.mjs", "deploy-template.mjs"],
+      "contentOnly": true,
+      "kind": "marker",
+      "category": "preview-exclusion",
+      "required": true
     }
   ],
-  "evidence": [
+  "evidenceSources": [
     {
       "id": "phase8-contract-evidence",
+      "owner": ".planning/phases/08-dependency-skill-entry-refactors/08-VERIFICATION.md",
+      "branch": "candidate",
       "path": ".planning/phases/08-dependency-skill-entry-refactors/08-VERIFICATION.md",
       "markers": ["Status: VERIFIED", "dependency"],
       "category": "dependency-contract"
     },
     {
       "id": "phase9-contract-evidence",
+      "owner": ".planning/phases/09-service-and-adjacent-skill-entry-refactors/09-VERIFICATION.md",
+      "branch": "candidate",
       "path": ".planning/phases/09-service-and-adjacent-skill-entry-refactors/09-VERIFICATION.md",
       "markers": ["status: passed", "Canvas"],
       "category": "service-contract"

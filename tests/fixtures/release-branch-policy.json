@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "source": "main",
+  "target": "upstream/brain-deploy-preview",
+  "candidate": "ef8f2aceb2e7f0b915713419cd129fbc0454d717",
+  "preservationFixture": "tests/fixtures/release-preservation-policy.json",
+  "alignedDirectories": [
+    {"id": "aligned-readiness", "path": "skills/cloud-native-readiness/"},
+    {"id": "aligned-app-builder", "path": "skills/sealos-app-builder/"},
+    {"id": "aligned-database", "path": "skills/sealos-database/"},
+    {"id": "aligned-s3", "path": "skills/sealos-s3/"},
+    {"id": "aligned-converter", "path": "skills/docker-to-sealos/"}
+  ],
+  "dockerfile": {
+    "prefix": "skills/dockerfile-skill/",
+    "allowedFiles": {
+      "skills/dockerfile-skill/modules/analyze.md": [
+        "analysis.json.build_environment",
+        "normalized fields",
+        "Command precedence"
+      ],
+      "skills/dockerfile-skill/modules/generate.md": [
+        "build_environment",
+        "railpack build",
+        "normalized evidence"
+      ]
+    }
+  },
+  "manualReview": [
+    {"id": "manual-deploy", "prefix": "skills/sealos-deploy/", "reason": "evaluate every deploy change against the prepare-only flow"}
+  ],
+  "previewOwned": [
+    {"id": "preview-policy-docs", "paths": ["AGENTS.md", "README.md", "CLAUDE.md", ".gitignore", ".agents/sealos-deploy-containerize.mmd"]},
+    {"id": "preview-kaniko", "prefix": "skills/k8s-kaniko-job/"}
+  ],
+  "excluded": [
+    {"id": "exclude-plugin-metadata", "prefixes": [".codex-plugin/", ".claude-plugin/", ".codebuddy-plugin/", ".agents/plugins/"], "reason": "main plugin surfaces stay out of preview"},
+    {"id": "exclude-marketplace", "prefixes": ["commands/", "distribution/", "marketplaces/", "plugins/"], "reason": "main distribution surfaces stay out of preview"},
+    {"id": "exclude-host-pointers", "paths": ["plugin.json", "marketplace.json", "gemini-extension.json", "qwen-extension.json", "openclaw.plugin.json"], "reason": "main host pointers stay out of preview"},
+    {"id": "exclude-branding", "prefix": "assets/", "reason": "main plugin branding stays out of preview"},
+    {"id": "exclude-planning", "prefix": ".planning/", "reason": "preview keeps its own planning history"},
+    {"id": "exclude-canvas", "prefix": "skills/sealos-canvas/", "reason": "Canvas is a main-only read-only observer"},
+    {"id": "exclude-buildkit", "prefix": "skills/k8s-buildkit-job/", "reason": "Kaniko remains the preview build executor"},
+    {"id": "exclude-main-only-scripts", "paths": ["scripts/validate-codex-plugin.py", "scripts/test-sealos-deploy-template-fast-path.mjs"], "reason": "main-only plugin/full-deploy validators stay out of preview"}
+  ],
+  "forbiddenPreviewPaths": [
+    "skills/sealos-canvas",
+    "skills/k8s-buildkit-job",
+    ".codex-plugin",
+    ".claude-plugin",
+    ".codebuddy-plugin",
+    ".agents/plugins",
+    "distribution",
+    "marketplaces",
+    "plugins"
+  ],
+  "requiredPreviewMarkers": [
+    {"id": "prepare-flow", "path": "skills/sealos-deploy/modules/pipeline.md", "markers": ["build-request.json", "delivery-manifest.json", "build-result.json"]},
+    {"id": "kaniko-flow", "path": "skills/k8s-kaniko-job/SKILL.md", "markers": ["Kaniko", "build-request.json", "build-result.json"]},
+    {"id": "preview-identity", "path": "AGENTS.md", "markers": ["prepare-only", "Kaniko"]}
+  ]
+}

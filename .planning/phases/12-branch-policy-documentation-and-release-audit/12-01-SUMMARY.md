@@ -47,8 +47,8 @@ The release preservation policy now records the immutable `main`, `upstream/brai
 ## Verification
 
 - `python3 -m json.tool tests/fixtures/release-preservation-policy.json` passed.
-- `python3 scripts/release-preservation-audit.py --root . --fixture tests/fixtures/release-preservation-policy.json --check` passed with `21 passed, 0 failed, 0 conditional`.
-- `python3 -m unittest scripts.test_release_preservation_audit` passed `5/5`.
+- `python3 scripts/release-preservation-audit.py --root . --fixture tests/fixtures/release-preservation-policy.json --check` passed with `28 passed, 0 failed, 0 conditional`.
+- `python3 -m unittest scripts.test_release_preservation_audit` passed `6/6`.
 - `python3 -m py_compile scripts/release-preservation-audit.py scripts/test_release_preservation_audit.py` passed.
 - `git diff --check` passed.
 
