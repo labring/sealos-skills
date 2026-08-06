@@ -37,7 +37,7 @@ The completed v1.0 work established native Codex marketplace discovery, aligned 
 - Decimal phases are reserved for urgent insertions between integer phases.
 
 - [x] **Phase 5: Baseline, Ownership, and Shared Contract** - Capture current behavior and establish the entry contract, lifecycle vocabulary, and entry-visible safety set. (completed 2026-08-06)
-- [ ] **Phase 6: Inventory, Router, and Validator Foundation** - Derive canonical inventory and build fixture-tested structural and semantic checks.
+- [x] **Phase 6: Inventory, Router, and Validator Foundation** - Derive canonical inventory and build fixture-tested structural and semantic checks. (completed 2026-08-06)
 - [ ] **Phase 7: Host Adapter and Public Surface Alignment** - Align every host projection and risk-aware route around the eight canonical skills.
 - [ ] **Phase 8: Dependency Skill Entry Refactors** - Focus readiness, Dockerfile, and Compose conversion entries while preserving their handoff and quality-gate contracts.
 - [ ] **Phase 9: Service and Adjacent Skill Entry Refactors** - Focus database, S3, Canvas, and Desktop app entries around their risk classes and evidence outputs.
@@ -92,9 +92,9 @@ Plans:
 
 Plans:
 
-- [ ] 06-01: Implement physical inventory discovery and constrained route/frontmatter readers (depends on the Phase 5 matrix).
-- [ ] 06-02: Add semantic safety canaries and red/green fixture mutations for confirmation, redaction, read-only, eligibility, and fail-closed behavior (depends on 06-01).
-- [ ] 06-03: Add version, path, link, metadata, and eval-schema diagnostics without introducing a second hand-maintained inventory (depends on 06-01 and 06-02).
+- [x] 06-01: Implement physical inventory discovery and constrained route/frontmatter readers (depends on the Phase 5 matrix).
+- [x] 06-02: Add semantic safety canaries and red/green fixture mutations for confirmation, redaction, read-only, eligibility, and fail-closed behavior (depends on 06-01).
+- [x] 06-03: Add version, path, link, metadata, and eval-schema diagnostics without introducing a second hand-maintained inventory (depends on 06-01 and 06-02).
 
 **Research flag**: Deep research recommended for exact manifest/version fields and the boundary between derived reports and host-required files.
 
@@ -275,7 +275,7 @@ Phases execute in numeric order: 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 -> 12
 | Phase | Milestone | Plans Complete | Status | Completed |
 |-------|-----------|----------------|--------|-----------|
 | 5. Baseline, Ownership, and Shared Contract | v1.1 | 3/3 | Complete    | 2026-08-06 |
-| 6. Inventory, Router, and Validator Foundation | v1.1 | 0/3 | Not started | - |
+| 6. Inventory, Router, and Validator Foundation | v1.1 | 3/3 | Complete    | 2026-08-06 |
 | 7. Host Adapter and Public Surface Alignment | v1.1 | 0/3 | Not started | - |
 | 8. Dependency Skill Entry Refactors | v1.1 | 0/4 | Not started | - |
 | 9. Service and Adjacent Skill Entry Refactors | v1.1 | 0/4 | Not started | - |

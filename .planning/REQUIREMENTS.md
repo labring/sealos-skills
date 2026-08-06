@@ -20,7 +20,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 
 ### Inventory and Host Distribution
 
-- [ ] **SDS-09**: The eight physical skill entry files under `skills/` define the canonical inventory, and every explicit router, plugin manifest, marketplace, context adapter, platform registry, and direct-entry claim matches that inventory.
+- [x] **SDS-09**: The eight physical skill entry files under `skills/` define the canonical inventory, and every explicit router, plugin manifest, marketplace, context adapter, platform registry, and direct-entry claim matches that inventory.
 - [ ] **SDS-D05**: Codex, Claude-compatible hosts, Qoder, CodeBuddy, Gemini/Qwen context extensions, OpenClaw, and skills.sh expose the canonical skill tree with host-accurate invocation syntax and behavior-free adapters.
 - [ ] **REL-01**: Release preparation produces an aligned/adapted/excluded file audit for `main` and `brain-deploy-preview`, updates affected public inventory and version evidence, and preserves the preview prepare-only workflow.
 
@@ -28,7 +28,7 @@ Requirements committed for the v1.1 milestone. Each requirement maps to one road
 
 - [ ] **SDS-10**: All eight skills own behavior coverage for routing, boundaries, terminal outputs, and their highest-risk action, with positive and violating cases represented in machine-readable fixtures or deterministic probes.
 - [ ] **SDS-11**: Maintainers can run one documented local quality gate covering contract shape, inventory, routes, versions, links, safety invariants, behavior probes, and existing skill-specific validators.
-- [ ] **SDS-D04**: Semantic safety checks pair static canaries with confirmation, redaction, read-only, eligibility, and fail-closed behavior probes so equivalent wording preserves the operational guard.
+- [x] **SDS-D04**: Semantic safety checks pair static canaries with confirmation, redaction, read-only, eligibility, and fail-closed behavior probes so equivalent wording preserves the operational guard.
 - [ ] **SDS-D02**: The unified router classifies observation, local writes, cloud writes, public exposure, and destructive actions before delegating to an owning skill.
 
 ### Runtime Evidence and Output Design
@@ -80,12 +80,12 @@ Roadmap creation assigns each requirement to exactly one phase and updates this 
 | SDS-06 | Phase 8 | Pending |
 | SDS-07 | Phase 11 | Pending |
 | SDS-08 | Phase 8 | Pending |
-| SDS-09 | Phase 6 | Pending |
+| SDS-09 | Phase 6 | Complete |
 | SDS-D05 | Phase 7 | Pending |
 | REL-01 | Phase 12 | Pending |
 | SDS-10 | Phase 11 | Pending |
 | SDS-11 | Phase 11 | Pending |
-| SDS-D04 | Phase 6 | Pending |
+| SDS-D04 | Phase 6 | Complete |
 | SDS-D02 | Phase 7 | Pending |
 | SDS-12 | Phase 12 | Pending |
 | SDS-D01 | Phase 10 | Pending |
