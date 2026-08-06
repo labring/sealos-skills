@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 1,
+  "owners": [
+    "sealos-database",
+    "sealos-s3",
+    "sealos-canvas",
+    "sealos-app-builder"
+  ],
+  "cases": [
+    {
+      "caseId": "database-reuse-success",
+      "owner": "sealos-database",
+      "kind": "positive",
+      "terminalState": "success",
+      "source": "resolved workspace and listed existing database",
+      "evidence": ["connectivity", "migrations", "env-key"],
+      "verification": ["list-before-reuse", "connection-check"],
+      "redaction": {"ok": true, "omitted": ["password", "connection-string"]},
+      "handoff": {
+        "target": "sealos-deploy",
+        "inputArtifact": "verified database connection and env-key evidence",
+        "allowedAction": "wire the verified database into the app",
+        "failureReturn": "sanitized database readiness diagnostic",
+        "responseOwner": "sealos-database"
+      }
+    },
+    {
+      "caseId": "database-destructive-stopped",
+      "owner": "sealos-database",
+      "kind": "positive",
+      "terminalState": "stopped",
+      "source": "resolved workspace and detected a destructive request",
+      "evidence": ["confirmation-required", "scope-preview"],
+      "verification": ["no-mutation"],
+      "redaction": {"ok": true, "omitted": ["credentials"]},
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "database resource and requested operation",
+        "allowedAction": "request explicit destructive confirmation",
+        "failureReturn": "sanitized confirmation requirement",
+        "responseOwner": "sealos-database"
+      }
+    },
+    {
+      "caseId": "s3-private-roundtrip-success",
+      "owner": "sealos-s3",
+      "kind": "positive",
+      "terminalState": "success",
+      "source": "resolved private bucket and async credentials",
+      "evidence": ["private-policy", "object-upload", "object-read", "cleanup"],
+      "verification": ["list-before-create", "authenticated-roundtrip"],
+      "redaction": {"ok": true, "omitted": ["access-key", "secret-key"]},
+      "handoff": {
+        "target": "sealos-deploy",
+        "inputArtifact": "private bucket, env-key, and object-flow evidence",
+        "allowedAction": "wire private object storage into the app",
+        "failureReturn": "sanitized bucket or credential diagnostic",
+        "responseOwner": "sealos-s3"
+      }
+    },
+    {
+      "caseId": "s3-public-rotation-stopped",
+      "owner": "sealos-s3",
+      "kind": "positive",
+      "terminalState": "stopped",
+      "source": "resolved public-policy or rotation request",
+      "evidence": ["public-policy", "rotation-confirmation"],
+      "verification": ["no-mutation"],
+      "redaction": {"ok": true, "omitted": ["credentials"]},
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "bucket policy or credential rotation request",
+        "allowedAction": "request explicit confirmation before the change",
+        "failureReturn": "sanitized confirmation requirement",
+        "responseOwner": "sealos-s3"
+      }
+    },
+    {
+      "caseId": "canvas-deployed-readonly-success",
+      "owner": "sealos-canvas",
+      "kind": "positive",
+      "terminalState": "success",
+      "source": "verified deployed state, kubeconfig, and live read access",
+      "evidence": ["read-only", "sanitized-graph", "local-url", "server-lifetime"],
+      "verification": ["node-count", "edge-count", "html-cache"],
+      "redaction": {"ok": true, "omitted": ["Secret.data", "ConfigMap.data", "kubeconfig"]},
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "sanitized state and live resource summaries",
+        "allowedAction": "serve a temporary read-only loopback canvas",
+        "failureReturn": "sanitized read-only generation diagnostic",
+        "responseOwner": "sealos-canvas"
+      }
+    },
+    {
+      "caseId": "canvas-missing-state-stopped",
+      "owner": "sealos-canvas",
+      "kind": "positive",
+      "terminalState": "stopped",
+      "source": "deployment state precondition is unavailable",
+      "evidence": ["not-deployed", "server-not-started"],
+      "verification": ["no-html", "no-server"],
+      "redaction": {"ok": true, "omitted": ["credentials"]},
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "missing deployment state",
+        "allowedAction": "ask the user to deploy before viewing the canvas",
+        "failureReturn": "sanitized precondition diagnostic",
+        "responseOwner": "sealos-canvas"
+      }
+    },
+    {
+      "caseId": "app-builder-desktop-publish-success",
+      "owner": "sealos-app-builder",
+      "kind": "positive",
+      "terminalState": "success",
+      "source": "selected local SDK source and verified Desktop iframe",
+      "evidence": ["client-only-init", "session", "language", "business-data", "publish"],
+      "verification": ["desktop-iframe", "outside-desktop-fallback", "release-checklist"],
+      "redaction": {"ok": true, "omitted": ["session-values", "environment-values"]},
+      "handoff": {
+        "target": "sealos-deploy",
+        "inputArtifact": "verified app source and Desktop identity, language, data, and release evidence",
+        "allowedAction": "deploy after app verification",
+        "failureReturn": "sanitized SDK, iframe, or publish diagnostic",
+        "responseOwner": "sealos-app-builder"
+      }
+    },
+    {
+      "caseId": "app-builder-browser-only-stopped",
+      "owner": "sealos-app-builder",
+      "kind": "positive",
+      "terminalState": "stopped",
+      "source": "app renders in a browser without Desktop evidence",
+      "evidence": ["browser-render", "fallback"],
+      "verification": ["desktop-iframe-required", "no-publish-claim"],
+      "redaction": {"ok": true, "omitted": ["session-values"]},
+      "handoff": {
+        "target": "none",
+        "inputArtifact": "browser-only app result",
+        "allowedAction": "run the app in a Sealos Desktop test iframe",
+        "failureReturn": "sanitized Desktop verification requirement",
+        "responseOwner": "sealos-app-builder"
+      }
+    },
+    {
+      "caseId": "database-missing-confirmation",
+      "owner": "sealos-database",
+      "kind": "violating",
+      "terminalState": "success",
+      "source": "destructive operation without confirmation",
+      "evidence": [],
+      "verification": [],
+      "redaction": {"ok": false, "omitted": []},
+      "handoff": {},
+      "violations": ["success claimed before destructive confirmation"]
+    },
+    {
+      "caseId": "s3-public-secret-leak",
+      "owner": "sealos-s3",
+      "kind": "violating",
+      "terminalState": "success",
+      "source": "public bucket result includes credentials",
+      "evidence": [],
+      "verification": [],
+      "redaction": {"ok": false, "omitted": []},
+      "handoff": {},
+      "violations": ["credential value appears in result"]
+    },
+    {
+      "caseId": "canvas-mutation-command",
+      "owner": "sealos-canvas",
+      "kind": "violating",
+      "terminalState": "success",
+      "source": "canvas invokes a mutation command",
+      "evidence": [],
+      "verification": [],
+      "redaction": {"ok": true, "omitted": []},
+      "handoff": {},
+      "violations": ["read-only boundary is missing"]
+    },
+    {
+      "caseId": "app-builder-server-init",
+      "owner": "sealos-app-builder",
+      "kind": "violating",
+      "terminalState": "success",
+      "source": "SDK initialized from a server component",
+      "evidence": [],
+      "verification": [],
+      "redaction": {"ok": true, "omitted": []},
+      "handoff": {},
+      "violations": ["client-only initialization is missing"]
+    }
+  ]
+}

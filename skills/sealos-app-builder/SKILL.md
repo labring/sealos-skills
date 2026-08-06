@@ -15,31 +15,42 @@ description: Build, adapt, and document apps that run inside Sealos Desktop usin
 
 Classify create, adapt, identity integration, or tutorial work before editing. Inspect local SDK sources and provider apps first; keep SDK initialization client-only, business data in the app, and outside-Desktop fallback behavior explicit. Owned outputs are project code, package metadata, and tutorials; publishing is claimed only after Desktop evidence.
 
+The entry contract is:
+
+```text
+request -> classify(create|adapt|identity|tutorial) -> inspect local SDK/provider sources
+         -> load branch references -> implement or document -> verify -> report terminal state
+```
+
+Use one branch for each request. A code-versus-tutorial ambiguity stops before branch-specific edits. Local SDK sources and existing provider apps take precedence over the generic package reference; the official package remains the fallback when no local source exists.
+
 ## Risk and Confirmation
 
-Use the official SDK package when local sources are unavailable and follow the existing installation/tool confirmation boundary. Keep session, auth, database, and environment values redacted. A tutorial result does not claim code integration, and a browser-only render does not prove Desktop iframe readiness.
+Use the official SDK package when local sources are unavailable and follow the existing installation/tool confirmation boundary. Keep session, auth, database, environment, and SDK diagnostics redacted. Server-side SDK initialization, a missing outside-Desktop fallback, and an unverified Desktop iframe stop the request. A tutorial result carries tutorial evidence; a browser render carries browser evidence.
 
 ## Lifecycle Workflow
 
-For each request, identify the branch, inspect sources, integrate the SDK and identity, verify the real Desktop iframe when relevant, and prepare the publish handoff. Emit request-scoped `success`, `stopped`, or `error`; the existing create/adapt/integration/tutorial workflow remains the domain extension below.
+For each request, identify the branch, inspect sources, integrate the SDK and identity, verify the real Desktop iframe when relevant, and prepare the publish handoff. Emit request-scoped `success`, `stopped`, or `error` with `branch`, `evidence`, `redaction`, and `next_action` fields. A `success` result proves the branch output; a `stopped` result identifies the missing prerequisite and safe next action; an `error` result contains a sanitized diagnostic and recovery action.
 
 ## Progressive Disclosure
 
-Load only the branch-specific references (`minimal-app-template`, framework placement, data integration, local test app, or publish checklist) after the entry boundary is selected. Preserve the real SDK surface and avoid server-side SDK calls.
+Load only the branch-specific references (`minimal-app-template`, framework placement, data integration, local test app, or publish checklist) after the entry boundary is selected. Preserve the real SDK surface and avoid server-side SDK calls. For code branches, load the starter only after the framework and local-source scan are known.
 
 ## Output, Stop, and Error States
 
 - `success`: branch-specific source/tutorial output, SDK/session/language wiring, outside-Desktop fallback, and real Desktop/publish evidence when claimed.
-- `stopped`: code-versus-tutorial ambiguity or missing Desktop verification with the safe next action; no publish claim.
-- `error`: SDK source/package mismatch, session/runtime, or publish prerequisite failure with recovery action and redacted diagnostics.
+- `stopped`: code-versus-tutorial ambiguity, missing SDK source, server-side initialization, missing fallback, or missing Desktop/publish evidence with the safe next action; no publish claim.
+- `error`: SDK source/package mismatch, session/runtime, or publish prerequisite failure with a sanitized diagnostic and recovery action.
+
+Every result records `terminal_state: success|stopped|error`, `branch`, `evidence`, `redaction: passed|failed`, and `next_action`. Session values, credentials, and complete environment values stay outside result text.
 
 ## Handoffs
 
-Send `target: sealos-deploy`, `inputArtifact: verified app source and Desktop/publish evidence`, `allowedAction: deploy after app verification`, `failureReturn: SDK, iframe, or publish prerequisite diagnostics`, and `responseOwner: sealos-app-builder` for direct requests. The deploy owner re-checks its own runtime gates.
+Send the typed handoff `target: sealos-deploy`, `inputArtifact: verified app source plus Desktop, identity, language, business-data, and release evidence`, `allowedAction: deploy after app verification`, `failureReturn: sanitized SDK, iframe, or publish-prerequisite diagnostic`, and `responseOwner: sealos-app-builder` for direct requests. The deploy owner re-checks its own runtime gates. Tutorial and browser-only branches return `target: none`.
 
 ## Verification
 
-Use the real Desktop iframe checklist and baseline cases `app-builder-positive-sdk-iframe-publish` and `app-builder-violating-tutorial-or-missing-desktop`. Verify client-only SDK initialization, session identity mapping, language sync, fallback, and publish prerequisites without exposing session values.
+Use the real Desktop iframe checklist and baseline cases `app-builder-positive-sdk-iframe-publish` and `app-builder-violating-tutorial-or-missing-desktop`. Verify client-only single initialization, session identity mapping, language sync, fallback, and publish prerequisites without exposing session values. Confirm the starter links and shared service contract with `python3 scripts/test_service_skill_contract.py`.
 
 ## Overview
 
@@ -78,7 +89,7 @@ pnpm add @labring/sealos-desktop-sdk
 
 Use `npm install @labring/sealos-desktop-sdk` or `yarn add @labring/sealos-desktop-sdk` when the project uses a different package manager.
 
-1. Initialize the SDK once in a client-only root component.
+1. Call `createSealosApp()` once in a client-only root component.
 2. Fetch `getSession()` and `getLanguage()` early.
 3. Store session, language, loading state, and desktop availability in a shared context or store.
 4. Listen for language changes through `EVENT_NAME.CHANGE_I18N` when the app needs runtime language sync.
