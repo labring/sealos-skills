@@ -221,12 +221,13 @@ def validate_inventory_and_router(root: Path, router: Path) -> list[Diagnostic]:
         routes = []
     entry_names = {entry.name for entry in entries}
     route_names = [route.skill for route in routes]
+    router_path = _relative(root, router)
     for name in sorted(entry_names - set(route_names)):
-        diagnostics.append(Diagnostic("route.missing_skill", router.as_posix(), f"router has no record for {name!r}", skill=name))
+        diagnostics.append(Diagnostic("route.missing_skill", router_path, f"router has no record for {name!r}", skill=name))
     for name in sorted(set(route_names) - entry_names):
-        diagnostics.append(Diagnostic("route.unexpected_skill", router.as_posix(), f"router names unknown skill {name!r}", skill=name))
+        diagnostics.append(Diagnostic("route.unexpected_skill", router_path, f"router names unknown skill {name!r}", skill=name))
     for name in sorted({item for item in route_names if route_names.count(item) > 1}):
-        diagnostics.append(Diagnostic("route.duplicate_skill", router.as_posix(), f"router repeats {name!r}", skill=name))
+        diagnostics.append(Diagnostic("route.duplicate_skill", router_path, f"router repeats {name!r}", skill=name))
     return diagnostics
 
 
