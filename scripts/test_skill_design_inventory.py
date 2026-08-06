@@ -54,9 +54,9 @@ class InventoryReaderTests(unittest.TestCase):
             command = root / "commands/sealos.md"
             command.parent.mkdir()
             text = (ROOT / "commands/sealos.md").read_text(encoding="utf-8")
-            dockerfile_row = "| Generate or fix Docker packaging | `dockerfile-skill` | `$sealos` / `/sealos` | host selection through the installed pack |"
-            canvas_row = "| View resources created by a previous deployment in a local read-only canvas | `sealos-canvas` | `$sealos` / `/sealos` | host selection through the installed pack |"
-            duplicate_row = "| Duplicate S3 route | `sealos-s3` | `$sealos` / `/sealos` | host selection through the installed pack |"
+            dockerfile_row = next(line for line in text.splitlines() if "| `dockerfile-skill` |" in line)
+            canvas_row = next(line for line in text.splitlines() if "| `sealos-canvas` |" in line)
+            duplicate_row = next(line for line in text.splitlines() if "| `sealos-s3` |" in line)
             text = text.replace(dockerfile_row + "\n", "", 1).replace(canvas_row, canvas_row + "\n" + duplicate_row, 1)
             command.write_text(text, encoding="utf-8")
             diagnostics = validate_inventory_and_router(root, command)

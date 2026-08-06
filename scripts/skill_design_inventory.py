@@ -36,12 +36,59 @@ class InventoryEntry:
     frontmatter: dict[str, str]
 
 
+INTERACTION_CLASSES = frozenset(
+    {
+        "read-only-observation",
+        "local-artifact-mutation",
+        "cloud-local-mutation",
+        "composite-orchestration",
+    }
+)
+EXPECTED_INTERACTION_CLASSES = {
+    "sealos-deploy": "composite-orchestration",
+    "sealos-database": "cloud-local-mutation",
+    "sealos-s3": "cloud-local-mutation",
+    "sealos-canvas": "read-only-observation",
+    "sealos-app-builder": "local-artifact-mutation",
+    "cloud-native-readiness": "read-only-observation",
+    "dockerfile-skill": "local-artifact-mutation",
+    "docker-to-sealos": "local-artifact-mutation",
+}
+CAPABILITY_LEVELS = (
+    "observation",
+    "local-write",
+    "cloud-write",
+    "public-exposure",
+    "destructive",
+)
+CAPABILITY_RANK = {name: index for index, name in enumerate(CAPABILITY_LEVELS)}
+
+
+@dataclass(frozen=True)
+class CapabilityTuple:
+    base: str
+    escalations: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class HandoffStep:
+    target: str
+    input_artifact: str
+    allowed_action: str
+    failure_return: str
+    response_owner: str
+    conditional: bool = False
+
+
 @dataclass(frozen=True)
 class RouteEntry:
     intent: str
     skill: str
     plugin_entry: str
     direct_entry: str
+    interaction_class: str
+    capability: CapabilityTuple
+    handoff: tuple[HandoffStep, ...]
     line: int
     path: str
 
@@ -171,8 +218,67 @@ def _strip_cell(value: str) -> str:
     return value.replace("`", "").strip()
 
 
+def _parse_capability(value: str, root: Path, path: Path, line: int) -> CapabilityTuple:
+    fields: dict[str, str] = {}
+    for raw_field in value.split(";"):
+        if "=" not in raw_field:
+            raise InventoryError([_diagnostic("route.capability_malformed", root, path, f"route row {line} capability field must use key=value syntax", field="capability")])
+        key, raw_value = (part.strip() for part in raw_field.split("=", 1))
+        if key in fields or key not in {"base", "escalations"}:
+            raise InventoryError([_diagnostic("route.capability_malformed", root, path, f"route row {line} has an unknown or duplicate capability field {key!r}", field="capability")])
+        fields[key] = raw_value
+    if set(fields) != {"base", "escalations"}:
+        raise InventoryError([_diagnostic("route.capability_malformed", root, path, f"route row {line} capability requires base and escalations", field="capability")])
+    base = fields["base"]
+    raw_escalations = fields["escalations"]
+    escalations = () if raw_escalations == "none" else tuple(item.strip() for item in raw_escalations.split(","))
+    if base not in CAPABILITY_RANK or not escalations or any(item not in CAPABILITY_RANK for item in escalations):
+        if raw_escalations == "none" and base in CAPABILITY_RANK:
+            return CapabilityTuple(base=base, escalations=())
+        raise InventoryError([_diagnostic("route.capability_unknown", root, path, f"route row {line} uses an unknown capability label", field="capability", target=base)])
+    if len(set(escalations)) != len(escalations) or any(CAPABILITY_RANK[item] <= CAPABILITY_RANK[previous] for previous, item in zip((base, *escalations), escalations)):
+        raise InventoryError([_diagnostic("route.capability_order", root, path, f"route row {line} capability escalations must be unique and strictly increasing", field="capability")])
+    return CapabilityTuple(base=base, escalations=escalations)
+
+
+def _parse_handoff(value: str, root: Path, path: Path, line: int) -> tuple[HandoffStep, ...]:
+    if value == "none":
+        return ()
+    raw_steps = tuple(item.strip() for item in value.split(" => ") if item.strip())
+    if not raw_steps or any(step == "none" for step in raw_steps):
+        raise InventoryError([_diagnostic("route.handoff_malformed", root, path, f"route row {line} handoff must be none or an ordered five-field step list", field="handoff")])
+    known = {entry.parent.name for entry in (root / "skills").glob("*/SKILL.md")}
+    required = {"target", "inputArtifact", "allowedAction", "failureReturn", "responseOwner"}
+    steps: list[HandoffStep] = []
+    for raw_step in raw_steps:
+        fields: dict[str, str] = {}
+        for raw_field in raw_step.split(";"):
+            if "=" not in raw_field:
+                raise InventoryError([_diagnostic("route.handoff_malformed", root, path, f"route row {line} handoff fields must use key=value syntax", field="handoff")])
+            key, raw_value = (part.strip() for part in raw_field.split("=", 1))
+            if key in fields or key not in required:
+                raise InventoryError([_diagnostic("route.handoff_malformed", root, path, f"route row {line} has an unknown or duplicate handoff field {key!r}", field="handoff")])
+            fields[key] = raw_value
+        if set(fields) != required or any(not value for value in fields.values()):
+            raise InventoryError([_diagnostic("route.handoff_malformed", root, path, f"route row {line} handoff requires target, inputArtifact, allowedAction, failureReturn, and responseOwner", field="handoff")])
+        raw_target = fields["target"]
+        conditional = raw_target.endswith("?")
+        target = raw_target[:-1] if conditional else raw_target
+        if known and target not in known:
+            raise InventoryError([_diagnostic("route.handoff_unknown_skill", root, path, f"route row {line} handoff names unknown skill {target!r}", field="handoff", target=target)])
+        for field in ("failureReturn", "responseOwner"):
+            owner = fields[field]
+            if known and owner not in known and owner != "none":
+                raise InventoryError([_diagnostic("route.handoff_unknown_skill", root, path, f"route row {line} {field} names unknown skill {owner!r}", field=field, target=owner)])
+        steps.append(HandoffStep(target=target, input_artifact=fields["inputArtifact"], allowed_action=fields["allowedAction"], failure_return=fields["failureReturn"], response_owner=fields["responseOwner"], conditional=conditional))
+    targets = tuple(step.target for step in steps)
+    if len(set(targets)) != len(targets):
+        raise InventoryError([_diagnostic("route.handoff_duplicate", root, path, f"route row {line} handoff repeats a skill", field="handoff")])
+    return tuple(steps)
+
+
 def parse_router(path: Path) -> list[RouteEntry]:
-    """Parse the canonical four-column route table in ``commands/sealos.md``."""
+    """Parse the canonical seven-column route table in ``commands/sealos.md``."""
 
     root = path.parent.parent.resolve()
     try:
@@ -185,7 +291,15 @@ def parse_router(path: Path) -> list[RouteEntry]:
     header_index = next((index for index in range(route_heading + 1, len(lines)) if lines[index].strip().startswith("|") and "Intent" in lines[index]), None)
     if header_index is None:
         raise InventoryError([_diagnostic("route.missing_table", root, path, "route table header is missing")])
-    expected = ["Intent", "Canonical skill", "Plugin entry", "Direct skills.sh entry"]
+    expected = [
+        "Intent",
+        "Canonical skill",
+        "Plugin entry",
+        "Direct skills.sh entry",
+        "Interaction class",
+        "Capability tuple",
+        "Ordered handoff",
+    ]
     actual = [_strip_cell(cell) for cell in lines[header_index].split("|")[1:-1]]
     if actual != expected:
         raise InventoryError([_diagnostic("route.malformed", root, path, f"route columns must be {expected!r}")])
@@ -196,9 +310,22 @@ def parse_router(path: Path) -> list[RouteEntry]:
     index += 1
     while index < len(lines) and lines[index].strip().startswith("|"):
         cells = [_strip_cell(cell) for cell in lines[index].split("|")[1:-1]]
-        if len(cells) != 4 or any(not cell for cell in cells):
-            raise InventoryError([_diagnostic("route.malformed", root, path, f"route row {index + 1} must contain four non-empty cells")])
-        rows.append(RouteEntry(intent=cells[0], skill=cells[1], plugin_entry=cells[2], direct_entry=cells[3], line=index + 1, path=_relative(root, path)))
+        if len(cells) != len(expected) or any(not cell for cell in cells):
+            raise InventoryError([_diagnostic("route.malformed", root, path, f"route row {index + 1} must contain {len(expected)} non-empty cells")])
+        interaction_class = cells[4]
+        if interaction_class not in INTERACTION_CLASSES:
+            raise InventoryError([_diagnostic("route.interaction_class_invalid", root, path, f"route row {index + 1} uses unknown interaction class {interaction_class!r}", field="interaction_class", target=interaction_class)])
+        expected_interaction_class = EXPECTED_INTERACTION_CLASSES.get(cells[1])
+        if expected_interaction_class and interaction_class != expected_interaction_class:
+            raise InventoryError([_diagnostic("route.interaction_class_mismatch", root, path, f"route row {index + 1} owner {cells[1]!r} requires interaction class {expected_interaction_class!r}", skill=cells[1], field="interaction_class", target=interaction_class)])
+        capability = _parse_capability(cells[5], root, path, index + 1)
+        handoff = _parse_handoff(cells[6], root, path, index + 1)
+        targets = tuple(step.target for step in handoff)
+        if cells[1] == "sealos-deploy" and targets != ("cloud-native-readiness", "dockerfile-skill", "docker-to-sealos", "sealos-deploy", "sealos-canvas"):
+            raise InventoryError([_diagnostic("route.handoff_sequence", root, path, f"route row {index + 1} deploy handoff must preserve readiness, Dockerfile, Docker-to-Sealos, deploy, and Canvas order", field="handoff")])
+        if cells[1] == "cloud-native-readiness" and targets != ("dockerfile-skill",):
+            raise InventoryError([_diagnostic("route.handoff_sequence", root, path, f"route row {index + 1} readiness handoff must conditionally target dockerfile-skill", field="handoff")])
+        rows.append(RouteEntry(intent=cells[0], skill=cells[1], plugin_entry=cells[2], direct_entry=cells[3], interaction_class=interaction_class, capability=capability, handoff=handoff, line=index + 1, path=_relative(root, path)))
         index += 1
     if not rows:
         raise InventoryError([_diagnostic("route.empty", root, path, "route table has no records")])
