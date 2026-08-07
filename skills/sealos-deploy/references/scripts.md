@@ -7,7 +7,7 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 | Script | Usage | Purpose |
 |--------|-------|---------|
 | `workload-eligibility.mjs` | `node workload-eligibility.mjs <repo-dir>` | Read-only fail-closed workload classification. The decision is stdout-only. |
-| `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
+| `project-signals.mjs` | `node project-signals.mjs <repo-dir>` | Collect project signals for Phase 1 |
 | `detect-template.mjs` | `node detect-template.mjs [--github-url <url>] --work-dir <repo-dir> --skill-dir <SKILL_DIR>` | Detect configured GitHub repo → Sealos template fast-path matches |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |

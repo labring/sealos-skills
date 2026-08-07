@@ -1,80 +1,76 @@
 # Phase 1: Assess
 
 `WORK_DIR`, `GITHUB_URL`, `REPO_NAME`, and README context are already resolved in preflight (Step 2).
-Use those directly — no need to re-derive.
+Use those values directly.
 
-### 1.2 Deterministic Scoring
+Eligibility (Phase 0.4) already passed. Do not compute or report a cloud-native readiness score.
 
-**If Node.js available:**
+## 1.1 Collect project signals
+
+**If Node.js is available:**
+
 ```bash
-node "<SKILL_DIR>/scripts/score-model.mjs" "$WORK_DIR"
+node "<SKILL_DIR>/scripts/project-signals.mjs" "$WORK_DIR"
 ```
-Output: `{ "score": N, "verdict": "...", "dimensions": {...}, "signals": {...} }`
 
-**If Node.js not available (fallback):**
-Perform the scoring yourself by reading project files and applying these rules:
+Output shape: `{ "signals": { ... } }`.
 
-1. Detect language: `package.json` → Node.js, `go.mod` → Go, `requirements.txt` → Python, `pom.xml` → Java, `Cargo.toml` → Rust
-2. Detect framework: read dependency files for known frameworks (Next.js, Express, FastAPI, Gin, Spring Boot, etc.)
-3. Check HTTP server: does the project listen on a port?
-4. Check state: external DB (PostgreSQL/MySQL/MongoDB) vs local state (SQLite)?
-5. Check config: `.env.example` exists?
-6. Check Docker: `Dockerfile` or `docker-compose.yml` exists?
+Useful signal fields:
 
-Score 6 dimensions (0-2 each, max 12). For detailed criteria, read:
-`<SKILL_DIR>/../cloud-native-readiness/knowledge/scoring-criteria.md`
-
-**Decision:**
-- `score < 4` → STOP. Tell user: "This project scored {N}/12 ({verdict}). Not suitable for containerized deployment because: {dimension_details for 0-score dimensions}."
-- `score >= 4` → CONTINUE.
-
-### 1.3 AI Quick Assessment
-
-Use structured signals from Phase 1.2 score-model output directly:
-- `signals.primary_language` — primary language (priority-sorted when multiple detected)
-- `signals.framework` — detected frameworks
-- `signals.package_manager` — detected package manager (npm/yarn/pnpm/bun/pip/go/etc.)
-- `signals.port` — detected port (from framework defaults)
-- `signals.databases` — detected database types (postgres/mysql/mongodb/redis/sqlite)
-- `signals.runtime_version` — runtime version with source (e.g., `{ node: "22", source: "engines" }`)
+- `signals.primary_language`
+- `signals.language`
+- `signals.framework`
+- `signals.package_manager`
+- `signals.port`, `signals.port_source`
+- `signals.databases`
+- `signals.runtime_version`
 - `signals.is_monorepo`, `signals.has_docker`, `signals.has_env_example`
+- `signals.has_http_server`, `signals.dockerfile_paths`
 
-Focus AI effort on what the script cannot detect: env_vars classification,
-complexity_tier assessment, and port override from source code (if `port_source` is "unknown").
+**If Node.js is not available:**
 
-Based on the score result and your own analysis of the project, assess:
+Read the project files and record the same fields yourself:
 
-1. Read key files: `README.md`, `package.json`/`go.mod`/`requirements.txt`, `Dockerfile` (if exists)
-2. Check: Is this a web service, API, or worker with network interface?
-3. Determine: ports, required env vars, database dependencies, special concerns
+1. Detect language from `package.json`, `go.mod`, `requirements.txt`, `pom.xml`, `Cargo.toml`, and similar manifests.
+2. Detect framework from dependency files.
+3. Detect whether the project listens on a port.
+4. Detect databases and `.env.example`.
+5. Detect `Dockerfile` or `docker-compose.yml`.
 
-If the score is borderline (4-6), also read:
-- `<SKILL_DIR>/../cloud-native-readiness/knowledge/scoring-criteria.md` — detailed rubrics
-- `<SKILL_DIR>/../cloud-native-readiness/knowledge/anti-patterns.md` — disqualifying patterns
+## 1.2 Enrich the analysis
 
-**STOP conditions:**
-- Desktop/GUI application (Electron without server, Qt, GTK)
-- Mobile app without backend
-- CLI tool / library / SDK (no network service)
-- No identifiable entry point or build system
+Focus on what the script cannot decide:
 
-Record for later phases: `language`, `framework`, `ports`, `env_vars`, `databases`, `has_dockerfile`
+- `env_vars` classification
+- `complexity_tier` (`L1` | `L2` | `L3`)
+- port override from source when `port_source` is `unknown`
 
-**Env var classification** (for Phase 5.5 interactive configuration):
-When recording `env_vars`, also classify each one:
-- `auto` — can be auto-generated (random secrets, internal URLs, DB connections)
-- `required` — user must provide (external API keys, admin email, SMTP, OAuth)
-- `optional` — has sensible default, user may customize (log level, feature flags)
+Read key files: `README.md`, language manifests, and `Dockerfile` when present.
 
-Sources for env var detection:
-- `.env.example` or `.env.sample` — most reliable source of required env vars
-- `docker-compose.yml` `environment:` section
-- README sections about configuration/environment
-- Source code imports of `process.env.*` or `os.environ[]`
+Record for later phases: `language`, `framework`, `port`, `env_vars`, `databases`, `has_dockerfile`.
 
-### Write analysis.json
+**Env var classification** (for Phase 5.5):
 
-After Phase 1 completes, write `.sealos/analysis.json` with the full analysis snapshot:
+- `auto` — can be generated (secrets, internal URLs, DB connections)
+- `required` — user must provide (API keys, admin email, SMTP, OAuth)
+- `optional` — has a sensible default
+
+Sources:
+
+- `.env.example` or `.env.sample`
+- `docker-compose.yml` `environment:`
+- README configuration sections
+- `process.env.*` / `os.environ[]` in source
+
+If the workload type still looks unsupported after eligibility (desktop, mobile client, CLI, library, no entry point), STOP and state the blocker. Prefer Phase 0.4 for that gate.
+
+For edge review only, you can read:
+
+- `<SKILL_DIR>/../cloud-native-readiness/knowledge/anti-patterns.md`
+
+## Write analysis.json
+
+After Phase 1 completes, write `.sealos/analysis.json`:
 
 ```json
 {
@@ -85,7 +81,6 @@ After Phase 1 completes, write `.sealos/analysis.json` with the full analysis sn
     "repo_name": "<REPO_NAME>",
     "branch": "<BRANCH or null>"
   },
-  "score": { "total": "<N>", "verdict": "<verdict>", "dimensions": {} },
   "language": "<signals.primary_language>",
   "all_languages": ["<all detected languages from signals.language>"],
   "framework": "<detected framework>",
@@ -100,35 +95,28 @@ After Phase 1 completes, write `.sealos/analysis.json` with the full analysis sn
 }
 ```
 
-If `.sealos/config.json` exists, apply user overrides: e.g., if `config.json` has `"port": 8080`, use that instead of the auto-detected value. Priority: user config > script detection > AI inference.
+Do not write a `score` field.
 
-The `image_ref` field is set to `null` initially. It will be filled in Phase 2 (if existing image found) or Phase 4 (after build).
+If `.sealos/config.json` exists, apply user overrides. Priority: user config > script detection > AI inference.
 
-### Present Analysis Summary
+Set `image_ref` to `null` here. Phase 2 or Phase 4 fills it later.
 
-After writing `.sealos/analysis.json`, present a concise repository analysis summary to the user.
-This summary should expose only the key conclusions, not the full artifact contents.
-
-Recommended format:
+## Present analysis summary
 
 ```text
 Repository Analysis:
-  - Type: <web app | api | worker | cli | library>
+  - Type: <web app | api | worker | static | other>
   - Language: <language>
   - Framework: <framework or "none detected">
   - Port: <port or "not detected">
   - Database: <postgres/mysql/redis/... or "none detected">
   - Dockerfile: <yes/no>
-  - Score: <N>/12 (<verdict>)
   - Decision: <continue | stop>
 ```
 
-Output rules:
-- Keep the summary short and decision-oriented
-- Do not dump the full `env_vars` object or dimension-by-dimension internals unless the user asks
-- Do not add a default "full details" block after this summary
-- If the assessment stops the pipeline, briefly state the top blocker(s)
-- If the assessment continues, state the next phase in one short line
+Rules:
 
----
-
+- Keep the summary short.
+- Do not dump full `env_vars` unless the user asks.
+- If you STOP, state the top blocker.
+- If you CONTINUE, name the next phase in one line.

@@ -1,17 +1,14 @@
 #!/usr/bin/env node
 
 /**
- * Cloud-Native Readiness Scoring Model
+ * Project signal detection for sealos-deploy Phase 1.
  *
- * A deterministic scoring algorithm trained on 164 Sealos production templates.
- * All 164 projects are confirmed containerizable (ground truth = positive).
+ * Reads the local repo filesystem and prints JSON signals for language,
+ * framework, port, databases, runtime version, and related facts.
  *
- * This model is designed to be used in two ways:
- *   1. Standalone: node scripts/score-model.js <repo-path>
- *   2. Imported:   import { scoreProject } from './scripts/score-model.js'
- *
- * The model analyzes the LOCAL filesystem (cloned repo), NOT GitHub API.
- * This makes it fast, offline-capable, and accurate.
+ * Usage:
+ *   node scripts/project-signals.mjs <repo-path>
+ *   import { collectProjectSignals } from './scripts/project-signals.mjs'
  */
 
 import fs from 'fs';
@@ -387,179 +384,6 @@ function detectSignals(repoDir) {
   return { lang, fw, http, state, config, docker, mono, lifecycle, pm, port, databases, runtime_version };
 }
 
-// ─── Scoring Algorithm ──────────────────────────────────────
-
-function scoreProject(repoDir) {
-  const s = detectSignals(repoDir);
-  const scores = {};
-  const details = {};
-
-  // ── Dimension 1: Statelessness (0-2) ──
-  if (s.lang.html) {
-    scores.statelessness = 2;
-    details.statelessness = 'Source-ready static assets are immutable and have no runtime state';
-  } else if (s.state.uses_external_db && !s.state.uses_sqlite) {
-    scores.statelessness = 2;
-    details.statelessness = 'External database detected (PostgreSQL/MySQL/MongoDB)';
-  } else if (s.state.uses_external_db && s.state.uses_sqlite) {
-    scores.statelessness = 1;
-    details.statelessness = 'External DB + SQLite (mixed state)';
-  } else if (s.state.uses_redis || s.state.uses_s3) {
-    scores.statelessness = 1;
-    details.statelessness = 'External cache/storage but no detected DB';
-  } else if (s.http.has_http_handler) {
-    // Web service without detected DB — could be stateless API or frontend
-    scores.statelessness = 1;
-    details.statelessness = 'Web service, no DB detected (likely stateless or uses env-configured DB)';
-  } else {
-    scores.statelessness = 0;
-    details.statelessness = 'No external state or HTTP service detected';
-  }
-
-  // ── Dimension 2: Config Externalization (0-2) ──
-  if (s.lang.html) {
-    scores.config = 2;
-    details.config = 'No runtime configuration is required';
-  } else if (s.config.has_env_example && s.config.has_env_validation) {
-    scores.config = 2;
-    details.config = '.env.example + runtime validation';
-  } else if (s.config.has_env_example) {
-    scores.config = 2;
-    details.config = '.env.example found — config documented';
-  } else if (s.config.has_env_file) {
-    scores.config = 1;
-    details.config = '.env file found but no .env.example';
-  } else if (s.docker.has_compose) {
-    // docker-compose implies env var usage
-    scores.config = 1;
-    details.config = 'docker-compose found (implies env var config)';
-  } else {
-    scores.config = 0;
-    details.config = 'No env config pattern detected';
-  }
-
-  // ── Dimension 3: Horizontal Scalability (0-2) ──
-  if (s.lang.html) {
-    scores.scalability = 2;
-    details.scalability = 'Immutable static assets can be replicated without shared state';
-  } else if ((s.lang.go || s.lang.rust) && s.http.has_http_handler) {
-    scores.scalability = 2;
-    details.scalability = 'Compiled binary — inherently scalable';
-  } else if (s.http.has_http_handler && s.state.uses_redis) {
-    scores.scalability = 2;
-    details.scalability = 'Stateless HTTP + Redis for shared state';
-  } else if (s.http.has_http_handler) {
-    scores.scalability = 1;
-    details.scalability = 'HTTP handler detected — likely scalable';
-  } else {
-    scores.scalability = 0;
-    details.scalability = 'No HTTP handler detected';
-  }
-
-  // ── Dimension 4: Startup/Shutdown (0-2) ──
-  if (s.lang.html) {
-    scores.startup = 2;
-    details.startup = 'Standard static server has an immediate deterministic startup path';
-  } else if ((s.lang.go || s.lang.rust) && s.http.has_http_handler) {
-    scores.startup = 2;
-    details.startup = 'Compiled binary — fast startup + graceful shutdown';
-  } else if (s.fw.hono || s.fw.fastify) {
-    scores.startup = 2;
-    details.startup = 'Lightweight framework with fast startup';
-  } else if (s.fw.nextjs || s.fw.nuxt || s.fw.express || s.fw.fastapi || s.fw.django || s.fw.flask || s.fw.spring) {
-    scores.startup = 1;
-    details.startup = 'Framework handles lifecycle';
-  } else if (s.lifecycle.has_start) {
-    scores.startup = 1;
-    details.startup = 'Has start script';
-  } else {
-    scores.startup = 0;
-    details.startup = 'No clear startup pattern';
-  }
-
-  // ── Dimension 5: Observability (0-2) ──
-  if (s.lifecycle.has_health_check) {
-    scores.observability = 2;
-    details.observability = 'Dockerfile HEALTHCHECK present';
-  } else if (s.http.has_http_handler) {
-    // Web services inherently produce HTTP logs
-    scores.observability = 1;
-    details.observability = 'HTTP handler — produces request logs';
-  } else {
-    scores.observability = 0;
-    details.observability = 'No observability signals';
-  }
-
-  // ── Dimension 6: Service Boundaries (0-2) ──
-  if (s.lang.html) {
-    scores.boundaries = 1;
-    details.boundaries = 'One source-ready static image workload';
-  } else if (s.mono.is_monorepo && s.mono.has_apps_dir) {
-    scores.boundaries = 2;
-    details.boundaries = 'Monorepo with apps/ directory — clear service separation';
-  } else if (s.mono.is_monorepo) {
-    scores.boundaries = 2;
-    details.boundaries = 'Monorepo detected — structured project';
-  } else if (s.http.has_http_handler && s.lifecycle.has_build) {
-    scores.boundaries = 1;
-    details.boundaries = 'Single service with build pipeline';
-  } else if (s.http.has_http_handler) {
-    scores.boundaries = 1;
-    details.boundaries = 'Single deployable service';
-  } else {
-    scores.boundaries = 0;
-    details.boundaries = 'No clear service boundary';
-  }
-
-  // ── Bonus: Existing Docker Artifacts ──
-  let bonus = 0;
-  const bonusReasons = [];
-  if (s.docker.has_dockerfile) {
-    bonus += 1;
-    bonusReasons.push('Dockerfile exists');
-  }
-  if (s.docker.has_compose) {
-    bonus += 1;
-    bonusReasons.push('docker-compose exists');
-  }
-
-  // ── Total ──
-  const rawScore = Object.values(scores).reduce((a, b) => a + b, 0);
-  const totalScore = Math.min(12, rawScore + bonus);
-
-  let verdict;
-  if (totalScore >= 10) verdict = 'Excellent';
-  else if (totalScore >= 7) verdict = 'Good';
-  else if (totalScore >= 4) verdict = 'Fair';
-  else verdict = 'Poor';
-
-  return {
-    score: totalScore,
-    raw_score: rawScore,
-    bonus,
-    verdict,
-    dimensions: scores,
-    dimension_details: details,
-    bonus_reasons: bonusReasons,
-    signals: {
-      language: Object.entries(s.lang).filter(([, v]) => v).map(([k]) => k),
-      primary_language: pickPrimaryLanguage(s.lang, s.fw),
-      framework: Object.entries(s.fw).filter(([, v]) => v).map(([k]) => k),
-      has_http_server: s.http.has_http_handler,
-      external_db: s.state.uses_external_db,
-      has_docker: s.docker.has_any,
-      is_monorepo: s.mono.is_monorepo,
-      has_env_example: s.config.has_env_example,
-      dockerfile_paths: s.docker._dockerfile_paths || [],
-      package_manager: s.pm.name || null,
-      port: s.port.value || null,
-      port_source: s.port.source,
-      databases: s.databases,
-      runtime_version: s.runtime_version,
-    },
-  };
-}
-
 // ─── Helpers ────────────────────────────────────────────────
 
 function findFiles(dir, pattern, maxDepth, depth = 0) {
@@ -597,6 +421,29 @@ function grepRecursive(dir, pattern, exts, depth, maxDepth = 3) {
   return false;
 }
 
+
+// ─── Public signals ─────────────────────────────────────────
+
+function collectProjectSignals(repoDir) {
+  const s = detectSignals(repoDir);
+  return {
+    language: Object.entries(s.lang).filter(([, v]) => v).map(([k]) => k),
+    primary_language: pickPrimaryLanguage(s.lang, s.fw),
+    framework: Object.entries(s.fw).filter(([, v]) => v).map(([k]) => k),
+    has_http_server: s.http.has_http_handler,
+    external_db: s.state.uses_external_db,
+    has_docker: s.docker.has_any,
+    is_monorepo: s.mono.is_monorepo,
+    has_env_example: s.config.has_env_example,
+    dockerfile_paths: s.docker._dockerfile_paths || [],
+    package_manager: s.pm.name || null,
+    port: s.port.value || null,
+    port_source: s.port.source,
+    databases: s.databases,
+    runtime_version: s.runtime_version,
+  };
+}
+
 // ─── CLI ────────────────────────────────────────────────────
 
 const repoDir = process.argv[2];
@@ -606,8 +453,8 @@ if (repoDir) {
     console.error(`Directory not found: ${absDir}`);
     process.exit(1);
   }
-  const result = scoreProject(absDir);
-  console.log(JSON.stringify(result, null, 2));
+  const signals = collectProjectSignals(absDir);
+  console.log(JSON.stringify({ signals }, null, 2));
 }
 
-export { scoreProject, detectSignals };
+export { collectProjectSignals, detectSignals };

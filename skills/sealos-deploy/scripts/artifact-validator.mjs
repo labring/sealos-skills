@@ -229,11 +229,6 @@ function validateAnalysisSemantics(data, errors) {
     pushError(errors, '$.all_languages', 'must include the primary language')
   }
 
-  const dimensionTotal = Object.values(data.score.dimensions).reduce((sum, value) => sum + value, 0)
-  if (data.score.total !== dimensionTotal) {
-    pushError(errors, '$.score.total', `must equal the sum of score.dimensions (${dimensionTotal})`)
-  }
-
   if (!Object.prototype.hasOwnProperty.call(data.runtime_version, data.language)) {
     pushError(errors, '$.runtime_version', `must include a version field for primary language ${data.language}`)
   }

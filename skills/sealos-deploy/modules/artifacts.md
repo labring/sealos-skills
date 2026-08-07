@@ -16,7 +16,7 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 
 **File responsibilities:**
 - `config.json` — optional user overrides (port, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
-- `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, score, etc.). Regenerated each deploy.
+- `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, port, and more). Regenerated each deploy.
 - `state.json` — deployment state written after Phase 6 success. Contains `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
 
 **Note:** When reading dockerfile-skill modules (analyze.md, generate.md, build-fix.md), they reference `docker-build/` as their default output path. In this pipeline, always write to `.sealos/build/` instead. Similarly, template output goes to `.sealos/template/` instead of `template/`.

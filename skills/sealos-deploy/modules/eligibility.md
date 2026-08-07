@@ -1,7 +1,7 @@
 # Phase 0.4: Deployment Eligibility Gate
 
 Run this gate before creating `.sealos/`, detecting deployment mode, matching a
-template, readiness scoring, Dockerfile generation, image detection, or build.
+template, Phase 1 analysis, Dockerfile generation, image detection, or build.
 
 Read and apply the canonical policy:
 `<SKILL_DIR>/../cloud-native-readiness/knowledge/deployment-eligibility.md`.
@@ -31,7 +31,7 @@ For other `needs_review` results, inspect entry points and runtime evidence. Con
 only when the requested root itself can be explicitly resolved as `eligible`; record
 that in-memory decision with `source: "ai-review"` and specific repository-relative
 evidence. An ordinary desktop/mobile client cannot be overridden by a Dockerfile,
-readiness score, registry image, or user willingness to proceed.
+registry image, or user willingness to proceed.
 
 If Node.js is unavailable, perform the same review manually and keep the result in
 memory. Missing or ambiguous evidence fails closed. No `.sealos/config.json` field or

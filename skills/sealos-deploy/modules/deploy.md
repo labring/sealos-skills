@@ -420,7 +420,7 @@ For test deployments, delete the Sealos `Instance` and application resources bef
 On success, present to user:
 
 ```
-✓ Assessed: {language} + {framework}, score {N}/12 — {verdict}
+✓ Assessed: {language} + {framework}
 ✓ Image: {IMAGE_REF} ({source: existing/built})
 ✓ Template: .sealos/template/index.yaml
 ✓ Configured: {N} inputs set ({M} required, {K} optional)

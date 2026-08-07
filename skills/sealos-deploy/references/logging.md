@@ -28,7 +28,6 @@ Example:
 [2026-03-05 14:30:02] Project: /Users/dev/myapp (github: https://github.com/owner/repo)
 
 [2026-03-05 14:30:03] === Phase 1: Assess ===
-[2026-03-05 14:30:03] Score: 9/12 (good)
 [2026-03-05 14:30:03] Language: python, Framework: fastapi, Port: 8000
 [2026-03-05 14:30:03] Decision: CONTINUE
 

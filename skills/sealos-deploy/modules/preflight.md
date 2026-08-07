@@ -122,7 +122,7 @@ docker info 2>/dev/null
 
 **Node.js:**
 - If missing, no problem. Pipeline uses fallback mode:
-  - `score-model.mjs` → AI reads files and applies scoring rules directly
+  - `project-signals.mjs` → AI reads files and records project signals directly
   - `detect-image.mjs` → AI runs curl commands for Docker Hub / GHCR API
   - `build-push.mjs` → AI runs `docker buildx` commands directly
   - `sealos-auth.mjs` → AI runs curl to exchange token for kubeconfig (workspace list/switch not available in fallback mode)

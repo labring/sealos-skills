@@ -7,7 +7,6 @@
   "required": [
     "generated_at",
     "project",
-    "score",
     "language",
     "all_languages",
     "framework",
@@ -54,46 +53,6 @@
             { "type": "string", "minLength": 1 },
             { "type": "null" }
           ]
-        }
-      }
-    },
-    "score": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "total",
-        "verdict",
-        "dimensions"
-      ],
-      "properties": {
-        "total": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 12
-        },
-        "verdict": {
-          "type": "string",
-          "minLength": 1
-        },
-        "dimensions": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "statelessness",
-            "config",
-            "scalability",
-            "startup",
-            "observability",
-            "boundaries"
-          ],
-          "properties": {
-            "statelessness": { "type": "integer", "minimum": 0, "maximum": 2 },
-            "config": { "type": "integer", "minimum": 0, "maximum": 2 },
-            "scalability": { "type": "integer", "minimum": 0, "maximum": 2 },
-            "startup": { "type": "integer", "minimum": 0, "maximum": 2 },
-            "observability": { "type": "integer", "minimum": 0, "maximum": 2 },
-            "boundaries": { "type": "integer", "minimum": 0, "maximum": 2 }
-          }
         }
       }
     },

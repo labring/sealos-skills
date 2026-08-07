@@ -6,7 +6,7 @@ description: >-
   Run the default Runtime Truth Pass on the App URL, public route, auth flow,
   logs, database state, and resource footprint. Reject unsupported desktop,
   mobile, CLI, library, extension, hardware-dependent, mixed, and unidentified
-  targets before readiness scoring or build. Use for deploy, update, Runtime
+  targets before eligibility or build. Use for deploy, update, Runtime
   Truth verify, footprint or log debug, env configure, or cleanup of a Sealos
   deploy after user confirmation, and when the user invokes "/sealos-deploy".
 compatibility: >-
@@ -119,7 +119,7 @@ Load these on demand during pipeline phases. They are not separate user entry po
 
 | Path | Use for |
 |------|---------|
-| `<SKILL_DIR>/../cloud-native-readiness/` | Phase 0.4 eligibility and Phase 1 assess |
+| `<SKILL_DIR>/../cloud-native-readiness/` | Phase 0.4 eligibility policy |
 | `<SKILL_DIR>/../dockerfile-skill/` | Phase 3 Dockerfile |
 | `<SKILL_DIR>/../docker-to-sealos/` | Phase 5 Sealos template |
 
@@ -133,7 +133,7 @@ This map applies to **deploy** (DEPLOY mode). For other intents, use the Intent 
 | 0.4 — Eligibility | `modules/eligibility.md` | Any non-eligible result → stop |
 | — Artifacts / mode | `modules/artifacts.md`, `modules/mode.md` | UPDATE → `modules/update.md` |
 | 0.5 — Template Fast Path | `modules/template-fast-path.md` | No match, or template YAML cannot materialize |
-| 1 — Assess | `modules/assess.md` | Score too low → stop |
+| 1 — Assess | `modules/assess.md` | Unsupported workload after review → stop |
 | 2 — Detect | `modules/detect-image.md` | Existing amd64 image → jump to Phase 5 |
 | 3 — Dockerfile | `modules/dockerfile.md` | Dockerfile already exists → skip |
 | 4 — Build & Push | `modules/build-push.md` | — |

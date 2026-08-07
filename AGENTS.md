@@ -25,7 +25,7 @@ This repo does not have a single top-level app build.
 ```text
 sealos plugin entry points ($sealos, /sealos)
   ├→ sealos-deploy (direct skills.sh entry point: /sealos-deploy)
-  │   ├→ cloud-native-readiness   (Phase 0.4 eligibility + Phase 1 score 0-12)
+  │   ├→ cloud-native-readiness   (Phase 0.4 eligibility)
   │   ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
   │   └→ docker-to-sealos         (Phase 5: Compose → Sealos template)
   ├→ sealos-database (direct skills.sh entry point: /sealos-database)
@@ -44,7 +44,7 @@ All skills share two files:
 Larger skills add directories as needed:
 
 - `modules/*.md` — phased execution logic (sealos-deploy, dockerfile-skill, cloud-native-readiness)
-- `knowledge/*.md` — error patterns, best practices, scoring criteria (sealos-deploy, dockerfile-skill, cloud-native-readiness)
+- `knowledge/*.md` — error patterns, best practices, and policy notes where a skill needs them
 - `scripts/` — executables: `.mjs` in most skills, `.py` in docker-to-sealos
 - `config.json` — runtime config such as OAuth client and regions (sealos-deploy only)
 - `references/`, `templates/`, `assets/`, `evals/`, `examples/` — supporting material where a skill needs it
@@ -93,7 +93,7 @@ The skill tracks state in `.sealos/state.json` (deployment state), `.sealos/anal
 - `skills/sealos-database/SKILL.md` — primary entry point for cloud database development workflow
 - `skills/sealos-s3/SKILL.md` — primary entry point for S3-compatible object storage workflow
 - `skills/sealos-deploy/config.json` — OAuth client_id, regional Sealos URLs
-- `skills/sealos-deploy/scripts/` — auth, scoring, and helper automation scripts
+- `skills/sealos-deploy/scripts/` — auth, signal detection, and helper automation scripts
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
 - `skills/sealos-canvas/SKILL.md` — read-only resource canvas workflow
 - `.codex-plugin/plugin.json` — Codex plugin manifest pointing to root `skills/`
