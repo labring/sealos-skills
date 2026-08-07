@@ -47,7 +47,7 @@
   "version": {
     "source": ".codex-plugin/plugin.json",
     "field": ["version"],
-    "expected": "1.2.0"
+    "expected": "1.2.5"
   },
   "tag": {
     "required": false,
