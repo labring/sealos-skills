@@ -230,7 +230,7 @@ For the public app Service, endpoints must be non-empty before the Ingress can s
    - Password policy, invalid bootstrap configuration, or root reconciliation validation: return to the account-mode classification and Phase 5.5 credential contract before changing resources.
    - App-specific migration/bootstrap errors: repair the failed bootstrap state, then rerun the init path.
 4. Only report the app as usable after the endpoint exists and an HTTP request to the public URL returns a non-5xx response.
-5. Continue to Phase 6.5 before writing deployment state or reporting success.
+5. Continue to Phase 7 before writing deployment state or reporting success.
 
 For templates with KubeBlocks-supported databases, runtime truth must include the database control plane and generated connection surface:
 
@@ -352,7 +352,7 @@ App URL: `https://<app_host>.<CLOUD_DOMAIN>`
 
 ### 6.5 Runtime Truth Pass
 
-Execute `<SKILL_DIR>/modules/runtime-truth.md` after every Template API or kubectl fallback deploy. Complete its Launchpad network, App URL, login, log, Event convergence, object-storage, and footprint gates before writing deployment state or reporting success.
+Execute `<SKILL_DIR>/modules/phase-7.md` after every Template API or kubectl fallback deploy. Complete its Launchpad network, App URL, login, log, Event convergence, object-storage, and footprint gates before writing deployment state or reporting success.
 
 ### Write state.json
 

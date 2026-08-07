@@ -1,4 +1,4 @@
-# Phase 5.5: Interactive Configuration
+# Phase 5: Interactive Configuration
 
 After generating the template, guide the user through application configuration before deployment.
 This is a **critical** step — most applications need user-specific configuration to function properly.

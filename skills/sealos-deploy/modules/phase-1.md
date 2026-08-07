@@ -1,5 +1,94 @@
 # Phase 1: Assess
 
+Eligibility, optional template fast path, then project signal analysis.
+
+## Phase 0.4: Deployment Eligibility Gate
+
+Run this gate before creating `.sealos/`, detecting deployment mode, matching a
+template, Phase 1 analysis, Dockerfile generation, image detection, or build.
+
+Read and apply the canonical policy:
+`<SKILL_DIR>/../cloud-native-readiness/knowledge/deployment-eligibility.md`.
+
+When Node.js is available, run:
+
+```bash
+node "<SKILL_DIR>/scripts/workload-eligibility.mjs" "$WORK_DIR"
+```
+
+The script is read-only and prints the decision to stdout. Keep the parsed object as
+`ELIGIBILITY_DECISION` in the current execution context; never write it to `.sealos/`
+or another project file.
+
+| Exit | Status | Action |
+|------|--------|--------|
+| `0` | `eligible` | Continue with the requested repository root |
+| `2` | `ineligible` | Report workload type/evidence and STOP |
+| `3` | `needs_review` | Inspect evidence; keep deployment blocked until explicitly resolved |
+| other | execution error | Report the classifier error and STOP |
+
+Parse stdout even for exits `2` and `3`; those are classification results, not script
+failures. A mixed repository remains `needs_review` in this workflow: list the
+detected units and STOP rather than selecting and deploying a nested directory.
+
+For other `needs_review` results, inspect entry points and runtime evidence. Continue
+only when the requested root itself can be explicitly resolved as `eligible`; record
+that in-memory decision with `source: "ai-review"` and specific repository-relative
+evidence. An ordinary desktop/mobile client cannot be overridden by a Dockerfile,
+registry image, or user willingness to proceed.
+
+If Node.js is unavailable, perform the same review manually and keep the result in
+memory. Missing or ambiguous evidence fails closed. No `.sealos/config.json` field or
+resume state may skip or override this gate.
+
+
+---
+
+## Phase 0.5: Template Fast Path
+
+Run this phase after preflight has resolved `WORK_DIR`, `GITHUB_URL`, and `REPO_NAME`, and before Phase 1 assessment.
+
+The goal is to avoid source analysis, Dockerfile generation, image builds, and template generation for repositories that are already represented by a known Sealos template.
+
+With Node.js:
+
+```bash
+node "<SKILL_DIR>/scripts/detect-template.mjs" \
+  --github-url "$GITHUB_URL" \
+  --work-dir "$WORK_DIR" \
+  --skill-dir "<SKILL_DIR>"
+```
+
+The script writes `.sealos/template-match.json` every time it runs.
+
+Decision:
+
+- `matched=false` → continue to Phase 1 normally.
+- `matched=true` and `materialized=false` → report the matched template name and continue to Phase 1 normally; this is only a recommendation because no deployable template YAML was available.
+- `matched=true` and `materialized=true` → skip Phase 2 through Phase 4 because `.sealos/template/index.yaml` already exists. Continue with Phase 5 configuration and Phase 6 deployment.
+
+The fast path is configured in `<SKILL_DIR>/config.json` under `template_fast_path.templates`. A template entry must include `name` and `source_repos`; it materializes only when it also provides valid Sealos Template YAML through one of:
+
+- `template_yaml`
+- `template_path`
+- `template_url`
+
+Template YAML must include:
+
+```yaml
+apiVersion: app.sealos.io/v1
+kind: Template
+```
+
+If a matched entry cannot materialize YAML, do not treat it as a deployable result and do not skip build or template generation.
+
+---
+
+
+---
+
+## Phase 1: Assess
+
 `WORK_DIR`, `GITHUB_URL`, `REPO_NAME`, and README context are already resolved in preflight (Step 2).
 Use those values directly.
 

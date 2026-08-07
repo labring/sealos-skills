@@ -56,31 +56,31 @@ Template API deploys create `instances.app.sealos.io/<app-name>`. Cleanup must i
 
 ## Intent routing
 
-Select the intent before you run preflight. Load only the files for that intent.
+Select the intent before you run Phase 0. Load only the files for that intent.
 
 | Intent | User asks for | Load | Do not load by default |
 |--------|---------------|------|------------------------|
-| **deploy** | deploy, ship, `/sealos-deploy` | `modules/preflight.md` → `modules/pipeline.md` (deploy chain) | — |
-| **update** | update the running app, rebuild and roll out | `modules/preflight.md` → `modules/mode.md` → `modules/update.md` → `modules/runtime-truth.md` | eligibility and full assess, unless the Update Path requires them |
-| **verify** | Runtime Truth, accept the App URL, smoke test | Sealos auth and kubectl as needed → `modules/runtime-truth.md` | Phase modules in the deploy chain |
-| **debug** | logs, footprint, why it failed | `references/scripts.md` helpers plus relevant parts of `modules/runtime-truth.md` | rebuild or redeploy, unless the user asks to fix and redeploy |
-| **configure** | env vars, ports, template inputs | `modules/configure.md` | Phase 1–4 modules, unless config forces a rebuild |
+| **deploy** | deploy, ship, `/sealos-deploy` | `modules/pipeline.md` (deploy chain from Phase 0) | — |
+| **update** | update the running app, rebuild and roll out | `modules/phase-0.md` → `modules/mode.md` → `modules/update.md` → `modules/phase-7.md` | eligibility and full assess, unless the Update Path requires them |
+| **verify** | Runtime Truth, accept the App URL, smoke test | Sealos auth and kubectl as needed → `modules/phase-7.md` | Phase 1–6 modules |
+| **debug** | logs, footprint, why it failed | `references/scripts.md` helpers plus relevant parts of `modules/phase-7.md` | rebuild or redeploy, unless the user asks to fix and redeploy |
+| **configure** | env vars, ports, template inputs | `modules/phase-5.md` | Phase 1–4 modules, unless config forces a rebuild |
 | **cleanup** | delete this deploy or test instance | Safety above → `references/cleanup.md` (run footprint first) | the deploy path |
 
 Routing rules:
 
-1. Select the intent before you run preflight.
+1. Select the intent before you run Phase 0.
 2. If the intent is not clear, ask one question.
 3. If the user does not answer, use **deploy**.
-4. If the request needs deploy and verify, run **deploy**, then Runtime Truth.
+4. If the request needs deploy and verify, run **deploy**, then Phase 7.
 5. Load one module first. Load a second file only when the task needs it.
 6. For deploy and update logging detail, read `references/logging.md`.
 
-## When to run preflight
+## When to run Phase 0
 
-| Intent | Preflight |
+| Intent | Phase 0 |
 |--------|-----------|
-| **deploy** / **update** | Full `modules/preflight.md` |
+| **deploy** / **update** | Full `modules/phase-0.md` |
 | **verify** / **debug** / **cleanup** | Sealos auth and kubeconfig or kubectl only as the task needs |
 | **configure** | Auth plus enough state to read or write the needed config |
 
@@ -119,9 +119,9 @@ Load these on demand during pipeline phases. They are not separate user entry po
 
 | Path | Use for |
 |------|---------|
-| `<SKILL_DIR>/../cloud-native-readiness/` | Phase 0.4 eligibility policy |
-| `<SKILL_DIR>/../dockerfile-skill/` | Phase 3 Dockerfile |
-| `<SKILL_DIR>/../docker-to-sealos/` | Phase 5 Sealos template |
+| `<SKILL_DIR>/../cloud-native-readiness/` | Phase 1 eligibility policy |
+| `<SKILL_DIR>/../dockerfile-skill/` | Phase 2 Dockerfile preparation |
+| `<SKILL_DIR>/../docker-to-sealos/` | Phase 4 Sealos template |
 
 ## Phase map (deploy intent)
 
@@ -129,18 +129,15 @@ This map applies to **deploy** (DEPLOY mode). For other intents, use the Intent 
 
 | Phase | Module | Skip when |
 |-------|--------|-----------|
-| 0 — Preflight | `modules/preflight.md` | Entry blockers are clear |
-| 0.4 — Eligibility | `modules/eligibility.md` | Any non-eligible result → stop |
+| 0 — Preflight | `modules/phase-0.md` | Entry blockers are clear |
 | — Artifacts / mode | `modules/artifacts.md`, `modules/mode.md` | UPDATE → `modules/update.md` |
-| 0.5 — Template Fast Path | `modules/template-fast-path.md` | No match, or template YAML cannot materialize |
-| 1 — Assess | `modules/assess.md` | Unsupported workload after review → stop |
-| 2 — Detect | `modules/detect-image.md` | Existing amd64 image → jump to Phase 5 |
-| 3 — Dockerfile | `modules/dockerfile.md` | Dockerfile already exists → skip |
-| 4 — Build & Push | `modules/build-push.md` | — |
-| 5 — Template | `modules/template.md` | — |
-| 5.5 — Configure | `modules/configure.md` | No inputs needed |
-| 6 — Deploy | `modules/deploy.md` | — |
-| 6.5 — Runtime Truth | `modules/runtime-truth.md` | User asks for deploy-only output |
+| 1 — Assess | `modules/phase-1.md` | Ineligible → stop; template fast path may skip Phase 2–4 |
+| 2 — Discover / image prep | `modules/phase-2.md` | Existing amd64 image → jump to Phase 4 |
+| 3 — Build & Push | `modules/phase-3.md` | — |
+| 4 — Template | `modules/phase-4.md` | — |
+| 5 — Configure | `modules/phase-5.md` | No inputs needed |
+| 6 — Deploy | `modules/phase-6.md` | — |
+| 7 — Post-deploy | `modules/phase-7.md` | User asks for deploy-only output |
 
 Load order and UPDATE branching live in `modules/pipeline.md`.
 
@@ -151,38 +148,32 @@ Input (GitHub URL / local path)
 [Phase 0] Preflight ── fail → guide user to fix and STOP
   │ pass
   ▼
-[Phase 0.5] Template fast path
+[Phase 1] Assess (eligibility + optional template fast path)
   │
   ├── materialized template match ───────┐
   │                                      │
   ▼                                      │
-[Phase 1] Assess ── not suitable → STOP  │
-  │ suitable                             │
-  ▼                                      │
-[Phase 2] Detect existing image          │
+[Phase 2] Detect image / Dockerfile      │
   │                                      │
   ├── found (amd64) ────────────────────┐│
   │                                     ││
   ▼                                     ││
-[Phase 3] Dockerfile                    ││
-  │                                     ││
-  ▼                                     ││
-[Phase 4] Build & Push                  ││
+[Phase 3] Build & Push                  ││
   │                                     ││
   ◄─────────────────────────────────────┘│
   │                                      │
   ▼                                      │
-[Phase 5] Generate Sealos Template       │
+[Phase 4] Generate Sealos Template       │
   ◄──────────────────────────────────────┘
   │
   ▼
-[Phase 5.5] Configure
+[Phase 5] Configure
   │
   ▼
 [Phase 6] Deploy ── 401 → re-auth / 409 → instance exists
   │
   ▼
-[Phase 6.5] Runtime Truth Pass
+[Phase 7] Runtime Truth Pass
   │
   ▼
 Done
@@ -212,21 +203,18 @@ Keep the reply short. Include command evidence only when it helps the user.
 
 | Path | Contents |
 |------|----------|
-| `modules/preflight.md` | Phase 0 preflight |
 | `modules/pipeline.md` | Deploy/update load-order orchestrator |
-| `modules/eligibility.md` | Phase 0.4 |
+| `modules/phase-0.md` | Phase 0 preflight |
 | `modules/artifacts.md` | `.sealos/` layout and schemas |
 | `modules/mode.md` | DEPLOY vs UPDATE, resume |
-| `modules/template-fast-path.md` | Phase 0.5 |
-| `modules/assess.md` | Phase 1 |
-| `modules/detect-image.md` | Phase 2 |
-| `modules/dockerfile.md` | Phase 3 |
-| `modules/build-push.md` | Phase 4 |
-| `modules/template.md` | Phase 5 |
-| `modules/configure.md` | Phase 5.5 |
-| `modules/deploy.md` | Phase 6, state, success output |
+| `modules/phase-1.md` | Phase 1 eligibility, template fast path, signals |
+| `modules/phase-2.md` | Phase 2 image detect / Dockerfile |
+| `modules/phase-3.md` | Phase 3 build and push |
+| `modules/phase-4.md` | Phase 4 template |
+| `modules/phase-5.md` | Phase 5 configure |
+| `modules/phase-6.md` | Phase 6 deploy, state, success output |
+| `modules/phase-7.md` | Phase 7 Runtime Truth |
 | `modules/update.md` | UPDATE path |
-| `modules/runtime-truth.md` | Phase 6.5 acceptance |
 | `references/logging.md` | Full deploy log examples |
 | `references/scripts.md` | Full script catalog and Event rules |
 | `references/cleanup.md` | Delete order and Instance CR rules |

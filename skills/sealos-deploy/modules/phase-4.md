@@ -1,4 +1,4 @@
-# Phase 5: Generate Sealos Template
+# Phase 4: Generate Sealos Template
 
 ### 5.1 Load Sealos Rules
 

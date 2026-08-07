@@ -1,4 +1,4 @@
-# Phase 4: Build & Push
+# Phase 3: Build and Push
 
 ### 4.0 Choose Image Destination
 

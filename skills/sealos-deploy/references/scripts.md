@@ -52,4 +52,4 @@ Keep a pre-injection report as evidence.
 
 After recovery reaches Ready, capture a fresh recovery baseline. Then compare the final scan against that recovery baseline after the full stability window.
 
-For step detail, read `modules/runtime-truth.md`.
+For step detail, read `modules/phase-7.md`.
