@@ -11,13 +11,19 @@ Prepare the environment, identity, and source directory. Write the Phase 0 subse
 
 `SKILL_DIR` is the directory that contains this skill's `SKILL.md`.
 
-Prefer an existing `sealos-cli` binary. If it is missing, use `npx -y sealos-cli@latest ...` for one-off commands. Do not add `sealos-cli` to the required binary install list.
+Do **not** add these to the required binary install list; run them with `npx` when needed:
+
+- `sealos-cli` — identity (`local` only)
+- `@norberia/agentlens` — Phase 2 deploy scout (`agentlens` bin)
 
 ```bash
 SEALOS_CLI=(sealos-cli)
 if ! command -v sealos-cli >/dev/null 2>&1; then
   SEALOS_CLI=(npx -y sealos-cli@latest)
 fi
+
+# Phase 2 scout (tree only; --preset deploy). Do not install gitingest.
+npx -y @norberia/agentlens "$WORK_DIR" --preset deploy -o "$WORK_DIR/.sealos/phase-2/agentlens-digest.txt"
 ```
 
 ## Step 1: Probe environment and dependencies
@@ -34,7 +40,7 @@ The script:
 
 **Required for `local` and `sandbox`:**
 
-git, Node.js 18+, Python 3.8+, PyYAML, gitingest, kompose, Helm 3+, kubectl, curl, jq
+git, Node.js 18+, Python 3.8+, PyYAML, kompose, Helm 3+, kubectl, curl, jq
 
 **Required for `local` only:**
 

@@ -2,6 +2,18 @@
 
 Detect an existing image or prepare a Dockerfile for local build.
 
+## Scout with agentlens
+
+Before image detection, build a deploy-focused file tree. Do **not** use gitingest.
+
+```bash
+mkdir -p "$WORK_DIR/.sealos/phase-2"
+npx -y @norberia/agentlens "$WORK_DIR" --preset deploy \
+  -o "$WORK_DIR/.sealos/phase-2/agentlens-digest.txt"
+```
+
+The digest is a directory tree only (no file contents). Read root `README*` and the paths listed in the tree for deploy/CI evidence. Do not ingest the full repository.
+
 ## Phase 2: Detect Existing Image
 
 ### 2.S Source-Ready Static Site Image Path

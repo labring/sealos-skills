@@ -86,27 +86,6 @@ function checkPython() {
   return { id: 'python', ok: false, reason: 'missing' }
 }
 
-function checkGitingest() {
-  if (commandExists('gitingest')) {
-    const result = run('gitingest', ['--help'])
-    return {
-      id: 'gitingest',
-      ok: result.status === 0,
-      reason: result.status === 0 ? undefined : 'failed',
-    }
-  }
-  const py = checkPython()
-  if (!py.ok || !py.command) {
-    return { id: 'gitingest', ok: false, reason: 'missing' }
-  }
-  const result = run(py.command, ['-c', 'import gitingest'])
-  return {
-    id: 'gitingest',
-    ok: result.status === 0,
-    reason: result.status === 0 ? undefined : 'missing',
-  }
-}
-
 function checkDockerDaemon() {
   if (!commandExists('docker')) {
     return { id: 'docker_daemon', ok: false, reason: 'docker_missing' }
@@ -178,7 +157,6 @@ function main() {
     checkBinary('git', 'git', ['--version']),
     checkBinary('node', 'node', ['--version'], { minMajor: 18 }),
     checkPython(),
-    checkGitingest(),
     checkBinary('kompose', 'kompose', ['version']),
     checkBinary('helm', 'helm', ['version', '--short'], { minMajor: 3 }),
     checkKubectl(),
