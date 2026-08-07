@@ -1,53 +1,30 @@
 ---
 name: sealos-deploy
-description: Deploy compatible server, static-web, worker, scheduled-job, or reviewed remote-desktop workloads from GitHub or local source to Sealos Cloud, then run the default Runtime Truth Pass against the returned App URL, public route, authentication flow, logs, database state, and full resource footprint. Reject unsupported desktop, mobile, CLI, library, extension, hardware-dependent, mixed, and unidentified targets before readiness scoring or build. Use when the user asks to deploy a repository to Sealos or another cloud platform, or invokes "/sealos-deploy".
-compatibility: Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
+description: >-
+  Deploy or update compatible server, static-web, worker, scheduled-job, or
+  reviewed remote-desktop workloads from GitHub or local source to Sealos Cloud.
+  Run the default Runtime Truth Pass on the App URL, public route, auth flow,
+  logs, database state, and resource footprint. Reject unsupported desktop,
+  mobile, CLI, library, extension, hardware-dependent, mixed, and unidentified
+  targets before readiness scoring or build. Use for deploy, update, Runtime
+  Truth verify, footprint or log debug, env configure, or cleanup of a Sealos
+  deploy after user confirmation, and when the user invokes "/sealos-deploy".
+compatibility: >-
+  Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are
+  required only when the selected path needs local build/push. git is required
+  when cloning from a GitHub URL or when git metadata is needed. Node.js 18+
+  remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML.
+  Root Compose conversion also requires kompose. Floating image tags can also
+  require crane.
 metadata:
   author: labring
 ---
 
 # Sealos Deploy
 
-Deploy compatible cloud workloads to Sealos Cloud, stopping unsupported targets
-before build or deployment.
+This skill deploys compatible cloud workloads to Sealos Cloud. It stops unsupported targets before build or deploy.
 
-## kubectl Safety Rules (all phases)
-
-All kubectl commands MUST use the Sealos kubeconfig:
-```
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify
-```
-
-System tool installation requires user confirmation. If `docker`, `gh`, or `kubectl` is missing and the skill can install it for the current platform, ask first and only run the install command after the user explicitly replies `y`.
-
-**`kubectl delete` requires user confirmation.** Before deleting any resource (deployment, service, ingress, PVC, database, etc.), always ask:
-```
-WARNING: About to delete <resource kind>/<resource name>. This data cannot be recovered. Confirm? (y/n)
-```
-Only proceed after user confirms. This applies even if the pipeline logic suggests deletion — always ask first.
-
-**Template API cleanup must include Instance CRs.** Deployments created through `scripts/deploy-template.mjs` create `instances.app.sealos.io/<app-name>` in addition to App/workload resources. A cleanup is incomplete until `instances.app.sealos.io`, `apps.app.sealos.io`, workloads, Services, Ingresses, PVCs, and Pods are all checked.
-
-Use this check when cleaning Template API test deployments:
-```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" \
-  get instances.app.sealos.io,app,statefulset,deployment,svc,ingress,pvc,pod | grep "$APP"
-```
-
-Delete in this order after confirmation:
-```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete instances.app.sealos.io "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete app "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete statefulset "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete deployment "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete ingress "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete svc "$APP" --ignore-not-found --wait=false
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" get pvc -o name | grep "$APP" | while read -r PVC; do
-  KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify -n "$NS" delete "$PVC" --ignore-not-found --wait=false
-done
-```
-
-Anti-example: do not report cleanup complete after only checking `app,statefulset,svc,ingress,pvc,pod`; that misses `instances.app.sealos.io/<app-name>` and leaves the Sealos Instance layer dirty.
+`<SKILL_DIR>` is the directory that contains this `SKILL.md`.
 
 ## Usage
 
@@ -57,144 +34,115 @@ Anti-example: do not report cleanup complete after only checking `app,statefulse
 /sealos-deploy <local-path>
 ```
 
-## Quick Start
+## Safety
 
-Execute the modules in order:
+All `kubectl` commands must use the Sealos kubeconfig:
 
-1. `modules/preflight.md` — Environment checks & Sealos auth
-2. `modules/pipeline.md` — Full deployment pipeline (Phase 1–6)
-3. `modules/runtime-truth.md` — Post-deploy Runtime Truth Pass (Phase 6.5)
+```
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify
+```
 
-## Logging
+If `docker`, `gh`, or `kubectl` is missing and this skill can install it, ask the user first. Run the install only after the user replies `y`.
 
-Every run MUST write a log file at `~/.sealos/logs/deploy-<YYYYMMDD-HHmmss>.log`.
+WARNING: Before you delete any cluster resource, ask the user to reply `y` or `n`.
 
-**At the very start of execution**, create the log file **once**:
+```
+WARNING: About to delete <resource kind>/<resource name>. This data cannot be recovered. Confirm? (y/n)
+```
+
+If the user does not reply `y`, stop.
+
+Template API deploys create `instances.app.sealos.io/<app-name>`. Cleanup must include that Instance CR. For delete order and inventory commands, read `references/cleanup.md`.
+
+## Intent routing
+
+Select the intent before you run preflight. Load only the files for that intent.
+
+| Intent | User asks for | Load | Do not load by default |
+|--------|---------------|------|------------------------|
+| **deploy** | deploy, ship, `/sealos-deploy` | `modules/preflight.md` → `modules/pipeline.md` (deploy chain) | — |
+| **update** | update the running app, rebuild and roll out | `modules/preflight.md` → `modules/mode.md` → `modules/update.md` → `modules/runtime-truth.md` | eligibility and full assess, unless the Update Path requires them |
+| **verify** | Runtime Truth, accept the App URL, smoke test | Sealos auth and kubectl as needed → `modules/runtime-truth.md` | Phase modules in the deploy chain |
+| **debug** | logs, footprint, why it failed | `references/scripts.md` helpers plus relevant parts of `modules/runtime-truth.md` | rebuild or redeploy, unless the user asks to fix and redeploy |
+| **configure** | env vars, ports, template inputs | `modules/configure.md` | Phase 1–4 modules, unless config forces a rebuild |
+| **cleanup** | delete this deploy or test instance | Safety above → `references/cleanup.md` (run footprint first) | the deploy path |
+
+Routing rules:
+
+1. Select the intent before you run preflight.
+2. If the intent is not clear, ask one question.
+3. If the user does not answer, use **deploy**.
+4. If the request needs deploy and verify, run **deploy**, then Runtime Truth.
+5. Load one module first. Load a second file only when the task needs it.
+6. For deploy and update logging detail, read `references/logging.md`.
+
+## When to run preflight
+
+| Intent | Preflight |
+|--------|-----------|
+| **deploy** / **update** | Full `modules/preflight.md` |
+| **verify** / **debug** / **cleanup** | Sealos auth and kubeconfig or kubectl only as the task needs |
+| **configure** | Auth plus enough state to read or write the needed config |
+
+## Logging (short)
+
+For **deploy** and **update**:
+
+1. Create one log at `~/.sealos/logs/deploy-<YYYYMMDD-HHmmss>.log` at the start.
+2. Append with `>>` to that same file. Do not create a second log.
+3. Append a short line at each phase boundary.
+4. At the end, tell the user the log path.
+
+Full examples live in `references/logging.md`.
+
+## Common operations
+
+Scripts live in `<SKILL_DIR>/scripts/`. They print JSON. Run them with Bash, then parse stdout.
+
 ```bash
-mkdir -p ~/.sealos/logs
-LOG_FILE=~/.sealos/logs/deploy-$(date +%Y%m%d-%H%M%S).log
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Deploy started" > "$LOG_FILE"
+node "<SKILL_DIR>/scripts/sealos-auth.mjs" check
+node "<SKILL_DIR>/scripts/workload-eligibility.mjs" "$WORK_DIR"
+node "<SKILL_DIR>/scripts/detect-image.mjs" "$WORK_DIR"
+node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO"
+node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
+node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
+node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" --app "$APP" --app-url "$URL"
+node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$URL"
+node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" --namespace "$NS" --app "$APP"
 ```
 
-**Important: create the log file ONLY ONCE at the start. All subsequent writes MUST append (`>>`) to this same `$LOG_FILE`. Do NOT create a second log file.**
+For the full script list, Launchpad network rules, and Event baseline rules, read `references/scripts.md`.
 
-**At each phase boundary**, append a log entry to the same file with Bash `>>`:
-```
-[2026-03-05 14:30:01] === Phase 0: Preflight ===
-[2026-03-05 14:30:01] Docker: ✓ 27.5.1
-[2026-03-05 14:30:01] Node.js: ✓ 22.12.0
-[2026-03-05 14:30:02] Sealos auth: ✓ (region: <REGION from config.json>)
-[2026-03-05 14:30:02] Project: /Users/dev/myapp (github: https://github.com/owner/repo)
+## Sibling skills
 
-[2026-03-05 14:30:03] === Phase 1: Assess ===
-[2026-03-05 14:30:03] Score: 9/12 (good)
-[2026-03-05 14:30:03] Language: python, Framework: fastapi, Port: 8000
-[2026-03-05 14:30:03] Decision: CONTINUE
+Load these on demand during pipeline phases. They are not separate user entry points.
 
-[2026-03-05 14:30:04] === Phase 2: Detect Image ===
-[2026-03-05 14:30:05] Docker Hub: owner/repo:latest (arm64 only, no amd64)
-[2026-03-05 14:30:05] GHCR: not found
-[2026-03-05 14:30:05] Decision: no amd64 image → continue to Phase 3
+| Path | Use for |
+|------|---------|
+| `<SKILL_DIR>/../cloud-native-readiness/` | Phase 0.4 eligibility and Phase 1 assess |
+| `<SKILL_DIR>/../dockerfile-skill/` | Phase 3 Dockerfile |
+| `<SKILL_DIR>/../docker-to-sealos/` | Phase 5 Sealos template |
 
-[2026-03-05 14:30:06] === Phase 3: Dockerfile ===
-[2026-03-05 14:30:06] Existing Dockerfile: none
-[2026-03-05 14:30:07] Generated: python-fastapi template, port 8000
+## Phase map (deploy intent)
 
-[2026-03-05 14:30:08] === Phase 4: Build & Push ===
-[2026-03-05 14:30:08] Registry: ghcr (auto-detected via gh CLI)
-[2026-03-05 14:30:30] Build: ✓ ghcr.io/zhujingyang/repo:20260305-143022
-[2026-03-05 14:30:32] GHCR pullability: private package detected — deploy will auto-create image pull Secret from gh CLI
-[2026-03-05 14:30:33] IMAGE_REF=ghcr.io/zhujingyang/repo:20260305-143022
+This map applies to **deploy** (DEPLOY mode). For other intents, use the Intent routing table.
 
-[2026-03-05 14:30:34] === Phase 5: Template ===
-[2026-03-05 14:30:35] Output: .sealos/template/index.yaml
-
-[2026-03-05 14:30:36] === Phase 6: Deploy ===
-[2026-03-05 14:30:36] Deploy URL: https://template.gzg.sealos.run/api/v2alpha/templates/raw
-[2026-03-05 14:30:38] Status: 201 — deployed successfully
-[2026-03-05 14:30:38] === DONE ===
-```
-
-**On error**, log the error details before stopping:
-```
-[2026-03-05 14:30:10] === ERROR ===
-[2026-03-05 14:30:10] Phase: 4 (Build & Push)
-[2026-03-05 14:30:10] Error: docker buildx build failed — "npm ERR! Missing script: build"
-[2026-03-05 14:30:10] Retry: 1/3
-```
-
-**At the very end**, tell the user where the log is:
-```
-Log saved to: ~/.sealos/logs/deploy-20260305-143001.log
-```
-
-## Scripts
-
-Located in `scripts/` within this skill directory (`<SKILL_DIR>/scripts/`):
-
-| Script | Usage | Purpose |
-|--------|-------|---------|
-| `workload-eligibility.mjs` | `node workload-eligibility.mjs <repo-dir>` | Read-only fail-closed workload classification; decision is stdout-only |
-| `score-model.mjs` | `node score-model.mjs <repo-dir>` | Deterministic readiness scoring (0-12) |
-| `detect-template.mjs` | `node detect-template.mjs [--github-url <url>] --work-dir <repo-dir> --skill-dir <SKILL_DIR>` | Detect configured GitHub repo → Sealos template fast-path matches |
-| `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
-| `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |
-| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build amd64 image & push to the selected registry (Docker Hub path assumes a public image at deploy time; omitting `--registry` keeps auto-detect behavior) |
-| `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create/update app-scoped GHCR pull Secret and optionally patch an existing Deployment to reference it |
-| `gh-refresh-scopes.mjs` | `node gh-refresh-scopes.mjs write:packages` | Refresh GHCR package access in the current TTY; `write:packages` is sufficient for both push and private pull in this workflow |
-| `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--args-json '{"KEY":"value"}'\|--args-file <file>]` | Resolve the current region, enforce private sensitive-args files on POSIX, post a local template YAML, and emit an allowlisted result with credential values redacted |
-| `sealos-launchpad-network.mjs` | `node sealos-launchpad-network.mjs --app <app> --app-url <url> [--expected-port <port>] [--region <url>] [--kubeconfig <path>]` | Read-only Launchpad public-network discovery check with App URL and Service port matching |
-| `sealos-footprint.mjs` | `node sealos-footprint.mjs --namespace <ns> --app <app>` | Read-only inventory of Instance/App/workloads/Jobs/KubeBlocks/PVCs/ObjectStorageBuckets for deploy debug and cleanup planning |
-| `sealos-live-smoke.mjs` | `node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-method json-token\|cookie-json] [--login-path <path>] [--username <user>] [--password <pass>] [--token-path <path>] [--auth-path <path>] [--missing-api-path <path>] [--missing-page-path <path>]` | Read-only or credentialed HTTP smoke test for the real Sealos App entry URL, authenticated routes, and API/SPA negative probes |
-| `sealos-log-scan.mjs` | `node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300] [--baseline <report.json\|json>] [--min-window-seconds 60]` | Read-only JSON scan of Pod/init/main logs plus Warning Event convergence after readiness, login, and documented API or missing-static-asset checks |
-| `sealos-auth.mjs` | `node sealos-auth.mjs check\|login\|list\|switch` | Sealos Cloud authentication & workspace switching |
-
-All scripts output JSON. Run via Bash and parse the result.
-
-For public web applications, run `sealos-launchpad-network.mjs` before HTTP smoke. Acceptance requires `ok: true`, an open public network, the expected Service port, and an App URL host match. The script emits an allowlisted network summary and excludes raw Launchpad application data, environment variables, Secrets, and kubeconfig content.
-
-Runtime Event acceptance uses two scans. Capture the first report after readiness with no baseline, wait at least 60 seconds, then pass that report through `--baseline` for the final scan. Extend `--min-window-seconds` to cover one full known reconciliation, probe, or scheduled-work period. An initial Warning Event is an observation; a Warning that advances after the baseline, an unresolved referenced Secret, a Ready transition, a Pod replacement, or a restart delta is an active failure.
-
-For intentional fault injection, retain a pre-injection report as evidence. After recovery reaches Ready, capture a fresh recovery baseline and compare the final scan against that recovery baseline after the full stability window.
-
-## Internal Skill Dependencies
-
-This skill references knowledge files from co-installed internal skills. These are **not** user-facing — they are loaded on-demand during specific phases.
-
-`<SKILL_DIR>` refers to the directory containing this `SKILL.md`. Sibling skills are at `<SKILL_DIR>/../`:
-
-```
-<SKILL_DIR>/../
-├── sealos-deploy/           ← this skill (user entry point) = <SKILL_DIR>
-├── dockerfile-skill/        ← Phase 3: Dockerfile generation knowledge
-├── cloud-native-readiness/  ← Phase 0.4 eligibility policy + Phase 1 assessment criteria
-└── docker-to-sealos/       ← Phase 5: Sealos template rules
-```
-
-Paths used in pipeline.md follow the pattern:
-```
-<SKILL_DIR>/../dockerfile-skill/knowledge/error-patterns.md
-<SKILL_DIR>/../dockerfile-skill/templates/<lang>.dockerfile
-<SKILL_DIR>/../docker-to-sealos/references/sealos-specs.md
-```
-
-## Phase Overview
-
-| Phase | Action | Skip When |
+| Phase | Module | Skip when |
 |-------|--------|-----------|
-| 0 — Preflight | Capability scan, path-specific warnings, Sealos auth | Initial blockers resolved |
-| 0.4 — Eligibility | Confirm the repository root is a supported cloud workload | Any non-eligible result → stop |
-| 0.5 — Template Fast Path | Match GitHub repo to a configured Sealos template | No match, or match cannot materialize template YAML |
-| 1 — Assess | Clone repo (or use current project), analyze deployability | Score too low → stop |
-| 2 — Detect | Route an evidence-confirmed source-ready static tree to the pinned Nginx image build; otherwise find an existing image | Existing image → jump to Phase 5 |
-| 3 — Dockerfile | Generate Dockerfile if missing | Already has one → skip |
-| 4 — Build & Push | `docker buildx` → GHCR (auto via gh CLI) or Docker Hub (fallback) | — |
-| 5 — Template | Generate Sealos application template | — |
-| 5.5 — Configure | Guide user through app env vars and inputs | No inputs needed |
-| 6 — Deploy | Deploy template to Sealos Cloud | — |
-| 6.5 — Runtime Truth Pass | Verify Launchpad public networking, the actual Sealos runtime, logs, Event convergence, App URL, login path, object-storage flow, and resource footprint | User explicitly requests deploy-only output |
+| 0 — Preflight | `modules/preflight.md` | Entry blockers are clear |
+| 0.4 — Eligibility | `modules/eligibility.md` | Any non-eligible result → stop |
+| — Artifacts / mode | `modules/artifacts.md`, `modules/mode.md` | UPDATE → `modules/update.md` |
+| 0.5 — Template Fast Path | `modules/template-fast-path.md` | No match, or template YAML cannot materialize |
+| 1 — Assess | `modules/assess.md` | Score too low → stop |
+| 2 — Detect | `modules/detect-image.md` | Existing amd64 image → jump to Phase 5 |
+| 3 — Dockerfile | `modules/dockerfile.md` | Dockerfile already exists → skip |
+| 4 — Build & Push | `modules/build-push.md` | — |
+| 5 — Template | `modules/template.md` | — |
+| 5.5 — Configure | `modules/configure.md` | No inputs needed |
+| 6 — Deploy | `modules/deploy.md` | — |
+| 6.5 — Runtime Truth | `modules/runtime-truth.md` | User asks for deploy-only output |
 
-## Decision Flow
+Load order and UPDATE branching live in `modules/pipeline.md`.
 
 ```
 Input (GitHub URL / local path)
@@ -208,36 +156,78 @@ Input (GitHub URL / local path)
   ├── materialized template match ───────┐
   │                                      │
   ▼                                      │
-[Phase 1] Assess ── not suitable → STOP with reason
-  │ suitable
-  ▼
-[Phase 2] Detect existing image
-  │
-  ├── found (amd64) ────────────────────┐
-  │                                     │
-  ▼                                     │
-[Phase 3] Dockerfile (generate/reuse)   │
-  │                                     │
-  ▼                                     │
-[Phase 4] Build & Push to registry      │
-  │                                     │
-  ◄─────────────────────────────────────┘
-  │
-  ▼
-[Phase 5] Generate Sealos Template
+[Phase 1] Assess ── not suitable → STOP  │
+  │ suitable                             │
+  ▼                                      │
+[Phase 2] Detect existing image          │
+  │                                      │
+  ├── found (amd64) ────────────────────┐│
+  │                                     ││
+  ▼                                     ││
+[Phase 3] Dockerfile                    ││
+  │                                     ││
+  ▼                                     ││
+[Phase 4] Build & Push                  ││
+  │                                     ││
+  ◄─────────────────────────────────────┘│
+  │                                      │
+  ▼                                      │
+[Phase 5] Generate Sealos Template       │
   ◄──────────────────────────────────────┘
   │
   ▼
-[Phase 5.5] Configure ── present env vars → ask user for inputs → confirm
+[Phase 5.5] Configure
   │
   ▼
-[Phase 6] Deploy to Sealos Cloud ── 401 → re-auth
-│                                  409 → instance exists
-▼
-[Phase 6.5] Runtime Truth Pass ── network/runtime/log/login issue → debug template or runtime config
-│
-▼
-Done — app deployed ✓
+[Phase 6] Deploy ── 401 → re-auth / 409 → instance exists
+  │
+  ▼
+[Phase 6.5] Runtime Truth Pass
+  │
+  ▼
+Done
 ```
 
-**Execution rule:** Phase 1 must never start while Phase 0 still has unresolved entry blockers. Docker, `gh`, builder, and registry failures must be reported early, but only become hard blockers if the run later requires local build/push.
+Do not start Phase 1 while Phase 0 still has unresolved entry blockers. Report Docker, `gh`, builder, and registry failures early. Treat them as hard blockers only when the run needs local build or push.
+
+## Composition
+
+- **First deploy**: deploy intent end to end, then Runtime Truth.
+- **Fix a failure**: debug (logs or footprint), then configure or update as needed, then verify.
+- **Delete a test app**: cleanup only, after user confirmation.
+
+Return one response that covers the steps you ran. Do not ask the user to invoke each step as a separate skill call.
+
+## Response format
+
+For operational replies, state:
+
+1. What you did (action and scope).
+2. The result (IDs, status, key output).
+3. What to do next, or that the task is complete.
+
+Keep the reply short. Include command evidence only when it helps the user.
+
+## Pointers
+
+| Path | Contents |
+|------|----------|
+| `modules/preflight.md` | Phase 0 preflight |
+| `modules/pipeline.md` | Deploy/update load-order orchestrator |
+| `modules/eligibility.md` | Phase 0.4 |
+| `modules/artifacts.md` | `.sealos/` layout and schemas |
+| `modules/mode.md` | DEPLOY vs UPDATE, resume |
+| `modules/template-fast-path.md` | Phase 0.5 |
+| `modules/assess.md` | Phase 1 |
+| `modules/detect-image.md` | Phase 2 |
+| `modules/dockerfile.md` | Phase 3 |
+| `modules/build-push.md` | Phase 4 |
+| `modules/template.md` | Phase 5 |
+| `modules/configure.md` | Phase 5.5 |
+| `modules/deploy.md` | Phase 6, state, success output |
+| `modules/update.md` | UPDATE path |
+| `modules/runtime-truth.md` | Phase 6.5 acceptance |
+| `references/logging.md` | Full deploy log examples |
+| `references/scripts.md` | Full script catalog and Event rules |
+| `references/cleanup.md` | Delete order and Instance CR rules |
+| `schemas/` | `.sealos` artifact schemas |

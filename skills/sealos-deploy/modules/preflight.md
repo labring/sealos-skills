@@ -567,4 +567,4 @@ Output rules:
 - If a capability is missing, explain briefly which later path it blocks
 - Prefer one-line project identification plus compact Environment/Auth sections over long prose
 
-Record `ENV` and `PROJECT` for subsequent phases → proceed to `modules/pipeline.md`.
+Record `ENV` and `PROJECT` for subsequent phases. Then load `modules/pipeline.md` and follow its deploy or update chain.

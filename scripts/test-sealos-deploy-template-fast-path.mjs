@@ -93,9 +93,12 @@ test('/sealos-deploy materializes a configured GitHub template fast path', () =>
     assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'analysis.json')), false)
     assert.equal(fs.existsSync(path.join(workDir, '.sealos', 'build')), false)
 
-    const pipeline = fs.readFileSync(path.join(sourceSkillDir, 'modules', 'pipeline.md'), 'utf8')
+    const templateFastPath = fs.readFileSync(
+      path.join(sourceSkillDir, 'modules', 'template-fast-path.md'),
+      'utf8',
+    )
     assert.match(
-      pipeline,
+      templateFastPath,
       /`matched=true` and `materialized=true` → skip Phase 1 through Phase 5/,
     )
   } finally {
