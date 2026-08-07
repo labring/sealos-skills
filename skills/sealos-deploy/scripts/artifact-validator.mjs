@@ -283,9 +283,9 @@ function validateStateSemantics(data, errors) {
   }
 
   try {
-    const host = new URL(lastDeploy.url).hostname
-    if (!host.endsWith(`.${lastDeploy.region}`)) {
-      pushError(errors, '$.last_deploy.url', 'hostname must end with .<region>')
+    const url = new URL(lastDeploy.url)
+    if (url.protocol !== 'https:') {
+      pushError(errors, '$.last_deploy.url', 'must be a valid https URL')
     }
   } catch {
     pushError(errors, '$.last_deploy.url', 'must be a valid https URL')

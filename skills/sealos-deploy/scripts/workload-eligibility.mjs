@@ -4,6 +4,8 @@ import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
+import { inspectSourceReadyStaticSite } from './static-site.mjs'
+
 const IGNORED_DIRECTORIES = new Set([
   '.git',
   '.next',
@@ -387,6 +389,19 @@ function collectRepositorySignals(targetDir, targetPath) {
     : joinRelativePath(targetPath, path.dirname(path.relative(targetDir, hardwareFile)))
 
   const generalCandidates = []
+  const staticSite = inspectSourceReadyStaticSite(targetDir)
+  if (staticSite.eligible) {
+    generalCandidates.push({
+      path: normalizeRelativePath(targetPath),
+      workload_type: 'static_web',
+      reason_code: 'SOURCE_READY_STATIC_SITE',
+      evidence: [
+        ...staticSite.evidence,
+        'No build, container, server-runtime, or sensitive-file signal prevents packaging the asset tree in a static Nginx image',
+      ],
+    })
+  }
+
   const serverEvidence = []
   const goServerFile = findFiles(targetDir, (name) => name.endsWith('.go'), 4)
     .find((filePath) => {
@@ -793,7 +808,7 @@ function classifyProject(targetDir) {
       })
     }
 
-    const reasonCode = {
+    const reasonCode = candidate.reason_code || {
       static_web: 'STATIC_WEB_BUILD',
       web_service: 'SERVER_WORKLOAD',
       worker: 'BACKGROUND_WORKER',

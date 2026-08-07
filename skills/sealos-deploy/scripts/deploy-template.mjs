@@ -9,8 +9,10 @@
  *   node deploy-template.mjs <template-path> --args-json '{"PUBLIC_FLAG":"true"}'
  *
  * Behavior:
- *   - Reads ~/.sealos/auth.json for the current region
- *   - Reads ~/.sealos/kubeconfig and sends it as encodeURIComponent(kubeconfig)
+ *   - Local mode reads ~/.sealos/auth.json and ~/.sealos/kubeconfig
+ *   - Managed mode derives the region from the injected kubeconfig and reads
+ *     deployment arguments only from SEALAI_INPUTS_PATH
+ *   - Sends the selected kubeconfig as encodeURIComponent(kubeconfig)
  *   - Posts the template YAML to:
  *       https://template.<region-domain>/api/v2alpha/templates/raw
  *   - Prints a JSON result to stdout with submitted argument values redacted
@@ -23,6 +25,8 @@ import { basename, join, resolve } from 'path'
 const SEALOS_DIR = join(homedir(), '.sealos')
 const AUTH_PATH = join(SEALOS_DIR, 'auth.json')
 const KUBECONFIG_PATH = join(SEALOS_DIR, 'kubeconfig')
+const MANAGED_MODE = process.env.SEALAI_DEPLOY_MODE === 'managed'
+const MANAGED_INPUTS_PATH = '/run/sealai/deployment/inputs.json'
 
 function fail(message, extra = {}, code = 1) {
   console.error(JSON.stringify({ error: message, ...extra }, null, 2))
@@ -82,6 +86,10 @@ function parseArgs(argv) {
     fail('Use only one of --args-json or --args-file')
   }
 
+  if (MANAGED_MODE && argsJson) {
+    fail('Managed deployment arguments must be read from the fixed private input file')
+  }
+
   return {
     templatePath: resolve(process.cwd(), templatePath),
     dryRun,
@@ -114,8 +122,8 @@ function loadJson(filePath, label) {
 
   try {
     return JSON.parse(readFileSync(filePath, 'utf8'))
-  } catch (error) {
-    fail(`Failed to parse ${label}`, { path: filePath, details: error.message })
+  } catch {
+    fail(`Failed to parse ${label}`, { path: filePath })
   }
 }
 
@@ -138,6 +146,24 @@ function normalizeRegion(region) {
     regionDomain: url.host,
     deployUrl: `https://template.${url.host}/api/v2alpha/templates/raw`,
   }
+}
+
+function resolveManagedRegion(kubeconfig) {
+  const match = String(kubeconfig).match(/^\s*server:\s*["']?([^"'\s]+)["']?\s*$/m)
+  if (!match) {
+    fail('Managed kubeconfig does not contain a cluster API server.')
+  }
+
+  let server
+  try {
+    server = new URL(match[1])
+  } catch {
+    fail('Managed kubeconfig contains an invalid cluster API server.')
+  }
+  if (!server.hostname) {
+    fail('Managed kubeconfig API server does not contain a hostname.')
+  }
+  return normalizeRegion(`${server.protocol}//${server.hostname}`)
 }
 
 function loadTemplate(templatePath) {
@@ -193,10 +219,27 @@ function loadDeployArgs({ argsJson, argsFile }) {
       fail('Failed to parse args file', { path: argsFile })
     }
 
+    if (MANAGED_MODE && resolve(argsFile) !== MANAGED_INPUTS_PATH) {
+      fail(`Managed deployment must read ${MANAGED_INPUTS_PATH}`, { path: resolve(argsFile) })
+    }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       fail('Args file must contain a JSON object', { path: argsFile })
     }
     return parsed
+  }
+
+  if (MANAGED_MODE) {
+    const inputPath = process.env.SEALAI_INPUTS_PATH
+    if (inputPath !== MANAGED_INPUTS_PATH) {
+      fail(`Managed deployment must use ${MANAGED_INPUTS_PATH}`, { path: inputPath || null })
+    }
+    if (existsSync(MANAGED_INPUTS_PATH)) {
+      const parsed = loadJson(MANAGED_INPUTS_PATH, 'managed input file')
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        fail('Managed input file must contain a JSON object', { path: MANAGED_INPUTS_PATH })
+      }
+      return parsed
+    }
   }
 
   return {}
@@ -309,11 +352,16 @@ function createResponseSanitizer(args) {
   return sanitize
 }
 
+function managedKubeconfigPath() {
+  return process.env.SEALAI_KUBECONFIG_PATH || process.env.KUBECONFIG || KUBECONFIG_PATH
+}
+
 function loadKubeconfig() {
-  if (!existsSync(KUBECONFIG_PATH)) {
-    fail('Kubeconfig not found', { path: KUBECONFIG_PATH })
+  const kubeconfigPath = MANAGED_MODE ? managedKubeconfigPath() : KUBECONFIG_PATH
+  if (!existsSync(kubeconfigPath)) {
+    fail('Kubeconfig not found', { path: kubeconfigPath })
   }
-  return readFileSync(KUBECONFIG_PATH, 'utf8')
+  return readFileSync(kubeconfigPath, 'utf8')
 }
 
 async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun }) {
@@ -347,11 +395,12 @@ async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun }) {
 }
 
 const input = parseArgs(process.argv)
-const auth = loadJson(AUTH_PATH, 'auth file')
-const { region, regionDomain, deployUrl } = normalizeRegion(auth.region)
 const yaml = loadTemplate(input.templatePath)
 const deployArgs = loadDeployArgs(input)
 const kubeconfig = loadKubeconfig()
+const { region, regionDomain, deployUrl } = MANAGED_MODE
+  ? resolveManagedRegion(kubeconfig)
+  : normalizeRegion(loadJson(AUTH_PATH, 'auth file').region)
 const argsSupplied = Object.keys(deployArgs).length
 const sanitizeResponse = createResponseSanitizer(deployArgs)
 
@@ -390,6 +439,6 @@ try {
     deploy_url: deployUrl,
     template_path: input.templatePath,
     args_supplied: argsSupplied,
-    details: 'Request details omitted.',
+    details: Object.keys(deployArgs).length > 0 ? 'Request details omitted.' : error.message,
   })
 }

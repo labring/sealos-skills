@@ -2,6 +2,23 @@
 
 Detect the user's environment, record what's available, guide them to fix what's missing.
 
+## Managed-mode gate
+
+Run this gate before the normal local preflight when `SEALAI_DEPLOY_MODE=managed`:
+
+```bash
+node "<SKILL_DIR>/scripts/managed-adapter.mjs" context
+```
+
+The command must succeed with the exact Brain contract. In particular, `SEALAI_INPUTS_PATH` must be `/run/sealai/deployment/inputs.json`; do not substitute a workspace path or create a second input artifact. The active kubeconfig and namespace are supplied by Brain, so managed mode skips OAuth, region/workspace selection, confirmation prompts, and system-tool installation. Use `SEALAI_NAMESPACE` as the target namespace and keep `SEALAI_TURN_DEADLINE_AT` as the hard deadline.
+
+The Codex runtime must expose both task-scoped MCP tools before the first managed action:
+
+- `template_ready({ sha256 })`
+- `deployment_completed({ workloads: [{ apiVersion, kind, name, namespace }] })`
+
+Tool availability is a hard prerequisite, not a best-effort feature. If either exact tool is missing, unavailable, unauthorized, or returns an unusable protocol response, stop managed mode with a fatal error. Do not emulate the call with `control.json`, a report file, an HTTP request, or a Brain-side Kubernetes mutation. Local mode does not run this gate and keeps the existing preflight behavior below.
+
 **Hard rule:** Every run must start with a preflight capability scan before touching the project.
 That means:
 - Detect tool availability first

@@ -391,3 +391,53 @@ test('allowlists response diagnostics and drops resolved defaults when no argume
     assert.equal(request.body.dryRun, true)
   })
 })
+
+test('managed mode derives the Template API region from the injected kubeconfig and does not require local auth', () => {
+  withFixture((fixture) => {
+    writeFileSync(
+      join(fixture.homeDir, 'managed-kubeconfig'),
+      'apiVersion: v1\nclusters:\n- cluster:\n    server: https://managed.sealos.io:6443\n',
+    )
+    const result = runDeploy(fixture, [], {
+      SEALAI_DEPLOY_MODE: 'managed',
+      SEALAI_DEPLOY_TASK_ID: 'task-123',
+      SEALAI_INPUTS_PATH: '/run/sealai/deployment/inputs.json',
+      SEALAI_KUBECONFIG_PATH: join(fixture.homeDir, 'managed-kubeconfig'),
+      SEALOS_DEPLOY_TEST_RESPONSE: JSON.stringify({ ok: true, name: 'demo' }),
+    })
+
+    assert.equal(result.status, 0, result.stderr || result.stdout)
+    const output = JSON.parse(result.stdout)
+    assert.equal(output.region_domain, 'managed.sealos.io')
+    assert.equal(output.args_supplied, 0)
+    const request = JSON.parse(readFileSync(fixture.capturePath, 'utf8'))
+    assert.equal(request.url, 'https://template.managed.sealos.io/api/v2alpha/templates/raw')
+    assert.deepEqual(request.body.args, {})
+  })
+})
+
+test('managed mode rejects a non-fixed input path before making a request', () => {
+  withFixture((fixture) => {
+    const result = runDeploy(fixture, [], {
+      SEALAI_DEPLOY_MODE: 'managed',
+      SEALAI_INPUTS_PATH: '/tmp/inputs.json',
+      SEALAI_KUBECONFIG_PATH: join(fixture.homeDir, '.sealos', 'kubeconfig'),
+    })
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /must use \/run\/sealai\/deployment\/inputs\.json/)
+    assert.equal(existsSync(fixture.capturePath), false)
+  })
+})
+
+test('managed mode rejects inline deployment arguments', () => {
+  withFixture((fixture) => {
+    const result = runDeploy(fixture, ['--args-json', '{"TOKEN":"must-not-be-used"}'], {
+      SEALAI_DEPLOY_MODE: 'managed',
+      SEALAI_INPUTS_PATH: '/run/sealai/deployment/inputs.json',
+      SEALAI_KUBECONFIG_PATH: join(fixture.homeDir, '.sealos', 'kubeconfig'),
+    })
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /fixed private input file/)
+    assert.equal(existsSync(fixture.capturePath), false)
+  })
+})

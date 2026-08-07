@@ -76,20 +76,19 @@ detection:
 
 decision:
   if_local_gh_cli_is_available:
-    require: "create or refresh the namespace image pull Secret automatically before deploy/update"
+    require: "for a fresh deploy, deploy first and immediately create the namespace image pull Secret with the real returned instance name; for an update, refresh the known same-named Secret before changing the image"
   else:
     fallback: "package must be public, or the operator must provide registry pull credentials another way"
   skip_when:
     - "Phase 2 reused an existing public image"
 
 verification:
-  visibility_check: "gh api /user/packages/container/<repo> -q .visibility"
-  anonymous_pull_check: "GET ghcr token, then HEAD/GET manifest from ghcr.io/v2/.../manifests/<tag>"
+  local_build_rule: "treat a newly pushed GHCR image as private and require the pull Secret without probing visibility or anonymous access"
 
 fixes:
-  preferred: "create/update the app-scoped imagePullSecret from gh auth token during deploy"
-  fallback_1: "make the GHCR package public"
-  fallback_2: "push to Docker Hub instead"
+  required: "create/update the app-scoped imagePullSecret from gh auth token; after a fresh deploy, rely on kubelet pull retries instead of recreating the Pod"
+  forbidden: "do not attempt REST, GraphQL, package settings, or other visibility mutations to make the package public"
+  alternate_registry: "push to Docker Hub only when the user selected that public-image flow"
 ```
 
 ### Public URL Misconfiguration (Prevents Runtime API Failures)
