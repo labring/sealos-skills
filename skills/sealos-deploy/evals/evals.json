@@ -278,7 +278,8 @@
         {"name": "satisfies-input-contracts", "description": "Generated placeholders satisfy declared type, enum, pattern, format, length, and numeric bounds"},
         {"name": "records-placeholder-provenance", "description": "Records generated input names and sandbox-placeholder provenance separately from secret argument values"},
         {"name": "protects-generated-secrets", "description": "Keeps generated password, token, and key values out of logs and user-facing output"},
-        {"name": "requires-dry-run", "description": "Stops with a precise blocker unless the exact template and generated args pass Template API dry-run"}
+        {"name": "requires-dry-run", "description": "Stops with a precise blocker unless the exact template and generated args pass Template API dry-run"},
+        {"name": "forwards-platform-task-labels", "description": "Sends platform-supplied SEALAI_DEPLOY_LABELS_JSON as Template API extraLabels without fabricating or overriding them"}
       ]
     }
   ]
