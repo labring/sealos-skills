@@ -1,6 +1,6 @@
 {
   "name": "sealos",
-  "version": "1.2.5",
+  "version": "1.9.0",
   "repository": "https://github.com/labring/sealos-skills",
   "lastUpdated": "2026-08-07",
   "platforms": [
@@ -33,7 +33,7 @@
       "name": "Qoder",
       "claim": "install-target",
       "runtime": "plugin",
-      "install": "Run python3 scripts/package-qoder-plugin.py, then import dist/sealos-1.2.5.zip in Qoder",
+      "install": "Run python3 scripts/package-qoder-plugin.py, then import dist/sealos-1.9.0.zip in Qoder",
       "invoke": "/sealos or ask Qoder to use a specific Sealos skill",
       "commands": "supported",
       "evidence": ".qoder-plugin/plugin.json + qoder.md + commands/sealos.md + root skills/** + local package validation",
