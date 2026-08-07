@@ -100,7 +100,9 @@ Full examples live in `references/logging.md`.
 Scripts live in `<SKILL_DIR>/scripts/`. They print JSON. Run them with Bash, then parse stdout.
 
 ```bash
-node "<SKILL_DIR>/scripts/sealos-auth.mjs" check
+node "<SKILL_DIR>/scripts/phase-0/check-running-environment.mjs"
+node "<SKILL_DIR>/scripts/validate-phase-0.mjs" --dir "$WORK_DIR"
+npx -y sealos-cli@latest whoami
 node "<SKILL_DIR>/scripts/workload-eligibility.mjs" "$WORK_DIR"
 node "<SKILL_DIR>/scripts/detect-image.mjs" "$WORK_DIR"
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO"

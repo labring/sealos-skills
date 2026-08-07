@@ -10,7 +10,7 @@ If no `last_deploy` key or file doesn't exist → proceed to **Step 1.5** (attem
 
 ### Step 1.5: Discover existing deployment from cluster (migration)
 
-Projects deployed by an older version of the skill may have no `last_deploy` section in state.json (or no state.json at all). If `ENV.kubectl` is true and `~/.sealos/kubeconfig` exists, attempt to discover an existing deployment by project name:
+Projects deployed by an older version of the skill may have no `last_deploy` section in state.json (or no state.json at all). If `kubectl` is available and `~/.sealos/kubeconfig` exists, attempt to discover an existing deployment by project name:
 
 ```bash
 # Derive the namespace from the sealos kubeconfig
@@ -52,11 +52,11 @@ Found an existing deployment that appears to match this project:
 
 ### Step 2: Verify deployment is still running (requires kubectl)
 
-If `ENV.kubectl` is false:
+If `kubectl` is unavailable:
 - Inform user: `"Found previous deployment record for {app_name}, but kubectl is not available. Will create a new instance instead."`
 - → **DEPLOY mode**
 
-If `ENV.kubectl` is true, query the cluster:
+If `kubectl` is available, query the cluster:
 ```bash
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   get deployment/<app_name> -n <namespace> \
@@ -94,15 +94,17 @@ Default: Update
 | Condition | Meaning | Behavior |
 |-----------|---------|----------|
 | `.sealos/state.json` has `last_deploy` | Already deployed | Enter UPDATE mode (handled above) |
-| `.sealos/analysis.json` exists | Phase 1 completed | Ask user: skip assessment? |
-| `Dockerfile` exists | Phase 3 completed | Skip Dockerfile generation |
-| `.sealos/build/build-result.json` exists and `outcome: "success"` | Phase 4 completed | Ask user: skip rebuild? |
-| `.sealos/template/index.yaml` exists | Phase 5 completed | Ask user: skip template generation? |
+| `.sealos/analysis.json` has Phase 1 fields (for example `language` or `official_template`) | Phase 1 completed | Ask user: skip assessment? |
+| `Dockerfile` exists | Phase 2 Dockerfile prep may be done | Skip Dockerfile generation when appropriate |
+| `.sealos/build/build-result.json` exists and `outcome: "success"` | Phase 3 completed | Ask user: skip rebuild? |
+| `.sealos/template/index.yaml` exists | Phase 4 completed | Ask user: skip template generation? |
 
-If any artifacts exist, report to user:
+Do **not** treat a Phase 0-only `analysis.json` (only `runtime_profile`, `work_dir`, `repo_name`, `github_url`) as Phase 1 complete.
+
+If any later-phase artifacts exist, report to user:
 `"Found artifacts from a previous deploy attempt. [list found artifacts]."`
 Ask: `"Resume from where it left off? Or restart from Phase 1?"`
 
-If restart → remove `.sealos/analysis.json`, `.sealos/build/`, `.sealos/template/index.yaml` and start fresh.
+If restart → remove Phase 1+ fields by resetting to a fresh Phase 0 `analysis.json` (or delete it and re-run Phase 0), and remove `.sealos/build/`, `.sealos/template/index.yaml`, and `.sealos/template-match.json`.
 
 ---

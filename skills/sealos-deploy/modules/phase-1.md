@@ -159,10 +159,11 @@ For edge review only, you can read:
 
 ## Write analysis.json
 
-After Phase 1 completes, write `.sealos/analysis.json`:
+After Phase 1 completes, replace the Phase 0 four-field file with the full analysis snapshot. Keep `runtime_profile` from Phase 0.
 
 ```json
 {
+  "runtime_profile": "<local|sandbox from Phase 0>",
   "generated_at": "<ISO timestamp>",
   "project": {
     "github_url": "<GITHUB_URL>",

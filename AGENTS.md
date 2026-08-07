@@ -92,7 +92,7 @@ The skill tracks state in `.sealos/state.json` (deployment state), `.sealos/anal
 - `skills/sealos-deploy/SKILL.md` — primary entry point for the deploy workflow
 - `skills/sealos-database/SKILL.md` — primary entry point for cloud database development workflow
 - `skills/sealos-s3/SKILL.md` — primary entry point for S3-compatible object storage workflow
-- `skills/sealos-deploy/config.json` — OAuth client_id, regional Sealos URLs
+- `skills/sealos-deploy/config.json` — regional Sealos URLs and template fast-path config
 - `skills/sealos-deploy/scripts/` — auth, signal detection, and helper automation scripts
 - `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
 - `skills/sealos-canvas/SKILL.md` — read-only resource canvas workflow

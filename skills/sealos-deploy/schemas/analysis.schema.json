@@ -5,6 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "runtime_profile",
     "generated_at",
     "project",
     "language",
@@ -20,6 +21,10 @@
     "image_ref"
   ],
   "properties": {
+    "runtime_profile": {
+      "type": "string",
+      "enum": ["local", "sandbox"]
+    },
     "generated_at": {
       "type": "string",
       "format": "date-time"
