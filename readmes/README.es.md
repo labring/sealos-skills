@@ -8,13 +8,21 @@
 
 Despliega proyectos en [Sealos Cloud](https://sealos.io) desde tu agente de IA.
 
-Sealos Skills es un paquete de habilidades centrado en plugins para el desarrollo y el despliegue en Sealos Cloud. Ayuda a un agente de IA a inspeccionar un proyecto, preparar los artefactos de despliegue que falten, conectar bases de datos y almacenamiento de objetos de Sealos Cloud para el desarrollo, crear o reutilizar una imagen de contenedor, publicar la aplicación en Sealos Cloud y consultar los recursos desplegados en un lienzo local de solo lectura.
+Sealos Skills es un paquete de habilidades centrado en plugins para el desarrollo y el despliegue en Sealos Cloud. Ayuda a un agente de IA a inspeccionar un proyecto y preparar los artefactos de despliegue que falten. Conecta bases de datos y almacenamiento de objetos de Sealos Cloud para el desarrollo. Crea o reutiliza una imagen de contenedor, despliega la aplicación en Sealos Cloud y muestra los recursos desplegados en un lienzo local de solo lectura.
 
-La opción recomendada para Codex es instalar el plugin nativo de Codex. Las instalaciones de plugins entre distintos hosts, `skills.sh` y los hosts de extensiones que solo aportan contexto, como Gemini CLI y Qwen Code, usan la misma fuente raíz `skills/**`.
+Un único comando `npx plugins add` instala el plugin en todas las herramientas de agente detectadas. Las instalaciones nativas desde el marketplace de Codex y Claude Code usan la misma fuente raíz `skills/**`. `skills.sh` y los hosts de extensiones que solo aportan contexto, como Gemini CLI y Qwen Code, también la usan.
 
 ## Inicio rápido
 
-### Recomendado: instalar en Codex
+### TLDR
+
+```bash
+npx plugins add https://github.com/labring/sealos-skills
+```
+
+Un solo comando instala el plugin de Sealos en todas las herramientas de agente detectadas: Claude Code, Cursor, Codex, Grok Build, Kimi Code, GitHub Copilot CLI y VS Code. Ejecuta `npx plugins targets` para listar las herramientas detectadas, o pasa `--target <tool>` para instalar solo en una.
+
+### Instalar de forma nativa en Codex
 
 Añade este repositorio como Codex marketplace y después instala el plugin de Sealos:
 
@@ -23,18 +31,12 @@ codex plugin marketplace add labring/sealos-skills
 codex plugin add sealos@sealos
 ```
 
-Un único plugin de Sealos instala desde la raíz `skills/**` las habilidades de despliegue, base de datos, S3, lienzo, creación de aplicaciones y soporte cloud native: `sealos-deploy`, `sealos-database`, `sealos-s3`, `sealos-canvas`, `sealos-app-builder`, `cloud-native-readiness`, `dockerfile-skill` y `docker-to-sealos`.
-
-Para mantener la compatibilidad y hacer pruebas locales con Codex, instala el mismo plugin con:
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills --target codex
-```
+El plugin instala las ocho habilidades desde el directorio raíz `skills/**`. Consulta **Habilidades incluidas** más abajo para ver qué hace cada una.
 
 Después de instalarlo en Codex, usa el plugin desde Codex:
 
 - **Codex CLI:** escribe `$sealos`
-- **Codex App:** haz clic en el botón **+** de la esquina inferior izquierda del cuadro de chat, elige **Plugins** y después **Sealos**
+- **Codex App:** haz clic en el botón **+** de la esquina inferior izquierda del cuadro de chat y elige **Plugins** → **Sealos**
 
 ![Seleccionar el plugin de Sealos en Codex App](../assets/codex-sealos.png)
 
@@ -48,25 +50,13 @@ $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
 
-### Instalar en Claude Code
+### Instalar de forma nativa en Claude Code
 
 Añade este repositorio como Claude Code marketplace y después instala el plugin de Sealos:
 
 ```bash
 claude plugin marketplace add labring/sealos-skills
 claude plugin install sealos@sealos
-```
-
-Para mantener la compatibilidad con instaladores de plugins entre distintos hosts, instala el mismo plugin con:
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills --target claude-code
-```
-
-Si solo utilizas una herramienta de agente detectada en el equipo, puedes dejar que `plugins` elija el destino:
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills
 ```
 
 Después de instalarlo en Claude Code, usa `/sealos`:
@@ -79,18 +69,18 @@ Después de instalarlo en Claude Code, usa `/sealos`:
 /sealos create private S3 object storage for uploads and wire env vars
 ```
 
-### Otras herramientas de IA compatibles
+### Herramientas de IA compatibles
 
 | Herramienta | Instalación | Uso |
 | --- | --- | --- |
-| Codex CLI / Codex App | `codex plugin marketplace add labring/sealos-skills` y después `codex plugin add sealos@sealos` | `$sealos` en Codex CLI, o **+** → **Plugins** → **Sealos** en Codex App |
-| Claude Code | `claude plugin marketplace add labring/sealos-skills` y después `claude plugin install sealos@sealos` | `/sealos` |
-| Ruta de compatibilidad de Claude Code | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
+| Codex CLI / Codex App | `npx plugins add https://github.com/labring/sealos-skills --target codex`, o consulta **Instalar de forma nativa en Codex** más arriba | `$sealos` en Codex CLI, o **+** → **Plugins** → **Sealos** en Codex App |
+| Claude Code | `npx plugins add https://github.com/labring/sealos-skills --target claude-code`, o consulta **Instalar de forma nativa en Claude Code** más arriba | `/sealos` |
+| Cursor / Grok Build / Kimi Code / Copilot CLI / VS Code | `npx plugins add https://github.com/labring/sealos-skills` | Punto de entrada de comandos del host tras la instalación |
 | OpenClaw / ClawHub | `clawhub install labring/sealos-skills` | La exposición de comandos del host depende del entorno de ejecución de ClawHub |
 | CodeBuddy | `/plugin marketplace add labring/sealos-skills` | La exposición de comandos del host depende del entorno de ejecución de CodeBuddy |
 | Gemini CLI | `gemini extensions install https://github.com/labring/sealos-skills` | Extensión solo de contexto; pide a Gemini que use Sealos Skills |
 | Qwen Code | `qwen extensions install https://github.com/labring/sealos-skills` | Extensión solo de contexto; pide a Qwen que use Sealos Skills |
-| Amp / Kimi / importadores genéricos de repositorios | Importa `https://github.com/labring/sealos-skills.git` | Depende del host |
+| Amp / importadores genéricos de repositorios | Importa `https://github.com/labring/sealos-skills.git` | Depende del host |
 
 Los manifiestos de Gemini CLI y Qwen Code proporcionan contexto del repositorio mediante `CLAUDE.md`; no declaran compatibilidad con comandos de barra.
 
@@ -112,57 +102,9 @@ Después ejecuta directamente la habilidad de despliegue:
 /sealos-s3 create private object storage for uploads and wire env vars
 ```
 
-Después de desplegar un proyecto, usa la habilidad `sealos-canvas` mediante el punto de entrada del plugin instalado.
+Si el proyecto ya está desplegado, usa la habilidad `sealos-canvas` mediante el punto de entrada del plugin instalado.
 
-`/sealos-deploy`, `/sealos-database` y `/sealos-s3` son entradas directas de habilidades de `skills.sh`. Para usar el plugin, utiliza `$sealos` en Codex o `/sealos` en Claude Code.
-
-## Por qué usar el plugin
-
-La instalación mediante plugin es la opción recomendada para Codex y Claude Code porque:
-
-- instala todas las habilidades de Sealos como un único paquete administrado
-- ofrece las mismas habilidades en todas las herramientas de agentes compatibles
-- mantiene juntos los metadatos, el logotipo, los prompts, los comandos y las capacidades del plugin
-- evita mantener una copia empaquetada independiente de las habilidades
-
-## Distribución del plugin
-
-La integración con Codex sigue la [guía de OpenAI para crear plugins de Codex](https://developers.openai.com/codex/plugins/build):
-
-- `.codex-plugin/plugin.json` contiene la identidad del plugin, los metadatos de descubrimiento, los textos de la interfaz, los prompts predeterminados, los metadatos de marca y las rutas de recursos relativas a la raíz del repositorio.
-- `.agents/plugins/marketplace.json` registra el plugin local de este repositorio para las pruebas locales de Codex marketplace.
-- `.claude-plugin/plugin.json` y `.claude-plugin/marketplace.json` definen la interfaz del plugin compatible con Claude Code.
-- `distribution/platforms.json` registra las declaraciones de compatibilidad con plataformas y sus evidencias.
-- `marketplaces/README.md` mantiene las reglas del marketplace y evita exagerar la compatibilidad con comandos.
-- `scripts/validate-codex-plugin.py` valida el manifiesto de Codex, los metadatos de Claude Code, los marketplaces del repositorio, el registro de plataformas y las rutas de recursos.
-- `skills/**/SKILL.md` continúa siendo la única fuente de habilidades; no añadas una segunda copia empaquetada.
-
-Valida los metadatos del plugin antes de publicar o enviar cambios en los manifiestos:
-
-```bash
-python3 scripts/validate-codex-plugin.py
-python3 -m json.tool .codex-plugin/plugin.json >/dev/null
-python3 -m json.tool plugin.json >/dev/null
-python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
-python3 -m json.tool marketplace.json >/dev/null
-python3 -m json.tool .claude-plugin/plugin.json >/dev/null
-python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
-python3 -m json.tool distribution/platforms.json >/dev/null
-```
-
-## Cómo funciona la configuración
-
-Solo necesitas un agente de IA compatible con plugins o con `skills.sh` y un proyecto que quieras desplegar.
-
-Durante los flujos de despliegue, base de datos y almacenamiento de objetos, Sealos Skills:
-
-- comprueba si están disponibles herramientas como Docker y `kubectl`
-- guía al usuario durante el inicio de sesión en Sealos cuando sea necesario
-- usa `sealos-cli` para crear bases de datos de Sealos Cloud, obtener los datos de conexión y realizar operaciones de base de datos
-- usa `sealos-cli s3` para gestionar buckets de almacenamiento de objetos de Sealos, credenciales, comprobaciones de cuota, operaciones con objetos y URL prefirmadas
-- usa o ayuda a preparar una ruta de registro de contenedores como Docker Hub o GHCR
-
-Un despliegue real requiere una cuenta de Sealos Cloud y acceso a un registro de contenedores, aunque no es necesario configurarlos por completo antes de iniciar la habilidad. El trabajo con bases de datos y almacenamiento de objetos requiere una cuenta de Sealos Cloud y un espacio de trabajo que pueda crear los recursos solicitados.
+`/sealos-deploy`, `/sealos-database` y `/sealos-s3` son entradas directas de habilidades de `skills.sh`. Para usar el plugin, debes usar `$sealos` en Codex o `/sealos` en Claude Code.
 
 ## Qué gestiona Sealos Deploy
 
@@ -172,9 +114,9 @@ En un despliegue habitual, el agente:
 - reutiliza una imagen existente o crea una cuando sea necesario
 - genera una plantilla de Sealos
 - despliega y verifica el rollout
-- verifica la URL real de Sealos App, los registros, el flujo de inicio de sesión o configuración de las aplicaciones web y todo el conjunto de recursos antes de declarar que la aplicación está disponible
+- verifica la URL real de Sealos App, los registros, el flujo de inicio de sesión o configuración de las aplicaciones web y el conjunto de recursos antes de declarar que la aplicación está disponible
 
-Las ejecuciones posteriores pueden cambiar a un flujo de actualización in situ cuando se detecta un despliegue existente.
+Cuando ya existe un despliegue, las ejecuciones posteriores cambian a un flujo de actualización in situ.
 
 ## Qué gestiona Sealos Database
 
@@ -194,7 +136,7 @@ Para un proyecto local o un Devbox que necesita almacenamiento de objetos compat
 - usa `sealos-cli s3` de `zjy365/sealos-cli#28` para listar, crear, inspeccionar y actualizar buckets de almacenamiento de objetos
 - inicializa las credenciales de S3 solo cuando son necesarias y mantiene las claves de acceso fuera del chat
 - configura el conjunto mínimo de claves de entorno locales para el bucket, el endpoint, la clave de acceso, la clave secreta, la región y el estilo de ruta
-- verifica la carga, el listado, la descarga, la eliminación o las URL prefirmadas mediante la ruta real de almacenamiento del proyecto
+- verifica la carga, el listado, la descarga, la eliminación o el comportamiento de las URL prefirmadas mediante la ruta real de almacenamiento del proyecto
 - hace públicos los buckets o rota las credenciales solo después de recibir confirmación
 
 ## Qué gestiona Sealos Canvas
@@ -206,7 +148,21 @@ Para un repositorio ya desplegado mediante Sealos Deploy, el agente:
 3. Inicia una interfaz de lienzo temporal en `127.0.0.1`.
 4. Muestra y abre la dirección de la interfaz local para inspeccionarla.
 
-Si el proyecto todavía no se ha desplegado, Sealos Canvas se detiene e indica al usuario que despliegue primero el proyecto.
+Si el proyecto no está desplegado, Sealos Canvas se detiene e indica al usuario que despliegue primero el proyecto.
+
+## Cómo funciona la configuración
+
+Solo necesitas un agente de IA compatible con plugins o con `skills.sh` y un proyecto que desplegar.
+
+Durante los flujos de despliegue, base de datos y almacenamiento de objetos, Sealos Skills:
+
+- comprueba si están disponibles herramientas como Docker y `kubectl`
+- guía al usuario durante el inicio de sesión en Sealos cuando sea necesario
+- usa `sealos-cli` para crear bases de datos de Sealos Cloud, obtener los datos de conexión y realizar operaciones de base de datos
+- usa `sealos-cli s3` para gestionar buckets de almacenamiento de objetos de Sealos, credenciales, comprobaciones de cuota, operaciones con objetos y URL prefirmadas
+- usa o ayuda a preparar una ruta de registro de contenedores como Docker Hub o GHCR
+
+Un despliegue real requiere una cuenta de Sealos Cloud y acceso a un registro de contenedores. La habilidad puede guiarte durante esta configuración una vez iniciada. El trabajo con bases de datos y almacenamiento de objetos requiere una cuenta de Sealos Cloud y un espacio de trabajo que pueda crear los recursos solicitados.
 
 ## Habilidades incluidas
 
@@ -221,7 +177,49 @@ El plugin y el paquete de `skills.sh` ofrecen la misma fuente de habilidades:
 - `dockerfile-skill` — genera Dockerfile preparados para producción
 - `docker-to-sealos` — convierte servicios de Docker Compose en plantillas de Sealos
 
-## Repositorio
+## Por qué usar el plugin
+
+La instalación mediante plugin es la opción preferida para Codex, Claude Code y el resto de herramientas de agente compatibles porque:
+
+- instala todas las habilidades de Sealos como un único paquete administrado
+- ofrece las mismas habilidades en todas las herramientas de agentes compatibles
+- mantiene juntos los metadatos, el logotipo, los prompts, los comandos y las capacidades del plugin
+- evita mantener una copia empaquetada independiente de las habilidades
+
+## Mantenimiento de este repositorio
+
+Las secciones siguientes están dirigidas a los mantenedores del repositorio y a quienes publican el plugin. Los usuarios no las necesitan.
+
+### Distribución del plugin
+
+La integración con Codex sigue la [guía de OpenAI para crear plugins de Codex](https://developers.openai.com/codex/plugins/build):
+
+- `.codex-plugin/plugin.json` contiene la identidad del plugin, los metadatos de descubrimiento, los textos de la interfaz, los prompts predeterminados, los metadatos de marca y las rutas de recursos relativas a la raíz del repositorio.
+- `.agents/plugins/marketplace.json` registra el plugin local de este repositorio para las pruebas locales de Codex marketplace.
+- `.claude-plugin/plugin.json` y `.claude-plugin/marketplace.json` definen la interfaz del plugin compatible con Claude Code.
+- `.qoder-plugin/plugin.json` define la interfaz del plugin de Qoder y expone explícitamente las ocho habilidades de Codex.
+- `qoder.md` proporciona instrucciones de enrutamiento y seguridad a nivel de Qoder sin copiar las implementaciones de las habilidades.
+- `distribution/platforms.json` registra las declaraciones de compatibilidad con plataformas y sus evidencias.
+- `marketplaces/README.md` mantiene las reglas del marketplace y evita exagerar la compatibilidad con comandos.
+- `scripts/validate-codex-plugin.py` valida el manifiesto de Codex, los metadatos de Claude Code, los marketplaces del repositorio, el registro de plataformas y las rutas de recursos.
+- `scripts/package-qoder-plugin.py` genera un ZIP compatible con Qoder con el manifiesto del plugin en la raíz del archivo.
+- `skills/**/SKILL.md` continúa siendo la única fuente de habilidades; no añadas una segunda copia empaquetada de las habilidades.
+
+Valida los metadatos del plugin antes de publicar o enviar cambios en los manifiestos:
+
+```bash
+python3 scripts/validate-codex-plugin.py
+python3 -m json.tool .codex-plugin/plugin.json >/dev/null
+python3 -m json.tool plugin.json >/dev/null
+python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
+python3 -m json.tool marketplace.json >/dev/null
+python3 -m json.tool .claude-plugin/plugin.json >/dev/null
+python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
+python3 -m json.tool .qoder-plugin/plugin.json >/dev/null
+python3 -m json.tool distribution/platforms.json >/dev/null
+```
+
+### Estructura del repositorio
 
 [`skills/`](../skills) es la única fuente de verdad para el despliegue de Sealos, el lienzo de Sealos y las habilidades auxiliares que se usan durante el flujo de despliegue. El mismo directorio raíz de habilidades sirve para las instalaciones de `skills.sh` y para todos los manifiestos de plugins o extensiones de este repositorio.
 
@@ -230,6 +228,8 @@ Archivos de distribución importantes:
 - [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json) — manifiesto del plugin de Codex
 - [`.agents/plugins/marketplace.json`](../.agents/plugins/marketplace.json) — entrada local de Codex marketplace
 - [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) — manifiesto del plugin compatible con Claude Code
+- [`.qoder-plugin/plugin.json`](../.qoder-plugin/plugin.json) — manifiesto del plugin de Qoder
+- [`qoder.md`](../qoder.md) — instrucciones de enrutamiento y seguridad del plugin de Qoder
 - [`marketplace.json`](../marketplace.json) y [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) — entradas de marketplace compatibles con Claude
 - [`.codebuddy-plugin/marketplace.json`](../.codebuddy-plugin/marketplace.json) — entrada de CodeBuddy marketplace
 - [`gemini-extension.json`](../gemini-extension.json) — extensión de contexto de Gemini CLI
@@ -239,6 +239,7 @@ Archivos de distribución importantes:
 - [`distribution/platforms.json`](../distribution/platforms.json) — registro de compatibilidad con plataformas
 - [`marketplaces/README.md`](../marketplaces/README.md) — reglas del marketplace y titularidad de las declaraciones de compatibilidad
 - [`scripts/validate-codex-plugin.py`](../scripts/validate-codex-plugin.py) — script de validación del plugin de Codex
+- [`scripts/package-qoder-plugin.py`](../scripts/package-qoder-plugin.py) — empaquetador ZIP de Qoder
 
 No añadas una segunda copia empaquetada de las habilidades. La raíz `skills/**` es la única fuente de habilidades para todas las rutas de instalación.
 

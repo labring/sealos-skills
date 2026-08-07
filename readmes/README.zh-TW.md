@@ -8,13 +8,21 @@
 
 透過 AI 代理程式將專案部署到 [Sealos Cloud](https://sealos.io)。
 
-Sealos Skills 是一套以外掛程式為核心、專注於 Sealos Cloud 開發與部署的技能包。它能協助 AI 代理程式檢查專案、準備缺少的部署產物、連接 Sealos Cloud 資料庫與物件儲存以進行開發、建置或重複使用容器映像、將應用程式發布到 Sealos Cloud，並在本機唯讀畫布中查看已部署的資源。
+Sealos Skills 是一套以外掛程式為核心、專注於 Sealos Cloud 開發與部署的技能包。它能協助 AI 代理程式檢查專案並準備缺少的部署產物。它能連接 Sealos Cloud 資料庫與物件儲存以進行開發。它會建置或重複使用容器映像、將應用程式部署到 Sealos Cloud，並在本機唯讀畫布中顯示已部署的資源。
 
-Codex 的建議方式是安裝原生 Codex 外掛程式。跨主機外掛程式安裝、`skills.sh`，以及 Gemini CLI 和 Qwen Code 等僅提供內容的擴充主機，都使用相同的根目錄 `skills/**` 來源。
+一個 `npx plugins add` 命令即可將外掛程式安裝到所有偵測到的代理工具中。Codex 和 Claude Code 的原生 marketplace 安裝使用相同的根目錄 `skills/**` 來源。`skills.sh` 以及 Gemini CLI、Qwen Code 等僅提供內容的擴充主機也使用它。
 
 ## 快速開始
 
-### 建議：在 Codex 中安裝
+### TLDR
+
+```bash
+npx plugins add https://github.com/labring/sealos-skills
+```
+
+一個命令即可將 Sealos 外掛程式安裝到所有偵測到的代理工具中：Claude Code、Cursor、Codex、Grok Build、Kimi Code、GitHub Copilot CLI 和 VS Code。執行 `npx plugins targets` 可列出偵測到的工具，或使用 `--target <tool>` 僅安裝到單一工具。
+
+### 在 Codex 中以原生方式安裝
 
 將此儲存庫加入 Codex marketplace，然後安裝 Sealos 外掛程式：
 
@@ -23,18 +31,12 @@ codex plugin marketplace add labring/sealos-skills
 codex plugin add sealos@sealos
 ```
 
-一個 Sealos 外掛程式會從根目錄 `skills/**` 安裝部署、資料庫、S3、畫布、應用程式建構器和配套的雲端原生技能：`sealos-deploy`、`sealos-database`、`sealos-s3`、`sealos-canvas`、`sealos-app-builder`、`cloud-native-readiness`、`dockerfile-skill` 和 `docker-to-sealos`。
-
-為了相容性與本機 Codex 測試，也可以使用以下命令安裝相同的外掛程式：
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills --target codex
-```
+外掛程式會從根目錄 `skills/**` 安裝全部八個技能。各技能的作用請參閱下方的**包含的技能**。
 
 在 Codex 中完成安裝後，透過以下方式使用外掛程式：
 
 - **Codex CLI：** 輸入 `$sealos`
-- **Codex App：** 按一下聊天輸入框左下角的 **+** 按鈕，選擇 **Plugins**，再選擇 **Sealos**
+- **Codex App：** 按一下聊天輸入框左下角的 **+** 按鈕，然後選擇 **Plugins** → **Sealos**
 
 ![在 Codex App 中選擇 Sealos 外掛程式](../assets/codex-sealos.png)
 
@@ -48,25 +50,13 @@ $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
 
-### 在 Claude Code 中安裝
+### 在 Claude Code 中以原生方式安裝
 
 將此儲存庫加入 Claude Code marketplace，然後安裝 Sealos 外掛程式：
 
 ```bash
 claude plugin marketplace add labring/sealos-skills
 claude plugin install sealos@sealos
-```
-
-為了相容跨主機外掛程式安裝器，也可以使用以下命令安裝相同的外掛程式：
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills --target claude-code
-```
-
-如果機器上只偵測到一個代理工具，可以讓 `plugins` 自動選擇目標：
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills
 ```
 
 在 Claude Code 中完成安裝後，使用 `/sealos`：
@@ -79,18 +69,18 @@ npx plugins add https://github.com/labring/sealos-skills
 /sealos create private S3 object storage for uploads and wire env vars
 ```
 
-### 其他支援的 AI 工具
+### 支援的 AI 工具
 
 | 工具 | 安裝 | 用法 |
 | --- | --- | --- |
-| Codex CLI / Codex App | 先執行 `codex plugin marketplace add labring/sealos-skills`，再執行 `codex plugin add sealos@sealos` | 在 Codex CLI 中使用 `$sealos`，或在 Codex App 中依序選擇 **+** → **Plugins** → **Sealos** |
-| Claude Code | 先執行 `claude plugin marketplace add labring/sealos-skills`，再執行 `claude plugin install sealos@sealos` | `/sealos` |
-| Claude Code 相容路徑 | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
+| Codex CLI / Codex App | `npx plugins add https://github.com/labring/sealos-skills --target codex`，或參閱上文**在 Codex 中以原生方式安裝** | 在 Codex CLI 中使用 `$sealos`，或在 Codex App 中依序選擇 **+** → **Plugins** → **Sealos** |
+| Claude Code | `npx plugins add https://github.com/labring/sealos-skills --target claude-code`，或參閱上文**在 Claude Code 中以原生方式安裝** | `/sealos` |
+| Cursor / Grok Build / Kimi Code / Copilot CLI / VS Code | `npx plugins add https://github.com/labring/sealos-skills` | 安裝後透過主機命令進入點使用 |
 | OpenClaw / ClawHub | `clawhub install labring/sealos-skills` | 主機命令的公開方式取決於 ClawHub 執行階段 |
 | CodeBuddy | `/plugin marketplace add labring/sealos-skills` | 主機命令的公開方式取決於 CodeBuddy 執行階段 |
 | Gemini CLI | `gemini extensions install https://github.com/labring/sealos-skills` | 僅提供內容的擴充功能；請 Gemini 使用 Sealos Skills |
 | Qwen Code | `qwen extensions install https://github.com/labring/sealos-skills` | 僅提供內容的擴充功能；請 Qwen 使用 Sealos Skills |
-| Amp / Kimi / 通用儲存庫匯入器 | 匯入 `https://github.com/labring/sealos-skills.git` | 取決於主機 |
+| Amp / 通用儲存庫匯入器 | 匯入 `https://github.com/labring/sealos-skills.git` | 取決於主機 |
 
 Gemini CLI 和 Qwen Code 資訊清單透過 `CLAUDE.md` 提供儲存庫內容；它們不宣稱支援斜線命令。
 
@@ -116,54 +106,6 @@ npx skills add labring/sealos-skills
 
 `/sealos-deploy`、`/sealos-database` 和 `/sealos-s3` 是 `skills.sh` 的直接技能進入點。外掛程式使用應透過 Codex 中的 `$sealos` 或 Claude Code 中的 `/sealos` 進行。
 
-## 為何使用外掛程式
-
-Codex 和 Claude Code 建議使用外掛程式安裝，因為它可以：
-
-- 將所有 Sealos 技能安裝為一個受管理的套件
-- 在支援的代理工具中公開相同的技能
-- 集中管理外掛程式中繼資料、標誌、提示、命令和功能
-- 省去維護另一份技能包副本的工作
-
-## 外掛程式發布
-
-Codex 整合遵循 [OpenAI Codex 外掛程式建置指南](https://developers.openai.com/codex/plugins/build)：
-
-- `.codex-plugin/plugin.json` 包含外掛程式識別資訊、探索中繼資料、介面文案、預設提示、品牌中繼資料，以及相對於儲存庫根目錄的資源路徑。
-- `.agents/plugins/marketplace.json` 註冊此儲存庫的本機外掛程式，用於本機 Codex marketplace 測試。
-- `.claude-plugin/plugin.json` 和 `.claude-plugin/marketplace.json` 定義與 Claude Code 相容的外掛程式介面。
-- `distribution/platforms.json` 記錄平台支援聲明和證據。
-- `marketplaces/README.md` 維護 marketplace 規則，避免誇大命令支援範圍。
-- `scripts/validate-codex-plugin.py` 驗證 Codex 資訊清單、Claude Code 中繼資料、儲存庫 marketplace、平台登錄和資源路徑。
-- `skills/**/SKILL.md` 始終是唯一的技能來源；請勿新增第二份封裝副本。
-
-發布或推送資訊清單變更前，請驗證外掛程式中繼資料：
-
-```bash
-python3 scripts/validate-codex-plugin.py
-python3 -m json.tool .codex-plugin/plugin.json >/dev/null
-python3 -m json.tool plugin.json >/dev/null
-python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
-python3 -m json.tool marketplace.json >/dev/null
-python3 -m json.tool .claude-plugin/plugin.json >/dev/null
-python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
-python3 -m json.tool distribution/platforms.json >/dev/null
-```
-
-## 設定流程
-
-你只需要一個相容外掛程式或相容 `skills.sh` 的 AI 代理程式，以及一個要部署的專案。
-
-在部署、資料庫和物件儲存流程中，Sealos Skills 將：
-
-- 檢查 Docker 和 `kubectl` 等工具是否可用
-- 在需要時引導使用者登入 Sealos
-- 使用 `sealos-cli` 建立 Sealos Cloud 資料庫、取得連線詳細資料並執行資料庫操作
-- 使用 `sealos-cli s3` 管理 Sealos 物件儲存貯體、憑證、配額檢查、物件操作和預先簽署 URL
-- 使用或協助準備 Docker Hub、GHCR 等容器登錄路徑
-
-實際部署仍需要 Sealos Cloud 帳戶和容器登錄存取權，這些項目可以在技能啟動後再完成設定。資料庫和物件儲存工作需要 Sealos Cloud 帳戶，以及具備建立所需資源權限的工作區。
-
 ## Sealos Deploy 的處理範圍
 
 在一般部署中，代理程式將：
@@ -174,7 +116,7 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - 部署並驗證推出狀態
 - 在回報應用程式可用前，驗證實際的 Sealos App URL、日誌、Web 應用程式的登入或設定流程，以及完整資源範圍
 
-後續執行在偵測到現有部署時可以切換為原地更新流程。
+存在既有部署時，後續執行會切換為原地更新流程。
 
 ## Sealos Database 的處理範圍
 
@@ -208,6 +150,20 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 
 如果專案尚未部署，Sealos Canvas 會停止並引導使用者先部署專案。
 
+## 設定流程
+
+你只需要一個相容外掛程式或相容 `skills.sh` 的 AI 代理程式，以及一個要部署的專案。
+
+在部署、資料庫和物件儲存流程中，Sealos Skills 將：
+
+- 檢查 Docker 和 `kubectl` 等工具是否可用
+- 在需要時引導使用者登入 Sealos
+- 使用 `sealos-cli` 建立 Sealos Cloud 資料庫、取得連線詳細資料並執行資料庫操作
+- 使用 `sealos-cli s3` 管理 Sealos 物件儲存貯體、憑證、配額檢查、物件操作和預先簽署 URL
+- 使用或協助準備 Docker Hub、GHCR 等容器登錄路徑
+
+實際部署仍需要 Sealos Cloud 帳戶和容器登錄存取權，這些項目可以在技能啟動後再完成設定。資料庫和物件儲存工作需要 Sealos Cloud 帳戶，以及具備建立所需資源權限的工作區。
+
 ## 包含的技能
 
 外掛程式和 `skills.sh` 技能包公開相同的技能來源：
@@ -221,7 +177,49 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - `dockerfile-skill` — 產生適用於生產環境的 Dockerfile
 - `docker-to-sealos` — 將 Docker Compose 服務轉換為 Sealos 範本
 
-## 儲存庫
+## 為何使用外掛程式
+
+建議在 Codex、Claude Code 和其他支援的代理工具中使用外掛程式安裝，因為它可以：
+
+- 將所有 Sealos 技能安裝為一個受管理的套件
+- 在支援的代理工具中公開相同的技能
+- 集中管理外掛程式中繼資料、標誌、提示、命令和功能
+- 省去維護另一份技能包副本的工作
+
+## 維護本儲存庫
+
+以下小節面向儲存庫維護者和外掛程式發布者，使用者無需閱讀。
+
+### 外掛程式發布
+
+Codex 整合遵循 [OpenAI Codex 外掛程式建置指南](https://developers.openai.com/codex/plugins/build)：
+
+- `.codex-plugin/plugin.json` 包含外掛程式識別資訊、探索中繼資料、介面文案、預設提示、品牌中繼資料，以及相對於儲存庫根目錄的資源路徑。
+- `.agents/plugins/marketplace.json` 註冊此儲存庫的本機外掛程式，用於本機 Codex marketplace 測試。
+- `.claude-plugin/plugin.json` 和 `.claude-plugin/marketplace.json` 定義與 Claude Code 相容的外掛程式介面。
+- `.qoder-plugin/plugin.json` 定義 Qoder 外掛程式介面，並明確公開全部八個 Codex 技能。
+- `qoder.md` 提供 Qoder 層級的路由和安全說明，不複製技能實作。
+- `distribution/platforms.json` 記錄平台支援聲明和證據。
+- `marketplaces/README.md` 維護 marketplace 規則，避免誇大命令支援範圍。
+- `scripts/validate-codex-plugin.py` 驗證 Codex 資訊清單、Claude Code 中繼資料、儲存庫 marketplace、平台登錄和資源路徑。
+- `scripts/package-qoder-plugin.py` 建置外掛程式資訊清單位於封存根目錄的 Qoder 相容 ZIP 套件。
+- `skills/**/SKILL.md` 始終是唯一的技能來源；請勿新增第二份封裝副本。
+
+發布或推送資訊清單變更前，請驗證外掛程式中繼資料：
+
+```bash
+python3 scripts/validate-codex-plugin.py
+python3 -m json.tool .codex-plugin/plugin.json >/dev/null
+python3 -m json.tool plugin.json >/dev/null
+python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
+python3 -m json.tool marketplace.json >/dev/null
+python3 -m json.tool .claude-plugin/plugin.json >/dev/null
+python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
+python3 -m json.tool .qoder-plugin/plugin.json >/dev/null
+python3 -m json.tool distribution/platforms.json >/dev/null
+```
+
+### 儲存庫結構
 
 [`skills/`](../skills) 是 Sealos 部署、Sealos 畫布和部署流程配套技能的唯一事實來源。相同的根層級技能目錄同時服務 `skills.sh` 安裝和此儲存庫中的所有外掛程式或擴充功能資訊清單。
 
@@ -230,6 +228,8 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json) — Codex 外掛程式資訊清單
 - [`.agents/plugins/marketplace.json`](../.agents/plugins/marketplace.json) — 本機 Codex marketplace 項目
 - [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) — 與 Claude Code 相容的外掛程式資訊清單
+- [`.qoder-plugin/plugin.json`](../.qoder-plugin/plugin.json) — Qoder 外掛程式資訊清單
+- [`qoder.md`](../qoder.md) — Qoder 外掛程式路由和安全說明
 - [`marketplace.json`](../marketplace.json) 和 [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) — 與 Claude 相容的 marketplace 項目
 - [`.codebuddy-plugin/marketplace.json`](../.codebuddy-plugin/marketplace.json) — CodeBuddy marketplace 項目
 - [`gemini-extension.json`](../gemini-extension.json) — Gemini CLI 內容擴充功能
@@ -239,6 +239,7 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - [`distribution/platforms.json`](../distribution/platforms.json) — 平台支援登錄
 - [`marketplaces/README.md`](../marketplaces/README.md) — marketplace 規則和支援聲明歸屬
 - [`scripts/validate-codex-plugin.py`](../scripts/validate-codex-plugin.py) — Codex 外掛程式驗證指令碼
+- [`scripts/package-qoder-plugin.py`](../scripts/package-qoder-plugin.py) — Qoder ZIP 封裝指令碼
 
 請勿新增第二份封裝技能副本。根目錄 `skills/**` 是所有安裝路徑的唯一技能來源。
 

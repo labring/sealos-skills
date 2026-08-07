@@ -14,3 +14,6 @@ dist/
 .agents/*
 !.agents/plugins/
 !.agents/plugins/marketplace.json
+
+# macOS
+.DS_Store

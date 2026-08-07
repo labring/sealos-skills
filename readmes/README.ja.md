@@ -8,13 +8,21 @@
 
 AI エージェントからプロジェクトを [Sealos Cloud](https://sealos.io) にデプロイします。
 
-Sealos Skills は、Sealos Cloud での開発とデプロイを中心としたプラグインファーストのスキルパックです。AI エージェントによるプロジェクトの調査、不足しているデプロイ成果物の準備、開発用 Sealos Cloud データベースとオブジェクトストレージへの接続、コンテナイメージのビルドまたは再利用、Sealos Cloud へのアプリの公開、ローカルの読み取り専用キャンバスでのデプロイ済みリソースの表示を支援します。
+Sealos Skills は、Sealos Cloud での開発とデプロイを中心としたプラグインファーストのスキルパックです。AI エージェントによるプロジェクトの調査と不足しているデプロイ成果物の準備を支援します。開発用に Sealos Cloud のデータベースとオブジェクトストレージへ接続します。コンテナイメージをビルドまたは再利用してアプリを Sealos Cloud にデプロイし、デプロイ済みリソースをローカルの読み取り専用キャンバスに表示します。
 
-Codex では、ネイティブ Codex プラグインのインストールを推奨します。クロスホストのプラグインインストール、`skills.sh`、Gemini CLI や Qwen Code などのコンテキスト専用拡張ホストは、同じルート `skills/**` ソースを使用します。
+1 つの `npx plugins add` コマンドで、検出されたすべてのエージェントツールにプラグインをインストールします。Codex と Claude Code のネイティブ marketplace インストールは、同じルート `skills/**` ソースを使用します。`skills.sh` や、Gemini CLI、Qwen Code などのコンテキスト専用拡張ホストも同じソースを使用します。
 
 ## クイックスタート
 
-### 推奨：Codex にインストール
+### TLDR
+
+```bash
+npx plugins add https://github.com/labring/sealos-skills
+```
+
+1 つのコマンドで、検出されたすべてのエージェントツール（Claude Code、Cursor、Codex、Grok Build、Kimi Code、GitHub Copilot CLI、VS Code）に Sealos プラグインをインストールします。`npx plugins targets` を実行すると検出されたツールを一覧表示でき、`--target <tool>` を指定すると 1 つのツールのみにインストールできます。
+
+### Codex にネイティブインストール
 
 このリポジトリを Codex marketplace として追加し、Sealos プラグインをインストールします。
 
@@ -23,18 +31,12 @@ codex plugin marketplace add labring/sealos-skills
 codex plugin add sealos@sealos
 ```
 
-1 つの Sealos プラグインが、ルート `skills/**` からデプロイ、データベース、S3、キャンバス、アプリビルダー、および関連するクラウドネイティブスキルをインストールします：`sealos-deploy`、`sealos-database`、`sealos-s3`、`sealos-canvas`、`sealos-app-builder`、`cloud-native-readiness`、`dockerfile-skill`、`docker-to-sealos`。
-
-互換性の確保とローカルでの Codex テストには、次のコマンドで同じプラグインをインストールします。
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills --target codex
-```
+プラグインはルート `skills/**` ディレクトリから 8 つすべてのスキルをインストールします。各スキルの内容は、後述の**含まれるスキル**を参照してください。
 
 Codex にインストールしたら、次の方法でプラグインを使用します。
 
 - **Codex CLI：** `$sealos` と入力
-- **Codex App：** チャット入力欄の左下にある **+** ボタンをクリックし、**Plugins**、**Sealos** の順に選択
+- **Codex App：** チャット入力欄の左下にある **+** ボタンをクリックし、**Plugins** → **Sealos** の順に選択
 
 ![Codex App で Sealos プラグインを選択](../assets/codex-sealos.png)
 
@@ -48,25 +50,13 @@ $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
 
-### Claude Code にインストール
+### Claude Code にネイティブインストール
 
 このリポジトリを Claude Code marketplace として追加し、Sealos プラグインをインストールします。
 
 ```bash
 claude plugin marketplace add labring/sealos-skills
 claude plugin install sealos@sealos
-```
-
-クロスホストのプラグインインストーラーとの互換性には、次のコマンドで同じプラグインをインストールします。
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills --target claude-code
-```
-
-マシン上で検出されたエージェントツールが 1 つだけの場合、`plugins` にターゲットを選択させることができます。
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills
 ```
 
 Claude Code にインストールしたら、`/sealos` を使用します。
@@ -79,18 +69,18 @@ Claude Code にインストールしたら、`/sealos` を使用します。
 /sealos create private S3 object storage for uploads and wire env vars
 ```
 
-### その他の対応 AI ツール
+### 対応 AI ツール
 
 | ツール | インストール | 使用方法 |
 | --- | --- | --- |
-| Codex CLI / Codex App | `codex plugin marketplace add labring/sealos-skills`、続けて `codex plugin add sealos@sealos` | Codex CLI では `$sealos`、Codex App では **+** → **Plugins** → **Sealos** |
-| Claude Code | `claude plugin marketplace add labring/sealos-skills`、続けて `claude plugin install sealos@sealos` | `/sealos` |
-| Claude Code 互換パス | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
+| Codex CLI / Codex App | `npx plugins add https://github.com/labring/sealos-skills --target codex`、または前述の **Codex にネイティブインストール** を参照 | Codex CLI では `$sealos`、Codex App では **+** → **Plugins** → **Sealos** |
+| Claude Code | `npx plugins add https://github.com/labring/sealos-skills --target claude-code`、または前述の **Claude Code にネイティブインストール** を参照 | `/sealos` |
+| Cursor / Grok Build / Kimi Code / Copilot CLI / VS Code | `npx plugins add https://github.com/labring/sealos-skills` | インストール後はホストコマンドのエントリから使用 |
 | OpenClaw / ClawHub | `clawhub install labring/sealos-skills` | ホストコマンドの公開方法は ClawHub ランタイムに依存します |
 | CodeBuddy | `/plugin marketplace add labring/sealos-skills` | ホストコマンドの公開方法は CodeBuddy ランタイムに依存します |
 | Gemini CLI | `gemini extensions install https://github.com/labring/sealos-skills` | コンテキスト専用拡張。Gemini に Sealos Skills の使用を指示します |
 | Qwen Code | `qwen extensions install https://github.com/labring/sealos-skills` | コンテキスト専用拡張。Qwen に Sealos Skills の使用を指示します |
-| Amp / Kimi / 汎用リポジトリインポーター | `https://github.com/labring/sealos-skills.git` をインポート | ホストに依存します |
+| Amp / 汎用リポジトリインポーター | `https://github.com/labring/sealos-skills.git` をインポート | ホストに依存します |
 
 Gemini CLI と Qwen Code のマニフェストは、`CLAUDE.md` を通じてリポジトリのコンテキストを提供します。スラッシュコマンドのサポートは宣言しません。
 
@@ -116,54 +106,6 @@ npx skills add labring/sealos-skills
 
 `/sealos-deploy`、`/sealos-database`、`/sealos-s3` は、`skills.sh` の直接スキルエントリです。プラグインは Codex の `$sealos` または Claude Code の `/sealos` から使用します。
 
-## プラグインを使用する理由
-
-Codex と Claude Code では、次の理由からプラグインのインストールを推奨します。
-
-- すべての Sealos スキルを 1 つの管理対象パッケージとしてインストール
-- 対応エージェントツールで同じスキルを公開
-- プラグインのメタデータ、ロゴ、プロンプト、コマンド、機能を一元管理
-- スキルのパッケージコピーを別途保守する作業を削減
-
-## プラグイン配布
-
-Codex 統合は [OpenAI の Codex プラグイン構築ガイド](https://developers.openai.com/codex/plugins/build)に準拠します。
-
-- `.codex-plugin/plugin.json` には、プラグイン ID、検出メタデータ、インターフェース文言、デフォルトプロンプト、ブランドメタデータ、リポジトリルートからの相対アセットパスが含まれます。
-- `.agents/plugins/marketplace.json` は、ローカル Codex marketplace テスト用にこのリポジトリローカルのプラグインを登録します。
-- `.claude-plugin/plugin.json` と `.claude-plugin/marketplace.json` は、Claude Code 互換のプラグインインターフェースを定義します。
-- `distribution/platforms.json` は、プラットフォームのサポート宣言と根拠を記録します。
-- `marketplaces/README.md` は marketplace のルールを管理し、コマンドサポートの過剰な宣言を防ぎます。
-- `scripts/validate-codex-plugin.py` は Codex マニフェスト、Claude Code メタデータ、リポジトリの marketplace、プラットフォームレジストリ、アセットパスを検証します。
-- `skills/**/SKILL.md` は常に唯一のスキルソースです。2 つ目のパッケージコピーは追加しないでください。
-
-マニフェストの変更を公開またはプッシュする前に、プラグインメタデータを検証します。
-
-```bash
-python3 scripts/validate-codex-plugin.py
-python3 -m json.tool .codex-plugin/plugin.json >/dev/null
-python3 -m json.tool plugin.json >/dev/null
-python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
-python3 -m json.tool marketplace.json >/dev/null
-python3 -m json.tool .claude-plugin/plugin.json >/dev/null
-python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
-python3 -m json.tool distribution/platforms.json >/dev/null
-```
-
-## セットアップの仕組み
-
-必要なのは、プラグインまたは `skills.sh` に対応する AI エージェントと、デプロイするプロジェクトだけです。
-
-デプロイ、データベース、オブジェクトストレージの各フローで、Sealos Skills は次を実行します。
-
-- Docker や `kubectl` などのツールが利用可能か確認
-- 必要に応じて Sealos へのログインを案内
-- `sealos-cli` を使用した Sealos Cloud データベースの作成、接続情報の取得、データベース操作
-- `sealos-cli s3` を使用した Sealos オブジェクトストレージのバケット、認証情報、クォータ確認、オブジェクト操作、署名付き URL の管理
-- Docker Hub や GHCR などのコンテナレジストリパスを使用または準備
-
-実際のデプロイには Sealos Cloud アカウントとコンテナレジストリへのアクセスが必要ですが、スキル開始前にすべてを設定しておく必要はありません。データベースとオブジェクトストレージの作業には、Sealos Cloud アカウントと、必要なリソースを作成できるワークスペースが必要です。
-
 ## Sealos Deploy が処理する内容
 
 一般的なデプロイでは、エージェントは次を実行します。
@@ -174,7 +116,7 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - デプロイしてロールアウトを検証
 - アプリを利用可能と報告する前に、実際の Sealos App URL、ログ、Web アプリのログインまたはセットアップフロー、リソース全体を検証
 
-既存のデプロイが検出されると、以降の実行はインプレース更新フローに切り替えられます。
+既存のデプロイがある場合、以降の実行はインプレース更新フローに切り替わります。
 
 ## Sealos Database が処理する内容
 
@@ -208,6 +150,20 @@ Sealos Deploy でデプロイ済みのリポジトリに対して、エージェ
 
 プロジェクトがまだデプロイされていない場合、Sealos Canvas は停止し、先にプロジェクトをデプロイするよう案内します。
 
+## セットアップの仕組み
+
+必要なのは、プラグインまたは `skills.sh` に対応する AI エージェントと、デプロイするプロジェクトだけです。
+
+デプロイ、データベース、オブジェクトストレージの各フローで、Sealos Skills は次を実行します。
+
+- Docker や `kubectl` などのツールが利用可能か確認
+- 必要に応じて Sealos へのログインを案内
+- `sealos-cli` を使用した Sealos Cloud データベースの作成、接続情報の取得、データベース操作
+- `sealos-cli s3` を使用した Sealos オブジェクトストレージのバケット、認証情報、クォータ確認、オブジェクト操作、署名付き URL の管理
+- Docker Hub や GHCR などのコンテナレジストリパスを使用または準備
+
+実際のデプロイには Sealos Cloud アカウントとコンテナレジストリへのアクセスが必要ですが、スキル開始前にすべてを設定しておく必要はありません。データベースとオブジェクトストレージの作業には、Sealos Cloud アカウントと、必要なリソースを作成できるワークスペースが必要です。
+
 ## 含まれるスキル
 
 プラグインと `skills.sh` パックは、同じスキルソースを公開します。
@@ -221,7 +177,49 @@ Sealos Deploy でデプロイ済みのリポジトリに対して、エージェ
 - `dockerfile-skill` — 本番環境対応の Dockerfile を生成
 - `docker-to-sealos` — Docker Compose サービスを Sealos テンプレートに変換
 
-## リポジトリ
+## プラグインを使用する理由
+
+Codex、Claude Code、その他の対応エージェントツールでは、次の理由からプラグインのインストールを推奨します。
+
+- すべての Sealos スキルを 1 つの管理対象パッケージとしてインストール
+- 対応エージェントツールで同じスキルを公開
+- プラグインのメタデータ、ロゴ、プロンプト、コマンド、機能を一元管理
+- スキルのパッケージコピーを別途保守する作業を削減
+
+## このリポジトリの保守
+
+以下のセクションは、リポジトリのメンテナーとプラグインの公開者向けです。ユーザーが読む必要はありません。
+
+### プラグイン配布
+
+Codex 統合は [OpenAI の Codex プラグイン構築ガイド](https://developers.openai.com/codex/plugins/build)に準拠します。
+
+- `.codex-plugin/plugin.json` には、プラグイン ID、検出メタデータ、インターフェース文言、デフォルトプロンプト、ブランドメタデータ、リポジトリルートからの相対アセットパスが含まれます。
+- `.agents/plugins/marketplace.json` は、ローカル Codex marketplace テスト用にこのリポジトリローカルのプラグインを登録します。
+- `.claude-plugin/plugin.json` と `.claude-plugin/marketplace.json` は、Claude Code 互換のプラグインインターフェースを定義します。
+- `.qoder-plugin/plugin.json` は Qoder プラグインインターフェースを定義し、8 つすべての Codex スキルを明示的に公開します。
+- `qoder.md` は、スキル実装を複製せずに Qoder レベルのルーティングと安全に関する指示を提供します。
+- `distribution/platforms.json` は、プラットフォームのサポート宣言と根拠を記録します。
+- `marketplaces/README.md` は marketplace のルールを管理し、コマンドサポートの過剰な宣言を防ぎます。
+- `scripts/validate-codex-plugin.py` は Codex マニフェスト、Claude Code メタデータ、リポジトリの marketplace、プラットフォームレジストリ、アセットパスを検証します。
+- `scripts/package-qoder-plugin.py` は、プラグインマニフェストをアーカイブルートに配置した Qoder 互換 ZIP をビルドします。
+- `skills/**/SKILL.md` は常に唯一のスキルソースです。2 つ目のパッケージコピーは追加しないでください。
+
+マニフェストの変更を公開またはプッシュする前に、プラグインメタデータを検証します。
+
+```bash
+python3 scripts/validate-codex-plugin.py
+python3 -m json.tool .codex-plugin/plugin.json >/dev/null
+python3 -m json.tool plugin.json >/dev/null
+python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
+python3 -m json.tool marketplace.json >/dev/null
+python3 -m json.tool .claude-plugin/plugin.json >/dev/null
+python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
+python3 -m json.tool .qoder-plugin/plugin.json >/dev/null
+python3 -m json.tool distribution/platforms.json >/dev/null
+```
+
+### リポジトリ構成
 
 [`skills/`](../skills) は、Sealos デプロイ、Sealos キャンバス、デプロイフローで使用する関連スキルの信頼できる唯一のソースです。同じルートレベルのスキルディレクトリが、`skills.sh` のインストールと、このリポジトリ内のすべてのプラグインまたは拡張マニフェストに使用されます。
 
@@ -230,6 +228,8 @@ Sealos Deploy でデプロイ済みのリポジトリに対して、エージェ
 - [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json) — Codex プラグインマニフェスト
 - [`.agents/plugins/marketplace.json`](../.agents/plugins/marketplace.json) — ローカル Codex marketplace エントリ
 - [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) — Claude Code 互換プラグインマニフェスト
+- [`.qoder-plugin/plugin.json`](../.qoder-plugin/plugin.json) — Qoder プラグインマニフェスト
+- [`qoder.md`](../qoder.md) — Qoder プラグインのルーティングと安全に関する指示
 - [`marketplace.json`](../marketplace.json) と [`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) — Claude 互換 marketplace エントリ
 - [`.codebuddy-plugin/marketplace.json`](../.codebuddy-plugin/marketplace.json) — CodeBuddy marketplace エントリ
 - [`gemini-extension.json`](../gemini-extension.json) — Gemini CLI コンテキスト拡張
@@ -239,6 +239,7 @@ Sealos Deploy でデプロイ済みのリポジトリに対して、エージェ
 - [`distribution/platforms.json`](../distribution/platforms.json) — プラットフォームサポートレジストリ
 - [`marketplaces/README.md`](../marketplaces/README.md) — marketplace のルールとサポート宣言の管理元
 - [`scripts/validate-codex-plugin.py`](../scripts/validate-codex-plugin.py) — Codex プラグイン検証スクリプト
+- [`scripts/package-qoder-plugin.py`](../scripts/package-qoder-plugin.py) — Qoder ZIP パッケージャー
 
 スキルのパッケージコピーを追加しないでください。ルート `skills/**` がすべてのインストール方法における唯一のスキルソースです。
 

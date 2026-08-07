@@ -8,13 +8,21 @@
 
 انشر المشاريع على [Sealos Cloud](https://sealos.io) من خلال وكيل الذكاء الاصطناعي لديك.
 
-Sealos Skills هي حزمة مهارات تعتمد على الإضافات وتركز على التطوير والنشر في Sealos Cloud. تساعد وكيل الذكاء الاصطناعي على فحص المشروع، وتجهيز عناصر النشر الناقصة، وربط قواعد بيانات Sealos Cloud وتخزين الكائنات لأغراض التطوير، وبناء صورة حاوية أو إعادة استخدامها، ونشر التطبيق على Sealos Cloud، وعرض الموارد المنشورة في لوحة محلية للقراءة فقط.
+Sealos Skills هي حزمة مهارات تعتمد على الإضافات وتركز على التطوير والنشر في Sealos Cloud. تساعد وكيل الذكاء الاصطناعي على فحص المشروع وتجهيز عناصر النشر الناقصة. تربط قواعد بيانات Sealos Cloud وتخزين الكائنات لأغراض التطوير. تبني صورة حاوية أو تعيد استخدامها، وتنشر التطبيق على Sealos Cloud، وتعرض الموارد المنشورة في لوحة محلية للقراءة فقط.
 
-المسار الموصى به في Codex هو تثبيت إضافة Codex الأصلية. تستخدم عمليات تثبيت الإضافات عبر المضيفين و`skills.sh` ومضيفات الامتدادات التي توفر السياق فقط، مثل Gemini CLI وQwen Code، المصدر نفسه من المسار الجذري `skills/**`.
+يثبّت أمر واحد `npx plugins add` الإضافة في كل أداة وكيل يتم اكتشافها. تستخدم عمليات التثبيت الأصلية عبر marketplace في Codex وClaude Code المصدر نفسه من المسار الجذري `skills/**`. ويستخدمها أيضًا `skills.sh` ومضيفات الامتدادات التي توفر السياق فقط، مثل Gemini CLI وQwen Code.
 
 ## البدء السريع
 
-### موصى به: التثبيت في Codex
+### TLDR
+
+```bash
+npx plugins add https://github.com/labring/sealos-skills
+```
+
+يثبّت أمر واحد إضافة Sealos في كل أداة وكيل يتم اكتشافها: Claude Code وCursor وCodex وGrok Build وKimi Code وGitHub Copilot CLI وVS Code. شغّل `npx plugins targets` لعرض الأدوات المكتشفة، أو مرّر `--target <tool>` للتثبيت في أداة واحدة فقط.
+
+### التثبيت الأصلي في Codex
 
 أضف هذا المستودع بوصفه Codex marketplace، ثم ثبّت إضافة Sealos:
 
@@ -23,13 +31,7 @@ codex plugin marketplace add labring/sealos-skills
 codex plugin add sealos@sealos
 ```
 
-تثبّت إضافة Sealos واحدة مهارات النشر وقواعد البيانات وS3 واللوحة وبناء التطبيقات والمهارات السحابية الأصلية الداعمة من المسار الجذري `skills/**`: ‏`sealos-deploy` و`sealos-database` و`sealos-s3` و`sealos-canvas` و`sealos-app-builder` و`cloud-native-readiness` و`dockerfile-skill` و`docker-to-sealos`.
-
-للتوافق واختبار Codex محليًا، ثبّت الإضافة نفسها باستخدام:
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills --target codex
-```
+تثبّت الإضافة جميع المهارات الثماني من دليل المسار الجذري `skills/**`. راجع **المهارات المضمنة** أدناه لمعرفة وظيفة كل مهارة.
 
 بعد التثبيت في Codex، استخدم الإضافة من Codex:
 
@@ -48,25 +50,13 @@ $sealos create a cloud Postgres database for this repo and wire DATABASE_URL
 $sealos create private S3 object storage for uploads and wire env vars
 ```
 
-### التثبيت في Claude Code
+### التثبيت الأصلي في Claude Code
 
 أضف هذا المستودع بوصفه Claude Code marketplace، ثم ثبّت إضافة Sealos:
 
 ```bash
 claude plugin marketplace add labring/sealos-skills
 claude plugin install sealos@sealos
-```
-
-للتوافق مع مثبّتات الإضافات عبر المضيفين، ثبّت الإضافة نفسها باستخدام:
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills --target claude-code
-```
-
-إذا كنت تستخدم أداة وكيل واحدة فقط تم اكتشافها على الجهاز، يمكنك ترك `plugins` يختار الهدف:
-
-```bash
-npx plugins add https://github.com/labring/sealos-skills
 ```
 
 بعد التثبيت في Claude Code، استخدم `/sealos`:
@@ -79,18 +69,18 @@ npx plugins add https://github.com/labring/sealos-skills
 /sealos create private S3 object storage for uploads and wire env vars
 ```
 
-### أدوات الذكاء الاصطناعي الأخرى المدعومة
+### أدوات الذكاء الاصطناعي المدعومة
 
 | الأداة | التثبيت | الاستخدام |
 | --- | --- | --- |
-| Codex CLI / Codex App | `codex plugin marketplace add labring/sealos-skills` ثم `codex plugin add sealos@sealos` | ‏`$sealos` في Codex CLI، أو **+** ← **Plugins** ← **Sealos** في Codex App |
-| Claude Code | `claude plugin marketplace add labring/sealos-skills` ثم `claude plugin install sealos@sealos` | `/sealos` |
-| مسار توافق Claude Code | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
+| Codex CLI / Codex App | `npx plugins add https://github.com/labring/sealos-skills --target codex`، أو راجع **التثبيت الأصلي في Codex** أعلاه | ‏`$sealos` في Codex CLI، أو **+** ← **Plugins** ← **Sealos** في Codex App |
+| Claude Code | `npx plugins add https://github.com/labring/sealos-skills --target claude-code`، أو راجع **التثبيت الأصلي في Claude Code** أعلاه | `/sealos` |
+| Cursor / Grok Build / Kimi Code / Copilot CLI / VS Code | `npx plugins add https://github.com/labring/sealos-skills` | إدخال أمر المضيف بعد التثبيت |
 | OpenClaw / ClawHub | `clawhub install labring/sealos-skills` | يعتمد إظهار أوامر المضيف على بيئة تشغيل ClawHub |
 | CodeBuddy | `/plugin marketplace add labring/sealos-skills` | يعتمد إظهار أوامر المضيف على بيئة تشغيل CodeBuddy |
 | Gemini CLI | `gemini extensions install https://github.com/labring/sealos-skills` | امتداد للسياق فقط؛ اطلب من Gemini استخدام Sealos Skills |
 | Qwen Code | `qwen extensions install https://github.com/labring/sealos-skills` | امتداد للسياق فقط؛ اطلب من Qwen استخدام Sealos Skills |
-| Amp / Kimi / أدوات استيراد المستودعات العامة | استورد `https://github.com/labring/sealos-skills.git` | يعتمد على المضيف |
+| Amp / أدوات استيراد المستودعات العامة | استورد `https://github.com/labring/sealos-skills.git` | يعتمد على المضيف |
 
 توفر بيانات Gemini CLI وQwen Code سياق المستودع عبر `CLAUDE.md`؛ ولا تعلن دعم أوامر الشرطة المائلة.
 
@@ -114,41 +104,51 @@ npx skills add labring/sealos-skills
 
 بعد نشر المشروع، استخدم مهارة `sealos-canvas` عبر نقطة دخول الإضافة المثبّتة.
 
-تمثل `/sealos-deploy` و`/sealos-database` و`/sealos-s3` نقاط دخول مباشرة لمهارات `skills.sh`. استخدم الإضافة عبر `$sealos` في Codex أو `/sealos` في Claude Code.
+تمثل `/sealos-deploy` و`/sealos-database` و`/sealos-s3` نقاط دخول مباشرة لمهارات `skills.sh`. لاستخدام الإضافة، يجب استخدام `$sealos` في Codex أو `/sealos` في Claude Code.
 
-## لماذا تستخدم الإضافة
+## ما الذي تعالجه Sealos Deploy
 
-يوصى بتثبيت الإضافة في Codex وClaude Code لأنها:
+في عملية نشر نموذجية، ينفذ الوكيل ما يلي:
 
-- تثبّت جميع مهارات Sealos في حزمة مُدارة واحدة
-- تتيح المهارات نفسها عبر أدوات الوكلاء المدعومة
-- تجمع بيانات الإضافة وشعارها ومطالباتها وأوامرها وقدراتها
-- تتجنب صيانة نسخة منفصلة ومجمعة من المهارات
+- يقيّم بنية المشروع ومتطلبات بيئة التشغيل
+- يعيد استخدام صورة موجودة أو يبني واحدة عند الحاجة
+- ينشئ قالب Sealos
+- ينشر ويتحقق من rollout
+- يتحقق من عنوان Sealos App URL الفعلي والسجلات ومسار تسجيل الدخول أو الإعداد لتطبيقات الويب والنطاق الكامل للموارد قبل الإبلاغ عن جاهزية التطبيق للاستخدام
 
-## توزيع الإضافة
+عند وجود عملية نشر قائمة، تنتقل عمليات التشغيل اللاحقة إلى مسار تحديث في الموضع.
 
-يتبع تكامل Codex [دليل OpenAI لبناء إضافات Codex](https://developers.openai.com/codex/plugins/build):
+## ما الذي تعالجه Sealos Database
 
-- يحتوي `.codex-plugin/plugin.json` على هوية الإضافة وبيانات الاكتشاف ونصوص الواجهة والمطالبات الافتراضية وبيانات العلامة التجارية ومسارات الموارد النسبية إلى جذر المستودع.
-- يسجل `.agents/plugins/marketplace.json` الإضافة المحلية لهذا المستودع لاختبارات Codex marketplace المحلية.
-- يحدد `.claude-plugin/plugin.json` و`.claude-plugin/marketplace.json` واجهة الإضافة المتوافقة مع Claude Code.
-- يسجل `distribution/platforms.json` ادعاءات دعم المنصات وأدلتها.
-- يدير `marketplaces/README.md` قواعد marketplace ويمنع المبالغة في ادعاءات دعم الأوامر.
-- يتحقق `scripts/validate-codex-plugin.py` من بيان Codex وبيانات Claude Code وmarketplace الخاصة بالمستودع وسجل المنصات ومسارات الموارد.
-- يظل `skills/**/SKILL.md` مصدر المهارات الوحيد؛ لا تضف نسخة مجمعة ثانية.
+بالنسبة إلى مشروع محلي أو Devbox يحتاج إلى قاعدة بيانات سحابية، ينفذ الوكيل ما يلي:
 
-تحقق من بيانات الإضافة قبل نشر تغييرات البيان أو دفعها:
+- يكتشف إشارات قواعد البيانات مثل `DATABASE_URL` وPrisma وDrizzle وMongoDB وMySQL وRedis
+- يستخدم `sealos-cli database` لعرض قواعد بيانات Sealos Cloud وإنشائها وفحصها والاتصال بها
+- يكتب مفتاح البيئة المحلي المطلوب فقط مع إبقاء الأسرار خارج المحادثة
+- يتحقق من المسار الفعلي لقاعدة بيانات التطبيق عبر عمليات الترحيل أو الاستبطان أو فحوصات بدء التشغيل
+- يدير الوصول العام بعد الحصول على تأكيد فقط
 
-```bash
-python3 scripts/validate-codex-plugin.py
-python3 -m json.tool .codex-plugin/plugin.json >/dev/null
-python3 -m json.tool plugin.json >/dev/null
-python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
-python3 -m json.tool marketplace.json >/dev/null
-python3 -m json.tool .claude-plugin/plugin.json >/dev/null
-python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
-python3 -m json.tool distribution/platforms.json >/dev/null
-```
+## ما الذي تعالجه Sealos S3
+
+بالنسبة إلى مشروع محلي أو Devbox يحتاج إلى تخزين كائنات متوافق مع S3، ينفذ الوكيل ما يلي:
+
+- يكتشف إشارات تخزين الكائنات مثل مفاتيح بيئة S3 واستخدام AWS SDK وMinIO ومسارات الرفع أو شيفرة عناوين URL الموقعة مسبقًا
+- يستخدم `sealos-cli s3` من `zjy365/sealos-cli#28` لعرض حاويات تخزين الكائنات وإنشائها وفحصها وتحديثها
+- يهيئ بيانات اعتماد S3 عند الحاجة فقط ويبقي مفاتيح الوصول خارج المحادثة
+- يربط الحد الأدنى المطلوب من مفاتيح البيئة المحلية للحاوية ونقطة النهاية ومفتاح الوصول والمفتاح السري والمنطقة وإعدادات path-style
+- يتحقق من الرفع والعرض والتنزيل والحذف أو سلوك عناوين URL الموقعة مسبقًا من خلال مسار التخزين الفعلي للمشروع
+- يجعل الحاويات عامة أو يدوّر بيانات الاعتماد بعد الحصول على تأكيد فقط
+
+## ما الذي تعالجه Sealos Canvas
+
+بالنسبة إلى مستودع سبق نشره بواسطة Sealos Deploy، ينفذ الوكيل ما يلي:
+
+1. يقرأ `.sealos/state.json` لتحديد موقع التطبيق المنشور.
+2. يستعلم عن namespace في Sealos باستخدام أوامر `kubectl get` للقراءة فقط.
+3. يشغّل واجهة لوحة مؤقتة على `127.0.0.1`.
+4. يعرض عنوان الواجهة المحلية ويفتحه للفحص.
+
+إذا لم يُنشر المشروع بعد، تتوقف Sealos Canvas وتوجّه المستخدم إلى نشر المشروع أولًا.
 
 ## آلية الإعداد
 
@@ -162,51 +162,7 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - تستخدم `sealos-cli s3` لإدارة حاويات تخزين الكائنات في Sealos وبيانات الاعتماد وفحوصات الحصة وعمليات الكائنات وعناوين URL الموقعة مسبقًا
 - تستخدم مسار سجل حاويات مثل Docker Hub أو GHCR أو تساعد في تجهيزه
 
-يتطلب النشر الفعلي حساب Sealos Cloud وإمكانية الوصول إلى سجل حاويات، ويمكن إكمال إعدادهما بعد بدء المهارة. تتطلب أعمال قواعد البيانات وتخزين الكائنات حساب Sealos Cloud ومساحة عمل يمكنها إنشاء الموارد المطلوبة.
-
-## ما الذي تعالجه Sealos Deploy
-
-في عملية نشر نموذجية، ينفذ الوكيل ما يلي:
-
-- يقيّم بنية المشروع ومتطلبات بيئة التشغيل
-- يعيد استخدام صورة موجودة أو يبني واحدة عند الحاجة
-- ينشئ قالب Sealos
-- ينشر ويتحقق من rollout
-- يتحقق من عنوان Sealos App URL الفعلي والسجلات ومسار تسجيل الدخول أو الإعداد لتطبيقات الويب والنطاق الكامل للموارد قبل الإبلاغ عن جاهزية التطبيق للاستخدام
-
-يمكن لعمليات التشغيل اللاحقة الانتقال إلى مسار تحديث في الموضع عند اكتشاف عملية نشر موجودة.
-
-## ما الذي تعالجه Sealos Database
-
-بالنسبة إلى مشروع محلي أو Devbox يحتاج إلى قاعدة بيانات سحابية، ينفذ الوكيل ما يلي:
-
-- يكتشف إشارات قواعد البيانات مثل `DATABASE_URL` وPrisma وDrizzle وMongoDB وMySQL وRedis
-- يستخدم `sealos-cli database` لعرض قواعد بيانات Sealos Cloud وإنشائها وفحصها والاتصال بها
-- يكتب مفتاح البيئة المحلي المطلوب فقط مع إبقاء الأسرار خارج المحادثة
-- يتحقق من المسار الفعلي لقاعدة بيانات التطبيق عبر عمليات الترحيل أو الاستبطان أو فحوصات بدء التشغيل
-- يدير الوصول العام بعد الحصول على تأكيد
-
-## ما الذي تعالجه Sealos S3
-
-بالنسبة إلى مشروع محلي أو Devbox يحتاج إلى تخزين كائنات متوافق مع S3، ينفذ الوكيل ما يلي:
-
-- يكتشف إشارات تخزين الكائنات مثل مفاتيح بيئة S3 واستخدام AWS SDK وMinIO ومسارات الرفع أو شيفرة عناوين URL الموقعة مسبقًا
-- يستخدم `sealos-cli s3` من `zjy365/sealos-cli#28` لعرض حاويات تخزين الكائنات وإنشائها وفحصها وتحديثها
-- يهيئ بيانات اعتماد S3 عند الحاجة فقط ويبقي مفاتيح الوصول خارج المحادثة
-- يربط الحد الأدنى المطلوب من مفاتيح البيئة المحلية للحاوية ونقطة النهاية ومفتاح الوصول والمفتاح السري والمنطقة وإعدادات path-style
-- يتحقق من الرفع والعرض والتنزيل والحذف أو سلوك عناوين URL الموقعة مسبقًا من خلال مسار التخزين الفعلي للمشروع
-- يجعل الحاويات عامة أو يدوّر بيانات الاعتماد بعد الحصول على تأكيد
-
-## ما الذي تعالجه Sealos Canvas
-
-بالنسبة إلى مستودع سبق نشره بواسطة Sealos Deploy، ينفذ الوكيل ما يلي:
-
-1. يقرأ `.sealos/state.json` لتحديد موقع التطبيق المنشور.
-2. يستعلم عن namespace في Sealos باستخدام أوامر `kubectl get` للقراءة فقط.
-3. يشغّل واجهة لوحة مؤقتة على `127.0.0.1`.
-4. يعرض عنوان الواجهة المحلية ويفتحه للفحص.
-
-إذا لم يُنشر المشروع بعد، تتوقف Sealos Canvas وتوجّه المستخدم إلى نشر المشروع أولًا.
+يتطلب النشر الفعلي حساب Sealos Cloud وإمكانية الوصول إلى سجل حاويات، ويمكن للمهارة إرشادك خلال هذا الإعداد بعد بدئها. تتطلب أعمال قواعد البيانات وتخزين الكائنات حساب Sealos Cloud ومساحة عمل يمكنها إنشاء الموارد المطلوبة.
 
 ## المهارات المضمنة
 
@@ -221,7 +177,49 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - `dockerfile-skill` — ينشئ ملفات Dockerfile جاهزة للإنتاج
 - `docker-to-sealos` — يحول خدمات Docker Compose إلى قوالب Sealos
 
-## المستودع
+## لماذا تستخدم الإضافة
+
+يوصى بتثبيت الإضافة في Codex وClaude Code وأدوات الوكلاء المدعومة الأخرى لأنها:
+
+- تثبّت جميع مهارات Sealos في حزمة مُدارة واحدة
+- تتيح المهارات نفسها عبر أدوات الوكلاء المدعومة
+- تجمع بيانات الإضافة وشعارها ومطالباتها وأوامرها وقدراتها
+- تتجنب صيانة نسخة منفصلة ومجمعة من المهارات
+
+## صيانة هذا المستودع
+
+الأقسام التالية مخصصة لمسؤولي صيانة المستودع وناشري الإضافات. لا يحتاج المستخدمون إليها.
+
+### توزيع الإضافة
+
+يتبع تكامل Codex [دليل OpenAI لبناء إضافات Codex](https://developers.openai.com/codex/plugins/build):
+
+- يحتوي `.codex-plugin/plugin.json` على هوية الإضافة وبيانات الاكتشاف ونصوص الواجهة والمطالبات الافتراضية وبيانات العلامة التجارية ومسارات الموارد النسبية إلى جذر المستودع.
+- يسجل `.agents/plugins/marketplace.json` الإضافة المحلية لهذا المستودع لاختبارات Codex marketplace المحلية.
+- يحدد `.claude-plugin/plugin.json` و`.claude-plugin/marketplace.json` واجهة الإضافة المتوافقة مع Claude Code.
+- يحدد `.qoder-plugin/plugin.json` واجهة إضافة Qoder ويعرض صراحة مهارات Codex الثماني جميعها.
+- يوفر `qoder.md` توجيهات التوجيه والسلامة على مستوى Qoder دون نسخ تطبيقات المهارات.
+- يسجل `distribution/platforms.json` ادعاءات دعم المنصات وأدلتها.
+- يدير `marketplaces/README.md` قواعد marketplace ويمنع المبالغة في ادعاءات دعم الأوامر.
+- يتحقق `scripts/validate-codex-plugin.py` من بيان Codex وبيانات Claude Code وmarketplace الخاصة بالمستودع وسجل المنصات ومسارات الموارد.
+- يبني `scripts/package-qoder-plugin.py` حزمة ZIP متوافقة مع Qoder مع بيان الإضافة في جذر الأرشيف.
+- يظل `skills/**/SKILL.md` مصدر المهارات الوحيد؛ لا تضف نسخة مجمعة ثانية.
+
+تحقق من بيانات الإضافة قبل نشر تغييرات البيان أو دفعها:
+
+```bash
+python3 scripts/validate-codex-plugin.py
+python3 -m json.tool .codex-plugin/plugin.json >/dev/null
+python3 -m json.tool plugin.json >/dev/null
+python3 -m json.tool .agents/plugins/marketplace.json >/dev/null
+python3 -m json.tool marketplace.json >/dev/null
+python3 -m json.tool .claude-plugin/plugin.json >/dev/null
+python3 -m json.tool .claude-plugin/marketplace.json >/dev/null
+python3 -m json.tool .qoder-plugin/plugin.json >/dev/null
+python3 -m json.tool distribution/platforms.json >/dev/null
+```
+
+### بنية المستودع
 
 يمثل [`skills/`](../skills) مصدر الحقيقة الوحيد لنشر Sealos ولوحة Sealos والمهارات الداعمة المستخدمة أثناء مسار النشر. يخدم دليل المهارات نفسه في المستوى الجذري عمليات تثبيت `skills.sh` وجميع بيانات الإضافات أو الامتدادات في هذا المستودع.
 
@@ -230,6 +228,8 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - [`.codex-plugin/plugin.json`](../.codex-plugin/plugin.json) — بيان إضافة Codex
 - [`.agents/plugins/marketplace.json`](../.agents/plugins/marketplace.json) — إدخال Codex marketplace المحلي
 - [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json) — بيان الإضافة المتوافقة مع Claude Code
+- [`.qoder-plugin/plugin.json`](../.qoder-plugin/plugin.json) — بيان إضافة Qoder
+- [`qoder.md`](../qoder.md) — توجيهات التوجيه والسلامة لإضافة Qoder
 - [`marketplace.json`](../marketplace.json) و[`.claude-plugin/marketplace.json`](../.claude-plugin/marketplace.json) — إدخالات marketplace المتوافقة مع Claude
 - [`.codebuddy-plugin/marketplace.json`](../.codebuddy-plugin/marketplace.json) — إدخال CodeBuddy marketplace
 - [`gemini-extension.json`](../gemini-extension.json) — امتداد سياق Gemini CLI
@@ -239,6 +239,7 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - [`distribution/platforms.json`](../distribution/platforms.json) — سجل دعم المنصات
 - [`marketplaces/README.md`](../marketplaces/README.md) — قواعد marketplace وملكية ادعاءات الدعم
 - [`scripts/validate-codex-plugin.py`](../scripts/validate-codex-plugin.py) — برنامج التحقق من إضافة Codex
+- [`scripts/package-qoder-plugin.py`](../scripts/package-qoder-plugin.py) — برنامج تجميع حزمة Qoder ZIP
 
 لا تضف نسخة مجمعة ثانية من المهارات. يمثل المسار الجذري `skills/**` مصدر المهارات الوحيد لجميع مسارات التثبيت.
 
