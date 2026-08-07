@@ -37,8 +37,10 @@ README_CLAUDE_NATIVE_COMMANDS = (
     "claude plugin marketplace add labring/sealos-skills",
     "claude plugin install sealos@sealos",
 )
-README_RECOMMENDED_CODEX_HEADING = "### Recommended: install in Codex"
-README_CLAUDE_CODE_HEADING = "### Install in Claude Code"
+README_CODEX_HEADING = "### Install natively in Codex"
+README_CLAUDE_CODE_HEADING = "### Install natively in Claude Code"
+README_TLDR_HEADING = "### TLDR"
+README_NPX_COMMAND = "npx plugins add https://github.com/labring/sealos-skills"
 README_FALLBACK_COMMAND = "npx plugins add https://github.com/labring/sealos-skills --target codex"
 README_CLAUDE_FALLBACK_COMMAND = "npx plugins add https://github.com/labring/sealos-skills --target claude-code"
 PLATFORM_INSTALL_COMMAND = "codex plugin marketplace add labring/sealos-skills && codex plugin add sealos@sealos"
@@ -197,25 +199,30 @@ def bash_blocks(markdown: str) -> list[list[str]]:
 
 
 def require_readme_contract(readme: str) -> None:
-    recommended_section = section_after_heading(readme, README_RECOMMENDED_CODEX_HEADING)
-    recommended_blocks = bash_blocks(recommended_section)
+    tldr_section = section_after_heading(readme, README_TLDR_HEADING)
+    require(
+        [README_NPX_COMMAND] in bash_blocks(tldr_section),
+        "README TLDR section includes exact npx plugins install block",
+    )
+    codex_section = section_after_heading(readme, README_CODEX_HEADING)
+    codex_blocks = bash_blocks(codex_section)
     claude_section = section_after_heading(readme, README_CLAUDE_CODE_HEADING)
     claude_blocks = bash_blocks(claude_section)
     require(
-        list(README_NATIVE_COMMANDS) in recommended_blocks,
-        "README Quick Start includes exact native Codex install block",
-    )
-    require(
-        [README_FALLBACK_COMMAND] in recommended_blocks,
-        "README Quick Start includes exact fallback Codex npx install block",
+        list(README_NATIVE_COMMANDS) in codex_blocks,
+        "README Codex section includes exact native install block",
     )
     require(
         list(README_CLAUDE_NATIVE_COMMANDS) in claude_blocks,
         "README Claude Code section includes exact native CLI install block",
     )
     require(
-        [README_CLAUDE_FALLBACK_COMMAND] in claude_blocks,
-        "README Claude Code section includes exact fallback npx install block",
+        README_FALLBACK_COMMAND in readme,
+        "README mentions the Codex --target npx install variant",
+    )
+    require(
+        README_CLAUDE_FALLBACK_COMMAND in readme,
+        "README mentions the Claude Code --target npx install variant",
     )
     require("/sealos deploy this repo to Sealos Cloud" in claude_section, "README Claude Code section uses /sealos examples")
     for token in (REPOSITORY_SLUG, PLUGIN_SELECTOR, "$sealos", DISPLAY_LABEL):

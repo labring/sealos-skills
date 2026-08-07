@@ -2,7 +2,7 @@
   "name": "sealos",
   "version": "1.2.5",
   "repository": "https://github.com/labring/sealos-skills",
-  "lastUpdated": "2026-08-05",
+  "lastUpdated": "2026-08-07",
   "platforms": [
     {
       "id": "codex",
@@ -38,6 +38,56 @@
       "commands": "supported",
       "evidence": ".qoder-plugin/plugin.json + qoder.md + commands/sealos.md + root skills/** + local package validation",
       "lastVerified": "2026-08-03"
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "npx plugins add https://github.com/labring/sealos-skills --target cursor",
+      "commands": "host_dependent",
+      "evidence": "npx plugins (vercel-labs/plugins) documents Cursor target support; not live-verified in this repo",
+      "lastVerified": "2026-08-07"
+    },
+    {
+      "id": "grok-build",
+      "name": "Grok Build",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "npx plugins add https://github.com/labring/sealos-skills --target grok",
+      "commands": "host_dependent",
+      "evidence": "npx plugins (vercel-labs/plugins) documents Grok Build target support; not live-verified in this repo",
+      "lastVerified": "2026-08-07"
+    },
+    {
+      "id": "kimi-code",
+      "name": "Kimi Code",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "npx plugins add https://github.com/labring/sealos-skills --target kimi",
+      "commands": "host_dependent",
+      "evidence": "npx plugins (vercel-labs/plugins) documents Kimi Code target support; not live-verified in this repo",
+      "lastVerified": "2026-08-07"
+    },
+    {
+      "id": "copilot-cli",
+      "name": "GitHub Copilot CLI",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "npx plugins add https://github.com/labring/sealos-skills --target copilot",
+      "commands": "host_dependent",
+      "evidence": "npx plugins (vercel-labs/plugins) documents Copilot CLI target support; not live-verified in this repo",
+      "lastVerified": "2026-08-07"
+    },
+    {
+      "id": "vscode",
+      "name": "Visual Studio Code",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "npx plugins add https://github.com/labring/sealos-skills --target vscode",
+      "commands": "host_dependent",
+      "evidence": "npx plugins (vercel-labs/plugins) documents VS Code target support; agent plugins are a Preview feature",
+      "lastVerified": "2026-08-07"
     },
     {
       "id": "clawhub-openclaw",
@@ -95,8 +145,8 @@
       "lastVerified": "2026-05-20"
     },
     {
-      "id": "amp-kimi-generic",
-      "name": "Amp / Kimi / generic repo importers",
+      "id": "amp-generic",
+      "name": "Amp / generic repo importers",
       "claim": "install-target",
       "runtime": "repo_import",
       "install": "Install or import https://github.com/labring/sealos-skills.git in the host tool.",
