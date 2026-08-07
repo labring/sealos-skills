@@ -5,6 +5,85 @@ description: Determine whether a repository contains a supported cloud workload,
 
 # Cloud Native Readiness Assessment Skill
 
+## Identity and Discovery
+
+- **Owner:** `cloud-native-readiness` (`/cloud-native-readiness` and readiness, containerization, deployment-feasibility, or workload-eligibility requests).
+- **Class:** `read-only-observation` with a typed handoff to `dockerfile-skill` only after eligibility and route evidence pass.
+- **Canaries:** `CNR-ELIGIBILITY-STOP` and `CNR-ROUTE-HANDOFF`.
+
+## Scope and Boundaries
+
+Accept a local path or GitHub URL and inspect repository evidence. This entry assesses eligibility, readiness, and existing artifacts; it does not write project files or score an unsupported target. A standalone readiness request keeps its report in the request result and does not create `.sealos/analysis.json`; composed deploy orchestration may persist a sanitized handoff snapshot under its own contract. A Dockerfile handoff carries the readiness report as its input artifact and leaves packaging mutations to the receiving owner.
+
+## Risk and Confirmation
+
+Load `knowledge/deployment-eligibility.md` before scoring. An unsupported or unresolved workload stops before artifact detection, scoring, Dockerfile generation, or deployment. Keep source paths, environment values, and any credentials redacted in the report; preserve the current fail-closed eligibility boundary.
+
+## Lifecycle Workflow
+
+For each request, select the repository, run eligibility, assess eligible targets, detect Docker artifacts, and route only when the decision matrix allows it. The request ends with `success`, `stopped`, or `error`; each result carries the selected source, workload type, redaction status, and the strongest evidence reached. The existing three-phase Assess → Detect → Route workflow remains the domain extension below.
+
+## Progressive Disclosure
+
+Load `modules/assess.md`, `modules/detect.md`, and `modules/route.md` one level deep when their phase is reached. Load the deployment-eligibility knowledge before the first score. Do not load Dockerfile detail or invoke the handoff after an eligibility stop.
+
+## Output, Stop, and Error States
+
+- `success`: selected source, eligible workload type, score dimensions, artifact inventory, concerns, recommendation, verification evidence, and any typed handoff are present.
+- `stopped`: selected source, workload type, eligibility or confirmation reason codes, observed evidence, redaction result, and safe next action are present; no downstream artifact is claimed.
+- `error`: selected source, failed phase/helper or artifact, sanitized diagnostic, redaction result, and recovery action are present.
+
+## Handoffs
+
+When eligible and the route requires packaging, send the complete typed handoff below for an assessment-only request. The receiving skill re-checks its own scope and canaries.
+
+```yaml
+target: dockerfile-skill
+inputArtifact: readiness report with source, project language/framework/package manager, dependencies/configuration, workload, score, dimensions, concerns, and artifact inventory
+allowedAction: generate Docker packaging within the receiving skill's owned file scope
+failureReturn: readiness findings and the failed route condition
+responseOwner: cloud-native-readiness
+```
+
+## Verification
+
+Use `workload-eligibility.mjs`, `score-model.mjs`, the current readiness eval evidence, and the baseline traces `readiness-positive-eligible` and `readiness-violating-ineligible`. Verify eligibility before score/build, preserve report fields, and redact credential-shaped values.
+
+## Readiness Report Contract
+
+Keep this payload request-scoped and repository-relative. A downstream handoff may reuse it without repeating discovery.
+
+```yaml
+source:
+  kind: local-path | github-url
+  display: redacted repository identifier
+project:
+  language: detected language
+  framework: detected framework or null
+  package_manager: detected package manager or null
+  dependencies: redacted external dependency types and versions
+  configuration: redacted configuration and environment-key observations
+workload:
+  type: server | static-web | worker | scheduled-job | reviewed-remote-desktop | unresolved
+  eligibility: eligible | ineligible | needs_review
+assessment:
+  score: 0-12 or null when stopped
+  dimensions: six named scores when eligible
+  concerns: redacted findings
+artifacts:
+  status: complete | partial | none
+  inventory: repository-relative paths and quality observations
+recommendation: report-only | package | remediate | stop
+verification:
+  helper: eligibility and/or scoring helper invoked
+  evidence: observed result and redaction status
+handoff: typed tuple or none
+terminal_state: success | stopped | error
+safe_next_action: request-scoped next action
+```
+
+The payload never contains passwords, tokens, kubeconfig contents, environment values, or complete connection strings.
+
 ## Overview
 
 This skill evaluates a repository's readiness for cloud-native microservice deployment through a 3-phase workflow:
@@ -40,11 +119,11 @@ cloud-native-readiness
 
 ## Quick Start
 
-When invoked, ALWAYS follow this sequence:
-
-1. Read and execute [modules/assess.md](modules/assess.md) — Cloud-native readiness evaluation
-2. Read and execute [modules/detect.md](modules/detect.md) — Existing Docker artifacts detection
-3. Read and execute [modules/route.md](modules/route.md) — Decision routing
+When invoked, read and execute [modules/assess.md](modules/assess.md) first. Continue to
+[modules/detect.md](modules/detect.md) and [modules/route.md](modules/route.md) only when
+the assessment report resolves the requested root as `eligible`. An `ineligible`,
+unresolved `needs_review`, or error result ends the request with its evidence and safe
+next action before artifact detection or downstream routing.
 
 ## Phase 1: Cloud-Native Readiness Assessment
 

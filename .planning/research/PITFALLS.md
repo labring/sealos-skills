@@ -1,230 +1,197 @@
-# Domain Pitfalls
+# Pitfalls Research
 
-**Domain:** Codex plugin installation docs and metadata upgrade
-**Researched:** 2026-06-15
-**Confidence:** HIGH for repository-local risks, MEDIUM for Codex marketplace CLI behavior because the ecosystem is new and may keep changing.
+**Domain:** Plugin-first AI skill design systems for cloud workflows
+**Researched:** 2026-08-06
+**Confidence:** HIGH for repository-local behavior and distribution risks; MEDIUM for inferred maintainer ergonomics
 
 ## Critical Pitfalls
 
-### Pitfall 1: Install command drift
-**What goes wrong:** README install instructions move to Codex-native marketplace commands, while `distribution/platforms.json` and local validator expectations still advertise `npx plugins add https://github.com/labring/sealos-skills --target codex`.
+### Pitfall 1: Concision removes load-bearing safety
 
-**Warning signs:**
-- `README.md` says `codex plugin marketplace add labring/sealos-skills`, but `distribution/platforms.json` `platforms[].id == "codex"` keeps the old `install` value.
-- `README.md` gives a `codex plugin add ...` plugin target that does not match `.codex-plugin/plugin.json` `name`.
-- The docs use a multi-plugin reference shape from `/tmp/pm-skills-ref/README.md` even though Sealos has one plugin named `sealos`.
-- `scripts/validate-codex-plugin.py` passes while install commands in README and platform registry disagree.
+**What goes wrong:** A shorter `SKILL.md` hides confirmation gates, secret-handling rules, destructive-action limits, or runtime verification requirements behind a deep reference path. An agent can begin a mutation before it has loaded the rule that must govern the mutation.
 
-**Why it happens:** The reference repo has a marketplace plus multiple plugin installs (`pm-toolkit@pm-skills`, etc.). Sealos has one Codex plugin identity and an existing compatibility installer path.
+**Why it happens:** Ponytail rewards focused entry points, and line-count cleanup is easy to measure. Sealos has safety rules that are intentionally visible at workflow entry, especially in `sealos-deploy`, `sealos-database`, `sealos-s3`, and `docker-to-sealos`.
 
-**Consequences:** Users follow a command that installs the wrong thing, installs from the wrong source, or leaves Codex unable to find the plugin. Roadmap work can look complete because static JSON validation still passes.
+**How to avoid:** Define an entry-visible safety set per skill before editing. Keep trigger, scope, mutation boundary, confirmation condition, secret rule, and success evidence in the entry file. Route detailed protocol steps to one-level modules or references. Preserve machine-mapped MUST rules in `docker-to-sealos`.
 
-**Prevention:**
-- Phase 1 should define the exact canonical Codex install sequence before editing copy:
-  - `codex plugin marketplace add labring/sealos-skills`
-  - `codex plugin add sealos@sealos`
-- Phase 1 should keep `npx plugins add https://github.com/labring/sealos-skills --target codex` as the compatibility/local installer path and label it clearly.
-- Phase 2 should update `README.md` and `distribution/platforms.json` together.
-- Phase 3 should extend `scripts/validate-codex-plugin.py` to compare the Codex install command text in `README.md` against the platform registry, or add a small README command assertion.
+**Warning signs:** A diff removes a safety keyword without adding an equivalent check; a skill's first screen contains only marketing prose; a destructive operation is documented solely in a reference file; a quality gate checks structure while omitting safety assertions.
 
-**Phase to address:** Phase 1 install contract, Phase 2 doc/metadata alignment, Phase 3 validation.
+**Phase to address:** Behavior baseline and shared contract.
 
-### Pitfall 2: Marketplace-name drift
-**What goes wrong:** The marketplace source name, plugin name, display name, and install target diverge across `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `distribution/platforms.json`, and `README.md`.
+### Pitfall 2: Pairwise host parity hides a shared inventory error
 
-**Warning signs:**
-- README uses `sealos-skills`, `sealos`, `Sealos`, and `labring/sealos-skills` as interchangeable install identifiers without explaining which is repo source, marketplace name, plugin id, and display name.
-- README proposes `codex plugin add sealos@sealos-skills`, while `.agents/plugins/marketplace.json` is named `sealos`.
-- `.codex-plugin/plugin.json` `name` remains `sealos`, but examples instruct users to invoke `$sealos-skills`.
-- The Codex App selection copy says `Sealos Skills` while the manifest display name is `Sealos`.
+**What goes wrong:** Every adapter agrees with the same incomplete list, so pairwise parity tests pass while users lose a skill. The current repository has eight root skills and routing surfaces with seven entries in several Claude and CodeBuddy projections.
 
-**Why it happens:** Plugin distribution has four naming layers: GitHub repo (`labring/sealos-skills`), marketplace name (`sealos` in `.agents/plugins/marketplace.json`), plugin id (`sealos` in `.codex-plugin/plugin.json`), and display label (`Sealos`).
+**Why it happens:** Validators compare selected files to one another instead of deriving expected membership from the physical skill source and the unified router.
 
-**Consequences:** Users can add a marketplace successfully, then fail at plugin install or look for the wrong UI label. Future maintainers may rename one surface and accidentally fork the public identity.
+**How to avoid:** Discover `skills/*/SKILL.md` as the canonical inventory, parse `commands/sealos.md` as the broad routing contract, then validate every explicit host projection against that expected set. Make omissions and unexpected entries fail with the skill name and owning surface.
 
-**Prevention:**
-- Phase 1 should create a naming table in the roadmap or implementation notes:
-  - Repo source: `labring/sealos-skills`
-  - Marketplace id: `sealos`
-  - Plugin id: `sealos`
-  - Codex App label: `Sealos`
-  - Codex CLI explicit mention: `@sealos` or direct natural-language request after install
-- Phase 2 should use those labels consistently in `README.md`.
-- Phase 3 should add validator assertions that `.agents/plugins/marketplace.json` `name`, `.agents/plugins/marketplace.json` `plugins[0].name`, `.codex-plugin/plugin.json` `name`, and `distribution/platforms.json` Codex install/invoke fields remain aligned.
+**Warning signs:** A validator reports parity without reporting the expected inventory; a new skill requires hand-editing an undocumented list; `sealos-canvas` appears in root and Qoder but disappears from Claude or CodeBuddy.
 
-**Phase to address:** Phase 1 naming contract, Phase 2 documentation, Phase 3 validator hardening.
+**Phase to address:** Inventory and adapter alignment.
 
-### Pitfall 3: Overclaiming Codex command support
-**What goes wrong:** Docs imply Codex exposes Claude-style slash commands or a guaranteed `$sealos` command, while current Codex plugin docs emphasize installing plugins, starting a new thread, asking Codex to use the plugin, and using `@` to choose a plugin or bundled skill.
+### Pitfall 3: A second canonical inventory creates a new drift source
 
-**Warning signs:**
-- README says Codex users should run `/sealos`.
-- README treats `$sealos` as equivalent to a slash command with fixed command routing.
-- `distribution/platforms.json` `commands` stays `"supported"` without a precise definition of support.
-- `.codex-plugin/plugin.json` `longDescription` says the plugin is invoked as `$sealos in Codex or /sealos in Claude Code-compatible hosts`, while official Codex docs describe `@` plugin selection.
-- Copy from `/tmp/pm-skills-ref/README.md` warning that "Codex plugins don't expose commands" is ignored.
+**What goes wrong:** A new `distribution/skills.json` becomes a second authority alongside `skills/*/SKILL.md` and `commands/sealos.md`. Future edits update one file and leave the others stale.
 
-**Consequences:** Codex users expect command semantics that belong to Claude-compatible hosts or `skills.sh`. Support issues look like runtime bugs even though the failure is a documentation claim.
+**Why it happens:** A machine-readable manifest feels convenient for validators and packaging, and Ponytail uses explicit generated or checked projections in places where the host requires them.
 
-**Prevention:**
-- Phase 1 should choose precise Codex wording: "After install, ask Codex to use Sealos or type `@sealos` to choose the plugin/skill explicitly."
-- Phase 2 should reserve `/sealos` for Claude-compatible hosts and `/sealos-deploy`, `/sealos-database`, `/sealos-s3` for direct `skills.sh` sections, matching `marketplaces/README.md`.
-- Phase 2 should update `distribution/platforms.json` `commands` for Codex to a more precise value if the current `"supported"` label means plugin/skill invocation rather than slash-command routing.
-- Phase 3 should add a validator check that README Codex sections do not contain `/sealos` or direct `skills.sh` command examples.
+**How to avoid:** Keep physical skill directories and the unified router as the source of truth. Build an in-memory inventory during validation or generate a derived report that is clearly disposable. Add a second committed manifest only when a host protocol requires it and define its generator and ownership first.
 
-**Phase to address:** Phase 1 semantics decision, Phase 2 copy cleanup, Phase 3 command-claim validation.
+**Warning signs:** A plan introduces a new JSON list without a regeneration command; the same description and version appear in three independent files; reviewers cannot identify which file wins after a conflict.
 
-### Pitfall 4: README/manifest mismatch
-**What goes wrong:** The README advertises metadata, prompts, capabilities, screenshots, install flow, or asset names that differ from `.codex-plugin/plugin.json` and `.agents/plugins/marketplace.json`.
+**Phase to address:** Inventory and validator design.
 
-**Warning signs:**
-- README says the plugin asks for Sealos auth during install, while `.agents/plugins/marketplace.json` uses `"authentication": "ON_INSTALL"` without a tested auth connector flow.
-- README mentions screenshots or app UI assets that are absent from `.codex-plugin/plugin.json` `interface.screenshots`.
-- README examples emphasize database or canvas prompts, while `.codex-plugin/plugin.json` `interface.defaultPrompt` omits them or exceeds the validator limit of 3.
-- README links to `./assets/codex-sealos.png`, while Codex manifest assets only validate `./assets/logo.svg`.
-- README says the plugin category or capabilities differ from `Coding`, `Interactive`, `Read`, `Write`.
+### Pitfall 4: Refactoring before recording behavior loses the baseline
 
-**Consequences:** Codex App display, CLI metadata, docs, and local marketplace testing disagree. Users see one product in docs and another in the plugin browser.
+**What goes wrong:** Entry files look cleaner, yet routing, progressive loading, confirmation, output, or handoff behavior changes without a detectable regression.
 
-**Prevention:**
-- Phase 2 should update README and manifest metadata as one unit when display copy changes.
-- Phase 3 should extend `scripts/validate-codex-plugin.py` to validate README-referenced assets and key README claims:
-  - Codex plugin name/display name
-  - canonical install commands
-  - invocation wording
-  - manifest asset paths
-  - platform registry support claim
-- Phase 3 should run:
-  - `python3 scripts/validate-codex-plugin.py`
-  - `python3 -m json.tool .codex-plugin/plugin.json >/dev/null`
-  - `python3 -m json.tool .agents/plugins/marketplace.json >/dev/null`
-  - `python3 -m json.tool distribution/platforms.json >/dev/null`
+**Why it happens:** Markdown changes invite visual review, while the existing eval fixtures cover only deploy, database, S3, and canvas. Four skills have no dedicated behavior fixtures.
 
-**Phase to address:** Phase 2 synchronized docs/metadata edit, Phase 3 validation.
+**How to avoid:** Capture a baseline matrix for all eight skills before the first refactor. Include positive and negative routing probes, required confirmation probes, stop/error output probes, and handoff payload probes. Treat existing runtime tests as authoritative and add focused evals for the missing skills.
 
-### Pitfall 5: Validator blind spots create false confidence
-**What goes wrong:** `scripts/validate-codex-plugin.py` confirms the current Codex manifest shape, but misses README drift, install-command drift, Codex-vs-Claude invocation drift, and non-Codex distribution drift.
+**Warning signs:** The first implementation commit changes eight entries before any new failing test exists; tests assert only headings or line counts; a skill can match a prompt through a broad keyword with no boundary assertion.
 
-**Warning signs:**
-- Validator passes after README changes without reading `README.md`.
-- Validator asserts `commands == "supported"` for Codex but does not check what that means in README.
-- Validator checks only `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, and `distribution/platforms.json`; it does not check `marketplaces/README.md`, `commands/sealos.md`, `.claude-plugin/plugin.json`, or `marketplace.json`.
-- Validation output says "passed" while `README.md` still advertises old `npx plugins` as the primary install path.
+**Phase to address:** Behavior baseline.
 
-**Consequences:** Roadmap phases ship a polished README that contradicts manifests. Later maintainers trust the validator and propagate the mismatch to additional marketplace files.
+### Pitfall 5: Cross-skill handoffs become implicit and contradictory
 
-**Prevention:**
-- Phase 3 should add README-aware checks for exact command snippets and forbidden command placement.
-- Phase 3 should add a small distribution parity section that checks every advertised Codex path exists and every Codex install command matches the registry.
-- Phase 4 should add broader distribution validation only after the Codex upgrade lands, because this milestone's blast radius is Codex-first.
-- The roadmap should treat "validator passed" as necessary, then require a manual command matrix review before merge.
+**What goes wrong:** A parent skill tells the agent to “use the deploy skill” without specifying the artifact, state, or stop condition. Two skills each claim ownership of image building, credentials, or rollout verification, producing duplicate work or unsafe mutations.
 
-**Phase to address:** Phase 3 validator hardening, Phase 4 distribution-wide follow-up.
+**Why it happens:** Shared workflows naturally span readiness, Dockerfile generation, conversion, and deployment. Copying prose between entries is faster than defining a typed handoff.
 
-## Moderate Pitfalls
+**How to avoid:** Give every handoff a named owner, input artifact, allowed mutation, output artifact, failure return, and verification evidence. Keep orchestration in the narrowest owning skill and link to sibling entry points instead of duplicating their rules.
 
-### Pitfall 6: Copying the reference repo too literally
-**What goes wrong:** The Sealos README copies the `pm-skills` pattern for installing many plugins from one marketplace, even though Sealos exposes one plugin that bundles all skills.
+**Warning signs:** Handoff text contains a bare skill name; two modules define the same artifact filename; a downstream skill assumes authentication or state that the upstream skill never records; evals verify each skill in isolation only.
 
-**Warning signs:**
-- README contains several `codex plugin add ...` lines for `sealos-deploy`, `sealos-database`, `sealos-s3`, or `sealos-canvas`.
-- README calls individual skills "plugins."
-- The install section tells users to cherry-pick skills from the marketplace.
+**Phase to address:** Shared contract and behavior evals.
 
-**Prevention:** Phase 1 should translate the reference pattern into a one-plugin Sealos model. Phase 2 should keep individual skills listed under "Included Skills" and keep installation as one plugin add.
+### Pitfall 6: Progressive disclosure becomes deep disclosure
 
-**Phase to address:** Phase 1 reference adaptation, Phase 2 README edit.
+**What goes wrong:** The entry file points through several nested references before the agent reaches an actionable rule. Context loading becomes unpredictable and safety behavior depends on model willingness to follow links.
 
-### Pitfall 7: Compatibility path demoted into obscurity
-**What goes wrong:** Moving the primary path to Codex-native marketplace commands hides the existing `npx plugins add ... --target codex` path that is still useful for local testing and cross-host compatibility.
+**Why it happens:** Splitting a long skill into many small files reduces local line count, and a generic “read references as needed” instruction looks reusable.
 
-**Warning signs:**
-- `npx plugins add` disappears from `README.md`.
-- `distribution/platforms.json` still lists only `npx plugins`, while README lists only native Codex commands.
-- Contributor docs lose the fastest local smoke path for plugin install.
+**How to avoid:** Use one focused entry plus one level of owned modules for routine detail. Keep trigger, boundary, safety, output, and handoff contracts in the entry. Add a validator for broken references and a depth limit that reports exceptions explicitly.
 
-**Prevention:** Phase 2 should keep a short "Compatibility/local install" subsection. Phase 3 should verify both native and compatibility commands are documented with distinct purposes.
+**Warning signs:** A normal task requires reading more than two files before the first decision; references link to other references; a module has no clear owner; entry content loses the exact success condition.
 
-**Phase to address:** Phase 2 install documentation, Phase 3 doc validation.
+**Phase to address:** Shared contract and all eight entry refactors.
 
-### Pitfall 8: Support claim dates and evidence become stale
-**What goes wrong:** `distribution/platforms.json` keeps `lastVerified` and `evidence` from May 2026 after a June 2026 install-flow change.
+### Pitfall 7: Copying Ponytail runtime mechanisms into Sealos
 
-**Warning signs:**
-- `lastUpdated` remains `2026-05-28` after this milestone.
-- Codex `lastVerified` remains `2026-05-21`.
-- Evidence still says `npx plugins discover . --remote + codex_manifest+repo_marketplace` with no native Codex marketplace check.
+**What goes wrong:** Sealos gains persona language, intensity modes, session hooks, statusline state, or a broad command taxonomy that does not fit cloud deployment safety or host distribution.
 
-**Prevention:** Phase 3 should update `lastUpdated`, Codex `lastVerified`, and evidence text after validation. Use the actual validation command names and keep claims proportional to what was tested.
+**Why it happens:** Ponytail's consistency is visible in its runtime and hook bundle, while the transferable value actually comes from ownership, focused skills, adapters, and executable checks.
 
-**Phase to address:** Phase 3 validation and registry update.
+**How to avoid:** Adopt mechanism-level patterns only: explicit triggers, boundaries, lifecycle, outputs, thin adapters, and positive/negative tests. Keep Sealos's existing auth, Kubernetes, artifact, secret, and rollout contracts intact. Record rejected runtime additions as anti-features.
 
-### Pitfall 9: Gitignored marketplace files vanish from commits
-**What goes wrong:** `.agents/` is commonly ignored, and `.agents/plugins/marketplace.json` may be left unstaged even after metadata changes.
+**Warning signs:** A design document mentions new hooks or persistent state without a Sealos user workflow; host adapters start carrying behavior; a skill's vocabulary shifts toward Ponytail concepts rather than Sealos tasks.
 
-**Warning signs:**
-- `git status --ignored` shows `.agents/plugins/marketplace.json` ignored or unstaged.
-- README references a marketplace entry change that is absent from the diff.
-- Validator passes locally because the file exists in the working tree, then CI or reviewer checkout lacks the intended update.
+**Phase to address:** Shared contract review and implementation review.
 
-**Prevention:** Phase 3 should include `git status --short --ignored .agents/plugins/marketplace.json` in verification notes and use `git add -f .agents/plugins/marketplace.json` when staging is required by the orchestrator.
+### Pitfall 8: Main-to-preview scope leaks during distribution edits
 
-**Phase to address:** Phase 3 verification, final handoff.
+**What goes wrong:** A change planned for `main` is copied into `brain-deploy-preview`, adding full deployment, OAuth, Template API, UPDATE mode, BuildKit, or plugin distribution surfaces to a prepare-only branch.
 
-## Minor Pitfalls
+**Why it happens:** The branches share skill names and many files, and a broad parity script can make an excluded file look like an obvious merge target.
 
-### Pitfall 10: Codex App UI copy ages quickly
-**What goes wrong:** README gives exact button labels and UI path for Codex App; official UI labels may change.
+**How to avoid:** Tag every planned file as aligned, adapted, or excluded under the branch policy. Keep `sealos-deploy` and `k8s-kaniko-job` on the preview flow, preserve the preview README and AGENTS identity, and exclude main-only plugin and marketplace surfaces from preview merges.
 
-**Warning signs:**
-- README over-specifies lower-left button position and exact modal labels.
-- Screenshot `assets/codex-sealos.png` becomes visually outdated.
+**Warning signs:** A roadmap says “sync all manifests” without naming the target branch; a preview diff adds `.codex-plugin/`, `commands/`, or full-deploy state; `sealos-canvas` or BuildKit appears without a preview requirement.
 
-**Prevention:** Phase 2 should keep UI copy outcome-oriented: "open Plugins, search/select Sealos, then start a new thread." Keep screenshots helpful but secondary to commands.
+**Phase to address:** Adapter alignment and final branch-policy audit.
 
-**Phase to address:** Phase 2 README edit.
+## Technical Debt Patterns
 
-### Pitfall 11: LongDescription carries cross-host language
-**What goes wrong:** `.codex-plugin/plugin.json` `interface.longDescription` mentions Claude `/sealos` invocation inside a Codex manifest.
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Enforce a universal line cap | Fast style signal | Hides domain-specific safety and encourages prose deletion | Only as an advisory report |
+| Add a committed inventory JSON beside skill directories | Simple parser input | Creates competing ownership and stale packaging metadata | Only with a required host schema and generator |
+| Copy a canonical paragraph into every adapter | Local readability | Host behavior diverges on the next edit | Never for workflow semantics |
+| Test headings and keywords only | Cheap CI | Misses routing, stop, confirmation, and handoff behavior | Early exploratory baseline only |
 
-**Warning signs:**
-- Codex plugin browser text includes `/sealos`.
-- README tries to explain Claude-compatible hosts inside the Codex-specific manifest paragraph.
+## Integration Gotchas
 
-**Prevention:** Phase 2 should make Codex manifest copy Codex-specific. Keep Claude invocation in README and Claude manifests.
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| Codex plugin manifest | Treat plugin name as a command router | Validate plugin identity and point it at the root `skills/` tree |
+| Claude/Qoder/CodeBuddy adapters | Maintain independent skill lists | Compare each projection with the discovered eight-skill inventory |
+| `commands/sealos.md` | Use broad keyword routing without exclusions | State positive triggers, boundaries, and escalation to direct skills |
+| `skills/sealos-deploy` handoffs | Assume sibling skills share hidden state | Name artifacts and verify `.sealos` state at each boundary |
+| `brain-deploy-preview` | Merge main's full runtime contract | Classify files against the prepare-only branch policy before adoption |
 
-**Phase to address:** Phase 2 manifest copy review.
+## Performance Traps
 
-## Phase-Specific Warnings
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Load every module at session start | Large prompt and slower first decision | Keep entry files focused and load one owned module on demand | As the skill knowledge tree grows |
+| Run network/provider benchmarks in every PR | Flaky, slow validation and rate-limit failures | Keep deterministic local graders in the required gate; run provider benchmarks separately | Any offline CI or contributor setup |
+| Reparse multiple full host manifests for each test | Repeated I/O and opaque failures | Parse once, report per-surface mismatches | As host surfaces and eval cases multiply |
 
-| Phase Topic | Likely Pitfall | Mitigation |
-|-------------|----------------|------------|
-| Phase 1: Install contract | Importing the `pm-skills` multi-plugin model directly | Write the Sealos-specific identity matrix before editing docs |
-| Phase 1: Invocation semantics | Treating Codex plugin use as slash-command routing | Use official Codex wording: ask Codex directly or select `@sealos` |
-| Phase 2: README rewrite | Native commands, compatibility commands, and app UI copy diverge | Keep one Codex install section with native path first and compatibility path second |
-| Phase 2: Metadata alignment | Manifest copy and README copy describe different product surfaces | Update README, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, and `distribution/platforms.json` as one change set |
-| Phase 3: Validation | Existing validator misses README and command-claim drift | Add README command assertions and run JSON syntax checks |
-| Phase 3: Handoff | Generated files under `.agents/` are present locally but absent from the eventual commit | Check ignored/staged state for `.agents/plugins/marketplace.json` |
-| Phase 4: Follow-up | Codex-specific fixes leave Claude, CodeBuddy, Gemini, Qwen, and OpenClaw claims stale | Add distribution-wide parity validation in a separate follow-up |
+## Security Mistakes
 
-## Roadmap Prevention Strategy
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| Move credential or secret rules into a deep reference | Agent exposes or mishandles credentials before loading the rule | Keep secret handling entry-visible and assert it in the validator |
+| Treat a handoff artifact as trusted without provenance | Wrong image, namespace, or template reaches a mutation step | Require source, owner, and verification fields in the handoff contract |
+| Use eval fixtures containing real tokens, kubeconfigs, or URLs | Secrets leak through committed tests or logs | Use synthetic placeholders and scrub captured output |
+| Let design refactors alter confirmation wording without a negative test | Destructive action proceeds under ambiguous consent | Test explicit confirmation, refusal, and cancellation paths |
 
-1. **Phase 1: Contract before copy.** Define canonical Sealos marketplace identity, install commands, invocation semantics, and support-claim vocabulary. Use `/tmp/pm-skills-ref/README.md` as a pattern source, then adapt it to Sealos' one-plugin architecture.
-2. **Phase 2: Synchronized docs and metadata.** Edit `README.md`, `.codex-plugin/plugin.json`, `.agents/plugins/marketplace.json`, `distribution/platforms.json`, and `marketplaces/README.md` together when user-facing Codex wording changes.
-3. **Phase 3: Validation that reads docs.** Extend `scripts/validate-codex-plugin.py` or add a focused check so README install commands, invocation wording, registry claims, and manifest identity are tested together.
-4. **Phase 4: Distribution parity follow-up.** After Codex install docs are correct, add a broader validator for `.claude-plugin/plugin.json`, `marketplace.json`, `.claude-plugin/marketplace.json`, `.codebuddy-plugin/marketplace.json`, `gemini-extension.json`, `qwen-extension.json`, `openclaw.plugin.json`, and `commands/sealos.md`.
+## UX Pitfalls
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| Every skill begins with the same generic preamble | Users and agents cannot tell which workflow owns the request | Use a shared contract shape with domain-specific trigger and outcome text |
+| Host examples mix `$sealos`, `/sealos`, and direct `skills.sh` commands | Users select a surface that their host cannot execute | Keep host invocation examples in host-owned sections and validate them |
+| Output contract names internal files without a user-facing outcome | Users cannot tell whether work stopped, failed, or completed | State result, evidence, next action, and safe stop condition |
+| Confirmation is buried after an action checklist | Users see the mutation before the consent boundary | Place the confirmation gate before the first external mutation |
+
+## "Looks Done But Isn't" Checklist
+
+- [ ] **Eight-skill inventory:** Root and Qoder show eight entries while every explicit host projection is checked for the same set.
+- [ ] **Safety visibility:** Each entry exposes its mutation boundary, confirmation condition, secret rule, and success evidence.
+- [ ] **Behavior coverage:** All eight skills have positive and negative routing probes plus relevant output and handoff assertions.
+- [ ] **Reference integrity:** Every linked module exists, has one owner, and stays within the approved disclosure depth.
+- [ ] **Version parity:** Skill metadata, plugin version, host projections, and validator expectations derive from one declared source.
+- [ ] **Branch policy:** Main-only distribution and runtime files are classified before any preview-branch merge.
+- [ ] **Maintainer gate:** A single local command runs structural, semantic, and behavior checks without network access.
+
+## Recovery Strategies
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Safety rule was hidden | HIGH | Restore the last known entry contract, add a failing safety test, then move only explanatory detail to a module |
+| Host projection lost a skill | MEDIUM | Recompute inventory from `skills/*/SKILL.md`, repair the adapter, and add the missing-surface regression fixture |
+| Behavior changed during refactor | HIGH | Compare the baseline matrix, revert the narrow offending section, then update the contract with an explicit behavior test |
+| Handoff became ambiguous | MEDIUM | Name the artifact and owner, add a stop/error return, and test the parent-to-child path |
+| Preview branch received main-only files | HIGH | Remove the scope leak in a focused commit and record the aligned/adapted/excluded decision in the merge audit |
+
+## Pitfall-to-Phase Mapping
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| Concision removes safety | Behavior baseline / shared contract | Entry-visible safety assertions and mutation review |
+| Pairwise parity hides omissions | Inventory and adapter alignment | Eight-skill projection matrix with missing and unexpected checks |
+| Second inventory source | Inventory and validator design | Source-of-truth decision plus no unowned manifest check |
+| Missing behavior baseline | Behavior baseline | All eight baseline probes recorded before refactor |
+| Ambiguous handoffs | Entry refactors / behavior evals | Typed handoff fixtures and downstream failure tests |
+| Deep disclosure | Entry refactors | Reference-depth and broken-link checks |
+| Ponytail runtime leakage | Contract review | Anti-feature review and Sealos runtime regression suite |
+| Preview scope leak | Branch-policy audit | Aligned/adapted/excluded file report |
 
 ## Sources
 
-- `README.md`
-- `.planning/PROJECT.md`
-- `.planning/codebase/CONCERNS.md`
-- `.planning/codebase/TESTING.md`
-- `.codex-plugin/plugin.json`
-- `.agents/plugins/marketplace.json`
-- `distribution/platforms.json`
-- `scripts/validate-codex-plugin.py`
-- `marketplaces/README.md`
-- `/tmp/pm-skills-ref/README.md`
-- OpenAI Codex plugins docs: https://developers.openai.com/codex/plugins
-- OpenAI Codex build plugins docs: https://developers.openai.com/codex/plugins/build
+- `/Users/longnv/bin/repo/ponytail/AGENTS.md`
+- `/Users/longnv/bin/repo/ponytail/skills/*/SKILL.md`
+- `/Users/longnv/bin/repo/ponytail/scripts/`
+- `/Users/longnv/bin/repo/ponytail/tests/`
+- `AGENTS.md` in this repository, including the `main` to `brain-deploy-preview` merge policy
+- `.planning/research/STACK.md`
+- `.planning/research/FEATURES.md`
+- `.planning/research/ARCHITECTURE.md`
+- `skills/*/SKILL.md`, `commands/sealos.md`, host manifests, and existing eval fixtures
+
+---
+*Pitfalls research for: Sealos Skills v1.1 Skill Design System Optimization*
+*Researched: 2026-08-06*

@@ -8,6 +8,45 @@ metadata:
 
 # Sealos Deploy
 
+## Identity and Discovery
+
+- **Owner:** `sealos-deploy` (`/sealos-deploy` and deploy, update, publish, or cloud-runtime requests).
+- **Class:** `composite-orchestration` across readiness, Dockerfile, template, build, deployment, and Runtime Truth.
+- **Canaries:** `DEP-KUBECONFIG-SCOPE`, `DEP-CONFIRM-MUTATION`, `DEP-REDACT`, and `DEP-RUNTIME-TRUTH`.
+- **Contract:** Read [`references/deploy-contract.md`](references/deploy-contract.md) after the canaries pass. It defines the typed phase handoffs, owned `.sealos` artifacts, terminal states, and the read-only Canvas boundary.
+
+## Scope and Boundaries
+
+Accept a local path or GitHub URL and scope all work to the selected namespace/app. Preserve the current DEPLOY/UPDATE phase order, `.sealos` artifact inventory, one log file, dependency handoffs, and cleanup footprint. All Kubernetes commands use `KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify`; unsupported workloads stop before scoring/build.
+
+## Risk and Confirmation
+
+Keep auth/workspace, kubeconfig scope, system-tool installation, public exposure, credential changes, deletion, rollback, and cleanup confirmation visible before module detail. Redact passwords, tokens, cookies, env values, kubeconfig, Secret data, and full connection strings. A quality gate and actual Runtime Truth evidence are acceptance conditions.
+
+For every gated mutation, report the exact operation, impact, confirmation, and post-action evidence. Keep sanitized logs, state, diagnostics, and footprint evidence free of secret data.
+
+## Lifecycle Workflow
+
+For each request, run preflight/auth/workspace, detect mode, enforce eligibility, assess/detect/build or reuse, generate/validate the template, deploy or update, run Runtime Truth, and record state/cleanup evidence. Emit request-scoped `success`, `stopped`, or `error`; the existing phase modules below remain authoritative for detailed behavior.
+
+## Progressive Disclosure
+
+Load `modules/` and helper scripts one phase at a time after the corresponding canaries pass. Preserve typed readiness → Dockerfile → Docker-to-Sealos handoffs, `.sealos/analysis.json`, `.sealos/build/build-result.json`, `.sealos/template/index.yaml`, `.sealos/state.json`, and delivery evidence; do not hide phase order behind a generic deploy shortcut.
+
+## Output, Stop, and Error States
+
+- `success`: actual returned App URL/live identity, route and port match, setup/login proof, recent logs/events, workload convergence, database/object evidence, full footprint, and saved deploy state.
+- `stopped`: unsupported eligibility, missing auth/tool, unresolved configuration, or unconfirmed public/destructive/cleanup boundary with the safe next action.
+- `error`: failed preflight, build/template/deploy/runtime/rollback/cleanup step and recovery action with sensitive values redacted.
+
+## Handoffs
+
+Readiness, Dockerfile, and Docker-to-Sealos inputs use typed `target`, `inputArtifact`, `allowedAction`, `failureReturn`, and `responseOwner` fields. A verified deploy can hand `target: sealos-canvas`, `inputArtifact: sanitized .sealos/state.json and Runtime Truth`, `allowedAction: read-only topology inspection`, `failureReturn: runtime/state diagnostic`, and `responseOwner: sealos-deploy`.
+
+## Verification
+
+Use the existing eligibility, artifact, quality-gate, footprint, live-smoke, rollout, Runtime Truth, and cleanup checks. Baseline cases `deploy-positive-runtime-truth` and `deploy-violating-missing-runtime-proof` must preserve actual App URL/live identity, auth/cleanup confirmation, log scans, and redaction.
+
 ## Compatibility
 
 Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.

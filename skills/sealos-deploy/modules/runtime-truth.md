@@ -16,6 +16,36 @@ Run this pass after Template API deploy or kubectl fallback deploy. Accept the d
 
 In managed mode, every command shown below that uses `~/.sealos/kubeconfig` must instead use the kubeconfig/context injected into the Devbox (for example the active `KUBECONFIG` path supplied by the runtime). Do not copy it into the workspace or print it. The target namespace is always `SEALAI_NAMESPACE`; local mode keeps the literal local path and auth behavior shown in these examples.
 
+## Runtime Truth Acceptance Contract
+
+Runtime Truth produces one sanitized report at `.sealos/runtime-truth.json` and a typed
+handoff to state/Canvas. A successful Template API response, rollout status, or single
+HTTP 2xx response supplies deployment evidence; it does not complete Runtime Truth.
+Every report names the selected workload class, live App/Instance identity, evidence
+paths, redaction status, first/final scan timestamps, stability window, and terminal state.
+
+| Workload class | Required probes | Conditional probes | Stopped/error result |
+| --- | --- | --- | --- |
+| Public web | live App URL/host, Launchpad public network, numeric Service port match, fresh root and configured entrance, auth/setup action, documented negative route, logs/events/readiness, full footprint | database final state and object flow when declared | `stopped` on runtime pending; `error` on URL/port/auth/log/footprint failure |
+| Private web | live workload identity, fresh internal route, documented business action, logs/events/readiness, full footprint | Launchpad and public URL when no public Ingress exists; auth when the release is anonymous | `stopped` when no usable route or required setup proof exists |
+| Worker | live workload identity, ready/converged Pods, queue or documented work signal, logs/events, restart delta, full footprint | HTTP smoke and Launchpad | `error` on active failure, restart, or missing work evidence |
+| Scheduled job | CronJob identity and schedule, at least one expected Job/Pod result, completion/log evidence, event convergence, full footprint | HTTP smoke, Launchpad, and auth | `stopped` until one schedule period is observed; `error` on failed/non-zero Job |
+| Database-backed | application identity, live database objects, migration markers, dependent workload readiness, logs/events, full footprint | HTTP/auth and object flow based on the app contract | `error` when a Job completed without proving final database state |
+| S3-backed | application business flow, authenticated upload/read/content/delete, restricted anonymous raw object access, managed bucket/Secret wiring, logs/events, full footprint | local-storage branch when managed S3 is optional | `error` on digest mismatch, public raw object, missing bucket, or unresolved Secret |
+
+All applicable classes capture an initial baseline after readiness and a final comparison
+after a minimum 60-second stability window. Increase the window for a known queue,
+reconciliation, or schedule period. An advancing Warning Event, restart delta, Pod
+replacement, readiness flap, unresolved referenced Secret, active log finding, or
+listing error keeps the result `stopped`/`error`.
+
+`success` requires `runtimeReady: true`, `collectionOk: true`, complete redaction, the
+strongest applicable probes above, and a verified live identity that matches the state
+record. A deploy-only request ends `stopped` with `runtime_pending` until these fields
+are present. Only this sanitized report can unlock the read-only Canvas observation tuple;
+Canvas receives state/runtime paths and identity summaries while deploy keeps mutation,
+cleanup, and rollback ownership.
+
 ## Capture Live Identity
 
 Read the App URL from the live App resource when possible:

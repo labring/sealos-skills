@@ -57,8 +57,10 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 <WORK_DIR>/.sealos/
 ├── config.json                   ← user configuration overrides (manual, committed to git)
 ├── template-match.json           ← Phase 0.5 template fast-path decision
+├── deploy-handoff.json           ← typed phase handoff envelope (when emitted)
 ├── state.json                    ← deployment state (auto-maintained after Phase 6)
 ├── analysis.json                 ← project analysis snapshot (regenerated each deploy)
+├── runtime-truth.json            ← sanitized live evidence (written before state)
 ├── build/                        ← created only if Phase 4 actually runs
 │   └── build-result.json         ← Phase 4 result (`success` or `failed`)
 └── template/
@@ -69,6 +71,8 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 - `config.json` — optional user overrides (port, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
 - `analysis.json` — project analysis snapshot written after Phase 1 (language, framework, score, etc.). Regenerated each deploy.
 - `state.json` — deployment state written after Phase 6 success. Contains `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
+- `runtime-truth.json` — sanitized Runtime Truth evidence written before verified state; it never contains credentials or raw Secret/ConfigMap values.
+- `deploy-handoff.json` — optional typed envelope for a phase boundary; it records source, owner, preconditions, evidence, redaction, terminal state, and the next action.
 
 **Note:** When reading dockerfile-skill modules (analyze.md, generate.md, build-fix.md), they reference `docker-build/` as their default output path. In this pipeline, always write to `.sealos/build/` instead. Similarly, template output goes to `.sealos/template/` instead of `template/`.
 
@@ -78,6 +82,7 @@ JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>
 - `analysis.schema.json`
 - `build-result.schema.json`
 - `state.schema.json`
+- `deploy-handoff.schema.json`
 
 Validate them with:
 
@@ -86,6 +91,25 @@ node "<SKILL_DIR>/scripts/validate-artifacts.mjs" --dir "$WORK_DIR"
 ```
 
 Writers should validate on write; readers should validate before trusting resume/update state.
+
+## Typed Dependency Boundaries
+
+Every receiving phase validates the upstream handoff before reading the next input. The
+validated summary contains `source`, `owner`, `preconditions`, `inputArtifact`,
+`allowedAction`, `failureReturn`, `responseOwner`, `evidence`, and `redaction`.
+
+| Boundary | Accepted evidence | Stopped return | Error return |
+| --- | --- | --- | --- |
+| Eligibility → assess | eligible decision with repository-relative evidence | unsupported or ambiguous workload, before `.sealos/` work | classifier execution failure |
+| Readiness → Dockerfile | validated analysis plus readiness owner and evidence | missing or stale analysis, with the readiness owner | schema or redaction violation |
+| Dockerfile/build → template | validated Dockerfile/build result and explicit image tag | build pending or image reuse not verified | build/template handoff failure |
+| Template → deploy | quality-gated template and delivery evidence | missing config or unconfirmed mutation | API/template error with sanitized detail |
+| Deploy → Runtime Truth/Canvas | live identity, runtime report, and sanitized artifact paths | runtime pending or unreadable handoff | failed smoke, logs, rollout, or footprint |
+
+The receiving phase consumes each report once and passes its verified summary forward.
+It keeps the existing fast path, image reuse, and lazy `.sealos/build/` creation. A
+failed handoff returns to its named owner with one recovery action; it does not trigger
+a second repository-wide source scan or silently substitute a guessed artifact.
 
 At the very start of the pipeline (before Phase 1), create the base artifact directory:
 
@@ -118,7 +142,10 @@ After preflight, determine whether this is a **first deploy** or an **update** o
 
 ### Step 1: Check for previous deployment state
 
-Read `.sealos/state.json` in `WORK_DIR`. If it exists and contains a `last_deploy` key with `app_name`, proceed to Step 2.
+Read `.sealos/state.json` in `WORK_DIR` and validate it with the artifact validator before
+using any field. If it exists and contains a `last_deploy` key with `app_name`, proceed to
+Step 2. A malformed state, incomplete provenance, unredacted handoff, or invalid Runtime
+Truth block returns `stopped` with the exact artifact path and reconciliation action.
 
 If no `last_deploy` key or file doesn't exist → proceed to **Step 1.5** (attempt discovery from cluster).
 
@@ -167,8 +194,9 @@ Found an existing deployment that appears to match this project:
 ### Step 2: Verify deployment is still running (requires kubectl)
 
 If `ENV.kubectl` is false:
-- Inform user: `"Found previous deployment record for {app_name}, but kubectl is not available. Will create a new instance instead."`
-- → **DEPLOY mode**
+- Return `stopped`: `state_live_identity_unavailable` with the safe action to restore the
+  selected Sealos kubeconfig or explicitly choose a new instance. Keep the state file for
+  reconciliation and perform no mutation.
 
 If `ENV.kubectl` is true, query the cluster:
 ```bash
@@ -177,8 +205,12 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null
 ```
 
-- Command fails (deployment deleted or kubeconfig expired) → **DEPLOY mode** (remove `.sealos/state.json` or clear `last_deploy`)
-- Command returns current image → proceed to Step 3
+- Command fails (deployment deleted or kubeconfig expired) → `stopped` with
+  `state_live_identity_unavailable`; keep the state artifact and ask for reconciliation.
+- Command returns current image → compare app name, namespace, image, URL host, and
+  readiness with the validated `last_deploy` record before proceeding to Step 3.
+- Any mismatch → `stopped` with `state_live_identity_mismatch`; show only field names and
+  the safe reconciliation action. UPDATE never mutates a guessed target.
 
 ### Step 3: Ask user
 
@@ -213,11 +245,15 @@ Default: Update
 | `.sealos/build/build-result.json` exists and `outcome: "success"` | Phase 4 completed | Ask user: skip rebuild? |
 | `.sealos/template/index.yaml` exists | Phase 5 completed | Ask user: skip template generation? |
 
-If any artifacts exist, report to user:
+If any artifacts exist, validate each artifact before offering resume. Report to user:
 `"Found artifacts from a previous deploy attempt. [list found artifacts]."`
 Ask: `"Resume from where it left off? Or restart from Phase 1?"`
 
 If restart → remove `.sealos/analysis.json`, `.sealos/build/`, `.sealos/template/index.yaml` and start fresh.
+
+Keep `.sealos/build/` absent when the image-reuse handoff is `validated` and Phase 4 does
+not run. A directory created only by a failed or skipped build is a stale artifact and
+returns `stopped` until the user chooses a fresh build or the artifact is reconciled.
 
 ---
 
@@ -1418,6 +1454,10 @@ App URL: `https://<app_host>.<CLOUD_DOMAIN>`
 
 Execute `<SKILL_DIR>/modules/runtime-truth.md` after every Template API or kubectl fallback deploy. Complete its Launchpad network, App URL, login, log, Event convergence, object-storage, and footprint gates before writing deployment state or reporting success.
 
+Write the allowlisted result to `.sealos/runtime-truth.json`, validate its redaction and
+identity fields, and keep the report `verified` only after the full stability window. A
+deploy response without this report is `stopped` with `runtime_pending`.
+
 ### Write state.json
 
 **This is critical for enabling future updates.** After a successful deploy, write `.sealos/state.json`:
@@ -1446,11 +1486,33 @@ Execute `<SKILL_DIR>/modules/runtime-truth.md` after every Template API or kubec
       "status": "success",
       "note": "Initial deployment"
     }
-  ]
+  ],
+  "runtime_truth": {
+    "status": "verified",
+    "captured_at": "<final Runtime Truth timestamp>",
+    "identity": {
+      "app_name": "<same live app name>",
+      "namespace": "<same live namespace>",
+      "image": "<same verified image>",
+      "url": "<same verified public URL>"
+    },
+    "evidence_paths": [".sealos/runtime-truth.json"],
+    "redaction_status": "complete",
+    "stability_window_seconds": 60,
+    "checks": ["network", "app-url", "auth", "logs", "events", "footprint"]
+  },
+  "provenance": {
+    "source": "sealos-deploy/runtime-truth",
+    "owner": "sealos-deploy",
+    "artifact_paths": [".sealos/analysis.json", ".sealos/template/index.yaml", ".sealos/runtime-truth.json"],
+    "redaction_status": "complete"
+  }
 }
 ```
 
-The `last_deploy` section is what **Deployment Mode Detection** reads on subsequent runs to decide between DEPLOY and UPDATE mode. Without it, every `/sealos-deploy` creates a new instance.
+Validate this complete state artifact before returning `success`. The `last_deploy` section
+is the resume hint; live App/Deployment identity remains the UPDATE authority. Canvas
+receives only the sanitized state and Runtime Truth paths after this validation passes.
 
 The `history` array is append-only — every subsequent update (via Update Path) adds an entry. See the **Update History** section at the end of this file for the full schema and rules.
 
@@ -1475,7 +1537,41 @@ rm -rf "$WORK_DIR"
 
 Do NOT clean up if `WORK_DIR` is the user's local project directory.
 
-For test deployments, delete the Sealos `Instance` and application resources before database RBAC. Keep KubeBlocks ServiceAccount, Role, and RoleBinding resources until the database `Cluster` finalizer has converged. When a `Cluster` or `Component` remains in `Deleting` after dependent pods and InstanceSets are gone, inspect the finalizers and use finalizer removal only as the last recovery step after recording the stuck resource and owner references.
+### Safety Contract: Full-Footprint Cleanup
+
+For test deployments, obtain explicit confirmation immediately before deletion and collect
+the complete footprint with `sealos-footprint.mjs`. Cleanup is complete only when the
+report has `collectionOk: true`, `cleanupComplete: true`, and an empty filtered list for
+every selected resource kind:
+
+- `instances.app.sealos.io` and `apps.app.sealos.io`
+- Deployments, StatefulSets, DaemonSets, CronJobs, Jobs, and Pods
+- Services and Ingresses
+- PVCs
+- KubeBlocks `Cluster`, `Component`, and related InstanceSets
+- managed `ObjectStorageBucket` resources and their app-scoped Secrets
+
+A kubectl listing error, permission error, timeout, or unavailable kubeconfig leaves
+cleanup unresolved even when the visible list is empty. Keep the last footprint report,
+the named owner references, and the safe recovery action. Delete the Sealos `Instance`
+and application resources before database RBAC. Keep KubeBlocks ServiceAccount, Role, and
+RoleBinding resources until the database `Cluster` finalizer has converged. A stuck
+`Cluster` or `Component` requires recorded finalizers and owner references before any
+last-resort recovery.
+
+### Safety Contract: Rollback and Branch Boundary
+
+Ask for explicit rollback confirmation before `rollout undo`, image reversal, or any
+resource mutation triggered by a failed update. Retain the previous image, previous
+validated state, failed rollout evidence, post-rollback live identity, and a fresh
+Runtime Truth report. A rollback with incomplete evidence returns `error` and keeps
+`last_deploy.image` at the previous value.
+
+The main-like branch owns OAuth deployment, UPDATE, Runtime Truth, rollback, cleanup, and
+Canvas handoff. `brain-deploy-preview` stays prepare-only with assessment, optional
+Railpack evidence, Dockerfile preparation, `build-request.json`, sandbox Kaniko or image
+reuse, template generation, and `delivery-manifest.json`. Preview work does not invoke
+OAuth deploy, UPDATE, Runtime Truth, or Canvas.
 
 ---
 
@@ -1512,6 +1608,11 @@ Mask sensitive values (API keys, passwords) — show only first 3 and last 3 cha
 
 The update path skips Assess, Detect Image, Dockerfile, and Template generation — it reuses the existing deployment and only pushes a new image.
 
+Before Phase U1, validate `.sealos/state.json` and reconcile it with a live App/Deployment
+identity. UPDATE requires matching app name, namespace, current image, URL host, and ready
+workload evidence. A missing kubectl context, malformed state, or mismatch returns
+`stopped` with `state_live_identity_mismatch` and leaves the selected resources unchanged.
+
 All kubectl commands use the Sealos kubeconfig:
 ```
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify
@@ -1521,7 +1622,7 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify
 
 ## Context from Mode Detection
 
-These values are already known from `.sealos/state.json` `last_deploy` section:
+These values are read once from the validated `.sealos/state.json` `last_deploy` section:
 
 ```
 APP_NAME      = last_deploy.app_name       (e.g., "evershop-uvbp0n0n")
@@ -1616,9 +1717,14 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 
 ### On success:
 
-Update `.sealos/state.json`:
+After Runtime Truth succeeds, update `.sealos/state.json`:
 - Set `last_deploy.image` to `NEW_IMAGE`
 - Set `last_deploy.last_updated_at` to current ISO timestamp
+- Set `runtime_truth.identity` to the live app, namespace, image, and URL that passed the
+  final report
+- Set `runtime_truth.status` to `verified`, retain the evidence paths, and record the
+  measured stability window
+- Set `provenance` with the producing owner and repository-relative artifact paths
 - Append an entry to `history` (see Update History below)
 
 Present to user:
@@ -1651,7 +1757,9 @@ Debug:
   kubectl logs deployment/<APP_NAME> -n <NAMESPACE> --tail=50
 ```
 
-Do NOT update `last_deploy.image` on failure — it stays at the old value.
+Keep `last_deploy.image` at the previous value when rollback or final Runtime Truth fails.
+Record the rollback and failed evidence with redacted fields, and return `error` until the
+previous live identity and Runtime Truth report are verified.
 
 ---
 

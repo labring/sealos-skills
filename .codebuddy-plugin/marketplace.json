@@ -41,6 +41,7 @@
         "./skills/sealos-deploy",
         "./skills/sealos-database",
         "./skills/sealos-s3",
+        "./skills/sealos-canvas",
         "./skills/sealos-app-builder",
         "./skills/cloud-native-readiness",
         "./skills/dockerfile-skill",

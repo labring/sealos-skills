@@ -28,6 +28,15 @@ That means:
 Preflight is responsible for early detection, but only some failures are immediate stop conditions.
 Do not treat Docker, `gh`, or `buildx` as universal entry requirements — they become mandatory only if the run actually needs local image build/push.
 
+### Safety Contract: Immediate and Conditional Capabilities
+
+The preflight result is a typed capability report with `ready`, `immediate_blockers`,
+`conditional_warnings`, `blocked_phases`, and `confirmation_required` fields. Auth,
+workspace, scoped kubeconfig, GitHub clone access, and `curl` are immediate gates for
+the paths that use them. Docker, Docker daemon/buildx, `gh`, registry login, `kubectl`,
+Python/PyYAML, `kompose`, and `crane` remain conditional until the selected workload and
+phase require them. Each warning names its blocked phase and safe next action.
+
 ## Tool Install Policy
 
 When `docker`, `gh`, or `kubectl` is missing, do not just print commands and stop.
@@ -39,6 +48,9 @@ Missing <tool>. Install it now? (y/n)
 
 If the user answers `y`, install the tool for the current platform, then re-run the corresponding check.
 If the install command needs elevated privileges, package-manager setup, or manual UI interaction, explain that before running it.
+Record the confirmation and post-install version in the capability report. A missing
+conditional tool keeps the relevant later path `stopped` and leaves provider resources
+untouched.
 
 ## Step 1: Environment Detection
 
@@ -549,6 +561,19 @@ Only reach this section after:
 - Step 2 capability classification completed
 - Step 4 auth/workspace checks passed
 - And only then Step 3 project context was collected
+
+Before handing control to `modules/pipeline.md`, preserve this order:
+
+1. authenticate and select the workspace;
+2. scope the kubeconfig to that workspace;
+3. collect project context and run the eligibility gate;
+4. resolve the selected build/template/deploy path;
+5. ask for confirmation immediately before each system-tool install, public exposure,
+   credential change, resource deletion, cleanup, or rollback.
+
+Preflight itself performs no provider mutation. Every later mutation reports the exact
+operation, target, impact, confirmation, and post-action evidence with sensitive values
+redacted.
 
 Report to user with a short readiness summary. This is a user-facing status snapshot, not a full artifact dump.
 Keep it focused on the key capabilities and blockers only.

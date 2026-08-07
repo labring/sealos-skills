@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "components": [
+    {"id": "design-validator", "runner": "python", "args": ["scripts/validate_skill_design.py", "--root", ".", "--check"], "required": true},
+    {"id": "inventory-tests", "runner": "python", "args": ["scripts/test_skill_design_inventory.py"], "required": true},
+    {"id": "router-tests", "runner": "python", "args": ["scripts/test_skill_design_router.py"], "required": true},
+    {"id": "safety-tests", "runner": "python", "args": ["scripts/test_skill_design_safety.py"], "required": true},
+    {"id": "validator-tests", "runner": "python", "args": ["scripts/test_validate_skill_design.py"], "required": true},
+    {"id": "baseline-check", "runner": "node", "args": ["scripts/skill-design-baseline.mjs", "--fixture", "tests/fixtures/skill-design-baseline.json", "--check"], "required": true},
+    {"id": "baseline-tests", "runner": "node", "args": ["--test", "scripts/test-skill-design-baseline.mjs"], "required": true},
+    {"id": "behavior-check", "runner": "node", "args": ["scripts/skill-design-behavior.mjs", "--fixture", "tests/fixtures/skill-design-baseline.json", "--scenarios", "tests/fixtures/skill-design-behavior.json", "--check"], "required": true},
+    {"id": "behavior-tests", "runner": "node", "args": ["--test", "scripts/test_skill_design_behavior.mjs"], "required": true},
+    {"id": "dependency-contract", "runner": "python", "args": ["scripts/test_dependency_skill_contract.py"], "required": true},
+    {"id": "service-contract", "runner": "python", "args": ["scripts/test_service_skill_contract.py"], "required": true},
+    {"id": "deploy-entry-contract", "runner": "node", "args": ["scripts/test_deploy_entry_contract.mjs"], "required": true},
+    {"id": "deploy-pipeline-contract", "runner": "node", "args": ["scripts/test_deploy_pipeline_contract.mjs", "--artifacts"], "required": true},
+    {"id": "deploy-safety-contract", "runner": "node", "args": ["scripts/test_deploy_safety_contract.mjs"], "required": true},
+    {"id": "runtime-truth-contract", "runner": "node", "args": ["scripts/test_runtime_truth_contract.mjs"], "required": true},
+    {"id": "canvas-contract", "runner": "node", "args": ["scripts/test_canvas_contract.mjs"], "required": true},
+    {"id": "dockerfile-syntax", "runner": "node", "args": ["--check", "skills/dockerfile-skill/scripts/validate-dockerfile.mjs"], "required": true},
+    {"id": "codex-plugin-validator", "runner": "python", "args": ["scripts/validate-codex-plugin.py", "--root", "."], "required": true},
+    {"id": "dependency-skill-gates", "runner": "python", "args": ["scripts/test_dependency_skill_gates.py"], "required": true},
+    {"id": "git-diff-check", "runner": "shell", "args": ["git", "diff", "--check"], "required": true},
+    {"id": "optional-docker-runtime", "runner": "shell", "args": ["docker", "--version"], "required": false, "conditionalWhenMissing": "Docker runtime is optional for the offline design gate; run container runtime checks when Docker is available."}
+  ]
+}

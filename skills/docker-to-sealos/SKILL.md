@@ -5,10 +5,56 @@ description: Convert Docker Compose files or installation docs into production-g
 
 # Docker to Sealos Template Converter
 
+## Identity and Discovery
+
+- **Owner:** `docker-to-sealos` (`/docker-to-sealos` and Compose, install-doc, or Sealos template conversion requests).
+- **Class:** `local-artifact-mutation` with a validated template handoff to `sealos-deploy`.
+- **Canaries:** `DTS-RULE-PRECEDENCE`, `DTS-MUST-MAP`, and `DTS-QUALITY-GATE`.
+
+## Scope and Boundaries
+
+Accept Docker Compose, installation documentation, or an existing template update request and write the named template artifact under `template/<app>/index.yaml` plus owned validator evidence. Do not perform a live cloud mutation. Keep rule provenance, database topology, resource order, declared inputs, and secret boundaries inside this skill. A template is a handoff candidate only after all required gates pass.
+
+## Risk and Confirmation
+
+The governance order remains entry MUST rules, Sealos specs/database templates, then mappings/examples. `references/must-rules-map.yaml` and `references/rules-registry.yaml` are coupled load-bearing sources. Public exposure, destructive changes, credential changes, and system-tool installation retain explicit confirmation; generated values and connection data remain redacted.
+
+## Lifecycle Workflow
+
+For each request, analyze input, infer metadata, plan resources, apply conversion rules, validate the final artifact, and hand off only after the complete quality gate passes. Emit request-scoped `success`, `stopped`, or `error`; each result carries source provenance, artifact paths, validator evidence, and redaction status. The existing analysis → inference → resource planning → conversion workflow remains the domain extension below.
+
+## Progressive Disclosure
+
+Load the relevant owned reference family one level deep after the core canaries are visible. Preserve the MUST-map and rules-registry coupling, rule precedence, and existing validator scripts; do not replace them with a generic converter or `railpack build` path.
+
+## Output, Stop, and Error States
+
+- `success`: source/provenance, final Template YAML, conversion summary, declared inputs, topology/storage/database evidence, consistency/MUST-map/registry/quality-gate evidence, and redaction result.
+- `stopped`: missing input, unresolved source, or confirmation boundary with observed evidence, redaction result, and safe next action; do not hand off an unvalidated artifact.
+- `error`: failed rule, registry, topology, artifact, or quality gate with named source/artifact, sanitized diagnostic, redaction result, and recovery action.
+
+## Handoffs
+
+Send the complete typed handoff below for direct conversion. Deploy re-checks its own auth, scope, and Runtime Truth gates.
+
+```yaml
+target: sealos-deploy
+inputArtifact: final Template YAML plus consistency, MUST-map, registry, topology, and quality-gate evidence
+allowedAction: deploy after required inputs and all downstream gates pass
+failureReturn: failed rule, registry, topology, artifact, or quality-gate diagnostics
+responseOwner: docker-to-sealos
+```
+
+## Verification
+
+Run consistency, MUST coverage, and `quality_gate.py` against the exact final template. Use baseline cases `docker-to-sealos-positive-quality-gate` and `docker-to-sealos-violating-missing-rule`; missing registry/MUST evidence blocks deployment.
+
 ## Overview
 
 Convert Docker Compose files or installation docs into production-grade Sealos templates.
-Execute end-to-end automatically (analysis, conversion, validation, output) without asking users for missing fields.
+Execute analysis, conversion, validation, and output automatically when the required
+inputs and confirmations exist; stop with a safe next action when a required input
+or gated operation is unresolved.
 
 ## Governance and Rule Priority
 
@@ -20,6 +66,58 @@ Use the following precedence to prevent rule drift:
 
 If lower-priority references conflict with higher-priority MUST rules, update the lower-priority files.
 Do not keep conflicting examples.
+
+### Source Precedence and Branch Boundary
+
+Use this source precedence for every conversion and record the selected source in
+the conversion report:
+
+1. Existing template topology and explicit user intent for an update.
+2. Entry MUST rules and the coupled `must-rules-map.yaml` / `rules-registry.yaml`.
+3. Official Kubernetes installation/runtime documentation.
+4. Compose or install documentation selected for the request.
+5. Repository config, README, Dockerfile, and lockfile evidence.
+6. Normalized `analysis.json.build_environment` evidence when the prepare-only
+   branch supplies it.
+
+Raw Railpack JSON is not a conversion source. On `brain-deploy-preview`, retain
+explicit config/README/Dockerfile/lockfile precedence, consume normalized build
+environment evidence, and keep the Dockerfile plus sandbox Kaniko path. The
+preview flow does not replace this path with `railpack build`, BuildKit, or live
+deployment behavior.
+
+## Conversion Payload
+
+Keep this payload request-scoped and repository-relative so deploy can reuse the
+discovery result:
+
+```yaml
+source:
+  kind: compose | install-doc | existing-template
+  paths: selected source files
+  precedence: ordered source list
+inference:
+  app: metadata and runtime bundle evidence
+  topology: resource roles, feature conditions, and replica counts
+resources:
+  ordered: Template CR, storage, database, workloads, App resource
+  database: KubeBlocks evidence when applicable
+  storage: PVC or managed object-storage evidence
+  secrets: declared inputs with redaction status
+artifact:
+  template: template/<app>/index.yaml
+  topology_evidence: .sealos/topology-evidence/<app>.yaml when required
+verification:
+  consistency: pass | fail
+  must_map: pass | fail
+  registry: pass | fail
+  quality_gate: pass | fail
+terminal_state: success | stopped | error
+safe_next_action: request-scoped recovery or handoff action
+```
+
+The payload and final artifacts contain no passwords, tokens, kubeconfig contents,
+environment values, complete connection strings, or validator-only secrets.
 
 ## Workflow
 
@@ -202,6 +300,11 @@ For managed or private object storage, live validation must upload known bytes t
 - An object-storage compatibility proxy must declare `metadata.annotations.docker-to-sealos.object-storage-compatibility-proxy-source` as a credential-free HTTPS source URL or `user-request:<reference>`, remain stateless, and omit persistent volumes.
 - External S3/object-storage credential inputs require `metadata.annotations.docker-to-sealos.external-object-storage-source` as a credential-free HTTPS source URL or `user-request:<reference>`, and must not coexist with `ObjectStorageBucket`.
 - Managed or private object-storage acceptance must prove authenticated application upload and read/download with matching content, application-proxy or time-bounded presigned delivery, and restricted raw anonymous access; optional object storage must pass both local-storage and managed-bucket branches.
+
+The deploy handoff is withheld until consistency, MUST-map coverage, registry,
+topology evidence, and `quality_gate.py` all pass against the exact final template.
+Missing or stale evidence produces `error` and returns to the failed rule or
+artifact owner.
 
 ### Env and secrets
 

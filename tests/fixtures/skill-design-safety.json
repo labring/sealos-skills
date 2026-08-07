@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "sourceOfTruth": "docs/skill-safety-canaries.md",
+  "cases": [
+    {"caseId": "CNR-ELIGIBILITY-STOP-mutation", "canaryId": "CNR-ELIGIBILITY-STOP", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "eligibility"},
+    {"caseId": "CNR-ROUTE-HANDOFF-mutation", "canaryId": "CNR-ROUTE-HANDOFF", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "DFS-RUNTIME-ACCEPT-mutation", "canaryId": "DFS-RUNTIME-ACCEPT", "kind": "violating", "mutation": "remove_evidence", "expectedCode": "canary.evidence_missing", "category": "fail-closed"},
+    {"caseId": "DFS-OWNED-FILES-mutation", "canaryId": "DFS-OWNED-FILES", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "DFS-REDACT-mutation", "canaryId": "DFS-REDACT", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "redaction"},
+    {"caseId": "DTS-RULE-PRECEDENCE-mutation", "canaryId": "DTS-RULE-PRECEDENCE", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "fail-closed"},
+    {"caseId": "DTS-MUST-MAP-mutation", "canaryId": "DTS-MUST-MAP", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "fail-closed"},
+    {"caseId": "DTS-QUALITY-GATE-mutation", "canaryId": "DTS-QUALITY-GATE", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "fail-closed"},
+    {"caseId": "DEP-KUBECONFIG-SCOPE-mutation", "canaryId": "DEP-KUBECONFIG-SCOPE", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "DEP-CONFIRM-MUTATION-mutation", "canaryId": "DEP-CONFIRM-MUTATION", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "confirmation"},
+    {"caseId": "DEP-REDACT-mutation", "canaryId": "DEP-REDACT", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "redaction"},
+    {"caseId": "DEP-RUNTIME-TRUTH-mutation", "canaryId": "DEP-RUNTIME-TRUTH", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "fail-closed"},
+    {"caseId": "DB-REUSE-ENV-mutation", "canaryId": "DB-REUSE-ENV", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "DB-CONFIRM-PUBLIC-mutation", "canaryId": "DB-CONFIRM-PUBLIC", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "confirmation"},
+    {"caseId": "DB-REDACT-CONNECT-mutation", "canaryId": "DB-REDACT-CONNECT", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "redaction"},
+    {"caseId": "S3-PRIVATE-REUSE-mutation", "canaryId": "S3-PRIVATE-REUSE", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "S3-CONFIRM-PUBLIC-mutation", "canaryId": "S3-CONFIRM-PUBLIC", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "confirmation"},
+    {"caseId": "S3-REDACT-OBJECT-mutation", "canaryId": "S3-REDACT-OBJECT", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "redaction"},
+    {"caseId": "CANVAS-DEPLOYED-mutation", "canaryId": "CANVAS-DEPLOYED", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "eligibility"},
+    {"caseId": "CANVAS-READONLY-mutation", "canaryId": "CANVAS-READONLY", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "read-only"},
+    {"caseId": "CANVAS-REDACT-mutation", "canaryId": "CANVAS-REDACT", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "redaction"},
+    {"caseId": "CANVAS-SERVER-LIFETIME-mutation", "canaryId": "CANVAS-SERVER-LIFETIME", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "APP-CODE-TUTORIAL-mutation", "canaryId": "APP-CODE-TUTORIAL", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "APP-SDK-SOURCE-mutation", "canaryId": "APP-SDK-SOURCE", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "APP-DESKTOP-VERIFY-mutation", "canaryId": "APP-DESKTOP-VERIFY", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"},
+    {"caseId": "APP-PUBLISH-HANDOFF-mutation", "canaryId": "APP-PUBLISH-HANDOFF", "kind": "violating", "mutation": "remove_marker", "expectedCode": "canary.missing", "category": "safety"}
+  ]
+}

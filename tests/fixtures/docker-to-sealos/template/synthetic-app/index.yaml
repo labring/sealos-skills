@@ -1,0 +1,88 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: synthetic-app
+spec:
+  title: Synthetic App
+  url: https://example.com/synthetic-app
+  gitRepo: https://github.com/example/synthetic-app
+  author: Sealos Skills
+  description: A deterministic contract-test application template.
+  readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/synthetic-app/README.md
+  icon: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/synthetic-app/logo.png
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: 用于合同测试的确定性应用模板。
+      readme: https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/synthetic-app/README_zh.md
+  categories:
+    - tool
+  defaults:
+    app_name:
+      type: string
+      value: synthetic-app-${{ random(8) }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synthetic-app
+  annotations:
+    originImageName: nginx:1.27.1
+  labels:
+    cloud.sealos.io/app-deploy-manager: synthetic-app
+    app: synthetic-app
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: synthetic-app
+  template:
+    metadata:
+      labels:
+        app: synthetic-app
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: synthetic-app
+          image: nginx:1.27.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 20m
+              memory: 25Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synthetic-app
+  labels:
+    cloud.sealos.io/app-deploy-manager: synthetic-app
+    app: synthetic-app
+spec:
+  ports:
+    - name: http
+      port: 80
+  selector:
+    app: synthetic-app

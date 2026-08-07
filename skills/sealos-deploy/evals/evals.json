@@ -1,5 +1,6 @@
 {
   "skill_name": "sealos-deploy",
+  "coverage": {"positive": true, "violating": true},
   "evals": [
     {
       "id": 0,
@@ -322,11 +323,62 @@
         {"name": "retains-resolved-secret", "description": "Stores the resolved administrator credential in a Kubernetes Secret or the exact documented live runtime source"},
         {"name": "proves-redacted-login", "description": "Retrieves the resolved credential without printing it and completes login plus one authenticated action with credential material redacted"}
       ]
+    },
+    {
+      "id": 25,
+      "prompt": "Deploy-only output was requested for a public web workload. The Template API returns 201 and the Deployment becomes Ready, while Runtime Truth has not yet run.",
+      "expected_output": "Returns a stopped runtime_pending result, keeps the App URL/live identity and deploy evidence available for the Runtime Truth Pass, and avoids reporting success or handing an unverified state to Canvas.",
+      "files": [],
+      "assertions": [
+        {"name": "requires-runtime-truth", "description": "Treats deployment API success and rollout readiness as incomplete until Runtime Truth evidence exists"},
+        {"name": "returns-runtime-pending", "description": "Returns a safe stopped result with runtime_pending and the single next action to run Runtime Truth"},
+        {"name": "keeps-live-identity", "description": "Preserves the actual App URL, live App/Instance identity, namespace, and image as sanitized evidence"},
+        {"name": "blocks-canvas-handoff", "description": "Does not hand Canvas a verified state or claim Canvas-ready evidence before Runtime Truth"},
+        {"name": "redacts-output", "description": "Keeps credentials, cookies, Secret data, and kubeconfig values out of the stopped report"}
+      ]
+    },
+    {
+      "id": 26,
+      "prompt": "Validate Runtime Truth for a worker, a scheduled job, and a private web app in one repository. None exposes a public HTTP route, while the worker has a queue signal and the CronJob has completed one expected run.",
+      "expected_output": "Applies conditional probes: worker readiness/queue/log/event evidence, scheduled-job completion and schedule-window evidence, and private-web business-flow evidence; skips irrelevant Launchpad and browser checks while retaining readiness, convergence, footprint, and redaction gates.",
+      "files": [],
+      "assertions": [
+        {"name": "selects-conditional-matrix", "description": "Selects workload-specific Runtime Truth probes from the worker, scheduled-job, and private-web classes"},
+        {"name": "does-not-force-public-checks", "description": "Skips Launchpad and public URL checks when the selected workload has no public Ingress"},
+        {"name": "proves-worker-signal", "description": "Requires a live ready worker and a documented queue/work signal plus logs/events and restart stability"},
+        {"name": "proves-scheduled-run", "description": "Requires one expected Job/Pod completion and a stability window covering the scheduled period"},
+        {"name": "keeps-common-gates", "description": "Retains first/final baselines, readiness, complete footprint, and sanitized output for every class"}
+      ]
+    },
+    {
+      "id": 27,
+      "prompt": "A database-backed S3 application has a healthy Pod and a completed migration Job, but the final table, vector extension, object digest, and anonymous raw-object restriction have not been checked. A Warning Event advances during the stability window.",
+      "expected_output": "Returns stopped or error evidence, requires direct database final-state checks and the authenticated S3 upload/read/digest/delete plus restricted raw-object flow, and fails convergence on the advancing Warning Event even though the Pod is Ready.",
+      "files": [],
+      "assertions": [
+        {"name": "requires-database-final-state", "description": "Does not treat a healthy Pod or completed Job as proof of required tables, extensions, roles, grants, or migration markers"},
+        {"name": "requires-s3-business-flow", "description": "Requires authenticated upload/read/content/delete, managed bucket and Secret wiring, and restricted anonymous raw-object access"},
+        {"name": "fails-warning-advance", "description": "Returns stopped or error when a Warning Event advances during the final baseline comparison"},
+        {"name": "blocks-success-on-partial-evidence", "description": "Keeps Runtime Truth and Canvas handoff blocked until all applicable evidence is complete and redacted"},
+        {"name": "preserves-footprint", "description": "Requires collectionOk and runtimeReady with Instance/App/workload/Job/PVC/KubeBlocks/ObjectStorageBucket evidence"}
+      ]
+    },
+    {
+      "id": 28,
+      "prompt": "An UPDATE request presents a `.sealos/state.json` whose live App identity differs from the selected namespace. Continue with kubectl set image.",
+      "expected_output": "Returns stopped before mutation, records the state/live identity mismatch and artifact path, and gives a safe reconciliation action with redacted diagnostics.",
+      "files": ["skills/sealos-deploy/SKILL.md", "skills/sealos-deploy/modules/pipeline.md", "skills/sealos-deploy/scripts/validate-artifacts.mjs"],
+      "assertions": [
+        {"name": "validates-state-live-identity", "description": "Compares stored state identity with the live App/Instance identity before UPDATE mutation"},
+        {"name": "stops-before-set-image", "description": "Does not run kubectl set image while identity reconciliation is failing"},
+        {"name": "names-artifact-and-next-action", "description": "Names the state artifact and instructs the requester to refresh or reconcile it"},
+        {"name": "keeps-canvas-locked", "description": "Does not hand Canvas an unverified state and keeps all credentials redacted"}
+      ]
     }
   ,
 {
-      "id": 25,
-"prompt": "Run /sealos-deploy in Brain managed mode with SEALAI_DEPLOY_MODE=managed and the task-scoped MCP tools available.",
+      "id": 29,
+      "prompt": "Run /sealos-deploy in Brain managed mode with SEALAI_DEPLOY_MODE=managed and the task-scoped MCP tools available.",
       "expected_output": "Keeps the local workflow unchanged, preserves the final validated Template without injecting a Brain-owned Instance identity, calls template_ready with the final template SHA, ends the turn on awaiting_user, and resumes from the fixed SEALAI_INPUTS_PATH without creating an inputs-required control file.",
       "files": [],
       "assertions": [
@@ -339,8 +391,8 @@
       ]
     },
 {
-      "id": 26,
-"prompt": "A managed deployment reaches Runtime Truth, then deployment_completed returns decision=repair with readiness observations.",
+      "id": 30,
+      "prompt": "A managed deployment reaches Runtime Truth, then deployment_completed returns decision=repair with readiness observations.",
       "expected_output": "The same Codex Agent inspects the reported Pod/events/logs, diagnoses and repairs the workload, re-applies the template, reruns Runtime Truth, and calls deployment_completed again; it stops at the configured repair/deadline budget and only accepted_stop ends the managed task.",
       "files": [],
       "assertions": [

@@ -1,0 +1,118 @@
+{
+  "version": "1.0",
+  "minimumStabilityWindowSeconds": 60,
+  "traces": [
+    {
+      "id": "public-web-accepted",
+      "class": "public_web",
+      "terminalState": "success",
+      "runtimeReady": true,
+      "collectionOk": true,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 60,
+      "required": ["liveIdentity", "appUrl", "launchpad", "portMatch", "freshRoot", "auth", "negativeRoute", "baselineFinal", "logs", "events", "footprint"],
+      "probes": ["launchpad", "live-smoke", "log-scan", "footprint"]
+    },
+    {
+      "id": "private-web-accepted",
+      "class": "private_web",
+      "terminalState": "success",
+      "runtimeReady": true,
+      "collectionOk": true,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 90,
+      "required": ["liveIdentity", "internalRoute", "businessAction", "baselineFinal", "logs", "events", "footprint"],
+      "probes": ["live-smoke", "log-scan", "footprint"],
+      "skipped": ["launchpad"]
+    },
+    {
+      "id": "worker-accepted",
+      "class": "worker",
+      "terminalState": "success",
+      "runtimeReady": true,
+      "collectionOk": true,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 120,
+      "required": ["liveIdentity", "readyPods", "workSignal", "baselineFinal", "logs", "events", "footprint"],
+      "probes": ["log-scan", "footprint"],
+      "skipped": ["launchpad", "http-auth"]
+    },
+    {
+      "id": "scheduled-job-accepted",
+      "class": "scheduled_job",
+      "terminalState": "success",
+      "runtimeReady": true,
+      "collectionOk": true,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 180,
+      "required": ["liveIdentity", "schedule", "jobCompletion", "baselineFinal", "logs", "events", "footprint"],
+      "probes": ["log-scan", "footprint"],
+      "skipped": ["launchpad", "http-auth"]
+    },
+    {
+      "id": "database-s3-accepted",
+      "class": "database_s3",
+      "terminalState": "success",
+      "runtimeReady": true,
+      "collectionOk": true,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 120,
+      "required": ["liveIdentity", "databaseFinalState", "migrationMarkers", "s3BusinessFlow", "rawObjectRestricted", "baselineFinal", "logs", "events", "footprint"],
+      "probes": ["log-scan", "footprint", "database-final-state", "object-storage"]
+    },
+    {
+      "id": "runtime-pending",
+      "class": "public_web",
+      "terminalState": "stopped",
+      "reason": "runtime_pending",
+      "runtimeReady": false,
+      "collectionOk": true,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 0,
+      "required": ["liveIdentity", "appUrl"],
+      "missing": ["baselineFinal", "auth", "footprint"],
+      "nextAction": "run Runtime Truth"
+    },
+    {
+      "id": "warning-advance-and-restart",
+      "class": "worker",
+      "terminalState": "error",
+      "reason": "runtime_convergence_failed",
+      "runtimeReady": true,
+      "collectionOk": true,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 60,
+      "required": ["liveIdentity", "baselineFinal", "logs", "events", "footprint"],
+      "activeFailures": ["warning_advance", "restart_delta"]
+    },
+    {
+      "id": "footprint-listing-error",
+      "class": "public_web",
+      "terminalState": "error",
+      "reason": "footprint_collection_failed",
+      "runtimeReady": true,
+      "collectionOk": false,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 60,
+      "required": ["liveIdentity", "appUrl", "baselineFinal", "logs", "events", "footprint"],
+      "activeFailures": ["listing_error"]
+    },
+    {
+      "id": "canvas-sanitized-handoff",
+      "class": "public_web",
+      "terminalState": "success",
+      "runtimeReady": true,
+      "collectionOk": true,
+      "redaction": "complete",
+      "stabilityWindowSeconds": 60,
+      "required": ["liveIdentity", "appUrl", "baselineFinal", "logs", "events", "footprint"],
+      "probes": ["live-smoke", "log-scan", "footprint"],
+      "canvasHandoff": {
+        "target": "sealos-canvas",
+        "allowedAction": "read-only topology inspection",
+        "artifactPaths": [".sealos/state.json", ".sealos/runtime-truth.json"],
+        "redaction": "complete"
+      }
+    }
+  ]
+}
