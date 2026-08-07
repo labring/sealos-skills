@@ -8,11 +8,6 @@ metadata:
 
 # Sealos Deploy
 
-## Compatibility
-
-Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are required only when the selected path needs local build/push. git is required when cloning from a GitHub URL or when git metadata is needed. Node.js 18+ remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML; root Compose conversion also requires kompose and may require crane when image tags are floating.
-
-
 Deploy compatible cloud workloads to Sealos Cloud, stopping unsupported targets
 before build or deployment.
 
