@@ -405,7 +405,7 @@ Sources for each field:
 - `app_host`: from the rendered `defaults.app_host` value, or parsed from the Ingress host
 - `namespace`: from kubeconfig context
 - `region`: control-plane/API region from `~/.sealos/auth.json` `region` field (strip `https://`); this may differ from the App runtime domain
-- `image`: from `analysis.json` `image_ref`
+- `image`: from Phase 3 `build_result.pushed` (primary app key) or Phase 4 digest-pinned image after template generation; never invent an `image_ref` field
 - `docker_hub_user`: from Phase 4 `DOCKER_HUB_USER` (null if Phase 2 found existing image)
 - `repo_name`: from `analysis.json` `project.repo_name`
 - `url`: the exact `APP_URL` verified by the Runtime Truth Pass, read from the live App resource or deployment response; never reconstruct it from `app_host` and `region`

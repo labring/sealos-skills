@@ -64,6 +64,7 @@ QODER_SKILLS = (
     "./skills/sealos-app-builder",
     "./skills/cloud-native-readiness",
     "./skills/dockerfile-skill",
+    "./skills/k8s-kaniko-job",
     "./skills/docker-to-sealos",
 )
 QODER_COMMAND_SOURCE = "./commands/sealos.md"

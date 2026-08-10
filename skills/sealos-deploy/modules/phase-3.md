@@ -1,184 +1,177 @@
 # Phase 3: Build and Push
 
+Build required images from the Phase 2 deployment source, push them, and write
+`.sealos/phase-3/build-result.json`.
+
+Do not scout the repo, run railpack, generate Dockerfiles, or modify
+`deployment_source` (recipe errors → **RETURN → Phase 2**). Digest pinning is
+Phase 4.
+
+## Inputs
+
+| Input | Source |
+|-------|--------|
+| `runtime_profile` | `analysis.json` (Phase 0) |
+| Deployment plan | `analysis.json` → `deployment_plan` → `.sealos/phase-2/deployment-plan.json` |
+| Deployment source | `deployment_source` path under `work_dir` |
+| Build targets | Parsed from the deployment source (below) |
+
+## Outputs
+
+| Output | Path |
+|--------|------|
+| Build result | `.sealos/phase-3/build-result.json` (`pushed` + `pull_access`) |
+| Pointer | `analysis.json` → `build_result` |
+
+When there are no build targets, skip writing `build_result` and
+**CONTINUE → Phase 4**.
+
 ## Path dependency gate
 
-This phase runs only when the selected path must build and push locally (`local`).
-Before login or build, ensure deferred tools are available. Ask once to install;
-refuse or recheck failure → **STOP**.
+Ask once to install deferred tools; refuse or recheck failure → **STOP**.
 
-| Need | Tools |
-|------|-------|
-| Local image build | Docker CLI, running Docker daemon, Docker Buildx |
-| GHCR push | `gh` binary plus usable login / `write:packages` |
-| Docker Hub push | Active `docker login` session (user may complete in another terminal) |
+| Profile | Need | Tools |
+|---------|------|-------|
+| `local` | Build | Docker CLI, daemon, Buildx |
+| `local` + GHCR | Push | `gh` + `write:packages` |
+| `local` + Docker Hub | Push | Active `docker login` (public images only) |
+| `sandbox` | Build+push GHCR | `k8s-kaniko-job` + sandbox kubeconfig / `GITHUB_TOKEN` |
 
-`sandbox` uses the cluster build path and does not require local Docker / `gh` here.
+## Phase constraints
 
-### 4.0 Choose Image Destination
+| ID | Constraint |
+|----|------------|
+| P3-01 | GHCR path usernames must be lowercase |
+| P3-02 | All GHCR `pushed` images share one GHCR namespace |
+| P3-03 | `pushed` records tag refs only (no `@sha256:`) |
+| P3-04 | Build concurrency limit is 1 (no parallel builds) |
+| P3-05 | Registry rules below |
 
-Registry selection is deferred to this phase because it's only needed when building.
-If Phase 2 found an existing image, this phase is skipped entirely.
+### Registry rules
 
-Before any login step, tell the user:
+| Profile | Registry | Who pushes |
+|---------|----------|------------|
+| `local` | User may choose **GHCR** (default) or **Docker Hub** (public only) | Main agent pushes after build-only |
+| `sandbox` | **GHCR only** — do not offer a choice | `k8s-kaniko-job` builds **and** pushes GHCR; main agent does **not** re-push |
 
-```text
-This app will be built locally with Docker.
-Choose where to push the image:
+## Parse build targets
 
-  1. GHCR (recommended) — agent can run `gh auth login` and finish browser auth with you
-  2. Docker Hub — public images only; use your existing `docker login` session, or run `docker login` in another terminal
-```
+Infer type from `deployment_source`:
 
-Default to **GHCR** when the user says "either is fine".
+| Path | Type |
+|------|------|
+| `.sealos/phase-2/docker-compose.yml` | Compose |
+| Directory with `Chart.yaml` | Helm |
+| Single `.yaml` / `.yml` file | Kubernetes |
 
-Important:
-- This choice is about the image registry only. Local builds still require Docker either way.
-- If the user chooses GHCR, use `gh auth login` as the preferred interactive auth path.
-- If the user chooses Docker Hub, treat that path as public-image only.
-- If the user chooses Docker Hub and there is no active Docker Hub session, stop and ask the user to run `docker login` in another terminal before continuing.
+| Type | Targets |
+|------|---------|
+| Compose | Each service with `build:`; use `build.context` + `build.dockerfile` (paths relative to `work_dir`) |
+| Helm / Kubernetes | Workloads that must build from this repo and already have a Dockerfile prepared in Phase 2 |
 
-**If the user chooses GHCR:**
-```bash
-gh auth status 2>/dev/null
-```
-If authenticated:
-```bash
-GH_USER=$(gh api user -q .login)
-gh auth token | docker login ghcr.io -u "$GH_USER" --password-stdin
-REGISTRY=ghcr
-```
-Important:
-- Before the first GHCR push, ensure the local `gh` session has `write:packages`.
-- For GHCR, `write:packages` is sufficient for both pushing and later creating the app-scoped image pull Secret. GitHub CLI may not show a separate `read:packages` entry even though pull access works.
-- If the current session is missing GHCR package access, refresh with:
-  `node "<SKILL_DIR>/scripts/gh-refresh-scopes.mjs" write:packages`
-- When `build-push.mjs` or `ensure-image-pull-secret.mjs` runs inside a TTY, it will now ask once whether it should refresh missing GHCR scopes and, on `y`, run `gh auth refresh` in the same PTY before continuing.
-- If `gh auth refresh` exits successfully but the scopes are still missing, the script will immediately fall back to a full `gh auth login --web --scopes ...` in the same PTY and only continue after re-checking the scopes.
-- A successful GHCR push does **not** guarantee Sealos can pull the image.
-- Treat every locally built and newly pushed GHCR image as private by default. Do not run a visibility or anonymous-pull probe; proceed immediately to the built-in image pull Secret path. For a fresh deploy, wait for the Template API to return the real instance name, then create the same-named Secret immediately. For an update, refresh the Secret before swapping the image because the real instance name is already known from state.
-- Do not attempt to make the package public during deployment. Do not probe or call GitHub REST endpoints, GraphQL mutations, package settings, or other visibility-changing paths; package visibility is not a deployment prerequisite.
-- Do **not** surface raw registry host/username/password/email as user-facing template inputs when local `gh auth status` is already available.
+Upstream `image:`-only components are not built here.
 
-If `build-push.mjs` or `ensure-image-pull-secret.mjs` returns:
+## Procedure
+
+### 1. Main agent — build queue
+
+Read `runtime_profile` and list targets from `deployment_source`. No targets →
+**CONTINUE → Phase 4** (do not write `build_result`).
+
+### 2. Build (concurrency 1)
+
+For each target, one at a time:
+
+**`local`:**
+- Subagent / helper **builds only** (`linux/amd64`), does not push.
+- Example helper:
+  ```bash
+  node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<image-name>" \
+    --mode build --context "<ctx>" --dockerfile "<dockerfile>"
+  ```
+- Invalid recipe (missing Dockerfile, bad context) → **RETURN → Phase 2** step 3.
+- Still failing after remediation → **STOP**.
+
+**`sandbox`:**
+- Subagent runs `<SKILL_DIR>/../k8s-kaniko-job/` for each target (or sequential Jobs).
+- Write/adapt `.sealos/build-request.json` per that skill; Kaniko **builds and pushes GHCR**.
+- Main agent does not run a second registry push for that image.
+- Recipe failure → **RETURN → Phase 2**; hard failure → **STOP**.
+
+### 3. Main agent — push (`local` only)
+
+After all local builds succeed:
+
+1. If registry not chosen yet, ask once (GHCR recommended / Docker Hub public-only). Default GHCR when the user is indifferent.
+2. Push each built image with:
+   ```bash
+   node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<image-name>" \
+     --mode push --registry ghcr|dockerhub [--user <user>] \
+     [--local-tag "<local-tag>"] --image "<full-tag-ref>"
+   ```
+3. Tag format uses lowercase owner/repo and a unique version id.
+4. Push failure → **STOP**.
+
+### 4. Main agent — `pull_access` and `build-result.json`
+
+For every pushed image (local push or sandbox Kaniko push):
+
+- Probe anonymous pull when practical.
+- Record `pull_access`: `public` or `ghcr_secret_required` (Docker Hub public path → `public`; uncertain GHCR → `ghcr_secret_required`).
+
+Write `.sealos/phase-3/build-result.json`:
+
 ```json
 {
-  "action": "gh_scope_refresh_required",
-  "tty_required": true,
-  "suggested_command": "node <SKILL_DIR>/scripts/gh-refresh-scopes.mjs write:packages"
+  "generated_at": "<ISO timestamp>",
+  "pushed": {
+    "<service-key>": "ghcr.io/user/myapp-web:20260802-web-abc123"
+  },
+  "pull_access": {
+    "<service-key>": "public"
+  }
 }
 ```
-then the agent should:
-1. Ask the user once: `Missing GitHub Packages permission for GHCR. Refresh now? (y/n)`
-2. If the current script is already running in a PTY, answer `y` there and let it continue in-place
-3. Otherwise run the `suggested_command` in the **current PTY/TTY session**
-4. If `gh` prompts `Press Enter to open github.com in your browser...`, send `Enter` in the same PTY
-5. After the refresh command exits successfully, retry the exact failed command automatically
 
-Do not tell the user to open a separate terminal when the current agent session can run a PTY command.
+Do not store digest tables here (Phase 4).
 
-If `gh` is installed but not authenticated, explicitly tell the user that GHCR push requires GitHub CLI login, then trigger:
-```bash
-gh auth login
-```
-After successful login, retry GHCR authentication and continue.
+### 5. Main agent — `analysis.json`
 
-**If the user chooses Docker Hub:**
-```bash
-docker info 2>/dev/null | grep "Username:"
-```
-If a Docker Hub session exists, use it:
-```bash
-DOCKER_HUB_USER=<extracted username>
-REGISTRY=dockerhub
+Merge only:
+
+```json
+{
+  "build_result": ".sealos/phase-3/build-result.json"
+}
 ```
 
-Treat this path as **public image only**.
-Do not add Docker Hub private-image credential prompts or Docker Hub pull-secret automation in `sealos-deploy`.
+Do not modify Phase 0–2 fields. Skip this pointer when Phase 3 had no build targets.
 
-If no Docker Hub session exists, tell the user:
-```
-Docker Hub push requires a local Docker Hub login session.
-Please run `docker login` in another terminal, then continue this deploy.
-```
+### 6. Validate
 
-### 4.1 Build & Push
-
-Tag format: `<lowercase-owner-or-user>/<lowercase-repo-name>:YYYYMMDD-HHMMSS` (e.g., `ghcr.io/zhujingyang/kite:20260304-143022`). Normalize the registry namespace and repository name to lowercase before constructing the image reference. The timestamp ensures same-day rebuilds never collide.
-
-Before invoking the build helper, create the build artifact directory:
+When `build_result` was written:
 
 ```bash
-mkdir -p "$WORK_DIR/.sealos/build"
+node "<SKILL_DIR>/scripts/validate-phase-3.mjs" --dir "$WORK_DIR"
 ```
 
-**If Node.js available:**
-```bash
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry ghcr
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry dockerhub --user "<user>"
-```
-Run the command that matches the user's chosen destination:
-- GHCR: `node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry ghcr`
-- Docker Hub: `node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<repo-name>" --registry dockerhub`
+| ID | Check |
+|----|-------|
+| P3-V01–V03 | Lowercase GHCR owner; one GHCR namespace; tag refs only |
+| P3-V04 | Every `pushed` key has `pull_access` |
 
-Output: `{ "success": true, "image": "...", "registry": "ghcr" }` or `{ "success": false, "error": "..." }`
+On failure, do not CONTINUE to Phase 4. When there was no build, do not require this script.
 
-For GHCR success, `build-push.mjs` returns `requires_image_pull_secret: true`. Continue immediately with the GHCR image and let Phase 6 create/update the pull Secret automatically from `gh auth token`. Do not check or change package visibility.
-If Phase 2 reused an existing public image, do **not** trigger the GHCR pull-secret flow.
+## Stop conditions
 
-**If Node.js not available (fallback — run docker directly):**
-```bash
-TAG=$(date +%Y%m%d-%H%M%S)
-```
+| Result | Condition |
+|--------|-----------|
+| **CONTINUE → Phase 4** | All builds/pushes succeeded, or no build targets |
+| **RETURN → Phase 2** | Build recipe invalid |
+| **STOP** | Build/push still failing after remediation, or GHCR namespace conflict |
 
-If the user chose GHCR:
-```bash
-GH_USER=$(gh api user -q .login)
-gh auth token | docker login ghcr.io -u "$GH_USER" --password-stdin
-IMAGE="ghcr.io/$(printf '%s' "$GH_USER" | tr '[:upper:]' '[:lower:]')/<lowercase-repo-name>:$TAG"
-docker buildx build --platform linux/amd64 -t "$IMAGE" --push -f Dockerfile "$WORK_DIR"
-```
+## Sibling skill
 
-If the user chose Docker Hub:
-```bash
-DOCKER_HUB_USER=$(docker info 2>/dev/null | sed -n 's/^ Username: //p')
-IMAGE="$(printf '%s' "$DOCKER_HUB_USER" | tr '[:upper:]' '[:lower:]')/<lowercase-repo-name>:$TAG"
-docker buildx build --platform linux/amd64 -t "$IMAGE" --push -f Dockerfile "$WORK_DIR"
-```
-
-If `$IMAGE` is a newly built GHCR image, mark that Phase 6 must create/update the namespace image pull Secret. A fresh deploy must use the real instance name returned by the Template API; an update may refresh the known same-named Secret before rollout. Do not run visibility or anonymous-pull probes and do not attempt any package-visibility mutation.
-If the run is using an existing public image instead of a new local build, skip this secret-creation path.
-
-### 4.2 Error Handling
-
-If build fails:
-1. Read the error output
-2. Load error patterns from internal skill:
-   ```
-   <SKILL_DIR>/../dockerfile-skill/knowledge/error-patterns.md
-   ```
-3. Match the error → apply fix to Dockerfile → retry
-4. Also consult if needed:
-   ```
-   <SKILL_DIR>/../dockerfile-skill/knowledge/system-deps.md
-   <SKILL_DIR>/../dockerfile-skill/knowledge/best-practices.md
-   ```
-5. Max 3 retry attempts
-6. If still failing → inform user with the specific error and suggest manual review
-
-### 4.3 Record Result
-
-Always write `.sealos/build/build-result.json` when Phase 4 runs:
-
-- Success: `outcome: "success"` plus pushed image metadata
-- Failure: `outcome: "failed"` plus the captured error message
-
-This avoids leaving an empty `build/` directory after a failed build and makes resume/debug behavior inspectable.
-
-On success, record `IMAGE_REF` from the build output. The build result file is at `.sealos/build/build-result.json`.
-
-### Update analysis.json
-
-On successful build, update `.sealos/analysis.json` to set `image_ref` to the built image reference.
-
----
-
+| Path | Use |
+|------|-----|
+| `<SKILL_DIR>/../k8s-kaniko-job/` | `sandbox` build+push to GHCR |

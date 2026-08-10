@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sealos: Kaniko Job"
+  short_description: "Build and push a GHCR image with a temporary Kaniko Job in sandbox."
+  default_prompt: "Use $k8s-kaniko-job to build and push the image from .sealos/build-request.json via Kaniko."

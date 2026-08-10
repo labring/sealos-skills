@@ -1,28 +1,28 @@
 #!/usr/bin/env node
 
 /**
- * Docker Build & Push (GHCR + Docker Hub)
+ * Local Docker build / push helper (linux/amd64).
  *
- * Builds a Docker image for linux/amd64 and pushes to a container registry.
- * Automatically selects the best registry: GHCR (via gh CLI) > Docker Hub.
+ * Phase 3 local path:
+ *   --mode build  → build only (no push)
+ *   --mode push   → push an existing local tag
+ *   --mode all    → build and push (default; UPDATE / simple paths)
+ *
+ * Sandbox builds use k8s-kaniko-job instead of this script.
  *
  * Usage:
- *   node build-push.mjs <work-dir> <repo-name>              # auto-detect registry
- *   node build-push.mjs <work-dir> <repo-name> --registry ghcr
- *   node build-push.mjs <work-dir> <repo-name> --registry dockerhub --user <docker-hub-user>
+ *   node build-push.mjs <work-dir> <image-name> --mode build [--context <dir>] [--dockerfile <path>]
+ *   node build-push.mjs <work-dir> <image-name> --mode push --registry ghcr|dockerhub [--user <user>] [--image <ref>] [--local-tag <ref>]
+ *   node build-push.mjs <work-dir> <image-name> [--mode all] --registry ghcr|dockerhub [--user <user>]
  *
- * Output (JSON):
- *   { "success": true, "image": "ghcr.io/owner/repo:20260304-143022", "registry": "ghcr" }
- *   { "success": false, "error": "build failed: ..." }
+ * Output (JSON on stdout). Does not write phase-3/build-result.json — the Phase 3
+ * agent aggregates pushed + pull_access after all services complete.
  */
 
 import { execSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
-import { validateArtifactData } from './artifact-validator.mjs'
 import { ensureGhScopesWithPrompt, hasGhCli, run } from './gh-auth-utils.mjs'
-
-// ── Helpers ───────────────────────────────────────────────
 
 function getDateTag () {
   const d = new Date()
@@ -30,27 +30,6 @@ function getDateTag () {
   const time = `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`
   return `${date}-${time}`
 }
-
-function ensureBuildDir (workDir) {
-  const buildDir = path.join(workDir, '.sealos', 'build')
-  fs.mkdirSync(buildDir, { recursive: true })
-  return buildDir
-}
-
-function writeBuildResult (workDir, payload) {
-  const validation = validateArtifactData('build-result', payload)
-  if (!validation.valid) {
-    throw new Error(`Invalid build-result artifact: ${validation.errors.map(err => `${err.path} ${err.message}`).join('; ')}`)
-  }
-
-  const buildDir = ensureBuildDir(workDir)
-  fs.writeFileSync(
-    path.join(buildDir, 'build-result.json'),
-    JSON.stringify(payload, null, 2),
-  )
-}
-
-// ── Registry Detection ───────────────────────────────────
 
 function detectGhcr () {
   try {
@@ -98,7 +77,7 @@ function loginGhcr (user) {
     const token = run('gh auth token')
     execSync(`echo "${token}" | docker login ghcr.io -u ${user} --password-stdin`, { stdio: 'pipe' })
     return true
-  } catch (e) {
+  } catch {
     return false
   }
 }
@@ -145,15 +124,6 @@ async function ensureGhcrRegistry ({ triggerLogin = false } = {}) {
   return { ok: true, registryInfo: ghcr }
 }
 
-function formatGhcrPullSecretNotice (user, packageName, tag) {
-  return [
-    `Built and pushed ${`ghcr.io/${user}/${packageName}:${tag}`}.`,
-    `Treat locally built GHCR images as private by default; no visibility or anonymous-pull probe was attempted.`,
-    `Proceed directly with the built-in image pull Secret flow using local gh CLI credentials.`,
-    `Do not attempt to change package visibility or call GitHub REST or GraphQL APIs for this deployment.`,
-  ].join(' ')
-}
-
 function detectDockerHub () {
   try {
     const info = run('docker info 2>/dev/null')
@@ -165,100 +135,134 @@ function detectDockerHub () {
   }
 }
 
-/**
- * Auto-detect the best available registry.
- * Priority: GHCR (via gh CLI) > Docker Hub (already logged in)
- */
 async function autoDetectRegistry () {
-  // 1. Try GHCR via gh CLI
   if (hasGhCli()) {
     const ghcrResult = await ensureGhcrRegistry({ triggerLogin: true })
     if (ghcrResult.ok) return ghcrResult.registryInfo
     throw ghcrResult
   }
 
-  // 2. Try Docker Hub (already logged in)
   const dockerhub = detectDockerHub()
   if (dockerhub) return dockerhub
-
-  // 3. Nothing available
   return null
 }
 
-// ── Build & Push ─────────────────────────────────────────
+function sanitizeName (name) {
+  return name.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')
+}
 
-async function buildAndPush (workDir, repoName, registryInfo) {
-  const tag = getDateTag()
-  const sanitized = repoName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-')
+function buildRemoteImage (registryInfo, imageName, tag) {
+  const sanitized = sanitizeName(imageName)
   const registryNamespace = registryInfo.user.toLowerCase()
-  const startedAt = new Date().toISOString()
-
-  let remoteImage
   if (registryInfo.registry === 'ghcr') {
-    remoteImage = `ghcr.io/${registryNamespace}/${sanitized}:${tag}`
-  } else {
-    remoteImage = `${registryNamespace}/${sanitized}:${tag}`
+    return `ghcr.io/${registryNamespace}/${sanitized}:${tag}`
   }
+  return `${registryNamespace}/${sanitized}:${tag}`
+}
 
-  const dockerfilePath = path.join(workDir, 'Dockerfile')
+function resolveDockerfile (workDir, contextDir, dockerfileArg) {
+  if (dockerfileArg) {
+    const candidate = path.isAbsolute(dockerfileArg)
+      ? dockerfileArg
+      : path.resolve(workDir, dockerfileArg)
+    return candidate
+  }
+  return path.join(contextDir, 'Dockerfile')
+}
+
+function buildOnly (workDir, imageName, { context = '.', dockerfile = null, tag = null } = {}) {
+  const contextDir = path.resolve(workDir, context)
+  const dockerfilePath = resolveDockerfile(workDir, contextDir, dockerfile)
+  const localTag = tag || `${sanitizeName(imageName)}:local-build`
+
   if (!fs.existsSync(dockerfilePath)) {
-    writeBuildResult(workDir, {
-      outcome: 'failed',
-      registry: registryInfo.registry,
-      build: { image_name: sanitized, started_at: startedAt },
-      push: { remote_image: remoteImage },
-      error: 'No Dockerfile found in work directory',
-      finished_at: new Date().toISOString(),
-    })
-    return { success: false, error: 'No Dockerfile found in work directory' }
+    return { success: false, error: `No Dockerfile found at ${dockerfilePath}` }
+  }
+  if (!fs.existsSync(contextDir) || !fs.statSync(contextDir).isDirectory()) {
+    return { success: false, error: `Build context is not a directory: ${contextDir}` }
   }
 
   try {
+    const dockerfileFlag = path.relative(contextDir, dockerfilePath) === 'Dockerfile'
+      && path.dirname(dockerfilePath) === contextDir
+      ? ''
+      : `-f ${JSON.stringify(dockerfilePath)} `
     execSync(
-      `docker buildx build --platform linux/amd64 -t ${remoteImage} --push .`,
-      { cwd: workDir, stdio: 'pipe', timeout: 600000 },
+      `docker buildx build --platform linux/amd64 ${dockerfileFlag}-t ${localTag} --load .`,
+      { cwd: contextDir, stdio: 'pipe', timeout: 600000 },
     )
-
-    let warning = null
-    let requiresImagePullSecret = false
-    if (registryInfo.registry === 'ghcr') {
-      warning = formatGhcrPullSecretNotice(registryNamespace, sanitized, tag)
-      requiresImagePullSecret = true
-    }
-
-    writeBuildResult(workDir, {
-      outcome: 'success',
-      registry: registryInfo.registry,
-      build: { image_name: sanitized, started_at: startedAt },
-      push: { remote_image: remoteImage, pushed_at: new Date().toISOString() },
-      finished_at: new Date().toISOString(),
-    })
-
-    const result = { success: true, image: remoteImage, registry: registryInfo.registry }
-    if (warning) {
-      result.warning = warning
-      result.requires_image_pull_secret = requiresImagePullSecret
-    }
-    return result
+    return { success: true, mode: 'build', image: localTag, local_tag: localTag }
   } catch (e) {
-    const error = e.stderr?.toString() || e.message
-    writeBuildResult(workDir, {
-      outcome: 'failed',
-      registry: registryInfo.registry,
-      build: { image_name: sanitized, started_at: startedAt },
-      push: { remote_image: remoteImage },
-      error,
-      finished_at: new Date().toISOString(),
-    })
-    return { success: false, error }
+    return { success: false, error: e.stderr?.toString() || e.message }
   }
 }
 
-// ── CLI ────────────────────────────────────────────────────
+function pushOnly (imageRef, registryInfo, { localTag = null } = {}) {
+  try {
+    if (localTag && localTag !== imageRef) {
+      execSync(`docker tag ${localTag} ${imageRef}`, { stdio: 'pipe', timeout: 60000 })
+    }
+    execSync(`docker push ${imageRef}`, { stdio: 'pipe', timeout: 600000 })
+    const result = {
+      success: true,
+      mode: 'push',
+      image: imageRef,
+      registry: registryInfo.registry,
+    }
+    if (registryInfo.registry === 'ghcr') {
+      result.requires_image_pull_secret = true
+      result.warning = 'Treat locally built GHCR images as private by default until Phase 3 records pull_access.'
+    }
+    return result
+  } catch (e) {
+    return { success: false, error: e.stderr?.toString() || e.message }
+  }
+}
+
+function buildAndPush (workDir, imageName, registryInfo, { context = '.', dockerfile = null } = {}) {
+  const tag = getDateTag()
+  const remoteImage = buildRemoteImage(registryInfo, imageName, tag)
+  const contextDir = path.resolve(workDir, context)
+  const dockerfilePath = resolveDockerfile(workDir, contextDir, dockerfile)
+
+  if (!fs.existsSync(dockerfilePath)) {
+    return { success: false, error: `No Dockerfile found at ${dockerfilePath}` }
+  }
+
+  try {
+    const dockerfileFlag = path.relative(contextDir, dockerfilePath) === 'Dockerfile'
+      && path.dirname(dockerfilePath) === contextDir
+      ? ''
+      : `-f ${JSON.stringify(dockerfilePath)} `
+    execSync(
+      `docker buildx build --platform linux/amd64 ${dockerfileFlag}-t ${remoteImage} --push .`,
+      { cwd: contextDir, stdio: 'pipe', timeout: 600000 },
+    )
+
+    const result = { success: true, mode: 'all', image: remoteImage, registry: registryInfo.registry }
+    if (registryInfo.registry === 'ghcr') {
+      result.requires_image_pull_secret = true
+      result.warning = 'Treat locally built GHCR images as private by default until Phase 3 records pull_access.'
+    }
+    return result
+  } catch (e) {
+    return { success: false, error: e.stderr?.toString() || e.message }
+  }
+}
 
 function parseArgs (argv) {
   const args = argv.slice(2)
-  const parsed = { workDir: null, repoName: null, registry: null, user: null }
+  const parsed = {
+    workDir: null,
+    imageName: null,
+    registry: null,
+    user: null,
+    mode: 'all',
+    context: '.',
+    dockerfile: null,
+    image: null,
+    localTag: null,
+  }
 
   const positional = []
   for (let i = 0; i < args.length; i++) {
@@ -266,68 +270,101 @@ function parseArgs (argv) {
       parsed.registry = args[++i]
     } else if (args[i] === '--user' && args[i + 1]) {
       parsed.user = args[++i]
+    } else if (args[i] === '--mode' && args[i + 1]) {
+      parsed.mode = args[++i]
+    } else if (args[i] === '--context' && args[i + 1]) {
+      parsed.context = args[++i]
+    } else if (args[i] === '--dockerfile' && args[i + 1]) {
+      parsed.dockerfile = args[++i]
+    } else if (args[i] === '--image' && args[i + 1]) {
+      parsed.image = args[++i]
+    } else if (args[i] === '--local-tag' && args[i + 1]) {
+      parsed.localTag = args[++i]
     } else {
       positional.push(args[i])
     }
   }
 
   parsed.workDir = positional[0] || null
-  parsed.repoName = positional[1] || null
+  parsed.imageName = positional[1] || null
   return parsed
+}
+
+async function resolveRegistry (args) {
+  if (args.registry === 'ghcr') {
+    const ghcrResult = await ensureGhcrRegistry({ triggerLogin: true })
+    if (!ghcrResult.ok) {
+      return { ok: false, error: ghcrResult }
+    }
+    return { ok: true, registryInfo: ghcrResult.registryInfo }
+  }
+
+  if (args.registry === 'dockerhub') {
+    if (!args.user) {
+      const dh = detectDockerHub()
+      if (!dh) {
+        return { ok: false, error: { error: 'Not logged in to Docker Hub. Run: docker login' } }
+      }
+      return { ok: true, registryInfo: dh }
+    }
+    return { ok: true, registryInfo: { registry: 'dockerhub', user: args.user } }
+  }
+
+  try {
+    const registryInfo = await autoDetectRegistry()
+    if (!registryInfo) {
+      return {
+        ok: false,
+        error: {
+          error: 'No container registry available. Install gh CLI (brew install gh && gh auth login) or run docker login.',
+        },
+      }
+    }
+    return { ok: true, registryInfo }
+  } catch (error) {
+    const structured = error && typeof error === 'object' && 'error' in error
+    return { ok: false, error: structured ? error : { error: error.message } }
+  }
 }
 
 const args = parseArgs(process.argv)
 
-if (!args.workDir || !args.repoName) {
-  console.error('Usage: node build-push.mjs <work-dir> <repo-name> [--registry ghcr|dockerhub] [--user <user>]')
+if (!args.workDir || !args.imageName) {
+  console.error('Usage: node build-push.mjs <work-dir> <image-name> [--mode build|push|all] [--registry ghcr|dockerhub] [--user <user>] [--context <dir>] [--dockerfile <path>] [--image <ref>] [--local-tag <ref>]')
   process.exit(1)
 }
 
-// Determine registry
-let registryInfo
+if (!['build', 'push', 'all'].includes(args.mode)) {
+  console.log(JSON.stringify({ success: false, error: `Invalid --mode ${args.mode}` }))
+  process.exit(1)
+}
 
-if (args.registry === 'ghcr') {
-  // Explicit GHCR
-  const ghcrResult = await ensureGhcrRegistry({ triggerLogin: true })
-  if (!ghcrResult.ok) {
-    console.log(JSON.stringify({ success: false, ...(ghcrResult.error ? ghcrResult : { error: 'Failed to prepare GHCR registry access' }) }))
-    process.exit(1)
-  }
-  registryInfo = ghcrResult.registryInfo
-} else if (args.registry === 'dockerhub') {
-  // Explicit Docker Hub
-  if (!args.user) {
-    const dh = detectDockerHub()
-    if (!dh) {
-      console.log(JSON.stringify({ success: false, error: 'Not logged in to Docker Hub. Run: docker login' }))
-      process.exit(1)
-    }
-    registryInfo = dh
-  } else {
-    registryInfo = { registry: 'dockerhub', user: args.user }
-  }
+const workDir = path.resolve(args.workDir)
+let result
+
+if (args.mode === 'build') {
+  result = buildOnly(workDir, args.imageName, {
+    context: args.context,
+    dockerfile: args.dockerfile,
+  })
 } else {
-  // Auto-detect
-  try {
-    registryInfo = await autoDetectRegistry()
-  } catch (error) {
-    const structured = error && typeof error === 'object' && 'error' in error
-    console.log(JSON.stringify({
-      success: false,
-      ...(structured ? error : { error: error.message }),
-    }))
+  const registryResult = await resolveRegistry(args)
+  if (!registryResult.ok) {
+    console.log(JSON.stringify({ success: false, ...(registryResult.error.error ? registryResult.error : { error: 'Failed to prepare registry access' }) }))
     process.exit(1)
   }
-  if (!registryInfo) {
-    console.log(JSON.stringify({
-      success: false,
-      error: 'No container registry available. Install gh CLI (brew install gh && gh auth login) or run docker login.',
-    }))
-    process.exit(1)
+
+  if (args.mode === 'push') {
+    const imageRef = args.image || buildRemoteImage(registryResult.registryInfo, args.imageName, getDateTag())
+    const localTag = args.localTag || `${sanitizeName(args.imageName)}:local-build`
+    result = pushOnly(imageRef, registryResult.registryInfo, { localTag })
+  } else {
+    result = buildAndPush(workDir, args.imageName, registryResult.registryInfo, {
+      context: args.context,
+      dockerfile: args.dockerfile,
+    })
   }
 }
 
-const result = await buildAndPush(path.resolve(args.workDir), args.repoName, registryInfo)
 console.log(JSON.stringify(result, null, 2))
-
 if (!result.success) process.exit(1)

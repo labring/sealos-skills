@@ -11,6 +11,7 @@ Use the Sealos plugin as the unified entry point for Sealos Cloud development an
 - Build or adapt a Sealos Desktop app: use `sealos-app-builder`.
 - Assess cloud-native readiness: use `cloud-native-readiness`.
 - Generate or repair a Dockerfile: use `dockerfile-skill`.
+- Build and push a GHCR image via Kaniko Job in sandbox (Phase 3): use `k8s-kaniko-job`.
 - Convert Docker Compose or installation documentation into a Sealos template: use `docker-to-sealos`.
 
 Prefer the most specific skill for the task and follow that skill's workflow and safety rules. Treat `/sealos` as the plugin command entry point.

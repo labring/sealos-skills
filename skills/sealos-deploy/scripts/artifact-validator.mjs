@@ -231,23 +231,23 @@ function validateAnalysisSemantics(data, errors) {
 }
 
 function validateBuildResultSemantics(data, errors) {
-  const startedAt = Date.parse(data.build.started_at)
-  const finishedAt = Date.parse(data.finished_at)
-
-  if (!Number.isNaN(startedAt) && !Number.isNaN(finishedAt) && finishedAt < startedAt) {
-    pushError(errors, '$.finished_at', 'must not be earlier than build.started_at')
+  if (!data.pushed || typeof data.pushed !== 'object') {
+    pushError(errors, '$.pushed', 'must be an object of service key → tag ref')
+    return
   }
 
-  if (data.registry === 'ghcr' && !data.push.remote_image.startsWith('ghcr.io/')) {
-    pushError(errors, '$.push.remote_image', 'must be a GHCR image when registry is ghcr')
+  for (const [key, image] of Object.entries(data.pushed)) {
+    if (typeof image === 'string' && image.includes('@sha256:')) {
+      pushError(errors, `$.pushed.${key}`, 'must be a tag ref without digest')
+    }
   }
 
-  if (data.registry === 'dockerhub' && data.push.remote_image.startsWith('ghcr.io/')) {
-    pushError(errors, '$.push.remote_image', 'must not be a GHCR image when registry is dockerhub')
-  }
-
-  if (!data.push.remote_image.includes(':')) {
-    pushError(errors, '$.push.remote_image', 'must include an explicit image tag')
+  if (data.pull_access) {
+    for (const key of Object.keys(data.pushed)) {
+      if (!Object.prototype.hasOwnProperty.call(data.pull_access, key)) {
+        pushError(errors, `$.pull_access.${key}`, 'must exist for every pushed key')
+      }
+    }
   }
 }
 

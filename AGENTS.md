@@ -25,13 +25,16 @@ This repo does not have a single top-level app build.
 ```text
 sealos plugin entry points ($sealos, /sealos)
   ├→ sealos-deploy (direct skills.sh entry point: /sealos-deploy)
-  │   ├→ dockerfile-skill         (Phase 2/3: Dockerfile)
+  │   ├→ dockerfile-skill         (Phase 2: Dockerfile)
+  │   ├→ k8s-kaniko-job           (Phase 3 sandbox: build+push GHCR)
   │   └→ docker-to-sealos         (Phase 4: Compose → Sealos template)
   ├→ sealos-database (direct skills.sh entry point: /sealos-database)
   └→ sealos-s3       (direct skills.sh entry point: /sealos-s3)
 ```
 
 `cloud-native-readiness` is an adjacent standalone skill. It is not wired into sealos-deploy Phase 1.
+
+`k8s-kaniko-job` is a supporting skill for sandbox Phase 3 only. Local Phase 3 uses Buildx via `build-push.mjs` (build-only, then main-agent push to GHCR or Docker Hub).
 
 `sealos-app-builder` is an adjacent skill for Sealos Desktop app work. `sealos-canvas` is an adjacent skill for read-only deployed-resource visualization after `/sealos-deploy` creates `.sealos/state.json`.
 

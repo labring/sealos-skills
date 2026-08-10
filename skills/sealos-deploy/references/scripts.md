@@ -7,7 +7,7 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 | Script | Usage | Purpose |
 |--------|-------|---------|
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
-| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build amd64 image and push to the selected registry. Docker Hub path assumes a public image at deploy time. Omit `--registry` for auto-detect. |
+| `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--mode build\|push\|all] [--registry ghcr\|dockerhub] [--user <user>] [--context <dir>] [--dockerfile <path>] [--image <ref>] [--local-tag <ref>]` | Local Buildx helper. Phase 3 local path: `--mode build` then `--mode push`. Default `--mode all` builds and pushes (UPDATE). Sandbox uses `k8s-kaniko-job` instead. Docker Hub path assumes a public image at deploy time. |
 | `ensure-image-pull-secret.mjs` | `node ensure-image-pull-secret.mjs <namespace> <secret-name> <image-ref> [deployment-name]` | Create or update an app-scoped GHCR pull Secret. Can patch a Deployment to reference it. |
 | `gh-refresh-scopes.mjs` | `node gh-refresh-scopes.mjs write:packages` | Refresh GHCR package access in the current TTY. `write:packages` covers push and private pull in this workflow. |
 | `deploy-template.mjs` | `node deploy-template.mjs <template-path> [--dry-run] [--args-json '{"KEY":"value"}'\|--args-file <file>]` | Resolve the current region, enforce private sensitive-args files on POSIX, post a local template YAML, and emit an allowlisted result with credential values redacted |
@@ -19,6 +19,7 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 | `validate-phase-0.mjs` | `node validate-phase-0.mjs --dir <work-dir>` | Phase 0 acceptance for the four-field `analysis.json` |
 | `validate-phase-1.mjs` | `node validate-phase-1.mjs --dir <work-dir>` | Phase 1 acceptance for `official_template` and preserved Phase 0 fields |
 | `validate-phase-2.mjs` | `node validate-phase-2.mjs --dir <work-dir>` | Phase 2 acceptance for `deployment-plan` / `deployment_source` |
+| `validate-phase-3.mjs` | `node validate-phase-3.mjs --dir <work-dir>` | Phase 3 acceptance for `build-result` / `pull_access` (skip OK when no build) |
 
 Sealos Cloud login and workspace switching use `npx -y sealos-cli@latest`. See `modules/phase-0.md`.
 

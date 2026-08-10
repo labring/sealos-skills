@@ -90,9 +90,85 @@ fi
   const output = JSON.parse(result.stdout)
   assert.match(output.image, /^ghcr\.io\/che-zhu\/demo-app:\d{8}-\d{6}$/)
   assert.equal(output.requires_image_pull_secret, true)
-  assert.match(output.warning, /no visibility or anonymous-pull probe was attempted/)
-  assert.match(output.warning, /Proceed directly with the built-in image pull Secret flow/)
-  assert.match(output.warning, /Do not attempt to change package visibility/)
-  assert.doesNotMatch(output.warning, /package\/demo-app\/settings/)
+  assert.match(output.warning, /private by default/)
   assert.doesNotMatch(readFileSync(ghLog, 'utf8'), /packages|graphql/i)
+})
+
+test('build-only mode does not push', () => {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'sealos-build-only-'))
+  const binDir = join(fixtureDir, 'bin')
+  const workDir = join(fixtureDir, 'work')
+  const dockerLog = join(fixtureDir, 'docker-args.txt')
+  mkdirSync(binDir)
+  mkdirSync(workDir)
+  writeFileSync(join(workDir, 'Dockerfile'), 'FROM scratch\n')
+
+  const dockerPath = join(binDir, 'docker')
+  writeFileSync(dockerPath, `#!/bin/sh\nprintf '%s\\n' "$*" > "$DOCKER_LOG"\n`)
+  chmodSync(dockerPath, 0o755)
+
+  const result = spawnSync(
+    process.execPath,
+    [scriptPath, workDir, 'Demo-App', '--mode', 'build'],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        DOCKER_LOG: dockerLog,
+        PATH: `${binDir}:${process.env.PATH}`,
+      },
+    },
+  )
+
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  const output = JSON.parse(result.stdout)
+  assert.equal(output.mode, 'build')
+  assert.match(readFileSync(dockerLog, 'utf8'), /--load/)
+  assert.doesNotMatch(readFileSync(dockerLog, 'utf8'), /--push/)
+})
+
+test('push mode retags local-build before push', () => {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'sealos-push-only-'))
+  const binDir = join(fixtureDir, 'bin')
+  const workDir = join(fixtureDir, 'work')
+  const dockerLog = join(fixtureDir, 'docker-args.txt')
+  mkdirSync(binDir)
+  mkdirSync(workDir)
+
+  const dockerPath = join(binDir, 'docker')
+  writeFileSync(dockerPath, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$DOCKER_LOG"\n`)
+  chmodSync(dockerPath, 0o755)
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      scriptPath,
+      workDir,
+      'Demo-App',
+      '--mode',
+      'push',
+      '--registry',
+      'dockerhub',
+      '--user',
+      'Che-Zhu',
+      '--image',
+      'che-zhu/demo-app:test-tag',
+    ],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        DOCKER_LOG: dockerLog,
+        PATH: `${binDir}:${process.env.PATH}`,
+      },
+    },
+  )
+
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  const output = JSON.parse(result.stdout)
+  assert.equal(output.mode, 'push')
+  assert.equal(output.image, 'che-zhu/demo-app:test-tag')
+  const log = readFileSync(dockerLog, 'utf8')
+  assert.match(log, /tag demo-app:local-build che-zhu\/demo-app:test-tag/)
+  assert.match(log, /push che-zhu\/demo-app:test-tag/)
 })

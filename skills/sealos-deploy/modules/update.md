@@ -40,13 +40,16 @@ What would you like to update?
 
 ### Option 1: Rebuild
 
-Reuse the **exact same build logic as Phase 4** — same Dockerfile, same explicit registry choice, same build-push.mjs or fallback.
-Default to the registry used by `CURRENT_IMAGE`, but let the user switch if they want.
+Reuse the **exact same build logic as Phase 3** — same Dockerfile, same registry
+rules (`local`: GHCR default or Docker Hub public; `sandbox`: Kaniko GHCR), same
+`build-push.mjs` modes or `k8s-kaniko-job`.
+Default to the registry used by `CURRENT_IMAGE`, but let the user switch if they want
+(local profile only).
 
 ```bash
-# With Node.js:
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --registry ghcr
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --registry dockerhub
+# With Node.js (local profile):
+node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --mode all --registry ghcr
+node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --mode all --registry dockerhub
 
 # Without Node.js:
 TAG=$(date +%Y%m%d-%H%M%S)
@@ -56,7 +59,7 @@ docker buildx build --platform linux/amd64 -t "$NEW_IMAGE" --push -f Dockerfile 
 
 Record `NEW_IMAGE` from the output.
 
-If build fails → same error handling as Phase 4.2 (read error-patterns.md, fix Dockerfile, retry up to 3 times).
+If build fails → same error handling as Phase 3 (read error-patterns.md, fix Dockerfile, retry up to 3 times).
 
 ### Option 2: Restart only
 

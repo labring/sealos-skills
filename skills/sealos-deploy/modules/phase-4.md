@@ -34,7 +34,8 @@ If the project mentions Frappe, ERPNext, HRMS, or `bench`, also read:
 
 ### 5.2 Generate Template
 
-Read `.sealos/analysis.json` and use `image_ref`, `port`, `databases`, and `env_vars` as inputs.
+Read `.sealos/analysis.json` and use `build_result` (when present), deployment-plan
+`deployment_source`, plus any port / database / env signals already recorded as inputs.
 
 Generate the template at `.sealos/template/index.yaml` (overrides the default `template/` path from docker-to-sealos skill).
 Do not create another template-generation artifact.
@@ -93,7 +94,12 @@ if [ -n "$COMPOSE_FILE" ]; then
 fi
 ```
 
-For converted templates, apply the resolved `analysis.json.image_ref` only to the application workload that it represents, then add the documented application-specific runtime semantics. Treat the converter's database classification as immutable: application-specific edits must not replace a KubeBlocks database `Cluster` with a Deployment, StatefulSet, Service, or other generic workload.
+For converted templates, apply resolved image refs from Phase 3 `build_result.pushed`
+(and Phase 4 digest pinning) only to the application workload that each ref represents,
+then add the documented application-specific runtime semantics. Treat the converter's
+database classification as immutable: application-specific edits must not replace a
+KubeBlocks database `Cluster` with a Deployment, StatefulSet, Service, or other
+generic workload.
 
 **Public URL detection:**
 After generating the base template, check if the app needs its public URL configured:

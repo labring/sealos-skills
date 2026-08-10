@@ -104,7 +104,9 @@ node "<SKILL_DIR>/scripts/validate-phase-0.mjs" --dir "$WORK_DIR"
 npx -y sealos-cli@latest whoami
 node "<SKILL_DIR>/scripts/validate-phase-1.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/validate-phase-2.mjs" --dir "$WORK_DIR"
-node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO"
+node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode build
+node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode push --registry ghcr
+node "<SKILL_DIR>/scripts/validate-phase-3.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
 node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
 node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" --app "$APP" --app-url "$URL"
@@ -121,6 +123,7 @@ Load these on demand during pipeline phases. They are not separate user entry po
 | Path | Use for |
 |------|---------|
 | `<SKILL_DIR>/../dockerfile-skill/` | Phase 2 Dockerfile preparation |
+| `<SKILL_DIR>/../k8s-kaniko-job/` | Phase 3 sandbox build+push to GHCR |
 | `<SKILL_DIR>/../docker-to-sealos/` | Phase 4 Sealos template |
 
 `cloud-native-readiness` is an adjacent standalone skill. It is not part of the
