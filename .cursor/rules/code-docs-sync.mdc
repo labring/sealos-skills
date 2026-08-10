@@ -1,0 +1,23 @@
+---
+description: Keep sealos-skills and sealos-skills-doc in sync
+alwaysApply: true
+---
+
+# Code and docs dual-repo sync
+
+This repository (`sealos-skills`) is the code repo. The sibling docs repo is:
+
+- Path: `~/Documents/GitHub/sealos-skills-doc`
+- Remote: `norberia/sealos-skills-doc`
+
+## Required practice
+
+Whenever you add, change, or remove a skill, command, plugin capability, or behavioral contract:
+
+1. Update the matching docs in `sealos-skills-doc` in the same change set
+2. Do not change code without docs, or docs without code, unless the user explicitly asks for a one-sided change
+3. Confirm both sides agree before you call the work done
+
+## Workflow
+
+Change code → update the docs repo immediately → deliver both together
