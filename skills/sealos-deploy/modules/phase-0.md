@@ -34,7 +34,8 @@ Phase 0 hard-stops only on **entry-required** tools. Everything else is **deferr
 | A — identity | Sealos via `npx -y sealos-cli@latest` | Not a binary install | Region/login/workspace failure → **STOP** (local only) |
 | B — deploy/verify | `kubectl` (+ usable kubeconfig); `curl` / `jq` (fallback when Node helpers are unavailable) | Deferred | Phase 6 / 7 / UPDATE / verify |
 | C — build/push | Docker CLI, daemon, Buildx; `gh` (+ login / `write:packages`); `railpack` | Deferred; `sandbox` does not require Docker/`gh` | Phase 3 local build/push or GHCR; Phase 2 when railpack must prepare a Dockerfile |
-| D — template | Python 3.8+, PyYAML; `kompose`; Helm 3+ | Deferred | Phase 4/5 (by deployment source) |
+| D — template | Python 3.8+, PyYAML; `kompose`; Helm 3+ | Deferred | Phase 4 (by deployment source) |
+| D — dry-run | Node.js 22+; `npm install` in `skills/sealos-deploy` (`yaml`) | Deferred | Phase 5 |
 | E — optional | Git LFS / submodule tools; crane | Ask only when the repo or path needs them | That path; refuse → **STOP** |
 
 Official-template fast path (skip Phases 2–4) must not be blocked by Docker, `gh`, railpack, kompose, or Helm.

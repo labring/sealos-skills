@@ -10,6 +10,9 @@ docs
 # Local plugin packages
 dist/
 
+# Skill-local npm installs
+**/node_modules/
+
 # Local agent install artifacts; keep repo marketplace metadata tracked
 .agents/*
 !.agents/plugins/

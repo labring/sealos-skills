@@ -11,10 +11,10 @@ description: >-
 compatibility: >-
   Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are
   required only when the selected path needs local build/push. git is required
-  when cloning from a GitHub URL or when git metadata is needed. Node.js 18+
-  remains an optional accelerator. Phase 5 requires Python 3.8+ with PyYAML.
-  Root Compose conversion also requires kompose. Floating image tags can also
-  require crane.
+  when cloning from a GitHub URL or when git metadata is needed. Node.js 22+
+  is required for Phase 5 (`server-dry-run.ts`; run `npm install` under
+  `skills/sealos-deploy`). Root Compose conversion also requires Python/PyYAML
+  and kompose. Floating image tags can also require crane.
 metadata:
   author: labring
 ---
@@ -109,8 +109,8 @@ node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode push --regi
 node "<SKILL_DIR>/scripts/validate-phase-3.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/validate-phase-4.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/validate-phase-5.mjs" --dir "$WORK_DIR"
-# Phase 5 precheck (requires TARGET_* and cloud domain / cert secret):
-# python3 "<SKILL_DIR>/scripts/server_dry_run.py" --template ... --context ... --namespace ...
+# Phase 5 precheck (requires TARGET_* and cloud domain / cert secret; npm install in skills/sealos-deploy):
+# node --experimental-strip-types "<SKILL_DIR>/scripts/server-dry-run.ts" --template ... --context ... --namespace ...
 node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
 node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
 node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" --app "$APP" --app-url "$URL"

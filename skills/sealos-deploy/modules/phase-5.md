@@ -6,7 +6,7 @@ Do not create cloud resources. Do not rewrite delivery bytes in
 `.sealos/template/index.yaml` except authorized schema repairs. Do not use Template
 API `dryRun` as this gate. Do not ask for group-B values before dry-run passes.
 
-`server_dry_run.py` is the Phase 5 precheck helper. Call it before collecting
+`server-dry-run.ts` is the Phase 5 precheck helper. Call it before collecting
 configuration. Follow docs `specs/server-dry-run` for the full contract; this
 module lists the agent-facing entry and stop conditions.
 
@@ -32,8 +32,7 @@ module lists the agent-facing entry and stop conditions.
 
 | Need | Tools |
 |------|-------|
-| Always | `kubectl` against the target Sealos context; Python 3.8+ with PyYAML (`server_dry_run.py`) |
-| Template parse | Same Python / PyYAML |
+| Always | `kubectl` against the target Sealos context; Node.js 22+ (`server-dry-run.ts`, needs `yaml` from `skills/sealos-deploy/package.json`) |
 
 Ask once to install; refuse or recheck failure → **STOP**.
 
@@ -71,9 +70,9 @@ Resolve target context, namespace, service account, `SEALOS_CLOUD_DOMAIN`, and
 `SEALOS_CERT_SECRET_NAME`. Missing any → **STOP** (do not guess).
 
 ```bash
-PYTHON_BIN="$(command -v python3 || command -v python)"
+# From skills/sealos-deploy (once): npm install
 LOG_FILE="${SEALOS_DEPLOY_LOG:-/tmp/sealos-deploy-server-dry-run.log}"
-"$PYTHON_BIN" "<SKILL_DIR>/scripts/server_dry_run.py" \
+node --experimental-strip-types "<SKILL_DIR>/scripts/server-dry-run.ts" \
   --template "$WORK_DIR/.sealos/template/index.yaml" \
   --context "$TARGET_CONTEXT" \
   --namespace "$TARGET_NAMESPACE" \

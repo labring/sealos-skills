@@ -181,7 +181,8 @@ function main() {
     ? [...sharedChecks, ...localOnlyChecks]
     : sharedChecks
 
-  // PyYAML is tracked separately; both python and pyyaml are deferred (Phase 4/5).
+  // PyYAML is tracked separately; both python and pyyaml are deferred (Phase 4).
+  // Phase 5 server-dry-run.ts uses Node + skills/sealos-deploy yaml package.
   const python = checks.find((item) => item.id === 'python')
   if (python?.ok && python.pyyaml === false) {
     checks.push({ id: 'pyyaml', ok: false, reason: 'missing' })
