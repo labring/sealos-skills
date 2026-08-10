@@ -12,7 +12,7 @@
 - [Verify Event convergence](#verify-event-convergence)
 - [Acceptance checklist](#acceptance-checklist)
 
-Run this pass after Template API deploy or kubectl fallback deploy. Accept the deployment only after the live application entry, Launchpad public network, logs, and first meaningful user workflow are verified.
+Run this pass after Phase 6 Template API create (and deploy-result validation). Accept the deployment only after the live application entry, Launchpad public network, logs, and first meaningful user workflow are verified. Write `.sealos/state.json` only after acceptance.
 
 ## Capture Live Identity
 

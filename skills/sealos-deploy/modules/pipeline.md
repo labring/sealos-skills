@@ -17,8 +17,8 @@ Phase 0 writes `.sealos/analysis.json` with only `runtime_profile`, `work_dir`, 
 7. `modules/phase-3.md` — Build and push (no targets → pass through)
 8. `modules/phase-4.md` — Generate Sealos template
 9. `modules/phase-5.md` — Pre-deploy preparation (server dry-run → config → confirm)
-10. `modules/phase-6.md` — Deploy, write state, success output
-11. `modules/phase-7.md` — Runtime Truth Pass
+10. `modules/phase-6.md` — Deploy once, write deploy-result
+11. `modules/phase-7.md` — Runtime Truth Pass and state.json
 
 ## Update chain
 

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills.sh/sealos-deploy/schemas/deploy-result.schema.json",
+  "title": "Sealos Deploy Deploy Result Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template_sha256", "app_name"],
+  "properties": {
+    "template_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "app_name": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

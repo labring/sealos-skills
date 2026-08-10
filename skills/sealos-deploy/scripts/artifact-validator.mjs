@@ -14,6 +14,7 @@ const SCHEMA_FILES = {
   'build-result': 'build-result.schema.json',
   'image-digests': 'image-digests.schema.json',
   'prepare-result': 'prepare-result.schema.json',
+  'deploy-result': 'deploy-result.schema.json',
   state: 'state.schema.json',
 }
 
@@ -326,6 +327,7 @@ const SEMANTIC_VALIDATORS = {
   'build-result': validateBuildResultSemantics,
   'image-digests': validateImageDigestsSemantics,
   'prepare-result': () => {},
+  'deploy-result': () => {},
   state: validateStateSemantics,
 }
 
@@ -344,6 +346,8 @@ export function inferArtifactKind(filePath) {
       return 'image-digests'
     case 'prepare-result.json':
       return 'prepare-result'
+    case 'deploy-result.json':
+      return 'deploy-result'
     case 'state.json':
       return 'state'
     default:

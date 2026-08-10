@@ -5,7 +5,7 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ```
 <WORK_DIR>/.sealos/
 ├── config.json                   ← user configuration overrides (manual, committed to git)
-├── state.json                    ← deployment state (auto-maintained after Phase 6/7)
+├── state.json                    ← deployment state (auto-maintained after Phase 7)
 ├── analysis.json                 ← Phase 0–2 fields; later phases add pointers
 ├── phase-2/
 │   ├── agentlens-digest.txt
@@ -20,6 +20,8 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 │   └── resource-map.json
 ├── phase-5/
 │   └── prepare-result.json       ← after dry-run + user confirm
+├── phase-6/
+│   └── deploy-result.json        ← after successful create
 └── template/
     └── index.yaml                ← Phase 1 official fetch, or Phase 4 generated template
 ```
@@ -30,8 +32,9 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 - `phase-2/deployment-plan.json` — Phase 2 plan with `deployment_source` (read by Phase 3 and Phase 4).
 - `phase-2/agentlens-digest.txt` — deploy-focused path tree for scout.
 - `phase-5/prepare-result.json` — Phase 5: template sha256, dry-run passed, user confirmed.
+- `phase-6/deploy-result.json` — Phase 6: template sha256 (matches Phase 5) and `app_name`.
 - `template/index.yaml` — Phase 1 official fetch or Phase 4 generated template.
-- `state.json` — deployment state after success; enables UPDATE mode.
+- `state.json` — deployment state after Phase 7 success; enables UPDATE mode.
 
 JSON artifacts under `.sealos/` are governed by schemas in `<SKILL_DIR>/schemas/`:
 - `config.schema.json`
@@ -40,6 +43,7 @@ JSON artifacts under `.sealos/` are governed by schemas in `<SKILL_DIR>/schemas/
 - `build-result.schema.json`
 - `image-digests.schema.json`
 - `prepare-result.schema.json`
+- `deploy-result.schema.json`
 - `state.schema.json`
 
 Validate them with:

@@ -111,7 +111,8 @@ node "<SKILL_DIR>/scripts/validate-phase-4.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/validate-phase-5.mjs" --dir "$WORK_DIR"
 # Phase 5 precheck (requires TARGET_* and cloud domain / cert secret; npm install in skills/sealos-deploy):
 # node --experimental-strip-types "<SKILL_DIR>/scripts/server-dry-run.ts" --template ... --context ... --namespace ...
-node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
+node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml" --args-file "$DEPLOY_ARGS_FILE"
+node "<SKILL_DIR>/scripts/validate-phase-6.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
 node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" --app "$APP" --app-url "$URL"
 node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$URL"
@@ -218,8 +219,8 @@ Keep the reply short. Include command evidence only when it helps the user.
 | `modules/phase-3.md` | Phase 3 build and push |
 | `modules/phase-4.md` | Phase 4 template |
 | `modules/phase-5.md` | Phase 5 pre-deploy preparation |
-| `modules/phase-6.md` | Phase 6 deploy, state, success output |
-| `modules/phase-7.md` | Phase 7 Runtime Truth |
+| `modules/phase-6.md` | Phase 6 deploy and deploy-result |
+| `modules/phase-7.md` | Phase 7 Runtime Truth and state.json |
 | `modules/update.md` | UPDATE path |
 | `references/logging.md` | Full deploy log examples |
 | `references/scripts.md` | Full script catalog and Event rules |
