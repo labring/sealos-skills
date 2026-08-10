@@ -50,7 +50,7 @@
         "type": "string",
         "enum": [
           "assess",
-          "detect-image",
+          "discover",
           "dockerfile",
           "build",
           "template",

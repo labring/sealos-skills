@@ -103,7 +103,7 @@ node "<SKILL_DIR>/scripts/phase-0/check-running-environment.mjs"
 node "<SKILL_DIR>/scripts/validate-phase-0.mjs" --dir "$WORK_DIR"
 npx -y sealos-cli@latest whoami
 node "<SKILL_DIR>/scripts/validate-phase-1.mjs" --dir "$WORK_DIR"
-node "<SKILL_DIR>/scripts/detect-image.mjs" "$WORK_DIR"
+node "<SKILL_DIR>/scripts/validate-phase-2.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO"
 node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
 node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
@@ -135,9 +135,9 @@ This map applies to **deploy** (DEPLOY mode). For other intents, use the Intent 
 | 0 — Preflight | `modules/phase-0.md` | Entry blockers are clear |
 | — Artifacts / mode | `modules/artifacts.md`, `modules/mode.md` | UPDATE → `modules/update.md` |
 | 1 — Assess | `modules/phase-1.md` | Blacklist 100% STOP; official-template fast path may skip Phase 2–4 |
-| 2 — Discover / image prep | `modules/phase-2.md` | Existing amd64 image → jump to Phase 4 |
-| 3 — Build & Push | `modules/phase-3.md` | — |
-| 4 — Template | `modules/phase-4.md` | — |
+| 2 — Discover / image prep | `modules/phase-2.md` | Official fast path skipped Phase 2 |
+| 3 — Build & Push | `modules/phase-3.md` | No build targets → pass through to Phase 4 |
+| 4 — Template | `modules/phase-4.md` | Official fast path skipped Phase 4 |
 | 5 — Configure | `modules/phase-5.md` | No inputs needed |
 | 6 — Deploy | `modules/phase-6.md` | — |
 | 7 — Post-deploy | `modules/phase-7.md` | User asks for deploy-only output |
@@ -156,14 +156,10 @@ Input (GitHub URL / local path)
   ├── official fast path ────────────────┐
   │                                      │
   ▼                                      │
-[Phase 2] Detect image / Dockerfile      │
+[Phase 2] Discover + deployment-plan     │
   │                                      │
-  ├── found (amd64) ────────────────────┐│
-  │                                     ││
-  ▼                                     ││
-[Phase 3] Build & Push                  ││
-  │                                     ││
-  ◄─────────────────────────────────────┘│
+  ▼                                      │
+[Phase 3] Build & Push (or pass-through) │
   │                                      │
   ▼                                      │
 [Phase 4] Generate Sealos Template       │
@@ -211,7 +207,7 @@ Keep the reply short. Include command evidence only when it helps the user.
 | `modules/artifacts.md` | `.sealos/` layout and schemas |
 | `modules/mode.md` | DEPLOY vs UPDATE, resume |
 | `modules/phase-1.md` | Phase 1 blacklist, official_template, fast path |
-| `modules/phase-2.md` | Phase 2 image detect / Dockerfile |
+| `modules/phase-2.md` | Phase 2 scout, deployment-plan, image prep |
 | `modules/phase-3.md` | Phase 3 build and push |
 | `modules/phase-4.md` | Phase 4 template |
 | `modules/phase-5.md` | Phase 5 configure |

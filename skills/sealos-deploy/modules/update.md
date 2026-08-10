@@ -2,7 +2,7 @@
 
 **This file runs only in UPDATE mode** (entered via `modules/mode.md`).
 
-The update path skips Assess, Detect Image, Dockerfile, and Template generation — it reuses the existing deployment and only pushes a new image.
+The update path skips Assess, Discover, and Template generation — it reuses the existing deployment and only pushes a new image.
 
 All kubectl commands use the Sealos kubeconfig:
 ```

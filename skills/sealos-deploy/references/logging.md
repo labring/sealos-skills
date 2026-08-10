@@ -28,26 +28,23 @@ Example:
 [2026-03-05 14:30:02] Project: /Users/dev/myapp (github: https://github.com/owner/repo)
 
 [2026-03-05 14:30:03] === Phase 1: Assess ===
-[2026-03-05 14:30:03] Language: python, Framework: fastapi, Port: 8000
-[2026-03-05 14:30:03] Decision: CONTINUE
+[2026-03-05 14:30:03] official_template: null
+[2026-03-05 14:30:03] Decision: CONTINUE → Phase 2
 
-[2026-03-05 14:30:04] === Phase 2: Detect Image ===
-[2026-03-05 14:30:05] Docker Hub: owner/repo:latest (arm64 only, no amd64)
-[2026-03-05 14:30:05] GHCR: not found
-[2026-03-05 14:30:05] Decision: no amd64 image → continue to Phase 3
+[2026-03-05 14:30:04] === Phase 2: Discover ===
+[2026-03-05 14:30:04] agentlens: wrote .sealos/phase-2/agentlens-digest.txt
+[2026-03-05 14:30:05] deployment_source: .sealos/phase-2/docker-compose.yml
+[2026-03-05 14:30:05] Decision: CONTINUE → Phase 3
 
-[2026-03-05 14:30:06] === Phase 3: Dockerfile ===
-[2026-03-05 14:30:06] Existing Dockerfile: none
-[2026-03-05 14:30:07] Generated: python-fastapi template, port 8000
+[2026-03-05 14:30:06] === Phase 3: Build & Push ===
+[2026-03-05 14:30:08] Registry: ghcr
+[2026-03-05 14:30:30] Build: ✓ ghcr.io/user/repo-web:20260305-143022
 
-[2026-03-05 14:30:08] === Phase 4: Build & Push ===
-[2026-03-05 14:30:08] Registry: ghcr (auto-detected via gh CLI)
-[2026-03-05 14:30:30] Build: ✓ ghcr.io/zhujingyang/repo:20260305-143022
-[2026-03-05 14:30:32] GHCR pullability: private package detected — deploy will auto-create image pull Secret from gh CLI
-[2026-03-05 14:30:33] IMAGE_REF=ghcr.io/zhujingyang/repo:20260305-143022
-
-[2026-03-05 14:30:34] === Phase 5: Template ===
+[2026-03-05 14:30:34] === Phase 4: Template ===
 [2026-03-05 14:30:35] Output: .sealos/template/index.yaml
+
+[2026-03-05 14:30:35] === Phase 5: Configure ===
+[2026-03-05 14:30:35] Dry-run: passed
 
 [2026-03-05 14:30:36] === Phase 6: Deploy ===
 [2026-03-05 14:30:36] Deploy URL: https://template.gzg.sealos.run/api/v2alpha/templates/raw

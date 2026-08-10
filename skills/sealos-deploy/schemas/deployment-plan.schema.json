@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills.sh/sealos-deploy/schemas/deployment-plan.schema.json",
+  "title": "Sealos Deploy Deployment Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["deployment_source"],
+  "properties": {
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "deployment_source": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -96,8 +96,8 @@ Default: Update
 | `.sealos/state.json` has `last_deploy` | Already deployed | Enter UPDATE mode (handled above) |
 | `.sealos/analysis.json` has `official_template` (including `null`) | Phase 1 completed | Ask user: skip assessment? |
 | `.sealos/template/index.yaml` exists and `official_template` is a non-null URL | Official fast path may resume at Phase 5 | Ask user: resume from Phase 5? |
-| `Dockerfile` exists | Phase 2 Dockerfile prep may be done | Skip Dockerfile generation when appropriate |
-| `.sealos/build/build-result.json` exists and `outcome: "success"` | Phase 3 completed | Ask user: skip rebuild? |
+| `.sealos/analysis.json` has `deployment_plan` and `.sealos/phase-2/deployment-plan.json` exists | Phase 2 completed | Ask user: skip discover / image prep? |
+| `.sealos/phase-3/build-result.json` exists, or Phase 2 plan has no build targets and Phase 3 was skipped | Phase 3 completed or not required | Ask user: skip rebuild? |
 | `.sealos/template/index.yaml` exists without a non-null `official_template` | Phase 4 completed | Ask user: skip template generation? |
 
 Do **not** treat a Phase 0-only `analysis.json` (only `runtime_profile`, `work_dir`, `repo_name`, `github_url`) as Phase 1 complete. Do not trust an `official_template` URL alone without `.sealos/template/index.yaml`.
@@ -106,6 +106,6 @@ If any later-phase artifacts exist, report to user:
 `"Found artifacts from a previous deploy attempt. [list found artifacts]."`
 Ask: `"Resume from where it left off? Or restart from Phase 1?"`
 
-If restart → remove Phase 1+ fields by resetting to a fresh Phase 0 `analysis.json` (or delete it and re-run Phase 0), and remove `.sealos/build/` and `.sealos/template/index.yaml`.
+If restart → remove Phase 1+ fields by resetting to a fresh Phase 0 `analysis.json` (or delete it and re-run Phase 0), and remove `.sealos/phase-2/`, `.sealos/phase-3/`, `.sealos/phase-4/`, and `.sealos/template/index.yaml`.
 
 ---

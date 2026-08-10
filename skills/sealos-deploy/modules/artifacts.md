@@ -5,25 +5,35 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ```
 <WORK_DIR>/.sealos/
 ├── config.json                   ← user configuration overrides (manual, committed to git)
-├── state.json                    ← deployment state (auto-maintained after Phase 6)
-├── analysis.json                 ← Phase 0 (4 fields); Phase 1 adds official_template; later phases extend
-├── build/                        ← created only if Phase 3 actually runs
-│   └── build-result.json         ← Phase 3 result (`success` or `failed`)
+├── state.json                    ← deployment state (auto-maintained after Phase 6/7)
+├── analysis.json                 ← Phase 0–2 fields; later phases add pointers
+├── phase-2/
+│   ├── agentlens-digest.txt
+│   ├── deployment-plan.json
+│   └── docker-compose.yml        ← non-Helm/K8s only
+├── phase-3/
+│   └── build-result.json         ← when Phase 3 builds/pushes
+├── phase-4/
+│   ├── image-digests.json
+│   ├── source/
+│   ├── rendered.yaml
+│   └── resource-map.json
 └── template/
     └── index.yaml                ← Phase 1 official fetch, or Phase 4 generated template
 ```
 
 **File responsibilities:**
-- `config.json` — optional user overrides (port, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
-- `analysis.json` — Phase 0 overwrites with `runtime_profile`, `work_dir`, `repo_name`, `github_url` only. Phase 1 adds `official_template` (`null` or a labring-actions raw URL) and preserves the four Phase 0 fields. Later phases may add pointers such as `deployment_plan`. Do not treat a Phase 0-only file as Phase 1 complete. Full `analysis.schema.json` validation applies once Phase 1 has written `official_template`.
-- `state.json` — deployment state written after Phase 6 success. Contains `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
-- `template/index.yaml` — written by Phase 1 on an exact official-template match (verbatim fetch), or by Phase 4 on the standard path.
+- `config.json` — optional user overrides. Created manually by user, committed to git.
+- `analysis.json` — Phase 0: four fields. Phase 1: adds `official_template`. Phase 2: adds `deployment_plan`. Phase 3 may add `build_result`.
+- `phase-2/deployment-plan.json` — Phase 2 plan with `deployment_source` (read by Phase 3 and Phase 4).
+- `phase-2/agentlens-digest.txt` — deploy-focused path tree for scout.
+- `template/index.yaml` — Phase 1 official fetch or Phase 4 generated template.
+- `state.json` — deployment state after success; enables UPDATE mode.
 
-**Note:** When reading dockerfile-skill modules (analyze.md, generate.md, build-fix.md), they reference `docker-build/` as their default output path. In this pipeline, always write to `.sealos/build/` instead. Similarly, template output goes to `.sealos/template/` instead of `template/`.
-
-JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>/schemas/`:
+JSON artifacts under `.sealos/` are governed by schemas in `<SKILL_DIR>/schemas/`:
 - `config.schema.json`
 - `analysis.schema.json`
+- `deployment-plan.schema.json`
 - `build-result.schema.json`
 - `state.schema.json`
 
@@ -33,15 +43,11 @@ Validate them with:
 node "<SKILL_DIR>/scripts/validate-artifacts.mjs" --dir "$WORK_DIR"
 ```
 
-Writers should validate on write; readers should validate before trusting resume/update state.
-
-Phase 0 already creates `"$WORK_DIR/.sealos"` when it writes `analysis.json`. After Phase 0 validation, ensure the template directory exists:
+Phase 0 already creates `"$WORK_DIR/.sealos"` when it writes `analysis.json`. After Phase 0 validation:
 
 ```bash
-mkdir -p "$WORK_DIR/.sealos" "$WORK_DIR/.sealos/template"
+mkdir -p "$WORK_DIR/.sealos" "$WORK_DIR/.sealos/template" "$WORK_DIR/.sealos/phase-2"
 ```
-
-Create `"$WORK_DIR/.sealos/build"` lazily when Phase 3 starts. If Phase 2 finds an existing image and skips Phase 3, `build/` should remain absent rather than exist as an empty directory.
 
 **Read user config (if exists):**
 If `.sealos/config.json` exists, read it. User-provided values take priority over auto-detection and AI inference throughout the pipeline.

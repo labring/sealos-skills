@@ -1,6 +1,33 @@
 # Phase 2: Discover and image preparation
 
-Detect an existing image or prepare a Dockerfile for local build.
+Produce `deployment-plan.json` with a single `deployment_source` pointer, and prepare
+Dockerfiles for components that must build from this repository.
+
+One Sealos deploy maps to one full-repo template. Topology must cover all relevant
+components (databases, queues, workers), not only the main app.
+
+Do not build or push images. Do not generate a Sealos template. Do not create cloud
+resources. Do not modify `official_template`.
+
+UPDATE mode skips this phase.
+
+## Inputs
+
+| Input | Source |
+|-------|--------|
+| `.sealos/analysis.json` | Phase 0, Phase 1 |
+| Project source | `analysis.json` → `work_dir` |
+| `railpack` | Required when this phase must prepare a Dockerfile (`sandbox` preinstalled; `local` path-gated) |
+| Node.js 18+ | For `npx -y @norberia/agentlens` |
+
+## Outputs
+
+| Output | Path |
+|--------|------|
+| Deploy file tree | `.sealos/phase-2/agentlens-digest.txt` |
+| Deployment plan | `.sealos/phase-2/deployment-plan.json` |
+| Canonical Compose | `.sealos/phase-2/docker-compose.yml` (non-Helm/K8s only) |
+| `deployment_plan` pointer | `.sealos/analysis.json` |
 
 ## Path dependency gate
 
@@ -9,14 +36,35 @@ install; refuse or recheck failure → **STOP**.
 
 | Need | Tools |
 |------|-------|
-| Agentlens scout | Node.js 18+ (for `npx -y @norberia/agentlens`) — usually already entry-required |
-| Dockerfile preparation via railpack | `railpack` (`local`; `sandbox` is expected to provide it) |
+| agentlens scout | Node.js 18+ |
+| Dockerfile preparation via railpack | `railpack` |
 
-Docker / `gh` are **not** required in this phase (build/push is Phase 3).
+Docker / `gh` are not required in this phase (build/push is Phase 3).
 
-## Scout with agentlens
+## Phase constraints
 
-Before image detection, build a deploy-focused file tree. Do **not** use gitingest.
+| ID | Constraint |
+|----|------------|
+| P2-01 | Do not build or push images |
+| P2-02 | Do not generate Sealos templates |
+| P2-03 | Do not create cloud resources |
+| P2-04 | Do not change `official_template` |
+| P2-05 | One deploy must cover full repo topology |
+| P2-06 | On Compose path, `deployment_source` must be `.sealos/phase-2/docker-compose.yml` |
+
+## Procedure
+
+### 1. Read `analysis.json`
+
+Read `work_dir`, `runtime_profile`, and related fields. Preserve Phase 0 and Phase 1
+fields. Do not modify `official_template`.
+
+### 2. Main agent scout (agentlens)
+
+**agentlens purpose:** generate a deploy-focused path tree under `work_dir` so the
+agent can quickly understand project architecture and likely deploy files. It does
+not emit file bodies, does not replace reading README / Compose / Dockerfile / charts,
+and is not itself a deployment source.
 
 ```bash
 mkdir -p "$WORK_DIR/.sealos/phase-2"
@@ -24,176 +72,67 @@ npx -y @norberia/agentlens "$WORK_DIR" --preset deploy \
   -o "$WORK_DIR/.sealos/phase-2/agentlens-digest.txt"
 ```
 
-The digest is a directory tree only (no file contents). Read root `README*` and the paths listed in the tree for deploy/CI evidence. Do not ingest the full repository.
+Also read root `README*`, `CONTRIBUTING*`, and paths listed in the tree. Evidence
+types include compose/Dockerfile/Helm/K8s/CI/workspace manifests.
 
-## Phase 2: Detect Existing Image
+Record a short scout note in the deploy log.
 
-### 2.S Source-Ready Static Site Image Path
+### 3. Subagent — pick deployment source and image prep
 
-Before registry discovery, inspect whether the requested root is a source-ready static
-site: root `index.html`, a public asset tree that can be served without transformation,
-and no higher-priority build, server-runtime, container, or sensitive-file signal.
+Start one subagent with:
 
-When that evidence holds, set `STATIC_NGINX_IMAGE_BUILD=true` in the current run
-context (`image_ref` remains unset). Skip existing-image discovery for this
-source-only tree and continue to Phase 3. Phase 3 must generate the pinned static
-Nginx Dockerfile, and Phase 4 must build and push it through the same registry path
-as every other locally built image.
+- `analysis.json`
+- path to `.sealos/phase-2/agentlens-digest.txt`
+- verbal handoff (findings and judgment)
 
-This path is evidence-based. File count, extension, and directory depth are not
-deployment decisions. Preserve arbitrary regular public assets and their relative
-paths, including nested directories, while excluding repository metadata through
-`.dockerignore`. Give an existing container contract precedence over this path.
-Route build/runtime manifests and server-source signals through ordinary discovery.
-Stop for possible secrets, symbolic links, or a missing root `index.html`. Never
-silently omit a business asset from the image.
+Tell the subagent to write `.sealos/phase-2/deployment-plan.json` per
+`<SKILL_DIR>/schemas/deployment-plan.schema.json` and the deployment-plan contract:
 
-The remaining Phase 2 instructions apply when `STATIC_NGINX_IMAGE_BUILD` is false.
+1. **Set `deployment_source`** (priority Helm → Kubernetes → Compose):
+   - **Helm**: chart root; check chart/values; prepare Dockerfiles for images that need build.
+   - **Kubernetes**: a **single** manifest file; prepare Dockerfiles for images that need build.
+   - **Other** (including existing compose, single app, implicit topology, source-ready static sites): generate or normalize compose to `.sealos/phase-2/docker-compose.yml` (copy and patch when the repo has compose — do not edit the original). `deployment_source` is **fixed** to `.sealos/phase-2/docker-compose.yml`.
+2. **Image prep**: every container built from this repo must have a buildable `build` config (context, dockerfile) in the deployment source.
+   - Reuse a usable repo Dockerfile when present.
+   - Otherwise run `railpack` (`info`, `plan`), read the output, review/refine (ports, start command, stages), then write the Dockerfile.
+   - Prefer writing Dockerfiles under `.sealos/phase-2/`. Do not modify user source.
+   - Source-ready static sites may use `<SKILL_DIR>/../dockerfile-skill/templates/static-nginx.dockerfile` (and matching `.dockerignore`) via the Compose path.
+3. Do not guess published images from org or repo name. Upstream `image:` refs that do not need local build stay as-is.
 
-**If Node.js available:**
+### 4. Write `analysis.json`
+
+Merge with Phase 0 / Phase 1 fields. Add only:
+
+```json
+{
+  "deployment_plan": ".sealos/phase-2/deployment-plan.json"
+}
+```
+
+Do not modify `official_template` or other Phase 0 / Phase 1 fields.
+
+### 5. Validate
+
 ```bash
-## With GitHub URL:
-node "<SKILL_DIR>/scripts/detect-image.mjs" "$GITHUB_URL" "$WORK_DIR"
-## Local project without GitHub URL:
-node "<SKILL_DIR>/scripts/detect-image.mjs" "$WORK_DIR"
-```
-The script auto-detects GitHub URL from `git remote` if only a directory is given.
-
-Output: `{ "found": true, "image": "...", "tag": "...", ... }` or `{ "found": false }`
-
-**If Node.js not available (fallback — use curl):**
-
-1. Parse owner/repo from `GITHUB_URL` (if empty, try `git -C "$WORK_DIR" remote get-url origin`)
-2. If still no GitHub URL, skip Docker Hub / GHCR checks and only scan project files for image references
-3. Docker Hub check (try `<owner>/<repo>`, then `<repo>/<repo>` if different):
-```bash
-curl -sf "https://hub.docker.com/v2/namespaces/<owner>/repositories/<repo>/tags?page_size=10"
-## If not found and owner != repo:
-curl -sf "https://hub.docker.com/v2/namespaces/<repo>/repositories/<repo>/tags?page_size=10"
-```
-4. GHCR check:
-```bash
-TOKEN=$(curl -sf "https://ghcr.io/token?scope=repository:<owner>/<repo>:pull" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
-curl -sf -H "Authorization: Bearer $TOKEN" "https://ghcr.io/v2/<owner>/<repo>/tags/list"
-```
-5. **docker-compose.yml scan** — AI reads `docker-compose.yml` / `docker-compose.yaml` (already in Phase 1 context) and extracts `image:` fields. Exclude infrastructure images (postgres, mysql, redis, mongo, etc.). For each candidate, verify with curl against Docker Hub or GHCR.
-6. **CI workflow scan** — AI reads `.github/workflows/*.yml` and extracts `docker push` targets, `images:` fields, and `tags:` references. Verify each candidate.
-7. Search `README.md` for `ghcr.io/` references, `docker run/pull` commands, and `hub.docker.com/r/<ns>/<repo>` URLs
-8. **Docker Hub search API** (catch-all) — if nothing found above:
-```bash
-curl -sf "https://hub.docker.com/v2/search/repositories/?query=<repo>&page_size=5"
-## For each result, fetch detail and check if full_description mentions github.com/<owner>/<repo>
-curl -sf "https://hub.docker.com/v2/repositories/<ns>/<repo>/"
-```
-9. For any candidate, verify amd64: `docker manifest inspect <image>:<tag>`
-
-Prefer versioned tags (`v1.2.3`) over `latest`.
-
-### Phase 2 Post-Verification (AI)
-
-After Phase 2 produces a result, the AI should cross-validate:
-
-1. **If `source` is `dockerhub` or `ghcr`** (direct owner/repo match) — high confidence, no extra validation needed.
-2. **If `source` is `compose`, `ci-workflow`, `dockerhub-readme`, or `dockerhub-search`** — cross-check with project context:
-   - Does the README mention this image or its namespace?
-   - Does `docker-compose.yml` reference it?
-   - Does the Docker Hub repo description link back to this GitHub project?
-   - If multiple signals agree → high confidence. If only one signal → note as medium confidence in your assessment.
-3. **If `found: false`** — the AI should use its Phase 1 analysis context to attempt one more check: if Phase 1 identified a Docker image name from project docs or code that the script didn't find, try verifying it manually with curl.
-
-### Update analysis.json
-
-If an existing image is found, update `.sealos/analysis.json` to set `image_ref` to `{image}:{tag}`.
-
-**Decision:**
-- Found amd64 image → record `IMAGE_REF = {image}:{tag}`, **skip to Phase 5**
-- Not found → continue to Phase 3
-
----
-
-
----
-
-## Phase 3: Dockerfile
-
-### 3.1 Check Existing Dockerfile
-
-If `WORK_DIR/Dockerfile` exists:
-1. Read it and assess quality
-2. Reasonable (multi-stage or appropriate for language) → use directly, go to Phase 4
-3. Problematic (uses `:latest`, runs as root, missing essential deps) → fix, then Phase 4
-
-### 3.2 Generate Dockerfile
-
-If no Dockerfile exists, generate one.
-
-**Load the appropriate template from the internal dockerfile-skill:**
-```
-<SKILL_DIR>/../dockerfile-skill/templates/static-nginx.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/golang.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/nodejs-express.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/nodejs-nextjs.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/python-fastapi.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/python-django.dockerfile
-<SKILL_DIR>/../dockerfile-skill/templates/java-springboot.dockerfile
+node "<SKILL_DIR>/scripts/validate-phase-2.mjs" --dir "$WORK_DIR"
 ```
 
-Read the template matching the detected language/framework, then adapt it:
-- Replace placeholder ports with detected ports
-- Adjust build commands based on actual package manager (npm/yarn/pnpm/bun)
-- Add system dependencies if needed
-- Set correct entry point
+| ID | Check |
+|----|-------|
+| P2-V01 | `deployment-plan.json` has valid `deployment_source` |
+| P2-V02 | `deployment_source` exists under `work_dir` |
+| P2-V03 | `official_template` still present (Phase 1 field preserved) |
+| P2-V04 | Compose path uses `.sealos/phase-2/docker-compose.yml` |
 
-When `STATIC_NGINX_IMAGE_BUILD=true`, copy
-`<SKILL_DIR>/../dockerfile-skill/templates/static-nginx.dockerfile` as the project
-Dockerfile without adding a ConfigMap publication path or a frontend build stage.
-The pinned unprivileged Nginx image serves the recursively copied source-ready asset
-tree on port `8080`. Copy
-`<SKILL_DIR>/../dockerfile-skill/templates/static-nginx.dockerignore` to
-`$WORK_DIR/.dockerignore`; do not use the generic ignore list below, because arbitrary
-public assets such as Markdown downloads must not be silently omitted.
+On failure, do not CONTINUE to Phase 3.
 
-**Pre-load Phase 1 analysis for analyze.md:**
+## Stop conditions
 
-Read `.sealos/analysis.json` before running analyze.md. The following fields are available
-as pre-loaded context, so analyze.md can skip its overlapping detection steps:
-`language`, `framework`, `package_manager`, `port`, `databases`, `has_dockerfile`, `complexity_tier`.
+| Result | Condition |
+|--------|-----------|
+| **STOP** | Cannot determine `deployment_source` or source is incomplete |
+| **STOP** | A build-required component cannot get a Dockerfile |
+| **STOP** | Validation / schema write failure |
+| **CONTINUE → Phase 3** | Plan, `deployment_source` file(s), and `analysis.json` are persisted |
 
-**For detailed analysis guidance, read:**
-```
-<SKILL_DIR>/../dockerfile-skill/modules/analyze.md    — 17-step analysis process
-<SKILL_DIR>/../dockerfile-skill/modules/generate.md   — generation rules and best practices
-```
-
-**Validate generated Dockerfile:**
-
-After generating the Dockerfile, run validation if Node.js is available:
-```bash
-node "<SKILL_DIR>/../dockerfile-skill/scripts/validate-dockerfile.mjs" "$WORK_DIR/Dockerfile" --port=<detected_port> --json
-```
-If validation reports errors, fix the Dockerfile before proceeding to Phase 4.
-If Node.js is not available, manually verify the Validation Checklist in generate.md.
-
-**Key Dockerfile principles:**
-- Multi-stage build when compilation is required; source-ready static sites use the single-stage pinned Nginx template
-- Pin base image versions (never `:latest`)
-- Run as a non-root user (for example USER 1001, or the static Nginx image's USER 101)
-- Proper `.dockerignore`
-
-For non-static-image paths, also generate `.dockerignore`:
-```
-.git
-node_modules
-__pycache__
-.env
-.env.local
-*.md
-.vscode
-.idea
-.sealos
-Dockerfile
-.dockerignore
-```
-
----
-
+On Phase 3 build-recipe failure, return here to revise the deployment source or Dockerfiles.

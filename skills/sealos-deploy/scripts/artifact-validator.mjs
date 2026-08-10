@@ -10,6 +10,7 @@ const SCHEMA_DIR = path.join(__dirname, '..', 'schemas')
 const SCHEMA_FILES = {
   config: 'config.schema.json',
   analysis: 'analysis.schema.json',
+  'deployment-plan': 'deployment-plan.schema.json',
   'build-result': 'build-result.schema.json',
   state: 'state.schema.json',
 }
@@ -306,6 +307,7 @@ function validateStateSemantics(data, errors) {
 const SEMANTIC_VALIDATORS = {
   config: () => {},
   analysis: validateAnalysisSemantics,
+  'deployment-plan': () => {},
   'build-result': validateBuildResultSemantics,
   state: validateStateSemantics,
 }
@@ -317,6 +319,8 @@ export function inferArtifactKind(filePath) {
       return 'config'
     case 'analysis.json':
       return 'analysis'
+    case 'deployment-plan.json':
+      return 'deployment-plan'
     case 'build-result.json':
       return 'build-result'
     case 'state.json':
