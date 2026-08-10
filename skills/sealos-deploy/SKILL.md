@@ -109,6 +109,8 @@ node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode push --regi
 node "<SKILL_DIR>/scripts/validate-phase-3.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/validate-phase-4.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/validate-phase-5.mjs" --dir "$WORK_DIR"
+# Phase 5 precheck (requires TARGET_* and cloud domain / cert secret):
+# python3 "<SKILL_DIR>/scripts/server_dry_run.py" --template ... --context ... --namespace ...
 node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
 node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
 node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" --app "$APP" --app-url "$URL"

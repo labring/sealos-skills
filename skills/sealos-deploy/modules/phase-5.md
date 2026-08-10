@@ -6,10 +6,9 @@ Do not create cloud resources. Do not rewrite delivery bytes in
 `.sealos/template/index.yaml` except authorized schema repairs. Do not use Template
 API `dryRun` as this gate. Do not ask for group-B values before dry-run passes.
 
-`server_dry_run.py` is **not landed yet**. Until it is, the main agent executes the
-steps in this module (and the full contract in the docs repo
-`specs/server-dry-run`). When the script exists, call it instead of hand-rolling
-the kubectl loop.
+`server_dry_run.py` is the Phase 5 precheck helper. Call it before collecting
+configuration. Follow docs `specs/server-dry-run` for the full contract; this
+module lists the agent-facing entry and stop conditions.
 
 ## Inputs
 
@@ -33,8 +32,8 @@ the kubectl loop.
 
 | Need | Tools |
 |------|-------|
-| Always | `kubectl` against the target Sealos context |
-| Template parse | Python 3.8+ with PyYAML (or equivalent) |
+| Always | `kubectl` against the target Sealos context; Python 3.8+ with PyYAML (`server_dry_run.py`) |
+| Template parse | Same Python / PyYAML |
 
 Ask once to install; refuse or recheck failure → **STOP**.
 
@@ -63,42 +62,40 @@ TEMPLATE="$WORK_DIR/.sealos/template/index.yaml"
 TEMPLATE_SHA256="$(shasum -a 256 "$TEMPLATE" | awk '{print $1}')"
 ```
 
-### 2. Target-cluster server-side dry-run (agent steps)
+### 2. Target-cluster server-side dry-run
 
 Full normative contract: docs `specs/server-dry-run` (ZH) /
-`en/specs/server-dry-run` (EN). Summary the agent must perform:
+`en/specs/server-dry-run` (EN).
 
-1. Resolve target context, namespace, service account, `SEALOS_CLOUD_DOMAIN`,
-   `SEALOS_CERT_SECRET_NAME`. Missing any → **STOP** (do not guess).
-2. Create a private temp dir (`0700`). Copy/render **privately** with defaults,
-   synthetic non-secret inputs, built-ins, and reachable conditional scenarios.
-   Do **not** use real user secrets. Do **not** mutate the delivery template.
-3. Skip every `kind: Template` document.
-4. For each unique runtime document:
+Resolve target context, namespace, service account, `SEALOS_CLOUD_DOMAIN`, and
+`SEALOS_CERT_SECRET_NAME`. Missing any → **STOP** (do not guess).
 
-   ```bash
-   KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-     --context "$TARGET_CONTEXT" apply \
-     --dry-run=server \
-     --validate=strict \
-     -o name \
-     -n "$TARGET_NAMESPACE" \
-     -f "$ONE_PRIVATE_DOCUMENT"
-   ```
+```bash
+PYTHON_BIN="$(command -v python3 || command -v python)"
+LOG_FILE="${SEALOS_DEPLOY_LOG:-/tmp/sealos-deploy-server-dry-run.log}"
+"$PYTHON_BIN" "<SKILL_DIR>/scripts/server_dry_run.py" \
+  --template "$WORK_DIR/.sealos/template/index.yaml" \
+  --context "$TARGET_CONTEXT" \
+  --namespace "$TARGET_NAMESPACE" \
+  --service-account "$TARGET_SERVICE_ACCOUNT" \
+  --cloud-domain "$SEALOS_CLOUD_DOMAIN" \
+  --cert-secret-name "$SEALOS_CERT_SECRET_NAME" \
+  --repair-authorization "$WORK_DIR/.sealos/schema-repair-authorization.json" \
+  --private-log "$LOG_FILE"
+```
 
-5. Classify warnings vs blocking failures per the server-dry-run spec.
-   Only repairable `schema` failures may change the unresolved delivery template,
-   and only with authorization recorded under
-   `.sealos/schema-repair-authorization.json`. After an authorized repair, rerun
-   the Phase 4 deploy-gate subset on the delivery template, then rerun dry-run for
-   every scenario.
-6. Delete the private temp dir. Confirm delivery `sha256` matches the pre-gate
-   value unless an authorized repair intentionally changed it (then re-record).
-7. Gate failure → **STOP**. Do **not** collect configuration. Do **not** write
-   `dry_run: "passed"`.
+Interpret the JSON on stdout:
 
-When `scripts/server_dry_run.py` lands, replace steps 2–6 with that helper and keep
-the same stop conditions.
+| `status` | Action |
+|----------|--------|
+| `passed` | Continue to step 3. Report any `warnings` to the user. |
+| `failed` | Schema failures with `repairable: true` may authorize YAML fixes via the repair file, then rerun the Phase 4 deploy-gate subset and this helper for **every** scenario. Other failures → **STOP**. |
+| `setup-error` | **STOP** |
+
+Do **not** collect configuration. Do **not** write `dry_run: "passed"` unless
+`status` is `passed`.
+
+Do not use Template API `dryRun` as a substitute. Do not run `quality_gate.py`.
 
 ### 3. Collect configuration (only after dry-run passes)
 

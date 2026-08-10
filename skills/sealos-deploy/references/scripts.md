@@ -22,6 +22,7 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 | `validate-phase-3.mjs` | `node validate-phase-3.mjs --dir <work-dir>` | Phase 3 acceptance for `build-result` / `pull_access` (skip OK when no build) |
 | `validate-phase-4.mjs` | `node validate-phase-4.mjs --dir <work-dir>` | Phase 4 acceptance for digests, template overlay, and deploy-gate subset |
 | `validate-phase-5.mjs` | `node validate-phase-5.mjs --dir <work-dir>` | Phase 5 acceptance for prepare-result / template_sha256 / confirmation |
+| `server_dry_run.py` | `python3 server_dry_run.py --template <path> --context <ctx> --namespace <ns> --service-account <sa> --cloud-domain <domain> --cert-secret-name <secret> [--repair-authorization <path>] [--private-log <path>]` | Phase 5 target-cluster server-side dry-run. Prints JSON (`status`, `template_sha256`, warnings/failures). Requires PyYAML. |
 
 Sealos Cloud login and workspace switching use `npx -y sealos-cli@latest`. See `modules/phase-0.md`.
 
