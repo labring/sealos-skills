@@ -23,6 +23,7 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 | `validate-phase-4.mjs` | `node validate-phase-4.mjs --dir <work-dir>` | Phase 4 acceptance for digests, template overlay, and deploy-gate subset |
 | `validate-phase-5.mjs` | `node validate-phase-5.mjs --dir <work-dir>` | Phase 5 acceptance for prepare-result / template_sha256 / confirmation |
 | `validate-phase-6.mjs` | `node validate-phase-6.mjs --dir <work-dir>` | Phase 6 acceptance for deploy-result / template_sha256 match / app_name |
+| `validate-phase-7.mjs` | `node validate-phase-7.mjs --dir <work-dir>` | Phase 7 acceptance for state.json schema and app_name vs deploy-result |
 | `server-dry-run.ts` | `node --experimental-strip-types server-dry-run.ts --template <path> --context <ctx> --namespace <ns> --service-account <sa> --cloud-domain <domain> --cert-secret-name <secret> [--repair-authorization <path>] [--private-log <path>]` | Phase 5 target-cluster server-side dry-run. Prints JSON (`status`, `template_sha256`, warnings/failures). Requires Node 22+ and `npm install` in `skills/sealos-deploy` (`yaml`). |
 
 Sealos Cloud login and workspace switching use `npx -y sealos-cli@latest`. See `modules/phase-0.md`.

@@ -1,31 +1,78 @@
-# Phase 7: Runtime Truth Pass
+# Phase 7: Post-deploy wrap-up
 
-## Contents
+Judge success from **live** cloud state, then record `.sealos/state.json`. Do not
+treat Template API return codes alone as deploy success (P7-01). Phase 7 is
+mandatory after every Phase 6 create. Creating resources without this wrap-up is
+not deploy success.
 
-- [Capture live identity](#capture-live-identity)
-- [Verify Launchpad public networking](#verify-launchpad-public-networking)
-- [Capture the runtime baseline](#capture-the-runtime-baseline)
-- [Authenticate and verify routes](#authenticate-and-verify-routes)
-- [Repair declarative ownership and credential residue](#repair-declarative-ownership-and-credential-residue)
-- [Verify Jobs, logs, and footprint](#verify-jobs-logs-and-footprint)
-- [Exercise the application](#exercise-the-application)
-- [Verify Event convergence](#verify-event-convergence)
-- [Acceptance checklist](#acceptance-checklist)
+Write `.sealos/state.json` only after applicable runtime checks pass. Report
+**COMPLETE** to the user only after validate-phase-7 passes (P7-03).
 
-Run this pass after Phase 6 Template API create (and deploy-result validation). Accept the deployment only after the live application entry, Launchpad public network, logs, and first meaningful user workflow are verified. Write `.sealos/state.json` only after acceptance.
+For app-specific smoke guidance, also load
+`<SKILL_DIR>/references/live-smoke-playbooks.md`.
 
-## Capture Live Identity
+## Inputs
 
-Read the App URL from the live App resource when possible:
+| Input | Source |
+|-------|--------|
+| Live resources | Phase 6 (`APP_NAME` from deploy-result / live Instance) |
+| Deploy result | `.sealos/phase-6/deploy-result.json` |
+| Access URLs | Ingress, App URL, internal endpoints |
+| Workload status | Pods, events, logs |
+| Analysis / build | `.sealos/analysis.json`, Phase 3/4 image refs when present |
+
+## Outputs
+
+| Output | Path / form |
+|--------|-------------|
+| Verified deploy | Report success only after checks + state validation |
+| Deploy state | `.sealos/state.json` |
+
+## Path dependency gate
+
+| Need | Tools |
+|------|-------|
+| Always | `kubectl` and a usable Sealos kubeconfig |
+| Public web checks | Node helpers below; `curl` when needed |
+
+Ask once to install; refuse or recheck failure → **STOP**.
+
+## Phase constraints
+
+| ID | Constraint |
+|----|------------|
+| P7-01 | Do not judge success from API return codes alone — verify live runtime state |
+| P7-02 | On architecture mismatch, do not guess other images or floating tags |
+| P7-03 | Write `state.json` and pass validate-phase-7 before reporting success |
+
+## Procedure
+
+### 1. Runtime verification
+
+Verify applicable items by workload type:
+
+- [ ] App, workspace, resource scope, and access URLs confirmed
+- [ ] Workloads, internal links, and public entry ready
+- [ ] Web app reachable from the real entry; core flow works after login or init when required
+- [ ] Init, migration, startup, and runtime logs reviewed
+- [ ] No `no matching manifest`, `no match for platform in manifest`, or `exec format error`
+- [ ] Stability window: alerts, restarts, OOM, readiness converged
+- [ ] Databases, object storage, workers, and cron behave as expected
+
+#### 1.1 Capture live identity
+
+Prefer `APP_NAME` from `.sealos/phase-6/deploy-result.json`. Read the App URL from
+the live App resource when possible:
 
 ```bash
-APP_NAME="<app-name>"
+APP_NAME="<app-name from deploy-result>"
 APP_URL=$(KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   get apps.app.sealos.io/"$APP_NAME" -n "$NAMESPACE" \
   -o jsonpath='{.spec.data.url}' 2>/dev/null)
 ```
 
-If the live App resource has no URL, use the URL returned by Template API or the rendered fallback URL.
+If the live App resource has no URL, use the URL returned by Template API. Never
+reconstruct the public URL from `app_host` + control-plane `region` alone.
 
 Collect the runtime footprint before any HTTP request:
 
@@ -42,13 +89,13 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   -l "cloud.sealos.io/app-deploy-manager=$APP_NAME" -o wide
 ```
 
-For resources rewritten by Launchpad, inspect all manager-labeled Ingresses and Services. A random network name is valid only when its backend Service, ready endpoints, Launchpad network, and App URL still describe the same public entry.
+For resources rewritten by Launchpad, inspect all manager-labeled Ingresses and
+Services. Keep requested name, live Instance/App names, and returned host as
+separate values.
 
-Keep the requested app name, the live Instance/App names, and the returned host as separate values. Template API deployments may generate a different Instance name or ingress host. Use the host returned by the deploy response or live App resource for every subsequent smoke request.
+#### 1.2 Verify Launchpad public networking
 
-## Verify Launchpad Public Networking
-
-For every web application with a public root-path Ingress, read the expected public Service port from the rendered template or live Ingress and run:
+For every web application with a public root-path Ingress:
 
 ```bash
 PUBLIC_PORT="<public-service-port>"
@@ -58,22 +105,16 @@ node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" \
   --expected-port "$PUBLIC_PORT"
 ```
 
-Private applications with no public Ingress skip this command. Public application acceptance requires:
+Private applications with no public Ingress skip this command. Public acceptance
+requires `ok: true`, API `code: 200`, at least one network with
+`openPublicDomain: true`, a complete public or custom domain, a port matching
+`$PUBLIC_PORT`, and an App URL host matching the Launchpad network host.
 
-- `ok: true`
-- API `code: 200`
-- at least one network with `openPublicDomain: true`
-- a complete public or custom domain
-- a network port matching `$PUBLIC_PORT`
-- an App URL host matching the Launchpad network host
+Treat `launchpad_api_error`, `public_network_missing`, `expected_port_missing`,
+and `app_url_host_mismatch` as failures. When an HTTP Ingress has several paths,
+place root Prefix `/` before more specific paths.
 
-The helper emits only allowlisted network fields. Treat `launchpad_api_error`, `public_network_missing`, `expected_port_missing`, and `app_url_host_mismatch` as template or live-resource failures. When the public URL works but Launchpad has no public network, verify that the root Prefix Ingress uses `backend.service.port.number`, that the number matches the referenced Service `spec.ports[].port`, and that the App URL has not retained a replaced Service's host.
-
-When an HTTP Ingress contains several paths, place the root Prefix path `/` before more specific paths. Launchpad discovery and later edits use the first matching root route as the public entry. Keep the root route, manager label, backend Service, numeric port, ready endpoints, and App URL host aligned.
-
-## Capture The Runtime Baseline
-
-Capture the initial runtime baseline after readiness. This scan records Warning Events as observations while preserving log, Pod readiness, and kubectl failures as blocking findings:
+#### 1.3 Capture the runtime baseline
 
 ```bash
 RUNTIME_EVIDENCE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/sealos-runtime.XXXXXX")
@@ -85,11 +126,16 @@ node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
   > "$INITIAL_BASELINE"
 ```
 
-## Authenticate and Verify Routes
+#### 1.4 Authenticate and verify routes
 
-Run the root request from a fresh session before any setup or login request. For a path-based entrance, exercise both the configured App URL path and `/`; keep the path that reaches the real first-run or login screen as the App URL. A successful status code with SSR/browser failure text remains a failed entry.
+Run the root request from a fresh session before setup or login. For a path-based
+entrance, exercise both the configured App URL path and `/`; keep the path that
+reaches the real first-run or login screen as the App URL.
 
-Use the selected account flow from Phase 5. For deployer-supplied mandatory bootstrap, use the exact administrator values collected and validated during configuration. For runtime-generated mandatory bootstrap, retrieve the resolved credential from its Secret or documented live runtime source into a private local value without printing it, then use it for login. For functional first-user signup, register through the supported first-run form or API after readiness, then reuse that new session for authenticated checks. The helper supports JSON token and cookie-session flows, including dynamic CSRF cookie/header pairs:
+Use the Phase 5 account mode. Deployer-supplied mandatory bootstrap → exact
+validated admin values. Runtime-generated mandatory bootstrap → resolve from
+Secret / documented live source into a private local value (do not print).
+Functional first-user signup → register after readiness, then reuse that session.
 
 ```bash
 node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" \
@@ -101,88 +147,59 @@ node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" \
   --auth-path "/rest/system/status,/rest/system/connections"
 ```
 
-Keep passwords, bearer tokens, cookies, CSRF values, captcha payloads, and runtime-derived secrets out of command echoes and reports. A runtime-derived credential is acceptable only when an opaque default seed is deterministically transformed and validated by the application startup path before the final process is `exec`-ed.
+Keep passwords, tokens, cookies, CSRF, captcha, and runtime-derived secrets out of
+echoes and reports. Use `--token-path`, `--missing-api-path`, and
+`--missing-page-path` as documented by the helper.
 
-Use `--token-path` when the login response stores its bearer token outside the default locations. Use `--missing-api-path` for a documented API route that must return 404, and `--missing-page-path` for a browser/SPA route whose shell fallback may return 2xx/3xx. The helper marks an unexpected negative-probe status as a failed step.
+#### 1.5 Repair declarative ownership and credential residue
 
-## Repair Declarative Ownership and Credential Residue
-
-When startup fails on bootstrap credential validation, classify it as a configuration-contract failure before resource tuning. Reconfirm the exact release's account mode, then repair every declarative layer that can recreate the invalid configuration:
+When startup fails on bootstrap credential validation, classify it as a
+configuration-contract failure before resource tuning. Reconfirm account mode,
+then repair every declarative layer that can recreate the invalid configuration:
 
 1. Update the source Template first.
-2. Follow `ownerReferences`, Instance identity, and manager labels to identify the highest writable live declarative owner, then patch that owner or the emitted Deployment/StatefulSet.
-3. Roll out a fresh Pod and wait through one complete controller reconciliation window.
-4. Re-read the workload and Pod environment key names to confirm removed administrator/root bootstrap keys remain absent.
-5. Parse `kubectl.kubernetes.io/last-applied-configuration` and ControllerRevisions into key-name-only reports. Keep values redacted.
-6. Recommend rotation for every credential that reached Template API args, workload history, annotations, or revisions.
+2. Follow `ownerReferences`, Instance identity, and manager labels to the highest
+   writable live declarative owner; patch that owner or emitted workload.
+3. Roll out a fresh Pod and wait through one complete reconciliation window.
+4. Confirm removed administrator/root bootstrap keys remain absent.
+5. Parse `kubectl.kubernetes.io/last-applied-configuration` and
+   ControllerRevisions into key-name-only reports (values redacted).
+6. Recommend rotation for every credential that reached Template API args,
+   workload history, annotations, or revisions.
 
-Deleting historical annotations or ControllerRevisions requires the user's explicit confirmation. Record retained residue as a rotation requirement in the handoff.
+Deleting historical annotations or ControllerRevisions requires explicit user
+confirmation.
 
-## Verify Jobs, Logs, and Footprint
+#### 1.6 Verify Jobs, logs, and footprint
 
-Capture the full footprint before cleanup or handoff. Include the Sealos `Instance`, App, Deployments/StatefulSets/DaemonSets, CronJobs, Jobs, Services, Ingresses, PVCs, KubeBlocks Clusters, and managed `ObjectStorageBucket` resources. `sealos-footprint.mjs` is read-only; deployment acceptance requires `collectionOk: true`, `runtimeReady: true`, and the expected resource inventory. Treat `cleanupComplete: true` as valid only when the listing succeeded and the filtered resource list is empty.
+Acceptance requires `sealos-footprint.mjs` with `collectionOk: true`,
+`runtimeReady: true`, and the expected inventory. Treat completed or TTL-expired
+init Jobs as historical evidence; verify live database final state directly.
 
-Treat a completed or TTL-expired init Job as historical evidence. Verify the live database final state directly: required databases, tables/views, extensions, indexes, roles, grants, search paths, and migration markers must exist before the app is accepted. PostgreSQL custom-database Jobs must wait for readiness and be idempotent; dependent workloads must gate on application migration state when required.
+A Pod in `Succeeded` with every container exit code `0` is completed work, not a
+`pod_not_ready` finding. Any active main-container failure, new init failure,
+restart delta, readiness flap, advancing Warning Event, unresolved referenced
+Secret, OOM/CrashLoop, or repeated traceback is blocking.
 
-The first log scan establishes the baseline. A Pod in `Succeeded` phase with every container exit code `0` is a completed workload and does not create a `pod_not_ready` finding; failed or non-zero completion remains blocking. An init container may appear with `historicalCompletedInit: true` after the baseline when its completion time and exit code predate `baseline.generatedAt`, the Pod UID/restart/completion values are unchanged, and its output is unchanged. The comparison uses the baseline time as the log increment boundary. Any active main-container failure, new init failure, restart delta, readiness flap, advancing Warning Event, unresolved referenced Secret, OOM/CrashLoop, or repeated traceback is blocking.
-
-## Exercise The Application
-
-For every web application:
+#### 1.7 Exercise the application
 
 ```bash
 node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$APP_URL"
 ```
 
-For login-gated web applications, identify the first-run, registration, or login flow from upstream docs, source code, the rendered template, or observed network/API behavior. Complete the selected account flow and verify at least one authenticated page or API route.
+For login-gated apps, complete the selected account flow and one authenticated
+page or API route. After smoke, scan logs again. For private object storage,
+complete upload → application read/download with digest check → raw object
+401/403 without app credentials → delete when supported. Optional local and
+managed-S3 branches each need their branch workflow.
 
-For deployer-supplied mandatory bootstrap, use the exact values validated in Phase 5. For runtime-generated mandatory bootstrap, retrieve and use the resolved value without printing it. For first-user signup, use the exact values submitted during registration. Mask passwords in command echoes, logs, summaries, and final output.
+For web apps, probe a documented API 404 or unique missing static asset, then
+scan logs once more. SPA shell 2xx fallbacks are classified by content.
 
-When credentials and API paths are known, use the helper for the repeatable HTTP portion:
+#### 1.8 Verify Event convergence
 
-```bash
-node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" \
-  --url "$APP_URL" \
-  --captcha-path "/api/get_validate_code" \
-  --login-path "/api/login" \
-  --username "$ADMIN_USER" \
-  --password "$ADMIN_PASSWORD" \
-  --auth-path "/api/languages/get"
-```
-
-After the browser/API smoke, scan recent logs again:
-
-```bash
-node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
-  --namespace "$NAMESPACE" --app "$APP_NAME" --since 10m --tail 300
-```
-
-For applications with private object storage enabled, complete an application-level storage smoke through the authenticated UI or documented API:
-
-1. Upload a uniquely named file with known bytes through the application.
-2. Read or download that object through the application and compare its bytes or SHA-256 digest with the source file.
-3. Confirm the successful read uses the application's authenticated proxy or a time-bounded presigned URL.
-4. Request the raw bucket/object endpoint without application credentials and confirm an access-restricted response such as HTTP 401 or 403.
-5. Delete the smoke object through the application when the product supports deletion.
-
-For optional object storage, exercise both supported branches. The local-storage branch must complete upload, read/download, digest comparison, and deletion using its local persistence path. The managed-S3 branch must complete the same workflow through the managed bucket and managed Secret wiring, plus the private raw-object access check.
-
-For S3-backed database applications, verify both planes in the same run: the application uses the expected KubeBlocks database Secret keys and final database objects, while the object-storage branch uses the managed bucket and approved object-storage Secret wiring. A healthy database Pod or a successful Job alone does not prove either final state.
-
-For web applications, request a documented API negative route or unique missing static asset from the real App URL and scan logs once more:
-
-```bash
-MISSING_PATH="/api/<documented-missing-route>"
-curl -k -sS -o /dev/null -w "%{http_code}\n" "$APP_URL$MISSING_PATH"
-node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
-  --namespace "$NAMESPACE" --app "$APP_NAME" --since 10m --tail 300
-```
-
-Use a documented API or route that must return 404 for API-oriented applications. SPA/browser applications may serve the shell with HTTP 200 for arbitrary client routes; probe a unique missing static asset or documented API path and inspect the response content so an HTML fallback does not count as route coverage.
-
-## Verify Event Convergence
-
-Finish with an Event convergence comparison. Use 60 seconds as the minimum. Increase the window to cover one complete known reconciliation, health-check, queue, or scheduled-work period:
+Minimum window 60s; extend to cover one known reconciliation / probe /
+scheduled-work period:
 
 ```bash
 STABILITY_SECONDS=60
@@ -194,41 +211,134 @@ node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
   > "$FINAL_RUNTIME_REPORT"
 ```
 
-Parse `$FINAL_RUNTIME_REPORT`. Acceptance requires `ok: true`, zero `active-failure` Events, zero restart deltas, stable Ready transitions, and resolved Secrets referenced by historical `secret not found` Events.
+Acceptance requires `ok: true`, zero `active-failure` Events, zero restart
+deltas, stable Ready transitions, and resolved Secrets from historical
+`secret not found` Events.
 
-For intentional fault injection, preserve three reports:
+For intentional fault injection: keep pre-injection report → recover to Ready →
+fresh recovery baseline → final comparison against recovery baseline.
 
-1. Capture a pre-injection report for the known-good state.
-2. Inject the failure, record its expected symptoms, and recover the workload to Ready.
-3. Capture a fresh recovery baseline after Ready, wait the full stability window, and run the final comparison against the recovery baseline.
+Inspect live main-container `command`/`args`. Prefer short official entrypoints;
+put repeated bootstrap/self-healing in initContainers, Jobs, or ConfigMap
+scripts. Shell wrappers must end with `exec <final-process>`.
 
-The pre-injection report proves the fault window. The recovery baseline prevents intentional Warning history from contaminating the final comparison. Any Warning count or last-seen advance, restart delta, Pod replacement, Ready transition, or unresolved Secret after the recovery baseline fails acceptance.
+#### 1.9 Runtime acceptance checklist
 
-Inspect the live main container startup command for managed app workloads:
+- Pods and initContainers are complete or ready; Service endpoints populated
+- Public web apps: Launchpad `ok: true`, expected port, App URL host match
+- Root Prefix `/` before more specific paths; numeric Service port on root backend
+- Actual App URL loads from a fresh session
+- Login-gated apps complete selected account flow + one authenticated action
+- Account-flow repairs converge; removed bootstrap keys stay absent
+- Negative API / missing-static probes behave as expected; no SSR/browser failure text
+- Final runtime report `ok: true` with a complete stability window
+- Object-storage and database final states verified when applicable
+- Full footprint accounts for Instance, App, Jobs, KubeBlocks, PVCs, buckets
 
-```bash
-KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  get pod/<pod> -n "$NAMESPACE" \
-  -o jsonpath='{range .spec.containers[*]}{.name}{" command="}{.command}{" args="}{.args}{"\n"}{end}'
+### 2. Failure handling
+
+**Architecture mismatch on a reused third-party image (P7-02):** when buildable
+source exists, fix images and template in Phases 2–4, then redeploy from Phase 5
+and re-run Phase 7. Without buildable source, report the incompatible service,
+image, and error. Do **not** guess other images or floating tags.
+
+**Resource exhaustion:** OOMKilled, restart loops, migration timeout, or readiness
+flap means current resources fail runtime verification. Raise CPU or memory to the
+next Sealos step, regenerate the template, redeploy from Phase 5, and re-run
+Phase 7. Official-template path cannot edit verified official YAML — disable reuse
+and return to the standard path when resources cannot pass.
+
+### 3. Write `state.json`
+
+Only after applicable runtime checks pass. Normative completion rules:
+docs `pipeline/state-and-completion` (ZH) / `en/pipeline/state-and-completion` (EN).
+
+```json
+{
+  "version": "1.0",
+  "last_deploy": {
+    "app_name": "<instance name from deploy-result / live App>",
+    "app_host": "<ingress host prefix>",
+    "namespace": "<K8s namespace from kubeconfig>",
+    "region": "<Sealos control-plane region domain, e.g. usw-1.sealos.io>",
+    "image": "<IMAGE_REF used in this deploy>",
+    "docker_hub_user": "<DOCKER_HUB_USER, or null>",
+    "repo_name": "<analysis.json repo_name>",
+    "url": "<exact APP_URL verified above>",
+    "deployed_at": "<current ISO timestamp>",
+    "last_updated_at": "<current ISO timestamp>"
+  },
+  "history": [
+    {
+      "at": "<current ISO timestamp>",
+      "action": "deploy",
+      "image": "<IMAGE_REF>",
+      "method": "template-api",
+      "status": "success",
+      "note": "Initial deployment"
+    }
+  ]
+}
 ```
 
-## Acceptance Checklist
+Field sources:
 
-- Pods and initContainers are complete or ready.
-- Service endpoints are populated.
-- Public web apps have a Launchpad report with `ok: true`, the expected Service port, and an App URL host match.
-- Root Prefix routes appear before more specific HTTP paths, and the root backend uses a numeric Service port.
-- The actual App URL loads from a fresh session.
-- Login-gated apps complete the selected first-user signup or mandatory bootstrap login flow and one authenticated action. Passwords remain masked in all output.
-- Source Template and live declarative ownership converge after account-flow repair; removed bootstrap key names stay absent through one reconciliation window, and sensitive historical key names are reported with values redacted.
-- A documented API negative route or unique missing static asset returns the expected 404, and the follow-up log scan has no traceback-style `HTTPException` / `NotFound` noise; SPA shell fallback responses are classified by content.
-- SSR/browser failure text such as `Application error`, `server-side exception`, `Internal Server Error`, and `Unhandled Runtime Error` is absent from smoke responses.
-- Recent logs are clear of recurring startup, migration, bootstrap, and access-control failures.
-- The final runtime report has `ok: true`, zero `active-failure` Events, zero restart deltas, and a complete stability window.
-- Private object-storage flows pass authenticated upload, application read/download, content consistency, and raw-object access restriction checks. Optional local and managed branches each pass their branch-specific workflow.
-- The full footprint includes and then accounts for Instance, App, Jobs, KubeBlocks, PVCs, and ObjectStorageBucket resources.
-- Main business containers keep `command`/`args` short and close to the official entrypoint; repeated file preparation, permission repair, database bootstrap, or compatibility self-healing belongs in initContainers, Jobs, or ConfigMap scripts.
-- Shell wrappers in main containers end with `exec <final-process>` so signal handling remains correct.
-- Database-backed apps have the expected live database objects, because Job completion or TTL cleanup is only historical evidence.
+| Field | Source |
+|-------|--------|
+| `app_name` | Must match `.sealos/phase-6/deploy-result.json` → `app_name` |
+| `app_host` | Live Ingress host prefix / rendered `defaults.app_host` |
+| `namespace` | Active kubeconfig context |
+| `region` | `~/.sealos/auth.json` `region` (strip `https://`); may differ from App runtime domain |
+| `image` | Phase 3 `build_result.pushed` primary key, or Phase 4 digest-pinned image |
+| `docker_hub_user` | Docker Hub user when that path was used; otherwise `null` |
+| `repo_name` | `.sealos/analysis.json` → `repo_name` |
+| `url` | Exact verified `APP_URL` (never invent from host + region) |
 
-For app-specific guidance, load `<SKILL_DIR>/references/live-smoke-playbooks.md`.
+`history` is append-only afterward (UPDATE path). Without `last_deploy`, every later
+`/sealos-deploy` creates a new instance.
+
+After write:
+
+1. Run artifact schema validation (`validate-artifacts.mjs` and/or validate-phase-7).
+2. For GitHub URL sources, update bridge persistence per mode-detection / docs
+   before deleting a temp checkout.
+3. Validation or persistence failure → do **not** report success.
+4. Do not delete a temp `WORK_DIR` until Phase 7, validation, and bridge update
+   succeed. Never delete the user's local project directory.
+
+### 4. Validate
+
+```bash
+node "<SKILL_DIR>/scripts/validate-phase-7.mjs" --dir "$WORK_DIR"
+```
+
+| ID | Check |
+|----|-------|
+| P7-V01 | `.sealos/state.json` exists and passes schema |
+| P7-V02 | `last_deploy.app_name` matches Phase 6 `deploy-result.json` → `app_name` |
+
+On failure, do not report **COMPLETE**.
+
+### 5. Final summary (only after validate passes)
+
+```
+✓ Assessed: {language} + {framework}
+✓ Image: {IMAGE_REF} ({source: existing/built})
+✓ Template: .sealos/template/index.yaml
+✓ Configured: {N} inputs set ({M} required, {K} optional)
+✓ Deployed to Sealos Cloud ({region})
+
+App URL: https://<app-access-url>
+
+To update this deployment later, run: /sealos-deploy
+```
+
+Mask secrets (API keys, passwords): show only first 3 and last 3 characters.
+Official-template path also shows template name and catalog version when known.
+
+## Stop conditions
+
+| Result | Condition |
+|--------|-----------|
+| **STOP** | Required runtime checks still fail after bounded remediation; state write/validation fails |
+| **COMPLETE** | Applicable checks pass, `state.json` written, validate-phase-7 passes |

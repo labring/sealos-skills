@@ -117,6 +117,7 @@ node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
 node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" --app "$APP" --app-url "$URL"
 node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$URL"
 node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" --namespace "$NS" --app "$APP"
+node "<SKILL_DIR>/scripts/validate-phase-7.mjs" --dir "$WORK_DIR"
 ```
 
 For the full script list, Launchpad network rules, and Event baseline rules, read `references/scripts.md`.
@@ -220,7 +221,7 @@ Keep the reply short. Include command evidence only when it helps the user.
 | `modules/phase-4.md` | Phase 4 template |
 | `modules/phase-5.md` | Phase 5 pre-deploy preparation |
 | `modules/phase-6.md` | Phase 6 deploy and deploy-result |
-| `modules/phase-7.md` | Phase 7 Runtime Truth and state.json |
+| `modules/phase-7.md` | Phase 7 Runtime Truth, state.json, COMPLETE |
 | `modules/update.md` | UPDATE path |
 | `references/logging.md` | Full deploy log examples |
 | `references/scripts.md` | Full script catalog and Event rules |
