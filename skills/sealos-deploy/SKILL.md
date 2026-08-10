@@ -108,6 +108,7 @@ node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode build
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode push --registry ghcr
 node "<SKILL_DIR>/scripts/validate-phase-3.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/validate-phase-4.mjs" --dir "$WORK_DIR"
+node "<SKILL_DIR>/scripts/validate-phase-5.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
 node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
 node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" --app "$APP" --app-url "$URL"
@@ -142,7 +143,7 @@ This map applies to **deploy** (DEPLOY mode). For other intents, use the Intent 
 | 2 — Discover / image prep | `modules/phase-2.md` | Official fast path skipped Phase 2 |
 | 3 — Build & Push | `modules/phase-3.md` | No build targets → pass through to Phase 4 |
 | 4 — Template | `modules/phase-4.md` | Official fast path skipped Phase 4 |
-| 5 — Configure | `modules/phase-5.md` | No inputs needed |
+| 5 — Prepare | `modules/phase-5.md` | Official fast path still runs prepare after template fetch |
 | 6 — Deploy | `modules/phase-6.md` | — |
 | 7 — Post-deploy | `modules/phase-7.md` | User asks for deploy-only output |
 
@@ -170,7 +171,7 @@ Input (GitHub URL / local path)
   ◄──────────────────────────────────────┘
   │
   ▼
-[Phase 5] Configure
+[Phase 5] Pre-deploy preparation
   │
   ▼
 [Phase 6] Deploy ── 401 → re-auth / 409 → instance exists
@@ -214,7 +215,7 @@ Keep the reply short. Include command evidence only when it helps the user.
 | `modules/phase-2.md` | Phase 2 scout, deployment-plan, image prep |
 | `modules/phase-3.md` | Phase 3 build and push |
 | `modules/phase-4.md` | Phase 4 template |
-| `modules/phase-5.md` | Phase 5 configure |
+| `modules/phase-5.md` | Phase 5 pre-deploy preparation |
 | `modules/phase-6.md` | Phase 6 deploy, state, success output |
 | `modules/phase-7.md` | Phase 7 Runtime Truth |
 | `modules/update.md` | UPDATE path |

@@ -1,133 +1,190 @@
-# Phase 5: Interactive Configuration
+# Phase 5: Pre-deploy preparation
 
-After generating the template, guide the user through application configuration before deployment.
-This is a **critical** step — most applications need user-specific configuration to function properly.
+Fixed order: **server-side dry-run → collect configuration → confirm and write**.
 
-Before categorizing inputs, load `<SKILL_DIR>/../docker-to-sealos/references/bootstrap-account-modes.md` and classify the exact selected release as functional first-user signup, mandatory bootstrap credentials, or optional root reconciliation. For mandatory bootstrap, record whether credentials are deployer-supplied or runtime-generated. Record the selected mode in the deployment analysis.
+Do not create cloud resources. Do not rewrite delivery bytes in
+`.sealos/template/index.yaml` except authorized schema repairs. Do not use Template
+API `dryRun` as this gate. Do not ask for group-B values before dry-run passes.
 
-### 5.5.1 Extract Configuration from Template
+`server_dry_run.py` is **not landed yet**. Until it is, the main agent executes the
+steps in this module (and the full contract in the docs repo
+`specs/server-dry-run`). When the script exists, call it instead of hand-rolling
+the kubectl loop.
 
-Parse the generated template YAML and categorize all environment variables and inputs:
+## Inputs
 
-**Category A — Auto-managed (no user action needed):**
-- `defaults.*` values: `app_name`, `app_host`, random passwords/keys (`${{ random(N) }}`)
-- Database connections via `secretKeyRef`: host, port, username, password from Kubeblocks secrets
-- Object storage credentials via `secretKeyRef`
-- Composed URLs that reference auto-managed vars (e.g., `DATABASE_URL` built from `$(DB_HOST):$(DB_PORT)`)
-- Internal service FQDNs (`*.${{ SEALOS_NAMESPACE }}.svc.cluster.local`)
-- Functional first-user signup: the registration flow owns the initial account, so optional administrator/root inputs and bootstrap env/config are absent
-- Runtime-generated mandatory bootstrap: the selected runtime deterministically constructs the exact documented credential format, retains the resolved credential in a Secret or documented live runtime source, and exposes no administrator input unless deployer selection is documented
+| Input | Source |
+|-------|--------|
+| Template | `.sealos/template/index.yaml` (Phase 1 official fetch or Phase 4) |
+| User overrides | `.sealos/config.json` when present (only **after** dry-run) |
+| Kube identity | Phase 0 (`local`: `KUBECONFIG=~/.sealos/kubeconfig`) |
+| Cloud domain / cert Secret | Workspace injection or Phase 0 resolution |
 
-**Category B — User-required inputs:**
-- Template `inputs` with `required: true` and no sensible default
-- Template `inputs` with `required: true` and `default: ''` for non-administrator fields; the empty default means the deployer must provide the value before deploy
-- Deployer-supplied mandatory bootstrap identity/password inputs: every documented field is required, omits `default`, and carries the exact upstream constraints in its English description
-- Env vars with empty or placeholder values that the app cannot function without
-- Common examples: mandatory bootstrap username/email/password, external API keys (OpenAI, SMTP credentials, OAuth client ID/secret)
+## Outputs
 
-**Category C — Optional with defaults:**
-- Template `inputs` with `required: false` and reasonable defaults
-- Env vars user might want to customize but app works without changes
-- Common examples: log level, feature toggles, upload size limits, signup enabled/disabled
+| Output | Path / form |
+|--------|-------------|
+| `CONFIG.args` | In-memory / private args file for Phase 6 (not committed) |
+| User confirmation | Explicit deploy approval |
+| Prepare result | `.sealos/phase-5/prepare-result.json` |
+| Schema repair auth (optional) | `.sealos/schema-repair-authorization.json` |
 
-**Category D — Fixed values (informational):**
-- Hardcoded env vars like `NODE_ENV=production`
-- Port numbers, internal paths
+## Path dependency gate
 
-### 5.5.2 Present Configuration Summary
+| Need | Tools |
+|------|-------|
+| Always | `kubectl` against the target Sealos context |
+| Template parse | Python 3.8+ with PyYAML (or equivalent) |
 
-Display a structured summary to the user. Example:
+Ask once to install; refuse or recheck failure → **STOP**.
 
-```
-Configuration for <app-name>:
+## Phase constraints
 
-  Auto-configured (no action needed):
-    - APP_NAME: unique generated name
-    - DB credentials: from PostgreSQL service (auto-provisioned)
-    - SECRET_KEY: auto-generated 32-char random string
-    - REDIS_URL: auto-composed from service credentials
+| ID | Constraint |
+|----|------------|
+| P5-01 | Do not create cloud resources |
+| P5-02 | Do not rewrite delivery template bytes (authorized schema repair only) |
+| P5-03 | Template must already exist from Phase 1 or Phase 4 |
+| P5-04 | Explicit user deploy confirmation required before Phase 6 |
+| P5-05 | Precheck = target-cluster server-side dry-run (not Template API dryRun) |
+| P5-06 | Dry-run before config collection |
 
-  Requires your input:
-    1. ADMIN_USERNAME — Administrator login username (required)
-    2. ADMIN_PASSWORD — Administrator login password (required)
-    3. OPENAI_API_KEY — OpenAI API key for AI features (required)
+## Procedure
 
-  Optional (defaults shown, customize if needed):
-    - LOG_LEVEL: "info"
-    - MAX_UPLOAD_SIZE: "10M"
-    - ENABLE_SIGNUP: "true"
-```
+### 1. Preconditions
 
-### 5.5.3 Collect User Input
+If `.sealos/template/index.yaml` is missing → return to Phase 1 or Phase 4.
+Do not start this phase.
 
-**For required inputs:**
-1. Ask the user for each value
-2. If user doesn't have a value, explain what it's used for and how to obtain it
-   - Example: "OPENAI_API_KEY is needed for AI features. Get one at https://platform.openai.com/api-keys"
-3. If user wants to skip a feature-gating input (e.g., SMTP), explain which features will be unavailable and set an empty value
-4. For deployer-supplied mandatory bootstrap credentials, collect every documented identity/password field, validate each value against the exact selected-release rules, and preserve the value byte-for-byte through Template API args and live login.
-
-**For optional inputs:**
-1. Show the default values
-2. Ask: "Do you want to change any of these? (press Enter to keep defaults)"
-3. Only update values the user explicitly wants to change
-
-**For unfamiliar env vars:**
-If the AI is unsure what a variable does, read the project README, `.env.example`, or source code to explain it to the user before asking for a value.
-
-### 5.5.4 Apply Configuration to Template
-
-Keep user-required `inputs` definitions in the template and pass user-provided values through Template API args. The following example represents a deployer-supplied mandatory bootstrap flow; replace its description constraints with the exact selected-release rules:
-
-```yaml
-inputs:
-  ADMIN_USERNAME:
-    description: 'Administrator login username'
-    type: string
-    required: true
-  ADMIN_PASSWORD:
-    description: 'Administrator password. Use 12-128 characters including uppercase, lowercase, number, and symbol.'
-    type: string
-    required: true
-```
-
-Record all user choices as `CONFIG` for use in Phase 6:
-```
-CONFIG.args = { ADMIN_USERNAME: "admin", ADMIN_PASSWORD: "<secret>", OPENAI_API_KEY: "sk-..." }
-```
-These `args` will be passed to the Template API's `args` field (Phase 6.2), which overrides or supplies `spec.inputs` in the template.
-
-For runtime-generated mandatory bootstrap, keep administrator inputs absent unless the selected release documents deployer selection. Construct and validate the exact documented credential format before the server starts, retain the resolved credential in a Kubernetes Secret or documented live runtime source, and reserve retrieval for the redacted live login smoke.
-
-### 5.5.5 Deployment Confirmation
-
-Immediately before presenting the deployment confirmation, run the complete quality gate again against the exact final template:
-
-For deployer-supplied mandatory bootstrap credentials, complete the release-specific value validation first. A validation failure returns to Phase 5.5.3 while preserving the user's original value for correction and keeping credentials out of logs. For runtime-generated mandatory bootstrap, verify deterministic format construction, startup validation, and resolved-credential retention before deployment.
+Record delivery `template_sha256` (lowercase hex) before any work:
 
 ```bash
-"$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/quality_gate.py" \
-  --artifacts "$WORK_DIR/.sealos/template/index.yaml"
+TEMPLATE="$WORK_DIR/.sealos/template/index.yaml"
+TEMPLATE_SHA256="$(shasum -a 256 "$TEMPLATE" | awk '{print $1}')"
 ```
 
-This final run is required even if Phase 5.3 already passed. Any non-zero exit stops the workflow before Phase 6; fix the existing template and rerun the gate. Do not deploy while the gate is failing.
+### 2. Target-cluster server-side dry-run (agent steps)
 
-After the final gate passes, present a summary and ask for confirmation:
+Full normative contract: docs `specs/server-dry-run` (ZH) /
+`en/specs/server-dry-run` (EN). Summary the agent must perform:
+
+1. Resolve target context, namespace, service account, `SEALOS_CLOUD_DOMAIN`,
+   `SEALOS_CERT_SECRET_NAME`. Missing any → **STOP** (do not guess).
+2. Create a private temp dir (`0700`). Copy/render **privately** with defaults,
+   synthetic non-secret inputs, built-ins, and reachable conditional scenarios.
+   Do **not** use real user secrets. Do **not** mutate the delivery template.
+3. Skip every `kind: Template` document.
+4. For each unique runtime document:
+
+   ```bash
+   KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+     --context "$TARGET_CONTEXT" apply \
+     --dry-run=server \
+     --validate=strict \
+     -o name \
+     -n "$TARGET_NAMESPACE" \
+     -f "$ONE_PRIVATE_DOCUMENT"
+   ```
+
+5. Classify warnings vs blocking failures per the server-dry-run spec.
+   Only repairable `schema` failures may change the unresolved delivery template,
+   and only with authorization recorded under
+   `.sealos/schema-repair-authorization.json`. After an authorized repair, rerun
+   the Phase 4 deploy-gate subset on the delivery template, then rerun dry-run for
+   every scenario.
+6. Delete the private temp dir. Confirm delivery `sha256` matches the pre-gate
+   value unless an authorized repair intentionally changed it (then re-record).
+7. Gate failure → **STOP**. Do **not** collect configuration. Do **not** write
+   `dry_run: "passed"`.
+
+When `scripts/server_dry_run.py` lands, replace steps 2–6 with that helper and keep
+the same stop conditions.
+
+### 3. Collect configuration (only after dry-run passes)
+
+Before classifying inputs, read:
 
 ```
-Ready to deploy <app-name> to Sealos Cloud:
-
-  Image:    zhujingyang/app:20260309
-  Region:   https://usw-1.sealos.io
-  Database: PostgreSQL 16 (auto-provisioned)
-  Config:   3 required inputs configured, 2 optional defaults kept
-
-  Proceed with deployment? (y/n)
+<SKILL_DIR>/../docker-to-sealos/references/bootstrap-account-modes.md
 ```
 
-Wait for user confirmation before continuing to Phase 6.
+Classify the selected release as: functional first-user signup, deployer-supplied
+mandatory bootstrap, runtime-generated mandatory bootstrap, or optional root
+reconciliation. Record the mode in the deploy log / analysis notes.
 
-Configuration is applied directly to `.sealos/template/index.yaml`. No separate checkpoint — the template contains the final configured state.
+Parse `defaults`, `inputs`, and env from the **unresolved** delivery template.
 
----
+| Group | Rules |
+|-------|-------|
+| A — Auto-managed | `defaults.*` (`app_name`, `app_host`, `${{ random(N) }}`); DB / object-storage via `secretKeyRef`; URLs composed from auto-managed vars; internal Service FQDNs (`*.${{ SEALOS_NAMESPACE }}.svc.cluster.local`). First-user signup: omit optional admin/root inputs. Runtime-generated mandatory bootstrap: runtime builds/retains credential; no admin input unless deployer selection is documented. |
+| B — User-required | `inputs` with `required: true` and no sensible default; or `required: true` with `default: ''` on non-admin fields. Deployer-supplied mandatory bootstrap: every documented identity/password field required, no `default`, English `description` carries upstream constraints. Empty/placeholder env the app cannot run without. |
+| C — Optional | `required: false` with reasonable defaults. |
+| D — Fixed | Hardcoded env (e.g. `NODE_ENV=production`), ports, internal paths. |
 
+Collection order:
+
+1. Show A–D summary and any dry-run warnings. State which B fields are required.
+2. Collect each B value. Explain purpose / how to obtain if missing. Feature-gating
+   skips (e.g. SMTP) → explain unavailable features and allow empty. Deployer
+   mandatory bootstrap → validate each field against selected-release rules;
+   preserve values byte-for-byte for Template API `args` and later login.
+3. Show C defaults; change only on explicit user request.
+4. For unfamiliar env vars, read README / `.env.example` / source before asking.
+5. Mask secrets in logs and summaries.
+6. Record choices as `CONFIG.args` for Phase 6. Prefer a private args file
+   (`0600`) over printing values. **Do not** rewrite delivery template bytes to
+   collect inputs.
+
+If `.sealos/config.json` exists, apply its overrides only in this step (after
+dry-run), never by mutating the template for collection.
+
+### 4. Confirm and write `prepare-result.json`
+
+1. Show region, images, dependencies, and final configuration summary (secrets masked).
+2. Wait for explicit deploy approval. Refusal → **STOP**.
+3. Recompute delivery `template_sha256` (must match the post-dry-run delivery file).
+4. Write:
+
+```bash
+mkdir -p "$WORK_DIR/.sealos/phase-5"
+```
+
+```json
+{
+  "template_sha256": "<lowercase hex sha256 of .sealos/template/index.yaml>",
+  "dry_run": "passed",
+  "user_confirmed": true
+}
+```
+
+Write `dry_run: "passed"` **only** after step 2 succeeded. Never invent it.
+
+### 5. Validate
+
+```bash
+node "<SKILL_DIR>/scripts/validate-phase-5.mjs" --dir "$WORK_DIR"
+```
+
+| ID | Check |
+|----|-------|
+| P5-V01 | `.sealos/template/index.yaml` exists |
+| P5-V02 | `.sealos/phase-5/prepare-result.json` passes schema |
+| P5-V03 | `template_sha256` matches the current template file |
+| P5-V04 | `dry_run` is `passed` and `user_confirmed` is `true` |
+| P5-V05 | Attestation: `dry_run: "passed"` implies step 2 completed (do not write otherwise) |
+
+On failure, do not **CONTINUE → Phase 6**.
+
+## Stop conditions
+
+| Result | Condition |
+|--------|-----------|
+| **CONTINUE → Phase 6** | Dry-run passed, config collected, user confirmed, validate-phase-5 passed |
+| **STOP** | Missing target identity, render/dry-run failure, user refuses inputs or deploy |
+
+## Notes for Phase 6
+
+- Deploy the **same unresolved** `.sealos/template/index.yaml` bytes hashed in
+  `prepare-result.json`.
+- Pass `CONFIG.args` via `deploy-template.mjs --args-file` (private file).
+- Do not re-run `quality_gate.py` as a Phase 5 substitute.

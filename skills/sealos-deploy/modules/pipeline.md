@@ -16,7 +16,7 @@ Phase 0 writes `.sealos/analysis.json` with only `runtime_profile`, `work_dir`, 
 6. `modules/phase-2.md` — agentlens scout, `deployment-plan`, image prep
 7. `modules/phase-3.md` — Build and push (no targets → pass through)
 8. `modules/phase-4.md` — Generate Sealos template
-9. `modules/phase-5.md` — Interactive configuration
+9. `modules/phase-5.md` — Pre-deploy preparation (server dry-run → config → confirm)
 10. `modules/phase-6.md` — Deploy, write state, success output
 11. `modules/phase-7.md` — Runtime Truth Pass
 

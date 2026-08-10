@@ -89,7 +89,7 @@ node "<SKILL_DIR>/scripts/sealos-log-scan.mjs" \
 
 Run the root request from a fresh session before any setup or login request. For a path-based entrance, exercise both the configured App URL path and `/`; keep the path that reaches the real first-run or login screen as the App URL. A successful status code with SSR/browser failure text remains a failed entry.
 
-Use the selected account flow from Phase 5.5. For deployer-supplied mandatory bootstrap, use the exact administrator values collected and validated during configuration. For runtime-generated mandatory bootstrap, retrieve the resolved credential from its Secret or documented live runtime source into a private local value without printing it, then use it for login. For functional first-user signup, register through the supported first-run form or API after readiness, then reuse that new session for authenticated checks. The helper supports JSON token and cookie-session flows, including dynamic CSRF cookie/header pairs:
+Use the selected account flow from Phase 5. For deployer-supplied mandatory bootstrap, use the exact administrator values collected and validated during configuration. For runtime-generated mandatory bootstrap, retrieve the resolved credential from its Secret or documented live runtime source into a private local value without printing it, then use it for login. For functional first-user signup, register through the supported first-run form or API after readiness, then reuse that new session for authenticated checks. The helper supports JSON token and cookie-session flows, including dynamic CSRF cookie/header pairs:
 
 ```bash
 node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" \
@@ -136,7 +136,7 @@ node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$APP_URL"
 
 For login-gated web applications, identify the first-run, registration, or login flow from upstream docs, source code, the rendered template, or observed network/API behavior. Complete the selected account flow and verify at least one authenticated page or API route.
 
-For deployer-supplied mandatory bootstrap, use the exact values validated in Phase 5.5. For runtime-generated mandatory bootstrap, retrieve and use the resolved value without printing it. For first-user signup, use the exact values submitted during registration. Mask passwords in command echoes, logs, summaries, and final output.
+For deployer-supplied mandatory bootstrap, use the exact values validated in Phase 5. For runtime-generated mandatory bootstrap, retrieve and use the resolved value without printing it. For first-user signup, use the exact values submitted during registration. Mask passwords in command echoes, logs, summaries, and final output.
 
 When credentials and API paths are known, use the helper for the repeatable HTTP portion:
 

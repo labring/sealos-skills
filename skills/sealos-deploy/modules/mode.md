@@ -106,6 +106,6 @@ If any later-phase artifacts exist, report to user:
 `"Found artifacts from a previous deploy attempt. [list found artifacts]."`
 Ask: `"Resume from where it left off? Or restart from Phase 1?"`
 
-If restart → remove Phase 1+ fields by resetting to a fresh Phase 0 `analysis.json` (or delete it and re-run Phase 0), and remove `.sealos/phase-2/`, `.sealos/phase-3/`, `.sealos/phase-4/`, and `.sealos/template/index.yaml`.
+If restart → remove Phase 1+ fields by resetting to a fresh Phase 0 `analysis.json` (or delete it and re-run Phase 0), and remove `.sealos/phase-2/`, `.sealos/phase-3/`, `.sealos/phase-4/`, `.sealos/phase-5/`, and `.sealos/template/index.yaml`.
 
 ---

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://skills.sh/sealos-deploy/schemas/prepare-result.schema.json",
+  "title": "Sealos Deploy Prepare Result Artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["template_sha256", "dry_run", "user_confirmed"],
+  "properties": {
+    "template_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "dry_run": {
+      "type": "string",
+      "const": "passed"
+    },
+    "user_confirmed": {
+      "type": "boolean",
+      "const": true
+    }
+  }
+}

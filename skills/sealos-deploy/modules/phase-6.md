@@ -35,7 +35,7 @@ Read kubeconfig, **encode it with `encodeURIComponent`**, and send as `Authoriza
 
 Request body fields:
 - `yaml` (required) — the full template YAML string
-- `args` (optional) — template variable key-value pairs that override or supply `spec.inputs` fields. Values from Phase 5.5 `CONFIG.args`.
+- `args` (optional) — template variable key-value pairs that override or supply `spec.inputs` fields. Values from Phase 5 `CONFIG.args`.
 - `dryRun` (optional, boolean) — if true, validates resources against K8s API without creating anything. Returns 200 with preview.
 
 `deploy-template.mjs` sends the original args to Template API and emits only `args_supplied` plus an allowlisted response. Credential values, raw response messages, nested response details, and request exception text stay out of stdout/stderr.
@@ -48,7 +48,7 @@ DEPLOY_ARGS_FILE=$(mktemp "${TMPDIR:-/tmp}/sealos-template-args.XXXXXX")
 chmod 600 "$DEPLOY_ARGS_FILE"
 trap 'rm -f "$DEPLOY_ARGS_FILE"' EXIT
 
-# Serialize Phase 5.5 CONFIG.args directly to this file without printing values.
+# Serialize Phase 5 CONFIG.args directly to this file without printing values.
 node "<SKILL_DIR>/scripts/deploy-template.mjs" \
   ".sealos/template/index.yaml" --args-file "$DEPLOY_ARGS_FILE"
 
@@ -72,7 +72,7 @@ DEPLOY_BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/sealos-template-body.XXXXXX")
 DEPLOY_RESPONSE_FILE=$(mktemp "${TMPDIR:-/tmp}/sealos-template-response.XXXXXX")
 trap 'rm -f "$DEPLOY_ARGS_FILE" "$DEPLOY_BODY_FILE" "$DEPLOY_RESPONSE_FILE"' EXIT
 
-# Serialize Phase 5.5 CONFIG.args directly to DEPLOY_ARGS_FILE without printing values.
+# Serialize Phase 5 CONFIG.args directly to DEPLOY_ARGS_FILE without printing values.
 # encodeURIComponent via Python.
 KUBECONFIG_ENCODED=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.stdin.read(), safe=''))" < ~/.sealos/kubeconfig)
 
@@ -237,7 +237,7 @@ For the public app Service, endpoints must be non-empty before the Ingress can s
 3. Look for common signatures:
    - `OOMKilled` or exit `137`: increase init container memory and recreate the Pod.
    - `Permission denied` on mounted paths: add `fsGroup` or a one-shot permission repair for existing PVCs.
-   - Password policy, invalid bootstrap configuration, or root reconciliation validation: return to the account-mode classification and Phase 5.5 credential contract before changing resources.
+   - Password policy, invalid bootstrap configuration, or root reconciliation validation: return to the account-mode classification and Phase 5 credential contract before changing resources.
    - App-specific migration/bootstrap errors: repair the failed bootstrap state, then rerun the init path.
 4. Only report the app as usable after the endpoint exists and an HTTP request to the public URL returns a non-5xx response.
 5. Continue to Phase 7 before writing deployment state or reporting success.
@@ -295,13 +295,13 @@ The template YAML from Phase 5 contains `${{ }}` variables. The AI must replace 
 | `${{ defaults.app_name }}` | Generate: `<app>-<random8>` (e.g., `edict-xn22k4ie`) |
 | `${{ defaults.app_host }}` | Generate: `<app>-<random8>` (e.g., `edict-2v4jryz1`) |
 | `${{ defaults.<key> }}` | Other defaults: generate per their `value` pattern |
-| `${{ inputs.<key> }}` | User-provided values from Phase 5.5 `CONFIG.args` |
+| `${{ inputs.<key> }}` | User-provided values from Phase 5 `CONFIG.args` |
 | `${{ random(N) }}` | Random alphanumeric string of length N |
 | `${{ SEALOS_CLOUD_DOMAIN }}` | `CLOUD_DOMAIN` from Step 1 |
 | `${{ SEALOS_CERT_SECRET_NAME }}` | `CERT_SECRET` from Step 1 |
 | `${{ SEALOS_NAMESPACE }}` | `NAMESPACE` from Step 1 |
 
-**Important:** `${{ inputs.xxx }}` values come from the user in Phase 5.5. If any required input was not provided, the AI must ask the user now before proceeding.
+**Important:** `${{ inputs.xxx }}` values come from the user in Phase 5. If any required input was not provided, the AI must ask the user now before proceeding.
 
 The AI reads the template YAML, performs all variable substitutions, and produces rendered K8s resource documents.
 
