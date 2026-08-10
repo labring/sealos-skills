@@ -12,7 +12,7 @@ Phase 0 writes `.sealos/analysis.json` with only `runtime_profile`, `work_dir`, 
 2. `modules/artifacts.md` — `.sealos/` layout, config, schema rules
 3. `modules/mode.md` — DEPLOY vs UPDATE, then resume checks in DEPLOY mode
 4. If UPDATE mode → load `modules/update.md`, then `modules/phase-7.md`. Stop this chain.
-5. `modules/phase-1.md` — Eligibility, template fast path, project signals
+5. `modules/phase-1.md` — Blacklist, official template match, `official_template`
 6. `modules/phase-2.md` — Detect image or prepare Dockerfile
 7. `modules/phase-3.md` — Build and push
 8. `modules/phase-4.md` — Generate Sealos template

@@ -25,12 +25,13 @@ This repo does not have a single top-level app build.
 ```text
 sealos plugin entry points ($sealos, /sealos)
   ├→ sealos-deploy (direct skills.sh entry point: /sealos-deploy)
-  │   ├→ cloud-native-readiness   (Phase 0.4 eligibility)
-  │   ├→ dockerfile-skill         (Phase 3: generate Dockerfile)
-  │   └→ docker-to-sealos         (Phase 5: Compose → Sealos template)
+  │   ├→ dockerfile-skill         (Phase 2/3: Dockerfile)
+  │   └→ docker-to-sealos         (Phase 4: Compose → Sealos template)
   ├→ sealos-database (direct skills.sh entry point: /sealos-database)
   └→ sealos-s3       (direct skills.sh entry point: /sealos-s3)
 ```
+
+`cloud-native-readiness` is an adjacent standalone skill. It is not wired into sealos-deploy Phase 1.
 
 `sealos-app-builder` is an adjacent skill for Sealos Desktop app work. `sealos-canvas` is an adjacent skill for read-only deployed-resource visualization after `/sealos-deploy` creates `.sealos/state.json`.
 
@@ -92,9 +93,8 @@ The skill tracks state in `.sealos/state.json` (deployment state), `.sealos/anal
 - `skills/sealos-deploy/SKILL.md` — primary entry point for the deploy workflow
 - `skills/sealos-database/SKILL.md` — primary entry point for cloud database development workflow
 - `skills/sealos-s3/SKILL.md` — primary entry point for S3-compatible object storage workflow
-- `skills/sealos-deploy/config.json` — regional Sealos URLs and template fast-path config
-- `skills/sealos-deploy/scripts/` — auth, signal detection, and helper automation scripts
-- `skills/sealos-deploy/evals/evals.json` — eval prompts and assertions
+- `skills/sealos-deploy/config.json` — regional Sealos URLs
+- `skills/sealos-deploy/scripts/` — auth and helper automation scripts
 - `skills/sealos-canvas/SKILL.md` — read-only resource canvas workflow
 - `.codex-plugin/plugin.json` — Codex plugin manifest pointing to root `skills/`
 - `.agents/plugins/marketplace.json` — local Codex marketplace entry for the Sealos plugin
@@ -134,7 +134,7 @@ The skill tracks state in `.sealos/state.json` (deployment state), `.sealos/anal
 - Add or update `test_check_consistency.py`, `test_compose_to_template.py`, `test_check_must_coverage.py`, or `test_quality_gate.py` coverage with the behavior they enforce.
 - For changed `sealos-deploy` JavaScript helpers, run `node --check <changed-script.mjs>` and the matching `test-*.mjs` file.
 - When helpers or the runtime contract change, run `node skills/sealos-deploy/scripts/test-sealos-footprint.mjs` and `node skills/sealos-deploy/scripts/test-sealos-live-smoke.mjs`.
-- Keep `skills/sealos-deploy/evals/` aligned with user-visible deploy behavior.
+- For `sealos-deploy` behavior changes, align docs plus `modules/` and `validate-phase-*.mjs` / matching `test-*.mjs`. Do not maintain `skills/sealos-deploy/evals/`.
 - When manifests, commands, distribution metadata, assets, or the skill inventory change, run `python3 scripts/validate-codex-plugin.py`.
 
 ### Runtime Safety

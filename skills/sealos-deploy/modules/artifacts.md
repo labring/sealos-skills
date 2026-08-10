@@ -5,25 +5,24 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ```
 <WORK_DIR>/.sealos/
 ├── config.json                   ← user configuration overrides (manual, committed to git)
-├── template-match.json           ← Phase 1 template fast-path decision
 ├── state.json                    ← deployment state (auto-maintained after Phase 6)
-├── analysis.json                 ← starts in Phase 0 (4 fields); Phase 1+ extend it
+├── analysis.json                 ← Phase 0 (4 fields); Phase 1 adds official_template; later phases extend
 ├── build/                        ← created only if Phase 3 actually runs
 │   └── build-result.json         ← Phase 3 result (`success` or `failed`)
 └── template/
-    └── index.yaml                ← Phase 4 Sealos template
+    └── index.yaml                ← Phase 1 official fetch, or Phase 4 generated template
 ```
 
 **File responsibilities:**
 - `config.json` — optional user overrides (port, base_image, build_command, etc.). Created manually by user, committed to git. All fields optional.
-- `analysis.json` — Phase 0 overwrites with `runtime_profile`, `work_dir`, `repo_name`, `github_url` only. Phase 1 and later phases extend the same file. Do not run full `analysis.schema.json` validation until Phase 1 has written the full snapshot.
+- `analysis.json` — Phase 0 overwrites with `runtime_profile`, `work_dir`, `repo_name`, `github_url` only. Phase 1 adds `official_template` (`null` or a labring-actions raw URL) and preserves the four Phase 0 fields. Later phases may add pointers such as `deployment_plan`. Do not treat a Phase 0-only file as Phase 1 complete. Full `analysis.schema.json` validation applies once Phase 1 has written `official_template`.
 - `state.json` — deployment state written after Phase 6 success. Contains `last_deploy` and `history`. Enables UPDATE mode on subsequent runs.
+- `template/index.yaml` — written by Phase 1 on an exact official-template match (verbatim fetch), or by Phase 4 on the standard path.
 
 **Note:** When reading dockerfile-skill modules (analyze.md, generate.md, build-fix.md), they reference `docker-build/` as their default output path. In this pipeline, always write to `.sealos/build/` instead. Similarly, template output goes to `.sealos/template/` instead of `template/`.
 
 JSON artifacts under `.sealos/` are governed by explicit schemas in `<SKILL_DIR>/schemas/`:
 - `config.schema.json`
-- `template-match.schema.json`
 - `analysis.schema.json`
 - `build-result.schema.json`
 - `state.schema.json`
@@ -60,4 +59,3 @@ If `.sealos/config.json` exists, read it. User-provided values take priority ove
 }
 ```
 All fields are optional. If a field is present, it overrides the corresponding auto-detected value.
-

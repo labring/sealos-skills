@@ -8,23 +8,36 @@ Prepare the environment, identity, and source directory. Write the Phase 0 subse
 - Do not build images, generate templates, or create cloud resources.
 - Probe scripts detect only. They never install.
 - At the end of this phase, `.sealos/analysis.json` contains **only** these fields: `runtime_profile`, `work_dir`, `repo_name`, `github_url`. Overwrite any previous file.
+- Install tools only after the user replies `y`. Do not ask per package.
 
 `SKILL_DIR` is the directory that contains this skill's `SKILL.md`.
 
-Do **not** add these to the required binary install list; run them with `npx` when needed:
-
-- `sealos-cli` — identity (`local` only)
-- `@norberia/agentlens` — Phase 2 deploy scout (`agentlens` bin)
+Use `npx` for these tools (do not treat them as required binaries):
 
 ```bash
-SEALOS_CLI=(sealos-cli)
-if ! command -v sealos-cli >/dev/null 2>&1; then
-  SEALOS_CLI=(npx -y sealos-cli@latest)
-fi
+npx -y sealos-cli@latest whoami
+# login / workspace … (local identity only)
 
 # Phase 2 scout (tree only; --preset deploy). Do not install gitingest.
-npx -y @norberia/agentlens "$WORK_DIR" --preset deploy -o "$WORK_DIR/.sealos/phase-2/agentlens-digest.txt"
+npx -y @norberia/agentlens "$WORK_DIR" --preset deploy \
+  -o "$WORK_DIR/.sealos/phase-2/agentlens-digest.txt"
 ```
+
+## Dependency model
+
+Phase 0 hard-stops only on **entry-required** tools. Everything else is **deferred**: probe and optionally offer install, but refusal does **not** STOP here. Hard-block deferred tools when a later phase actually needs them.
+
+| Tier | Tools | Phase 0 | Hard block when |
+|------|-------|---------|-----------------|
+| A — entry | Node.js 18+ | Refuse/fail install → **STOP** | Phase 0 |
+| A — entry (source) | `git` | Deferred in probe; if this run must clone a GitHub URL (or needs git metadata) and `git` is missing → ask once; refuse/fail → **STOP** | Phase 0 Step 4 |
+| A — identity | Sealos via `npx -y sealos-cli@latest` | Not a binary install | Region/login/workspace failure → **STOP** (local only) |
+| B — deploy/verify | `kubectl` (+ usable kubeconfig); `curl` / `jq` (fallback when Node helpers are unavailable) | Deferred | Phase 6 / 7 / UPDATE / verify |
+| C — build/push | Docker CLI, daemon, Buildx; `gh` (+ login / `write:packages`); `railpack` | Deferred; `sandbox` does not require Docker/`gh` | Phase 3 local build/push or GHCR; Phase 2 when railpack must prepare a Dockerfile |
+| D — template | Python 3.8+, PyYAML; `kompose`; Helm 3+ | Deferred | Phase 4/5 (by deployment source) |
+| E — optional | Git LFS / submodule tools; crane | Ask only when the repo or path needs them | That path; refuse → **STOP** |
+
+Official-template fast path (skip Phases 2–4) must not be blocked by Docker, `gh`, railpack, kompose, or Helm.
 
 ## Step 1: Probe environment and dependencies
 
@@ -35,18 +48,10 @@ node "<SKILL_DIR>/scripts/phase-0/check-running-environment.mjs"
 The script:
 
 1. Sets `runtime_profile` to `sandbox` when `SEALAI_DEPLOY_TASK_ID` is set, otherwise `local`.
-2. Reports `present`, `missing`, `warnings`, and per-tool `details`.
+2. Reports `present`, `missing_required`, `missing_deferred`, `missing` (union), `warnings`, and per-tool `details`.
 3. Never installs anything.
 
-**Required for `local` and `sandbox`:**
-
-git, Node.js 18+, Python 3.8+, PyYAML, kompose, Helm 3+, kubectl, curl, jq
-
-**Required for `local` only:**
-
-`gh` (binary), Docker CLI, running Docker daemon, Docker Buildx, railpack
-
-`sandbox` does not require Docker or `gh`. `sandbox` already includes railpack.
+`missing_required` is entry-tier only (`node`). All other probed tools land in `missing_deferred` (or warnings).
 
 **Warnings (not STOP in Phase 0):**
 
@@ -55,18 +60,20 @@ git, Node.js 18+, Python 3.8+, PyYAML, kompose, Helm 3+, kubectl, curl, jq
 
 These become hard blockers only when the run later chooses a GHCR push path.
 
-## Step 2: Install missing dependencies
+## Step 2: Install entry-required dependencies
 
-If `missing` is non-empty:
+If `missing_required` is non-empty:
 
-1. List every missing item once.
+1. List every entry-required missing item once.
 2. Ask once whether to install them.
 3. User agrees → install or upgrade for the current platform → re-run the probe script.
-4. User refuses, or items remain missing after install → **STOP**.
+4. User refuses, or items remain in `missing_required` after install → **STOP**.
+
+If `missing_deferred` is non-empty, you may list them and offer one optional install batch. Refusal → **CONTINUE** (record the gap in the deploy log).
 
 Do not install without asking. Do not ask per package.
 
-If Docker is installed but the daemon is not running, ask the user, then start the daemon (macOS: open Docker Desktop; Linux: `sudo systemctl start docker` when appropriate).
+If Docker is installed but the daemon is not running, you may ask to start it now; refusal is not a Phase 0 STOP (hard-block later if this run needs local build).
 
 ## Step 3: Prepare identity (`local` only)
 
@@ -77,11 +84,11 @@ If Docker is installed but the daemon is not running, ask the user, then start t
 Read regions from `<SKILL_DIR>/config.json` (`default_region`, `regions`). Ask the user to confirm or choose a region.
 
 ```bash
-"${SEALOS_CLI[@]}" whoami
-"${SEALOS_CLI[@]}" login <region-url>
-"${SEALOS_CLI[@]}" workspace list
-"${SEALOS_CLI[@]}" workspace current
-"${SEALOS_CLI[@]}" workspace switch <workspace-id-or-team-name>
+npx -y sealos-cli@latest whoami
+npx -y sealos-cli@latest login <region-url>
+npx -y sealos-cli@latest workspace list
+npx -y sealos-cli@latest workspace current
+npx -y sealos-cli@latest workspace switch <workspace-id-or-team-name>
 ```
 
 1. Select the Sealos Cloud region.
@@ -93,9 +100,7 @@ If region, login, or workspace cannot be confirmed → **STOP**.
 
 ### GitHub CLI session
 
-If `gh` is missing from PATH after Step 2, that is already a STOP from required deps.
-
-If `gh` is present but auth/`write:packages` is incomplete, record a warning and continue. Enforce login or scope refresh only when a later phase selects GHCR push.
+Missing `gh` is deferred. If `gh` is present but auth/`write:packages` is incomplete, record a warning and continue. Enforce login or scope refresh only when a later phase selects GHCR push.
 
 ## Step 4: Enter the source directory
 
@@ -104,6 +109,11 @@ If `gh` is present but auth/`write:packages` is incomplete, record a warning and
 | GitHub repository URL | Shallow clone (`--depth 1`) into a working directory |
 | Local project directory | Use the given path |
 | No argument | Use `$(pwd)` |
+
+If this step must run `git clone` (or otherwise needs `git`) and `git` is missing:
+
+1. Ask once whether to install `git`.
+2. Refuse or install/recheck failure → **STOP**.
 
 Always use a shallow clone when cloning. Never fetch full history:
 
@@ -171,19 +181,20 @@ LOG_FILE=~/.sealos/logs/deploy-$(date +%Y%m%d-%H%M%S).log
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Phase 0: Preflight ===" > "$LOG_FILE"
 ```
 
-Append `runtime_profile`, `work_dir`, dependency outcome, and Sealos region/workspace (no secrets). Keep `$LOG_FILE` for later phases.
+Append `runtime_profile`, `work_dir`, `missing_required` / `missing_deferred`, and Sealos region/workspace (no secrets). Keep `$LOG_FILE` for later phases.
 
 ## Stop conditions
 
 | Result | Condition |
 | --- | --- |
 | **STOP** | `runtime_profile` cannot be determined |
-| **STOP** | User refuses required dependency install, or install/recheck fails |
+| **STOP** | User refuses **entry-required** dependency install, or install/recheck leaves `missing_required` non-empty |
+| **STOP** | Clone/metadata needs `git` and user refuses install or install fails |
 | **STOP** | `local`: region, login, or workspace not confirmed; auth/kubeconfig unusable |
 | **STOP** | Project source cannot be resolved, entered, or cloned |
 | **STOP** | Submodules/LFS required but refused or fetch failed |
 | **STOP** | `analysis.json` cannot be written or `validate-phase-0.mjs` fails |
-| **CONTINUE** | All checks pass → load `modules/artifacts.md`, then `modules/mode.md` |
+| **CONTINUE** | Entry checks pass (deferred gaps allowed) → load `modules/artifacts.md`, then `modules/mode.md` |
 
 ## Ready summary
 
@@ -196,7 +207,8 @@ Project:
 
 Environment:
   ✓ runtime_profile: <local|sandbox>
-  ✓ required dependencies
+  ✓ entry-required dependencies
+  ○ deferred missing: <list or "none">
   ○ gh auth / write:packages <ok or warning — GHCR push path only>
 
 Auth (local only):

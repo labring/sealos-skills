@@ -1,14 +1,13 @@
 ---
 name: sealos-deploy
 description: >-
-  Deploy or update compatible server, static-web, worker, scheduled-job, or
-  reviewed remote-desktop workloads from GitHub or local source to Sealos Cloud.
-  Run the default Runtime Truth Pass on the App URL, public route, auth flow,
-  logs, database state, and resource footprint. Reject unsupported desktop,
-  mobile, CLI, library, extension, hardware-dependent, mixed, and unidentified
-  targets before eligibility or build. Use for deploy, update, Runtime
-  Truth verify, footprint or log debug, env configure, or cleanup of a Sealos
-  deploy after user confirmation, and when the user invokes "/sealos-deploy".
+  Deploy or update cloud workloads from GitHub or local source to Sealos Cloud.
+  Run Phase 1 blacklist (STOP only when both cloud-deploy blockers are 100%
+  confirmed) and official-template exact match. Run the default Runtime Truth
+  Pass on the App URL, public route, auth flow, logs, database state, and
+  resource footprint. Use for deploy, update, Runtime Truth verify, footprint or
+  log debug, env configure, or cleanup of a Sealos deploy after user
+  confirmation, and when the user invokes "/sealos-deploy".
 compatibility: >-
   Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are
   required only when the selected path needs local build/push. git is required
@@ -22,7 +21,7 @@ metadata:
 
 # Sealos Deploy
 
-This skill deploys compatible cloud workloads to Sealos Cloud. It stops unsupported targets before build or deploy.
+This skill deploys cloud workloads to Sealos Cloud. Phase 1 stops only when the blacklist is 100% confirmed.
 
 `<SKILL_DIR>` is the directory that contains this `SKILL.md`.
 
@@ -61,7 +60,7 @@ Select the intent before you run Phase 0. Load only the files for that intent.
 | Intent | User asks for | Load | Do not load by default |
 |--------|---------------|------|------------------------|
 | **deploy** | deploy, ship, `/sealos-deploy` | `modules/pipeline.md` (deploy chain from Phase 0) | — |
-| **update** | update the running app, rebuild and roll out | `modules/phase-0.md` → `modules/mode.md` → `modules/update.md` → `modules/phase-7.md` | eligibility and full assess, unless the Update Path requires them |
+| **update** | update the running app, rebuild and roll out | `modules/phase-0.md` → `modules/mode.md` → `modules/update.md` → `modules/phase-7.md` | Phase 1 assess, unless the Update Path requires it |
 | **verify** | Runtime Truth, accept the App URL, smoke test | Sealos auth and kubectl as needed → `modules/phase-7.md` | Phase 1–6 modules |
 | **debug** | logs, footprint, why it failed | `references/scripts.md` helpers plus relevant parts of `modules/phase-7.md` | rebuild or redeploy, unless the user asks to fix and redeploy |
 | **configure** | env vars, ports, template inputs | `modules/phase-5.md` | Phase 1–4 modules, unless config forces a rebuild |
@@ -103,7 +102,7 @@ Scripts live in `<SKILL_DIR>/scripts/`. They print JSON. Run them with Bash, the
 node "<SKILL_DIR>/scripts/phase-0/check-running-environment.mjs"
 node "<SKILL_DIR>/scripts/validate-phase-0.mjs" --dir "$WORK_DIR"
 npx -y sealos-cli@latest whoami
-node "<SKILL_DIR>/scripts/workload-eligibility.mjs" "$WORK_DIR"
+node "<SKILL_DIR>/scripts/validate-phase-1.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/detect-image.mjs" "$WORK_DIR"
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO"
 node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
@@ -121,9 +120,11 @@ Load these on demand during pipeline phases. They are not separate user entry po
 
 | Path | Use for |
 |------|---------|
-| `<SKILL_DIR>/../cloud-native-readiness/` | Phase 1 eligibility policy |
 | `<SKILL_DIR>/../dockerfile-skill/` | Phase 2 Dockerfile preparation |
 | `<SKILL_DIR>/../docker-to-sealos/` | Phase 4 Sealos template |
+
+`cloud-native-readiness` is an adjacent standalone skill. It is not part of the
+deploy Phase 1 path.
 
 ## Phase map (deploy intent)
 
@@ -133,7 +134,7 @@ This map applies to **deploy** (DEPLOY mode). For other intents, use the Intent 
 |-------|--------|-----------|
 | 0 — Preflight | `modules/phase-0.md` | Entry blockers are clear |
 | — Artifacts / mode | `modules/artifacts.md`, `modules/mode.md` | UPDATE → `modules/update.md` |
-| 1 — Assess | `modules/phase-1.md` | Ineligible → stop; template fast path may skip Phase 2–4 |
+| 1 — Assess | `modules/phase-1.md` | Blacklist 100% STOP; official-template fast path may skip Phase 2–4 |
 | 2 — Discover / image prep | `modules/phase-2.md` | Existing amd64 image → jump to Phase 4 |
 | 3 — Build & Push | `modules/phase-3.md` | — |
 | 4 — Template | `modules/phase-4.md` | — |
@@ -150,9 +151,9 @@ Input (GitHub URL / local path)
 [Phase 0] Preflight ── fail → guide user to fix and STOP
   │ pass
   ▼
-[Phase 1] Assess (eligibility + optional template fast path)
+[Phase 1] Assess (blacklist + official_template)
   │
-  ├── materialized template match ───────┐
+  ├── official fast path ────────────────┐
   │                                      │
   ▼                                      │
 [Phase 2] Detect image / Dockerfile      │
@@ -181,7 +182,7 @@ Input (GitHub URL / local path)
 Done
 ```
 
-Do not start Phase 1 while Phase 0 still has unresolved entry blockers. Report Docker, `gh`, builder, and registry failures early. Treat them as hard blockers only when the run needs local build or push.
+Do not start Phase 1 while Phase 0 still has unresolved **entry** blockers (`missing_required`, identity, or source). Report Docker, `gh`, builder, registry, kubectl, and template-tool gaps early as deferred. Treat those as hard blockers only when the selected path needs them (local build/push, GHCR, Compose/Helm template generation, or deploy/verify).
 
 ## Composition
 
@@ -209,7 +210,7 @@ Keep the reply short. Include command evidence only when it helps the user.
 | `modules/phase-0.md` | Phase 0 preflight |
 | `modules/artifacts.md` | `.sealos/` layout and schemas |
 | `modules/mode.md` | DEPLOY vs UPDATE, resume |
-| `modules/phase-1.md` | Phase 1 eligibility, template fast path, signals |
+| `modules/phase-1.md` | Phase 1 blacklist, official_template, fast path |
 | `modules/phase-2.md` | Phase 2 image detect / Dockerfile |
 | `modules/phase-3.md` | Phase 3 build and push |
 | `modules/phase-4.md` | Phase 4 template |

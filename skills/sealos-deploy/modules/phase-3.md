@@ -1,5 +1,19 @@
 # Phase 3: Build and Push
 
+## Path dependency gate
+
+This phase runs only when the selected path must build and push locally (`local`).
+Before login or build, ensure deferred tools are available. Ask once to install;
+refuse or recheck failure → **STOP**.
+
+| Need | Tools |
+|------|-------|
+| Local image build | Docker CLI, running Docker daemon, Docker Buildx |
+| GHCR push | `gh` binary plus usable login / `write:packages` |
+| Docker Hub push | Active `docker login` session (user may complete in another terminal) |
+
+`sandbox` uses the cluster build path and does not require local Docker / `gh` here.
+
 ### 4.0 Choose Image Destination
 
 Registry selection is deferred to this phase because it's only needed when building.

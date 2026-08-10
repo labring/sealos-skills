@@ -2,6 +2,18 @@
 
 Detect an existing image or prepare a Dockerfile for local build.
 
+## Path dependency gate
+
+Before discovery that needs them, ensure deferred tools are available. Ask once to
+install; refuse or recheck failure → **STOP**.
+
+| Need | Tools |
+|------|-------|
+| Agentlens scout | Node.js 18+ (for `npx -y @norberia/agentlens`) — usually already entry-required |
+| Dockerfile preparation via railpack | `railpack` (`local`; `sandbox` is expected to provide it) |
+
+Docker / `gh` are **not** required in this phase (build/push is Phase 3).
+
 ## Scout with agentlens
 
 Before image detection, build a deploy-focused file tree. Do **not** use gitingest.
@@ -18,25 +30,23 @@ The digest is a directory tree only (no file contents). Read root `README*` and 
 
 ### 2.S Source-Ready Static Site Image Path
 
-Before registry discovery, check the in-memory eligibility decision. When its reason
-codes contain `SOURCE_READY_STATIC_SITE`, the requested project has a root
-`index.html`, a public asset tree that can be served without transformation, and no
-higher-priority build, server-runtime, container, or sensitive-file signal.
+Before registry discovery, inspect whether the requested root is a source-ready static
+site: root `index.html`, a public asset tree that can be served without transformation,
+and no higher-priority build, server-runtime, container, or sensitive-file signal.
 
-Set `STATIC_NGINX_IMAGE_BUILD=true` and update `.sealos/analysis.json` with
-`language: "html"`, `framework: "static_html"`, `package_manager: null`, port
-`8080`, and `image_ref: null`. Skip existing-image discovery for this source-only
-tree and continue to Phase 3. Phase 3 must generate the pinned static Nginx
-Dockerfile, and Phase 4 must build and push it through the same registry path as
-every other locally built image.
+When that evidence holds, set `STATIC_NGINX_IMAGE_BUILD=true` in the current run
+context (`image_ref` remains unset). Skip existing-image discovery for this
+source-only tree and continue to Phase 3. Phase 3 must generate the pinned static
+Nginx Dockerfile, and Phase 4 must build and push it through the same registry path
+as every other locally built image.
 
-This path is intentionally evidence-based and fail-closed. File count, extension,
-and directory depth are not deployment decisions. Preserve arbitrary regular public
-assets and their relative paths, including nested directories, while excluding
-repository metadata through `.dockerignore`. Give an existing container contract
-precedence over this path. Route build/runtime manifests and server-source signals
-through ordinary analysis. Stop for possible secrets, symbolic links, or a missing
-root `index.html`. Never silently omit a business asset from the image.
+This path is evidence-based. File count, extension, and directory depth are not
+deployment decisions. Preserve arbitrary regular public assets and their relative
+paths, including nested directories, while excluding repository metadata through
+`.dockerignore`. Give an existing container contract precedence over this path.
+Route build/runtime manifests and server-source signals through ordinary discovery.
+Stop for possible secrets, symbolic links, or a missing root `index.html`. Never
+silently omit a business asset from the image.
 
 The remaining Phase 2 instructions apply when `STATIC_NGINX_IMAGE_BUILD` is false.
 

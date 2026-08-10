@@ -10,7 +10,9 @@
  *   {
  *     "runtime_profile": "local" | "sandbox",
  *     "present": ["git", ...],
- *     "missing": ["helm", ...],
+ *     "missing_required": ["node", ...],
+ *     "missing_deferred": ["helm", ...],
+ *     "missing": ["node", "helm", ...],
  *     "warnings": [{ "id": "gh-auth", "message": "..." }],
  *     "details": { "git": { "ok": true, "version": "..." }, ... }
  *   }
@@ -20,6 +22,9 @@ import { spawnSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+
+/** Entry-required in Phase 0. All other probed tools are path-deferred. */
+const REQUIRED_IDS = new Set(['node'])
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -176,7 +181,7 @@ function main() {
     ? [...sharedChecks, ...localOnlyChecks]
     : sharedChecks
 
-  // PyYAML is required alongside Python.
+  // PyYAML is tracked separately; both python and pyyaml are deferred (Phase 4/5).
   const python = checks.find((item) => item.id === 'python')
   if (python?.ok && python.pyyaml === false) {
     checks.push({ id: 'pyyaml', ok: false, reason: 'missing' })
@@ -188,11 +193,16 @@ function main() {
 
   const details = {}
   const present = []
-  const missing = []
+  const missing_required = []
+  const missing_deferred = []
   for (const check of checks) {
     details[check.id] = check
-    if (check.ok) present.push(check.id)
-    else missing.push(check.id)
+    if (check.ok) {
+      present.push(check.id)
+      continue
+    }
+    if (REQUIRED_IDS.has(check.id)) missing_required.push(check.id)
+    else missing_deferred.push(check.id)
   }
 
   const warnings = []
@@ -201,9 +211,13 @@ function main() {
     if (ghWarning) warnings.push(ghWarning)
   }
 
+  const missing = [...missing_required, ...missing_deferred]
+
   const result = {
     runtime_profile,
     present,
+    missing_required,
+    missing_deferred,
     missing,
     warnings,
     details,

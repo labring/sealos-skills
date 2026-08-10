@@ -1,5 +1,16 @@
 # Phase 4: Generate Sealos Template
 
+## Path dependency gate
+
+Before conversion or validation, ensure deferred tools for the selected deployment
+source are available. Ask once to install; refuse or recheck failure → **STOP**.
+
+| Need | Tools |
+|------|-------|
+| Always (this phase) | Python 3.8+ with PyYAML |
+| Compose → template | `kompose` |
+| Helm source | Helm 3+ |
+
 ### 5.1 Load Sealos Rules
 
 Read the internal skill's specifications:
@@ -28,12 +39,12 @@ Read `.sealos/analysis.json` and use `image_ref`, `port`, `databases`, and `env_
 Generate the template at `.sealos/template/index.yaml` (overrides the default `template/` path from docker-to-sealos skill).
 Do not create another template-generation artifact.
 
-Before conversion or validation, require Python with PyYAML. Do not install it from this workflow:
+Before conversion or validation, require Python with PyYAML (see path dependency gate above):
 
 ```bash
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 if [ -z "$PYTHON_BIN" ] || ! "$PYTHON_BIN" -c 'import yaml' >/dev/null 2>&1; then
-  echo "Phase 5 requires Python with PyYAML; install it outside this workflow and retry." >&2
+  echo "Phase 4 requires Python with PyYAML; install after user confirmation and retry." >&2
   exit 1
 fi
 ```

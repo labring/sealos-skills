@@ -12,7 +12,6 @@ const SCHEMA_FILES = {
   analysis: 'analysis.schema.json',
   'build-result': 'build-result.schema.json',
   state: 'state.schema.json',
-  'template-match': 'template-match.schema.json',
 }
 
 function isPlainObject(value) {
@@ -225,16 +224,8 @@ function loadSchema(kind) {
 }
 
 function validateAnalysisSemantics(data, errors) {
-  if (!data.all_languages.includes(data.language)) {
-    pushError(errors, '$.all_languages', 'must include the primary language')
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(data.runtime_version, data.language)) {
-    pushError(errors, '$.runtime_version', `must include a version field for primary language ${data.language}`)
-  }
-
-  if (typeof data.image_ref === 'string' && !data.image_ref.includes(':')) {
-    pushError(errors, '$.image_ref', 'must include an explicit image tag')
+  if (data.official_template !== null && typeof data.official_template !== 'string') {
+    pushError(errors, '$.official_template', 'must be null or a labring-actions raw URL string')
   }
 }
 
@@ -317,7 +308,6 @@ const SEMANTIC_VALIDATORS = {
   analysis: validateAnalysisSemantics,
   'build-result': validateBuildResultSemantics,
   state: validateStateSemantics,
-  'template-match': () => {},
 }
 
 export function inferArtifactKind(filePath) {
@@ -331,8 +321,6 @@ export function inferArtifactKind(filePath) {
       return 'build-result'
     case 'state.json':
       return 'state'
-    case 'template-match.json':
-      return 'template-match'
     default:
       return null
   }

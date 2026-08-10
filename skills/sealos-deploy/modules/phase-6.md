@@ -1,5 +1,15 @@
 # Phase 6: Deploy to Sealos Cloud
 
+## Path dependency gate
+
+Before Template API or kubectl fallback deploy, ensure deferred tools are available.
+Ask once to install; refuse or recheck failure → **STOP**.
+
+| Need | Tools |
+|------|-------|
+| Always (this phase) | `kubectl` and a usable Sealos kubeconfig |
+| Scripted Template API helpers | Node.js preferred; otherwise `curl` + `jq` (+ Python URL-encoding fallback) |
+
 ### 6.1 Construct Deploy URL
 
 The template deploy API uses a fixed `template.` subdomain prefix on the region domain:

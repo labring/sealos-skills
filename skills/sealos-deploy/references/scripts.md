@@ -6,9 +6,6 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 
 | Script | Usage | Purpose |
 |--------|-------|---------|
-| `workload-eligibility.mjs` | `node workload-eligibility.mjs <repo-dir>` | Read-only fail-closed workload classification. The decision is stdout-only. |
-| `project-signals.mjs` | `node project-signals.mjs <repo-dir>` | Collect project signals for Phase 1 |
-| `detect-template.mjs` | `node detect-template.mjs [--github-url <url>] --work-dir <repo-dir> --skill-dir <SKILL_DIR>` | Detect configured GitHub repo → Sealos template fast-path matches |
 | `validate-artifacts.mjs` | `node validate-artifacts.mjs --dir <work-dir>` | Validate `.sealos` JSON artifacts against enforced schemas |
 | `detect-image.mjs` | `node detect-image.mjs <github-url> [work-dir]` or `node detect-image.mjs <work-dir>` | Detect existing Docker/GHCR images |
 | `build-push.mjs` | `node build-push.mjs <work-dir> <repo> [--registry ghcr\|dockerhub] [--user <user>]` | Build amd64 image and push to the selected registry. Docker Hub path assumes a public image at deploy time. Omit `--registry` for auto-detect. |
@@ -21,8 +18,11 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 | `sealos-log-scan.mjs` | `node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300] [--baseline <report.json\|json>] [--min-window-seconds 60]` | Read-only JSON scan of Pod/init/main logs plus Warning Event convergence after readiness, login, and documented API or missing-static-asset checks |
 | `phase-0/check-running-environment.mjs` | `node phase-0/check-running-environment.mjs` | Phase 0 probe: `runtime_profile`, present/missing deps, GHCR-related warnings. Detect only. |
 | `validate-phase-0.mjs` | `node validate-phase-0.mjs --dir <work-dir>` | Phase 0 acceptance for the four-field `analysis.json` |
+| `validate-phase-1.mjs` | `node validate-phase-1.mjs --dir <work-dir>` | Phase 1 acceptance for `official_template` and preserved Phase 0 fields |
 
-Sealos Cloud login and workspace switching use `sealos-cli` (`npx -y sealos-cli@latest` when the binary is absent). See `modules/phase-0.md`.
+Sealos Cloud login and workspace switching use `npx -y sealos-cli@latest`. See `modules/phase-0.md`.
+
+Phase 0 probe fields: `missing_required` (entry hard-stop) and `missing_deferred` (path-gated later).
 
 ## Launchpad network check
 

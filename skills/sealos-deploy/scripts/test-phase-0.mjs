@@ -27,8 +27,17 @@ function testCheckScript() {
   const localJson = JSON.parse(local.stdout)
   assert(localJson.runtime_profile === 'local', 'expected local without SEALAI_DEPLOY_TASK_ID')
   assert(Array.isArray(localJson.missing), 'missing must be an array')
+  assert(Array.isArray(localJson.missing_required), 'missing_required must be an array')
+  assert(Array.isArray(localJson.missing_deferred), 'missing_deferred must be an array')
   assert(Array.isArray(localJson.present), 'present must be an array')
   assert(Array.isArray(localJson.warnings), 'warnings must be an array')
+  assert(
+    localJson.missing.length === localJson.missing_required.length + localJson.missing_deferred.length,
+    'missing must equal required + deferred',
+  )
+  for (const id of localJson.missing_required) {
+    assert(id === 'node', `unexpected entry-required id: ${id}`)
+  }
 
   const sandbox = runNode(checkScript, [], { SEALAI_DEPLOY_TASK_ID: 'task-1' })
   assert(sandbox.status === 0, `sandbox check failed: ${sandbox.stderr}`)
@@ -36,6 +45,8 @@ function testCheckScript() {
   assert(sandboxJson.runtime_profile === 'sandbox', 'expected sandbox with SEALAI_DEPLOY_TASK_ID')
   assert(!sandboxJson.missing.includes('docker'), 'sandbox must not require docker')
   assert(!sandboxJson.missing.includes('gh'), 'sandbox must not require gh')
+  assert(Array.isArray(sandboxJson.missing_required), 'sandbox missing_required must be an array')
+  assert(Array.isArray(sandboxJson.missing_deferred), 'sandbox missing_deferred must be an array')
 }
 
 function testValidateScript() {
