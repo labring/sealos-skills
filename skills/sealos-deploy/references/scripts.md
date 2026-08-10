@@ -20,6 +20,7 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 | `validate-phase-1.mjs` | `node validate-phase-1.mjs --dir <work-dir>` | Phase 1 acceptance for `official_template` and preserved Phase 0 fields |
 | `validate-phase-2.mjs` | `node validate-phase-2.mjs --dir <work-dir>` | Phase 2 acceptance for `deployment-plan` / `deployment_source` |
 | `validate-phase-3.mjs` | `node validate-phase-3.mjs --dir <work-dir>` | Phase 3 acceptance for `build-result` / `pull_access` (skip OK when no build) |
+| `validate-phase-4.mjs` | `node validate-phase-4.mjs --dir <work-dir>` | Phase 4 acceptance for digests, template overlay, and deploy-gate subset |
 
 Sealos Cloud login and workspace switching use `npx -y sealos-cli@latest`. See `modules/phase-0.md`.
 

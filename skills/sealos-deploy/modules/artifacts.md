@@ -35,6 +35,7 @@ JSON artifacts under `.sealos/` are governed by schemas in `<SKILL_DIR>/schemas/
 - `analysis.schema.json`
 - `deployment-plan.schema.json`
 - `build-result.schema.json`
+- `image-digests.schema.json`
 - `state.schema.json`
 
 Validate them with:

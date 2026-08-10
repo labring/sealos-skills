@@ -107,6 +107,7 @@ node "<SKILL_DIR>/scripts/validate-phase-2.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode build
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode push --registry ghcr
 node "<SKILL_DIR>/scripts/validate-phase-3.mjs" --dir "$WORK_DIR"
+node "<SKILL_DIR>/scripts/validate-phase-4.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/deploy-template.mjs" "$WORK_DIR/.sealos/template/index.yaml"
 node "<SKILL_DIR>/scripts/sealos-footprint.mjs" --namespace "$NS" --app "$APP"
 node "<SKILL_DIR>/scripts/sealos-launchpad-network.mjs" --app "$APP" --app-url "$URL"

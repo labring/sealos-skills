@@ -12,6 +12,7 @@ const SCHEMA_FILES = {
   analysis: 'analysis.schema.json',
   'deployment-plan': 'deployment-plan.schema.json',
   'build-result': 'build-result.schema.json',
+  'image-digests': 'image-digests.schema.json',
   state: 'state.schema.json',
 }
 
@@ -251,6 +252,19 @@ function validateBuildResultSemantics(data, errors) {
   }
 }
 
+function validateImageDigestsSemantics(data, errors) {
+  if (!data.digests || typeof data.digests !== 'object') {
+    pushError(errors, '$.digests', 'must be an object of workload key → repository@sha256 digest')
+    return
+  }
+
+  for (const [key, image] of Object.entries(data.digests)) {
+    if (typeof image === 'string' && !image.includes('@sha256:')) {
+      pushError(errors, `$.digests.${key}`, 'must be a digest ref with @sha256:')
+    }
+  }
+}
+
 function validateStateSemantics(data, errors) {
   const { last_deploy: lastDeploy, history } = data
 
@@ -309,6 +323,7 @@ const SEMANTIC_VALIDATORS = {
   analysis: validateAnalysisSemantics,
   'deployment-plan': () => {},
   'build-result': validateBuildResultSemantics,
+  'image-digests': validateImageDigestsSemantics,
   state: validateStateSemantics,
 }
 
@@ -323,6 +338,8 @@ export function inferArtifactKind(filePath) {
       return 'deployment-plan'
     case 'build-result.json':
       return 'build-result'
+    case 'image-digests.json':
+      return 'image-digests'
     case 'state.json':
       return 'state'
     default:
