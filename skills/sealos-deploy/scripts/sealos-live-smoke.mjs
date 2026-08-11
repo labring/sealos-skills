@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync, statSync } from "node:fs";
 import process from "node:process";
 
 function parseArgs(argv) {
@@ -289,11 +290,43 @@ function acceptsMissingPage(step) {
   return step.status >= 200 && step.status < 400 && step.contentType.toLowerCase().includes("text/html");
 }
 
+// Prefer --credentials-file (mode-0600 JSON {"username","password"}) over
+// --username/--password: argv is visible to every local process.
+function applyCredentialsFile(args) {
+  if (!args.credentialsFile || typeof args.credentialsFile !== "string") {
+    return;
+  }
+  let stats;
+  try {
+    stats = statSync(args.credentialsFile);
+  } catch {
+    fail("credentials file not found", { path: args.credentialsFile });
+  }
+  if (!stats.isFile()) {
+    fail("credentials file must be a regular file", { path: args.credentialsFile });
+  }
+  if (process.platform !== "win32" && (stats.mode & 0o077) !== 0) {
+    fail("credentials file must not grant access to group or other users", { path: args.credentialsFile });
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(args.credentialsFile, "utf8"));
+  } catch {
+    fail("failed to parse credentials file", { path: args.credentialsFile });
+  }
+  if (!parsed || typeof parsed !== "object" || typeof parsed.username !== "string" || typeof parsed.password !== "string") {
+    fail("credentials file must contain string username and password", { path: args.credentialsFile });
+  }
+  args.username = parsed.username;
+  args.password = parsed.password;
+}
+
 const args = parseArgs(process.argv);
+applyCredentialsFile(args);
 const baseUrl = args.url;
 
 if (!baseUrl) {
-  fail("usage: node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-path <path>] [--login-method json-token|cookie-json] [--username <user>] [--password <pass>] [--token-path <path>] [--auth-path <path>] [--missing-api-path <path>] [--missing-page-path <path>]");
+  fail("usage: node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-path <path>] [--login-method json-token|cookie-json] [--credentials-file <path>] [--username <user>] [--password <pass>] [--token-path <path>] [--auth-path <path>] [--missing-api-path <path>] [--missing-page-path <path>]");
 }
 
 const steps = [];

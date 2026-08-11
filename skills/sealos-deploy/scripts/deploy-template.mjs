@@ -316,6 +316,8 @@ function loadKubeconfig() {
   return readFileSync(KUBECONFIG_PATH, 'utf8')
 }
 
+const REQUEST_TIMEOUT_MS = Number(process.env.SEALOS_DEPLOY_TIMEOUT_MS || 120000)
+
 async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun }) {
   const response = await fetch(deployUrl, {
     method: 'POST',
@@ -328,6 +330,9 @@ async function postTemplate({ deployUrl, kubeconfig, yaml, args, dryRun }) {
       args,
       dryRun,
     }),
+    // Without a timeout a hung Template API request blocks forever and the
+    // Phase 6 "unknown create" branch can never trigger.
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
 
   const text = await response.text()
@@ -384,12 +389,18 @@ try {
 
   console.log(JSON.stringify(payload, null, 2))
 } catch (error) {
+  // A timeout means the request may have reached the API — the create state
+  // is unknown (Phase 6 step 3.1). A pre-send connection failure (DNS,
+  // refused) means the create definitely did not happen.
+  const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError'
   fail('Template API request failed', {
     region,
     region_domain: regionDomain,
     deploy_url: deployUrl,
     template_path: input.templatePath,
     args_supplied: argsSupplied,
+    unknown_create: timedOut,
+    timeout_ms: timedOut ? REQUEST_TIMEOUT_MS : undefined,
     details: 'Request details omitted.',
   })
 }

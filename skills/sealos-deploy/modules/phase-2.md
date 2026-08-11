@@ -18,7 +18,7 @@ UPDATE mode skips this phase.
 | `.sealos/analysis.json` | Phase 0, Phase 1 |
 | Project source | `analysis.json` → `work_dir` |
 | `railpack` | Required when this phase must prepare a Dockerfile (`sandbox` preinstalled; `local` path-gated) |
-| Node.js 18+ | For `npx -y @norberia/agentlens` |
+| `.sealos/config.json` | Optional user overrides (read when present) |
 
 ## Outputs
 
@@ -36,7 +36,7 @@ install; refuse or recheck failure → **STOP**.
 
 | Need | Tools |
 |------|-------|
-| agentlens scout | Node.js 18+ |
+| agentlens scout | Node.js (entry-required, already present after Phase 0) |
 | Dockerfile preparation via railpack | `railpack` |
 
 Docker / `gh` are not required in this phase (build/push is Phase 3).
@@ -85,10 +85,22 @@ Start one subagent with:
 - path to `.sealos/phase-2/agentlens-digest.txt`
 - verbal handoff (findings and judgment)
 
-Tell the subagent to write `.sealos/phase-2/deployment-plan.json` per
+If the host cannot start subagents, the main agent performs the same steps
+under the same contract — the contract, not the delegation, is normative.
+
+If `.sealos/config.json` exists, apply its overrides before inference:
+`deployment_source` (skip source selection when set), `port`, `start_command`,
+`build_command`, `base_image`, `node_version`, `system_deps` (feed into
+Dockerfile preparation), `public_service` (feeds Phase 4 network selection).
+User values beat auto-detection.
+
+Write `.sealos/phase-2/deployment-plan.json` per
 `<SKILL_DIR>/schemas/deployment-plan.schema.json` and the deployment-plan contract:
 
-1. **Set `deployment_source`** (priority Helm → Kubernetes → Compose):
+1. **Set `deployment_source`** (default priority Helm → Kubernetes → Compose;
+   prefer a lower-priority source when the evidence says it is the maintained
+   deploy path — for example a stale half-finished chart next to a complete,
+   README-documented compose file — and record the reason in the plan):
    - **Helm**: chart root; check chart/values; prepare Dockerfiles for images that need build.
    - **Kubernetes**: a **single** manifest file; prepare Dockerfiles for images that need build.
    - **Other** (including existing compose, single app, implicit topology, source-ready static sites): generate or normalize compose to `.sealos/phase-2/docker-compose.yml` (copy and patch when the repo has compose — do not edit the original). `deployment_source` is **fixed** to `.sealos/phase-2/docker-compose.yml`.
@@ -97,7 +109,14 @@ Tell the subagent to write `.sealos/phase-2/deployment-plan.json` per
    - Otherwise run `railpack` (`info`, `plan`), read the output, review/refine (ports, start command, stages), then write the Dockerfile.
    - Prefer writing Dockerfiles under `.sealos/phase-2/`. Do not modify user source.
    - Source-ready static sites may use `<SKILL_DIR>/../dockerfile-skill/templates/static-nginx.dockerfile` (and matching `.dockerignore`) via the Compose path.
-3. Do not guess published images from org or repo name. Upstream `image:` refs that do not need local build stay as-is.
+3. **Record decisions in the plan**, not only in the compose file. Besides the
+   required `deployment_source`, write:
+   - `build_targets`: one entry per component built from this repo —
+     `{ "key": "<service>", "context": "<dir>", "dockerfile": "<path>" }`
+     (paths relative to `work_dir`). Phase 3 and UPDATE consume this directly.
+   - `public_service`: the service key intended as the public entry, when known.
+   - `db_services`: service keys classified as databases, when any.
+4. Do not guess published images from org or repo name. Upstream `image:` refs that do not need local build stay as-is.
 
 ### 4. Write `analysis.json`
 

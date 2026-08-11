@@ -10,9 +10,11 @@ Prepare the environment, identity, and source directory. Write the Phase 0 subse
 - At the end of this phase, `.sealos/analysis.json` contains **only** these fields: `runtime_profile`, `work_dir`, `repo_name`, `github_url`. Overwrite any previous file.
 - Install tools only after the user replies `y`. Do not ask per package.
 
-`SKILL_DIR` is the directory that contains this skill's `SKILL.md`.
+`<SKILL_DIR>` is the directory that contains this skill's `SKILL.md`.
 
-Use `npx` for these tools (do not treat them as required binaries):
+Use `npx` for these tools (do not treat them as required binaries). Record the
+resolved version of each `npx` tool in the deploy log once per run — `@latest`
+can move mid-run and the log is the only way to reconstruct what ran:
 
 ```bash
 npx -y sealos-cli@latest whoami
@@ -30,9 +32,9 @@ Phase 0 hard-stops only on **entry-required** tools. Everything else is **deferr
 | Tier | Tools | Phase 0 | Hard block when |
 |------|-------|---------|-----------------|
 | A — entry | Node.js 22+ | Refuse/fail install → **STOP** | Phase 0 |
-| A — entry (source) | `git` | Deferred in probe; if this run must clone a GitHub URL (or needs git metadata) and `git` is missing → ask once; refuse/fail → **STOP** | Phase 0 Step 4 |
+| A — entry (source) | `git` | Deferred in probe; if this run must clone a GitHub URL (or needs git metadata) and `git` is missing → ask once; refuse/fail → **STOP** | Phase 0 Step 5 |
 | A — identity | Sealos via `npx -y sealos-cli@latest` | Not a binary install | Region/login/workspace failure → **STOP** (local only) |
-| B — deploy/verify | `kubectl` (+ usable kubeconfig); `curl` / `jq` (fallback when Node helpers are unavailable) | Deferred | Phase 6 / 7 / UPDATE / verify |
+| B — deploy/verify | `kubectl` (+ usable kubeconfig); `jq` (shell JSON parsing) | Deferred | Phase 6 / 7 / UPDATE / verify. The Phase 6 create always uses `deploy-template.mjs` (Node is entry-required) — no curl fallback |
 | C — build/push | Docker CLI, daemon, Buildx; `gh` (+ login / `write:packages`); `railpack` | Deferred; `sandbox` does not require Docker/`gh` | Phase 3 local build/push or GHCR; Phase 2 when railpack must prepare a Dockerfile |
 | D — template | `npm install` in `skills/docker-to-sealos` (`yaml`); `kompose`; Helm 3+ | Deferred | Phase 4 (by deployment source) |
 | D — dry-run | `npm install` in `skills/sealos-deploy` (`yaml`) | Deferred | Phase 5 |
@@ -40,7 +42,22 @@ Phase 0 hard-stops only on **entry-required** tools. Everything else is **deferr
 
 Official-template fast path (skip Phases 2–4) must not be blocked by Docker, `gh`, railpack, kompose, or Helm.
 
-## Step 1: Probe environment and dependencies
+## Step 1: Start the deploy log
+
+Create one log for the run before any probe or install, so every Phase 0 event
+lands in it (see `references/logging.md`):
+
+```bash
+mkdir -p ~/.sealos/logs
+LOG_FILE=~/.sealos/logs/deploy-$(date +%Y%m%d-%H%M%S).log
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Phase 0: Preflight ===" > "$LOG_FILE"
+```
+
+Append `runtime_profile`, `work_dir`, `missing_required` / `missing_deferred`,
+npx tool versions, and Sealos region/workspace (no secrets) as the steps below
+produce them. Keep `$LOG_FILE` for later phases.
+
+## Step 2: Probe environment and dependencies
 
 ```bash
 node "<SKILL_DIR>/scripts/phase-0/check-running-environment.mjs"
@@ -61,7 +78,7 @@ The script:
 
 These become hard blockers only when the run later chooses a GHCR push path.
 
-## Step 2: Install entry-required dependencies
+## Step 3: Install entry-required dependencies
 
 If `missing_required` is non-empty:
 
@@ -76,13 +93,19 @@ Do not install without asking. Do not ask per package.
 
 If Docker is installed but the daemon is not running, you may ask to start it now; refusal is not a Phase 0 STOP (hard-block later if this run needs local build).
 
-## Step 3: Prepare identity (`local` only)
+## Step 4: Prepare identity (`local` only)
 
 `sandbox` skips this step. Do not guide region, login, or workspace selection in `sandbox`.
 
 ### Sealos via sealos-cli
 
-Read regions from `<SKILL_DIR>/config.json` (`default_region`, `regions`). Ask the user to confirm or choose a region.
+Resolve the default region in this order, then ask the user to confirm or
+choose:
+
+1. `region` in `~/.sealos/auth.json` when a previous login exists (the region
+   the user actually works in).
+2. `default_region` in `<SKILL_DIR>/config.json` otherwise. `regions` in the
+   same file lists the known choices.
 
 ```bash
 npx -y sealos-cli@latest whoami
@@ -103,7 +126,7 @@ If region, login, or workspace cannot be confirmed → **STOP**.
 
 Missing `gh` is deferred. If `gh` is present but auth/`write:packages` is incomplete, record a warning and continue. Enforce login or scope refresh only when a later phase selects GHCR push.
 
-## Step 4: Enter the source directory
+## Step 5: Enter the source directory
 
 | Source | Action |
 | --- | --- |
@@ -137,7 +160,7 @@ git -C "$WORK_DIR" remote get-url origin 2>/dev/null
 
 If the source cannot be resolved, entered, or cloned → **STOP**.
 
-## Step 5: Optional submodules and Git LFS
+## Step 6: Optional submodules and Git LFS
 
 If the repository declares submodules or Git LFS:
 
@@ -147,10 +170,20 @@ If the repository declares submodules or Git LFS:
 
 If the repository does not declare them, skip. Do not install tools only because a README mentions a command.
 
-## Step 6: Write `analysis.json`
+## Step 7: Write `analysis.json` and `.sealos/.gitignore`
 
 ```bash
 mkdir -p "$WORK_DIR/.sealos"
+```
+
+Write `$WORK_DIR/.sealos/.gitignore` when it does not exist, so pipeline
+artifacts and deployment state stay out of the user's repository while
+`config.json` (a user-authored override file) remains committable:
+
+```
+*
+!.gitignore
+!config.json
 ```
 
 Overwrite `$WORK_DIR/.sealos/analysis.json` with **only**:
@@ -171,18 +204,6 @@ node "<SKILL_DIR>/scripts/validate-phase-0.mjs" --dir "$WORK_DIR"
 ```
 
 On validation failure → **STOP**. Do not enter mode detection.
-
-## Step 7: Start the deploy log
-
-Create one log for the run (see `references/logging.md`):
-
-```bash
-mkdir -p ~/.sealos/logs
-LOG_FILE=~/.sealos/logs/deploy-$(date +%Y%m%d-%H%M%S).log
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] === Phase 0: Preflight ===" > "$LOG_FILE"
-```
-
-Append `runtime_profile`, `work_dir`, `missing_required` / `missing_deferred`, and Sealos region/workspace (no secrets). Keep `$LOG_FILE` for later phases.
 
 ## Stop conditions
 

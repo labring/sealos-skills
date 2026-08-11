@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  sealos-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install skill dependencies
+        run: |
+          npm install --prefix skills/sealos-deploy
+          npm install --prefix skills/docker-to-sealos
+      - name: Syntax-check all helper scripts
+        run: |
+          set -e
+          for f in skills/sealos-deploy/scripts/*.mjs skills/sealos-deploy/scripts/phase-0/*.mjs; do
+            node --check "$f"
+          done
+      - name: Run sealos-deploy test suite
+        run: |
+          set -e
+          for f in skills/sealos-deploy/scripts/test-*.mjs; do
+            echo "=== $f ==="
+            node "$f"
+          done
+
+  plugin-manifests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate plugin manifests and skill inventory
+        run: python3 scripts/validate-codex-plugin.py
+
+  docker-to-sealos-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run docker-to-sealos quality gate (no artifacts)
+        run: DOCKER_TO_SEALOS_ALLOW_EMPTY_ARTIFACTS=1 python3 skills/docker-to-sealos/scripts/quality_gate.py

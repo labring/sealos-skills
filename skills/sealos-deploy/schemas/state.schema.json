@@ -62,6 +62,21 @@
           "type": "string",
           "pattern": "^https://"
         },
+        "services": {
+          "type": "object",
+          "description": "Multi-service deploys: per-service workload and image map consumed by UPDATE mode.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["workload", "image"],
+            "properties": {
+              "workload": { "type": "string", "minLength": 1 },
+              "container": { "type": "string", "minLength": 1 },
+              "image": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
         "deployed_at": {
           "type": "string",
           "format": "date-time"
@@ -75,6 +90,7 @@
     "history": {
       "type": "array",
       "minItems": 1,
+      "description": "Append-only. When it exceeds 50 entries, keep the first deploy entry and the most recent 49 (enforced by the agent, not this schema).",
       "items": {
         "oneOf": [
           {

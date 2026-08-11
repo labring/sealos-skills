@@ -73,11 +73,27 @@ Match against [labring-actions/templates `kb-0.9/template`](https://github.com/l
 An exact match means the template declares the same source project. Do not fuzzy-match
 by name, language, or framework. Do not similarity-match.
 
-| Match result | `official_template` |
-|--------------|---------------------|
+Run the deterministic matcher instead of browsing the catalog manually:
+
+```bash
+node "<SKILL_DIR>/scripts/match-official-template.mjs" \
+  --github-url "$GITHUB_URL" --repo-name "$REPO_NAME"
+```
+
+The script lists the catalog tree, fetches only name-candidate templates, and
+compares each template's declared source URL against `github_url`
+(normalized: case, `.git` suffix, trailing slash). It prints JSON:
+`{ "official_template": <url|null>, "reason": ..., "checked": [...] }`.
+When `github_url` is `null`, the result is always `null` — a local-only
+project has no verifiable upstream identity.
+
+| Matcher result | `official_template` |
+|----------------|---------------------|
 | No match or multiple matches | `null` |
-| Catalog unreachable | `null` (do not STOP) |
+| Catalog unreachable (`reason: catalog_unreachable`) | `null` (do not STOP) |
 | One exact match | Raw URL of that template `index.yaml` |
+
+Trust the script output. Do not override it with a manual similarity judgment.
 
 When there is one exact match, write the URL whether or not the run later takes the
 fast path.

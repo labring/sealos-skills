@@ -7,8 +7,10 @@ Do not create cloud resources. Do not rewrite delivery bytes in
 API `dryRun` as this gate. Do not ask for group-B values before dry-run passes.
 
 `server-dry-run.ts` is the Phase 5 precheck helper. Call it before collecting
-configuration. Follow docs `specs/server-dry-run` for the full contract; this
-module lists the agent-facing entry and stop conditions.
+configuration. The full normative contract lives at
+[sealos-skills-doc `specs/server-dry-run`](https://github.com/norberia/sealos-skills-doc/blob/main/specs/server-dry-run.mdx);
+this module lists the agent-facing entry, identity resolution, and stop
+conditions — enough to run the phase without the doc.
 
 ## Inputs
 
@@ -63,11 +65,36 @@ TEMPLATE_SHA256="$(shasum -a 256 "$TEMPLATE" | awk '{print $1}')"
 
 ### 2. Target-cluster server-side dry-run
 
-Full normative contract: docs `specs/server-dry-run` (ZH) /
-`en/specs/server-dry-run` (EN).
+Resolve the target identity with these commands (never guess values):
 
-Resolve target context, namespace, service account, `SEALOS_CLOUD_DOMAIN`, and
-`SEALOS_CERT_SECRET_NAME`. Missing any → **STOP** (do not guess).
+```bash
+SEALOS_KUBECTL="KUBECONFIG=$HOME/.sealos/kubeconfig kubectl --insecure-skip-tls-verify"
+
+# Context and namespace come from the Sealos kubeconfig
+TARGET_CONTEXT=$(eval "$SEALOS_KUBECTL config current-context")
+TARGET_NAMESPACE=$(eval "$SEALOS_KUBECTL config view --minify -o jsonpath='{.contexts[0].context.namespace}'")
+
+# Service account: from the authenticated identity when it is a serviceaccount,
+# otherwise "default"
+WHOAMI=$(eval "$SEALOS_KUBECTL auth whoami -o jsonpath='{.status.userInfo.username}'" 2>/dev/null)
+case "$WHOAMI" in
+  system:serviceaccount:*) TARGET_SERVICE_ACCOUNT="${WHOAMI##*:}" ;;
+  *) TARGET_SERVICE_ACCOUNT="default" ;;
+esac
+
+# Cloud domain: the region domain from the current login (App URLs are
+# <host>.<region-domain>, for example evershop-xxxx.gzg.sealos.run)
+SEALOS_CLOUD_DOMAIN=$(jq -r '.region' ~/.sealos/auth.json | sed -E 's#^https?://##; s#/$##')
+
+# Cert secret name: reuse what an existing Ingress in this namespace uses
+SEALOS_CERT_SECRET_NAME=$(eval "$SEALOS_KUBECTL get ingress -n '$TARGET_NAMESPACE' \
+  -o jsonpath='{.items[0].spec.tls[0].secretName}'" 2>/dev/null)
+```
+
+If `SEALOS_CERT_SECRET_NAME` comes back empty (no Ingress in the namespace
+yet), ask the user or check another workload namespace in the same region.
+Any of the five values still missing after these steps → **STOP** (do not
+guess, do not switch region or workspace).
 
 ```bash
 # From skills/sealos-deploy (once): npm install
@@ -136,7 +163,10 @@ dry-run), never by mutating the template for collection.
 
 ### 4. Confirm and write `prepare-result.json`
 
-1. Show region, images, dependencies, and final configuration summary (secrets masked).
+1. Show region, images, dependencies, and final configuration summary (secrets
+   masked). Include the resource totals summed from the template (CPU/memory
+   limits, PVC storage, and KubeBlocks cluster sizes) so the user can judge
+   cost before approving.
 2. Wait for explicit deploy approval. Refusal → **STOP**.
 3. Recompute delivery `template_sha256` (must match the post-dry-run delivery file).
 4. Write:

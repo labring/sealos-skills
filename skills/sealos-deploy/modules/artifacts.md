@@ -46,31 +46,46 @@ JSON artifacts under `.sealos/` are governed by schemas in `<SKILL_DIR>/schemas/
 - `deploy-result.schema.json`
 - `state.schema.json`
 
+Validator split: each phase runs its own `validate-phase-N.mjs` at the phase
+boundary; `validate-artifacts.mjs` is the full sweep for resume, debug, or
+cross-phase checks.
+
 Validate them with:
 
 ```bash
 node "<SKILL_DIR>/scripts/validate-artifacts.mjs" --dir "$WORK_DIR"
 ```
 
-Phase 0 already creates `"$WORK_DIR/.sealos"` when it writes `analysis.json`. After Phase 0 validation:
+Phase 0 already creates `"$WORK_DIR/.sealos"` (with a `.gitignore` that keeps
+everything except `config.json` out of the user's repository) when it writes
+`analysis.json`. After Phase 0 validation:
 
 ```bash
 mkdir -p "$WORK_DIR/.sealos" "$WORK_DIR/.sealos/template" "$WORK_DIR/.sealos/phase-2"
 ```
 
 **Read user config (if exists):**
-If `.sealos/config.json` exists, read it. User-provided values take priority over auto-detection and AI inference throughout the pipeline.
+If `.sealos/config.json` exists, read it. User-provided values take priority over auto-detection and AI inference. Every field has a defined consumer — do not add fields without one:
 
 ```json
 {
+  "deployment_source": "deploy/docker-compose.yml",
+  "public_service": "web",
   "port": 8080,
   "node_version": "20",
   "start_command": "node dist/main.js",
   "build_command": "pnpm build:prod",
   "system_deps": ["ffmpeg"],
   "base_image": "node:20-slim",
-  "env_overrides": { "NODE_ENV": "production" },
-  "skip_phases": ["assess"]
+  "env_overrides": { "NODE_ENV": "production" }
 }
 ```
+
+| Field | Consumed by |
+|-------|-------------|
+| `deployment_source` | Phase 2 source selection (skips inference) |
+| `public_service` | Phase 2 plan / Phase 4 network selection |
+| `port`, `node_version`, `start_command`, `build_command`, `system_deps`, `base_image` | Phase 2 Dockerfile preparation |
+| `env_overrides` | Phase 5 configuration collection |
+
 All fields are optional. If a field is present, it overrides the corresponding auto-detected value.

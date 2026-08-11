@@ -17,11 +17,18 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIGEST_RE = /^.+@sha256:[a-fA-F0-9]{64}$/
 const IMAGE_LINE_RE = /^\s*(?:-\s*)?(?:image|originImageName):\s*["']?([^\s"'#]+)/gm
-const DEPLOY_GATE_ONLY = [
-  'R001', 'R002', 'R003', 'R004', 'R005', 'R006', 'R008', 'R009', 'R010', 'R011',
-  'R012', 'R015', 'R017', 'R019', 'R020', 'R026', 'R028', 'R032', 'R033', 'R034',
-  'R035', 'R039', 'R045', 'R048', 'R051', 'R052',
-].join(',')
+// Single source of truth: the rule list lives next to the rules registry in
+// docker-to-sealos so it cannot drift from the registry it selects from.
+function readDeployGateRules() {
+  const rulesPath = path.resolve(
+    __dirname, '..', '..', 'docker-to-sealos', 'references', 'deploy-gate-rules.txt',
+  )
+  const text = fs.readFileSync(rulesPath, 'utf8').trim()
+  if (!/^R\d+(,R\d+)*$/.test(text)) {
+    throw new Error(`invalid deploy-gate rules file: ${rulesPath}`)
+  }
+  return text
+}
 
 function fail(code, message) {
   process.stderr.write(`${code}: ${message}\n`)
@@ -83,6 +90,13 @@ function runDeployGate(templatePath) {
     fail('P4-V04', `deploy-gate script missing: ${script}`)
   }
 
+  let deployGateRules
+  try {
+    deployGateRules = readDeployGateRules()
+  } catch (error) {
+    fail('P4-V04', error.message)
+  }
+
   const result = spawnSync(
     process.execPath,
     [
@@ -92,7 +106,7 @@ function runDeployGate(templatePath) {
       '--references', path.join(skillRoot, 'references'),
       '--rules-file', path.join(skillRoot, 'references', 'rules-registry.yaml'),
       '--artifacts', templatePath,
-      '--only', DEPLOY_GATE_ONLY,
+      '--only', deployGateRules,
     ],
     { encoding: 'utf8' },
   )

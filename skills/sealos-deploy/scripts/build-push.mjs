@@ -24,10 +24,16 @@ import fs from 'fs'
 import path from 'path'
 import { ensureGhScopesWithPrompt, hasGhCli, run } from './gh-auth-utils.mjs'
 
+// Docker build/push output easily exceeds Node's 1 MiB execSync default,
+// which would misreport a successful build as a failure (ENOBUFS).
+const EXEC_MAX_BUFFER = 64 * 1024 * 1024
+const BUILD_TIMEOUT_MS = Number(process.env.SEALOS_BUILD_TIMEOUT_MS || 1800000)
+
 function getDateTag () {
+  // UTC so tags sort consistently across machines and time zones.
   const d = new Date()
-  const date = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
-  const time = `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`
+  const date = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`
+  const time = `${String(d.getUTCHours()).padStart(2, '0')}${String(d.getUTCMinutes()).padStart(2, '0')}${String(d.getUTCSeconds()).padStart(2, '0')}`
   return `${date}-${time}`
 }
 
@@ -75,7 +81,12 @@ function promptGhLogin () {
 function loginGhcr (user) {
   try {
     const token = run('gh auth token')
-    execSync(`echo "${token}" | docker login ghcr.io -u ${user} --password-stdin`, { stdio: 'pipe' })
+    // Feed the token through stdin only — embedding it in the shell command
+    // string would expose it to every local process via the process list.
+    execSync(`docker login ghcr.io -u ${JSON.stringify(user)} --password-stdin`, {
+      input: token,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
     return true
   } catch {
     return false
@@ -188,8 +199,8 @@ function buildOnly (workDir, imageName, { context = '.', dockerfile = null, tag 
       ? ''
       : `-f ${JSON.stringify(dockerfilePath)} `
     execSync(
-      `docker buildx build --platform linux/amd64 ${dockerfileFlag}-t ${localTag} --load .`,
-      { cwd: contextDir, stdio: 'pipe', timeout: 600000 },
+      `docker buildx build --platform linux/amd64 ${dockerfileFlag}-t ${JSON.stringify(localTag)} --load .`,
+      { cwd: contextDir, stdio: 'pipe', timeout: BUILD_TIMEOUT_MS, maxBuffer: EXEC_MAX_BUFFER },
     )
     return { success: true, mode: 'build', image: localTag, local_tag: localTag }
   } catch (e) {
@@ -200,9 +211,13 @@ function buildOnly (workDir, imageName, { context = '.', dockerfile = null, tag 
 function pushOnly (imageRef, registryInfo, { localTag = null } = {}) {
   try {
     if (localTag && localTag !== imageRef) {
-      execSync(`docker tag ${localTag} ${imageRef}`, { stdio: 'pipe', timeout: 60000 })
+      execSync(`docker tag ${JSON.stringify(localTag)} ${JSON.stringify(imageRef)}`, {
+        stdio: 'pipe', timeout: 60000, maxBuffer: EXEC_MAX_BUFFER,
+      })
     }
-    execSync(`docker push ${imageRef}`, { stdio: 'pipe', timeout: 600000 })
+    execSync(`docker push ${JSON.stringify(imageRef)}`, {
+      stdio: 'pipe', timeout: BUILD_TIMEOUT_MS, maxBuffer: EXEC_MAX_BUFFER,
+    })
     const result = {
       success: true,
       mode: 'push',
@@ -235,8 +250,8 @@ function buildAndPush (workDir, imageName, registryInfo, { context = '.', docker
       ? ''
       : `-f ${JSON.stringify(dockerfilePath)} `
     execSync(
-      `docker buildx build --platform linux/amd64 ${dockerfileFlag}-t ${remoteImage} --push .`,
-      { cwd: contextDir, stdio: 'pipe', timeout: 600000 },
+      `docker buildx build --platform linux/amd64 ${dockerfileFlag}-t ${JSON.stringify(remoteImage)} --push .`,
+      { cwd: contextDir, stdio: 'pipe', timeout: BUILD_TIMEOUT_MS, maxBuffer: EXEC_MAX_BUFFER },
     )
 
     const result = { success: true, mode: 'all', image: remoteImage, registry: registryInfo.registry }

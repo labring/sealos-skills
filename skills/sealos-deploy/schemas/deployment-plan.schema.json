@@ -13,6 +13,38 @@
     "deployment_source": {
       "type": "string",
       "minLength": 1
+    },
+    "source_reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why this source was chosen when the default Helm > Kubernetes > Compose priority was overridden."
+    },
+    "build_targets": {
+      "type": "array",
+      "description": "Components built from this repository. Consumed by Phase 3 and UPDATE mode.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "context", "dockerfile"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "context": { "type": "string", "minLength": 1 },
+          "dockerfile": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "public_service": {
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" }
+      ],
+      "description": "Service key that owns the public entry, when known."
+    },
+    "db_services": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true,
+      "description": "Service keys classified as databases."
     }
   }
 }

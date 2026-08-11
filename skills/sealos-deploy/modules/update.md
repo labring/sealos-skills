@@ -1,8 +1,9 @@
 # Update Path
 
-**This file runs only in UPDATE mode** (entered via `modules/mode.md`).
+**This file runs only in UPDATE mode** (entered via `modules/mode.md`), plus the
+**Live config update** section for the configure intent on a deployed app.
 
-The update path skips Assess, Discover, and Template generation — it reuses the existing deployment and only pushes a new image.
+The update path skips Assess, Discover, and Template generation — it reuses the existing deployment and only pushes new images or applies config changes.
 
 All kubectl commands use the Sealos kubeconfig:
 ```
@@ -23,9 +24,27 @@ CURRENT_IMAGE = last_deploy.image          (e.g., "zhujingyang/evershop:20260309
 DOCKER_HUB_USER = last_deploy.docker_hub_user
 REPO_NAME     = last_deploy.repo_name
 APP_URL       = last_deploy.url
+SERVICES      = last_deploy.services       (multi-service map; may be absent)
 ```
 
----
+## Phase U0: Scope the update
+
+Single-service deploys (`services` absent or one entry): continue to U1 with
+the primary Deployment `APP_NAME`.
+
+Multi-service deploys (`services` has more than one entry, or the Phase 2 plan
+recorded multiple `build_targets`): list the services and ask which to update.
+"All" rebuilds every build target and rolls each workload. Each service maps to
+its own workload and image:
+
+```
+SERVICES = { "<service-key>": { "workload": "<deployment-name>", "image": "<current image>" } }
+```
+
+If `state.json` predates the `services` field and the app is multi-service,
+reconstruct the map from the live footprint
+(`sealos-footprint.mjs --namespace $NAMESPACE --app $APP_NAME`) and confirm it
+with the user before continuing.
 
 ## Phase U1: Build & Push
 
@@ -40,26 +59,26 @@ What would you like to update?
 
 ### Option 1: Rebuild
 
-Reuse the **exact same build logic as Phase 3** — same Dockerfile, same registry
-rules (`local`: GHCR default or Docker Hub public; `sandbox`: Kaniko GHCR), same
-`build-push.mjs` modes or `k8s-kaniko-job`.
+Reuse the **exact same build logic as Phase 3** — same Dockerfile per service,
+same registry rules (`local`: GHCR default or Docker Hub public; `sandbox`:
+Kaniko GHCR), same `build-push.mjs` modes or `k8s-kaniko-job`.
 Default to the registry used by `CURRENT_IMAGE`, but let the user switch if they want
 (local profile only).
 
 ```bash
-# With Node.js (local profile):
+# Per service (local profile). Single-service: one call with $REPO_NAME.
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --mode all --registry ghcr
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO_NAME" --mode all --registry dockerhub
-
-# Without Node.js:
-TAG=$(date +%Y%m%d-%H%M%S)
-NEW_IMAGE="<selected-user>/$REPO_NAME:$TAG"
-docker buildx build --platform linux/amd64 -t "$NEW_IMAGE" --push -f Dockerfile "$WORK_DIR"
 ```
 
-Record `NEW_IMAGE` from the output.
+For multi-service updates, run one build per selected service with that
+service's `--context` / `--dockerfile` from the Phase 2 plan (`build_targets`).
+Record each `NEW_IMAGE` from the output.
 
-If build fails → same error handling as Phase 3 (read error-patterns.md, fix Dockerfile, retry up to 3 times).
+If a build fails, treat it like Phase 3: read the error, consult
+`<SKILL_DIR>/../dockerfile-skill/knowledge/error-patterns.md`, fix the
+Dockerfile or build inputs, and retry. If it still fails after bounded
+remediation → **STOP** (do not roll anything out).
 
 ### Option 2: Restart only
 
@@ -70,23 +89,33 @@ NEW_IMAGE = CURRENT_IMAGE
 
 Will trigger a rollout restart in Phase U2.
 
----
-
 ## Phase U2: Apply Update
 
 ### Image update (Option 1 — new image built):
 
-If `NEW_IMAGE` starts with `ghcr.io/`, create or refresh the app-scoped pull Secret and make sure the existing Deployment references it before swapping images:
+If any `NEW_IMAGE` starts with `ghcr.io/`, create or refresh the app-scoped pull Secret and make sure the existing Deployment references it before swapping images:
 
 ```bash
 node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" "$NAMESPACE" "$APP_NAME" "$NEW_IMAGE" "$APP_NAME"
 ```
+
+Single-service (container name equals the workload name in generated templates
+— confirm with `kubectl get deploy/$APP_NAME -o jsonpath='{.spec.template.spec.containers[*].name}'`
+when unsure):
 
 ```bash
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   set image deployment/$APP_NAME \
   $APP_NAME=$NEW_IMAGE \
   -n $NAMESPACE
+```
+
+Multi-service: repeat per selected service with that service's workload and
+container name:
+
+```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  set image deployment/<workload> <container>=<new-image> -n $NAMESPACE
 ```
 
 ### Restart only (Option 2 — no new image):
@@ -97,17 +126,30 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   -n $NAMESPACE
 ```
 
----
-
 ## Phase U3: Verify Rollout
 
-### Wait for new pods to be ready:
+### Wait for new pods to be ready (per updated workload):
 
 ```bash
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   rollout status deployment/$APP_NAME \
   -n $NAMESPACE --timeout=120s
 ```
+
+**On timeout, inspect before rolling back.** A cold image pull can exceed 120s
+without anything being wrong:
+
+```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  get pods -n $NAMESPACE -l app=$APP_NAME \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.containerStatuses[*].state}{"\n"}{end}'
+```
+
+| Pod state after timeout | Action |
+|--------------------------|--------|
+| `ContainerCreating` / image pulling | Extend the wait once (total 300s), then re-check |
+| `CrashLoopBackOff` / `Error` | Roll back now (below) |
+| `ImagePullBackOff` after the pull Secret exists | Roll back now — the image reference is wrong |
 
 ### On success:
 
@@ -118,7 +160,7 @@ Keep these values for Phase 7:
 ```
 UPDATE_ACTION = set-image   # Option 1
 UPDATE_ACTION = restart     # Option 2
-NEW_IMAGE      = <image after U1>
+NEW_IMAGE      = <image after U1>            # or per-service map
 PREVIOUS_IMAGE = CURRENT_IMAGE
 ```
 
@@ -127,7 +169,7 @@ Then load `modules/phase-7.md`. Phase 7 runs the hard accept, writes `state.json
 
 ### On failure:
 
-Auto-rollback:
+Auto-rollback every workload updated in this run:
 ```bash
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   rollout undo deployment/$APP_NAME \
@@ -147,7 +189,36 @@ Debug:
 Do NOT update `last_deploy.image` on failure — it stays at the old value.
 Do **not** load Phase 7 after a failed rollout.
 
----
+## Live config update (configure intent on a deployed app)
+
+Use this section when the user wants to change env vars on an app that is
+already deployed, without a rebuild. (Pre-deploy configuration lives in
+`modules/phase-5.md`.)
+
+1. Show the current values first (mask anything matching secret patterns):
+
+```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  set env deployment/$APP_NAME --list -n $NAMESPACE
+```
+
+2. Apply the change. Non-secret values may go directly on the Deployment;
+   secret values belong in a Secret referenced by `secretKeyRef`:
+
+```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  set env deployment/$APP_NAME KEY=VALUE -n $NAMESPACE
+```
+
+3. `kubectl set env` triggers a rollout. Verify it with the same Phase U3
+   procedure (timeout, inspect, rollback on crash).
+4. On success, run the Phase 7 hard accept, then append a `set-env` history
+   entry with masked `changes` (schema: `action: set-env`,
+   `method: kubectl-set-env`). On failure after rollback, append a failed
+   entry.
+5. Warn the user that live env edits drift from `.sealos/template/index.yaml`;
+   the next full DEPLOY from template will not include them unless the
+   template or `.sealos/config.json` `env_overrides` is updated too.
 
 ## Update History
 
@@ -165,7 +236,7 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
       "at": "2026-03-09T18:37:30Z",
       "action": "deploy",
       "image": "ghcr.io/miurla/morphic:668daf0e",
-      "method": "kubectl-apply",
+      "method": "template-api",
       "status": "success",
       "note": "Initial deployment"
     },
@@ -205,7 +276,7 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
 | `at` | yes | ISO 8601 timestamp of the operation |
 | `action` | yes | What changed: `deploy`, `set-image`, `set-env`, `patch`, `restart` |
 | `status` | yes | `success` or `failed` |
-| `method` | yes | kubectl command used: `kubectl-apply`, `kubectl-set-image`, `kubectl-set-env`, `kubectl-patch`, `kubectl-rollout-restart` |
+| `method` | yes | Mechanism used: `template-api` or `kubectl-apply` for `deploy`; `kubectl-set-image`, `kubectl-set-env`, `kubectl-patch`, `kubectl-rollout-restart` for the others |
 | `image` | if image changed | New image reference |
 | `previous_image` | if image changed | Image before the update |
 | `changes` | if env/config changed | Array of changes (mask sensitive values: `sk-***`) |

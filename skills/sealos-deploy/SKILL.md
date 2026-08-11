@@ -2,12 +2,9 @@
 name: sealos-deploy
 description: >-
   Deploy or update cloud workloads from GitHub or local source to Sealos Cloud.
-  Run Phase 1 blacklist (STOP only when both cloud-deploy blockers are 100%
-  confirmed) and official-template exact match. Run the default Runtime Truth
-  Pass on the App URL, public route, auth flow, logs, database state, and
-  resource footprint. Use for deploy, update, Runtime Truth verify, footprint or
-  log debug, env configure, or cleanup of a Sealos deploy after user
-  confirmation, and when the user invokes "/sealos-deploy".
+  Use for deploy, update, live-URL verify, footprint or log debug, env
+  configure, or cleanup of a Sealos deploy after user confirmation, and when
+  the user invokes "/sealos-deploy".
 compatibility: >-
   Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are
   required only when the selected path needs local build/push. git is required
@@ -15,8 +12,11 @@ compatibility: >-
   is required for Phase 4/5 TypeScript helpers (`compose-to-template.ts`,
   `check-consistency.ts`, `server-dry-run.ts`). Run `npm install` under
   `skills/sealos-deploy` and `skills/docker-to-sealos` for the `yaml` package.
-  Root Compose conversion also requires kompose. Floating image tags can also
-  require crane.
+  If the skill directory is read-only (plugin cache installs), copy the
+  `skills/` tree to a writable directory (for example `~/.sealos/skill-runtime/`)
+  and run `npm install` there; all scripts resolve sibling paths relative to
+  themselves. Root Compose conversion also requires kompose. Floating image
+  tags can also require crane.
 metadata:
   author: labring
 ---
@@ -24,6 +24,13 @@ metadata:
 # Sealos Deploy
 
 This skill deploys cloud workloads to Sealos Cloud. Phase 1 stops only when the blacklist is 100% confirmed.
+
+Acceptance contract: a deploy or update succeeds only after the Phase 7 hard
+accept — the live public App URL loads without browser failure text (or primary
+workloads are Ready when there is no public entry). Deeper checks (login flow,
+log scan, footprint) are optional diagnostics in
+`references/live-smoke-playbooks.md`; run them when the hard accept fails or
+the user asks.
 
 `<SKILL_DIR>` is the directory that contains this `SKILL.md`.
 
@@ -63,9 +70,9 @@ Select the intent before you run Phase 0. Load only the files for that intent.
 |--------|---------------|------|------------------------|
 | **deploy** | deploy, ship, `/sealos-deploy` | `modules/pipeline.md` (deploy chain from Phase 0) | — |
 | **update** | update the running app, rebuild and roll out | `modules/phase-0.md` → `modules/mode.md` → `modules/update.md` → `modules/phase-7.md` | Phase 1 assess, unless the Update Path requires it |
-| **verify** | Runtime Truth, accept the App URL, smoke test | Sealos auth and kubectl as needed → `modules/phase-7.md` | Phase 1–6 modules |
+| **verify** | accept the App URL, smoke test, deep runtime check | Sealos auth and kubectl as needed → `modules/phase-7.md` | Phase 1–6 modules |
 | **debug** | logs, footprint, why it failed | `references/scripts.md` helpers plus relevant parts of `modules/phase-7.md` | rebuild or redeploy, unless the user asks to fix and redeploy |
-| **configure** | env vars, ports, template inputs | `modules/phase-5.md` | Phase 1–4 modules, unless config forces a rebuild |
+| **configure** | env vars, ports, template inputs | Pre-deploy: `modules/phase-5.md`. Deployed app: `modules/update.md` § Live config update | Phase 1–4 modules, unless config forces a rebuild |
 | **cleanup** | delete this deploy or test instance | Safety above → `references/cleanup.md` (run footprint first) | the deploy path |
 
 Routing rules:
@@ -100,10 +107,15 @@ Full examples live in `references/logging.md`.
 
 Scripts live in `<SKILL_DIR>/scripts/`. They print JSON. Run them with Bash, then parse stdout.
 
+Variables such as `$WORK_DIR`, `$REPO`, `$NS`, `$APP`, `$URL`, and
+`$DEPLOY_ARGS_FILE` are defined by the phase module that owns each command —
+do not run these lines outside their phase context.
+
 ```bash
 node "<SKILL_DIR>/scripts/phase-0/check-running-environment.mjs"
 node "<SKILL_DIR>/scripts/validate-phase-0.mjs" --dir "$WORK_DIR"
 npx -y sealos-cli@latest whoami
+node "<SKILL_DIR>/scripts/match-official-template.mjs" --github-url "$GITHUB_URL"
 node "<SKILL_DIR>/scripts/validate-phase-1.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/validate-phase-2.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode build
@@ -153,47 +165,14 @@ This map applies to **deploy** (DEPLOY mode). For other intents, use the Intent 
 | 6 — Deploy | `modules/phase-6.md` | — |
 | 7 — Post-deploy | `modules/phase-7.md` | User asks for deploy-only output |
 
-Load order and UPDATE branching live in `modules/pipeline.md`.
-
-```
-Input (GitHub URL / local path)
-  │
-  ▼
-[Phase 0] Preflight ── fail → guide user to fix and STOP
-  │ pass
-  ▼
-[Phase 1] Assess (blacklist + official_template)
-  │
-  ├── official fast path ────────────────┐
-  │                                      │
-  ▼                                      │
-[Phase 2] Discover + deployment-plan     │
-  │                                      │
-  ▼                                      │
-[Phase 3] Build & Push (or pass-through) │
-  │                                      │
-  ▼                                      │
-[Phase 4] Generate Sealos Template       │
-  ◄──────────────────────────────────────┘
-  │
-  ▼
-[Phase 5] Pre-deploy preparation
-  │
-  ▼
-[Phase 6] Deploy ── 401 → re-auth / 409 → instance exists
-  │
-  ▼
-[Phase 7] Runtime Truth Pass
-  │
-  ▼
-Done
-```
+Load order and UPDATE branching live in `modules/pipeline.md` (single source
+for the chain — do not restate it elsewhere).
 
 Do not start Phase 1 while Phase 0 still has unresolved **entry** blockers (`missing_required`, identity, or source). Report Docker, `gh`, builder, registry, kubectl, and template-tool gaps early as deferred. Treat those as hard blockers only when the selected path needs them (local build/push, GHCR, Compose/Helm template generation, or deploy/verify).
 
 ## Composition
 
-- **First deploy**: deploy intent end to end, then Runtime Truth.
+- **First deploy**: deploy intent end to end, then the Phase 7 hard accept.
 - **Fix a failure**: debug (logs or footprint), then configure or update as needed, then verify.
 - **Delete a test app**: cleanup only, after user confirmation.
 

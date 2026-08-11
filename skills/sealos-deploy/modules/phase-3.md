@@ -56,6 +56,10 @@ Ask once to install deferred tools; refuse or recheck failure → **STOP**.
 
 ## Parse build targets
 
+When the Phase 2 plan records `build_targets`, use it directly — each entry
+carries `key`, `context`, and `dockerfile`. Fall back to parsing the
+deployment source only when the plan predates that field.
+
 Infer type from `deployment_source`:
 
 | Path | Type |
@@ -80,7 +84,8 @@ Read `runtime_profile` and list targets from `deployment_source`. No targets →
 
 ### 2. Build (concurrency 1)
 
-For each target, one at a time:
+For each target, one at a time. If the host cannot start subagents, the main
+agent runs the same helper commands directly under the same contract.
 
 **`local`:**
 - Subagent / helper **builds only** (`linux/amd64`), does not push.
@@ -102,7 +107,7 @@ For each target, one at a time:
 
 After all local builds succeed:
 
-1. If registry not chosen yet, ask once (GHCR recommended / Docker Hub public-only). Default GHCR when the user is indifferent.
+1. If registry not chosen yet, ask once (GHCR recommended / Docker Hub public-only). Default GHCR when the user is indifferent. When the user picks Docker Hub, state explicitly before pushing: *"This image will be publicly pullable and contains your application code. Anyone can download it. Confirm Docker Hub?"* — proceed only on confirmation.
 2. Push each built image with:
    ```bash
    node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "<image-name>" \
@@ -114,10 +119,16 @@ After all local builds succeed:
 
 ### 4. Main agent — `pull_access` and `build-result.json`
 
-For every pushed image (local push or sandbox Kaniko push):
+For every pushed image (local push or sandbox Kaniko push), record
+`pull_access` deterministically — do not probe:
 
-- Probe anonymous pull when practical.
-- Record `pull_access`: `public` or `ghcr_secret_required` (Docker Hub public path → `public`; uncertain GHCR → `ghcr_secret_required`).
+| Push path | `pull_access` |
+|-----------|---------------|
+| GHCR (local or Kaniko) | `ghcr_secret_required` — new GHCR packages are private by default |
+| Docker Hub public path | `public` |
+
+Record `public` for GHCR only when the user states the package is already
+public (existing public package reused across runs).
 
 Write `.sealos/phase-3/build-result.json`:
 

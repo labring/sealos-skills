@@ -31,7 +31,7 @@ Ask once to install; refuse or recheck failure → **STOP**.
 | Need | Tools |
 |------|-------|
 | Always | `kubectl` and a usable Sealos kubeconfig |
-| Template API helper | Node.js (`deploy-template.mjs`); otherwise `curl` + `jq` |
+| Template API helper | Node.js (`deploy-template.mjs`) — Node is entry-required, so this is always available |
 
 ## Phase constraints
 
@@ -92,8 +92,9 @@ keys, emails, and account values must use `--args-file` (mode `0600`).
 Do **not** pass `--dry-run` in this phase. Template API `dryRun` is not a Phase 5
 substitute and is not the Phase 6 create.
 
-Without Node.js, build the same POST with `curl` + `jq` and the same allowlisted
-response shape as `deploy-template.mjs`. Still one create only.
+Always use `deploy-template.mjs` for the create — it owns response redaction,
+args-file permission checks, and the request timeout. Do not hand-roll the
+POST with curl.
 
 ### 3. Handle the create response
 
@@ -105,7 +106,8 @@ response shape as `deploy-template.mjs`. Still one create only.
 | 403 | Forbidden | Inform user → **STOP** |
 | 409 | Already exists | Inform user → **STOP** (or UPDATE path outside this phase) |
 | 422 | Resource rejected | Repair via Phase 4/5 + server-dry-run; do not kubectl-create |
-| 5xx / timeout / unreachable | Unknown create | **Do not retry. Do not kubectl apply.** Go to step 3.1 |
+| 5xx / timeout (`unknown_create: true` in helper output) | Unknown create | **Do not retry. Do not kubectl apply.** Go to step 3.1 |
+| Connection failure before send (DNS, refused; `unknown_create: false`) | Request never reached the API | Fix connectivity, then retry the single create |
 
 Allowlisted success fields include `name`, `uid`, `resourceType`, `createdAt`, and
 redacted `resources[]`. Credential values and raw admission bodies stay out of
@@ -136,10 +138,27 @@ image. Skip when Phase 2 reused a public image or Docker Hub public-image flow.
 
 Secret creation failure → **STOP**.
 
-### 5. Wait for rollout and public endpoints
+### 5. Wait for rollout and public endpoints (bounded)
 
-Wait for Deployments, Jobs, CronJobs, and operator-managed resources to converge.
-Before Ingress / App URL probes, require non-empty public Service Endpoints.
+Wait with explicit timeouts — never open-ended:
+
+```bash
+# Per workload (repeat for each Deployment/StatefulSet in the template)
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  rollout status deployment/<name> -n "$NAMESPACE" --timeout=300s
+
+# Template Jobs (migrations / init)
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  wait --for=condition=complete job/<name> -n "$NAMESPACE" --timeout=600s
+
+# KubeBlocks database clusters: poll status.phase until Running, up to 600s
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  get clusters.apps.kubeblocks.io -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}'
+```
+
+On a rollout timeout, inspect Pod state before treating it as failure — a slow
+image pull is not a crash (same table as UPDATE U3). Before Ingress / App URL
+probes, require non-empty public Service Endpoints.
 
 On not-ready workloads, read Pod status, events, and logs (init/previous as needed).
 Common signatures: OOM/`137`, permission denied on mounts, bootstrap/password

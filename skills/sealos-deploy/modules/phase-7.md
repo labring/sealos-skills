@@ -24,6 +24,10 @@ For apps with a public App URL:
    - `server-side exception`
    - `Internal Server Error`
    - `Unhandled Runtime Error`
+4. A failed first check is not a failed deploy — slow apps (JVM warm-up, first
+   migrations) legitimately need longer. Re-check every 15 seconds up to a
+   **180-second** budget from the first attempt. The gate fails only when the
+   budget is exhausted without a clean load.
 
 That is the entire runtime pass. Launchpad, login, footprint, object-storage,
 deep log review, and Event convergence are **optional diagnostics** when the URL
@@ -41,7 +45,12 @@ after validate-phase-7 passes (P7-03).
 |-------|--------|
 | Live identity (DEPLOY) | `.sealos/phase-6/deploy-result.json` → `app_name` |
 | Live identity (UPDATE) | Existing `.sealos/state.json` → `last_deploy` plus `NEW_IMAGE` / `UPDATE_ACTION` from U3 |
+| Live identity (standalone verify) | Ask the user for the app name, or list candidates with `sealos-footprint.mjs` / `kubectl get apps.app.sealos.io -n $NAMESPACE` and let the user pick |
 | App URL | Live App / Template API (when public) |
+
+Standalone verify (no `.sealos/` artifacts) runs only steps 1–4; skip the
+`state.json` write and validation unless the user asks to adopt the deployment
+(then follow `modules/mode.md` Step 1.5).
 
 ## Outputs
 
@@ -102,20 +111,26 @@ sleep "$STABILITY_SECONDS"
 Do not require Event-convergence `ok: true` for acceptance. Optional diagnostic
 log comparison may use `--min-window-seconds 20`.
 
-### 3. Public URL check (hard gate)
+### 3. Public URL check (hard gate, bounded retry)
 
 ```bash
-node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$APP_URL"
+DEADLINE=$(( $(date +%s) + 180 ))
+while true; do
+  node "<SKILL_DIR>/scripts/sealos-live-smoke.mjs" --url "$APP_URL" && break
+  [ "$(date +%s)" -ge "$DEADLINE" ] && { echo "hard gate failed after 180s"; break; }
+  sleep 15
+done
 ```
 
 Accept when the entry loads and the body has no browser failure text listed
 above. A login / first-run page counts as success. Do not require completing
 login or a deeper user workflow.
 
-If the smoke helper is unavailable:
+If the smoke helper is unavailable, use curl **with TLS verification on** — a
+broken certificate is a real user-facing failure and must fail the gate:
 
 ```bash
-curl -k -sS -L "$APP_URL" | head -c 200000
+curl -sS -L "$APP_URL" | head -c 200000
 ```
 
 Same rule: HTTP success path without browser failure text.
@@ -152,7 +167,7 @@ App-specific playbooks: `<SKILL_DIR>/references/live-smoke-playbooks.md`.
 ### 5. Write `state.json`
 
 Only after the hard acceptance pass. Full field contract:
-docs `pipeline/state-and-completion` / `en/pipeline/state-and-completion`.
+[sealos-skills-doc `pipeline/state-and-completion`](https://github.com/norberia/sealos-skills-doc/blob/main/pipeline/state-and-completion.mdx).
 
 **DEPLOY path** — write a full new state object (first history entry `action: "deploy"`):
 
@@ -184,6 +199,19 @@ docs `pipeline/state-and-completion` / `en/pipeline/state-and-completion`.
 }
 ```
 
+When Phase 3 built more than one image, also record the per-service map so
+UPDATE mode can roll every workload (see `modules/update.md` Phase U0):
+
+```json
+{
+  "last_deploy": {
+    "services": {
+      "<service-key>": { "workload": "<deployment-name>", "image": "<image ref>" }
+    }
+  }
+}
+```
+
 **UPDATE path** — edit the existing `.sealos/state.json`:
 
 1. Set `last_deploy.image` to `NEW_IMAGE`
@@ -193,8 +221,22 @@ docs `pipeline/state-and-completion` / `en/pipeline/state-and-completion`.
    `modules/update.md` Update History)
 
 `url` must be the exact verified App URL when public. After write, run schema
-validation. For GitHub URL sources, update bridge persistence before deleting a
-temp checkout. Do not delete the user's local project directory.
+validation.
+
+**Bridge state (GitHub URL sources):** when the run cloned a temporary
+checkout, copy the validated `state.json` to the bridge path before deleting
+the checkout, so the next `/sealos-deploy <same-url>` re-enters UPDATE mode.
+Only `state.json` goes to the bridge — never build results or templates:
+
+```bash
+OWNER_REPO="$(printf '%s' "$GITHUB_URL" \
+  | sed -E 's#^https?://github.com/##; s#\.git$##' \
+  | tr '[:upper:]' '[:lower:]')"
+mkdir -p "$HOME/.sealos/deployments/github.com/$OWNER_REPO"
+cp "$WORK_DIR/.sealos/state.json" "$HOME/.sealos/deployments/github.com/$OWNER_REPO/state.json"
+```
+
+Do not delete the user's local project directory.
 
 ### 6. Validate
 
@@ -214,6 +256,8 @@ node "<SKILL_DIR>/scripts/validate-phase-7.mjs" --dir "$WORK_DIR"
 ```
 ✓ Deployed to Sealos Cloud ({region})
 App URL: https://<app-access-url>
+State: .sealos/state.json
+Log: ~/.sealos/logs/deploy-<timestamp>.log
 To update later: /sealos-deploy
 ```
 
@@ -223,6 +267,7 @@ To update later: /sealos-deploy
 ✓ Updated: <APP_NAME>
 ✓ Image: <PREVIOUS_IMAGE> → <NEW_IMAGE>
 App URL: https://<app-access-url>
+Log: ~/.sealos/logs/deploy-<timestamp>.log
 To update again later: /sealos-deploy
 ```
 

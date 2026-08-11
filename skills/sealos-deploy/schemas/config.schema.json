@@ -5,6 +5,16 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "deployment_source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative path under work_dir. Phase 2 uses it verbatim instead of inferring the deployment source."
+    },
+    "public_service": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Service key that owns the public entry. Consumed by Phase 2 planning and Phase 4 network selection."
+    },
     "port": {
       "type": "integer",
       "minimum": 1,
@@ -43,21 +53,6 @@
           { "type": "boolean" }
         ]
       }
-    },
-    "skip_phases": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "assess",
-          "discover",
-          "dockerfile",
-          "build",
-          "template",
-          "deploy"
-        ]
-      },
-      "uniqueItems": true
     }
   }
 }

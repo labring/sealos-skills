@@ -2,7 +2,7 @@
 
 Run this chain from Phase 0. Load one file at a time.
 
-`SKILL_DIR` is the directory that contains this skill's `SKILL.md`. Sibling skills are at `<SKILL_DIR>/../`.
+`<SKILL_DIR>` is the directory that contains this skill's `SKILL.md`. Sibling skills are at `<SKILL_DIR>/../`.
 
 Phase 0 writes `.sealos/analysis.json` with only `runtime_profile`, `work_dir`, `repo_name`, and `github_url`. Later phases extend that file.
 

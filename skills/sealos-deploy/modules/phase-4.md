@@ -94,7 +94,18 @@ workload / service names in the source.
 | Built in-repo | `build-result.json` → `pushed` tag refs |
 | Upstream `image:` | Tag refs in the deployment source |
 
-Resolve each to `repository@sha256:...` for `linux/amd64`. Write:
+Resolve each to `repository@sha256:...` for `linux/amd64`. Preferred commands:
+
+```bash
+# With a local Docker daemon (uses existing registry logins):
+docker buildx imagetools inspect "<ref>" --format '{{json .Manifest}}' | jq -r '.digest'
+# Without Docker (fast path / sandbox):
+crane digest --platform linux/amd64 "<ref>"
+```
+
+For a multi-arch index, take the index digest (`repository@<index-digest>`)
+only if the index contains a `linux/amd64` manifest; otherwise resolution
+fails. Write:
 
 ```json
 {
@@ -156,7 +167,9 @@ Invalid recipe / incomplete topology → **RETURN → Phase 2**.
 
 ```bash
 DOCKER_TO_SEALOS="<SKILL_DIR>/../docker-to-sealos"
-DEPLOY_GATE_ONLY="R001,R002,R003,R004,R005,R006,R008,R009,R010,R011,R012,R015,R017,R019,R020,R026,R028,R032,R033,R034,R035,R039,R045,R048,R051,R052"
+# Single source of truth for the deploy-gate rule subset lives next to the
+# rules registry — never hardcode rule IDs here.
+DEPLOY_GATE_ONLY="$(cat "$DOCKER_TO_SEALOS/references/deploy-gate-rules.txt")"
 node --experimental-strip-types "$DOCKER_TO_SEALOS/scripts/check-consistency.ts" \
   --skill "$DOCKER_TO_SEALOS/SKILL.md" \
   --references "$DOCKER_TO_SEALOS/references" \
