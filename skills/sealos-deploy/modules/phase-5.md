@@ -16,7 +16,7 @@ module lists the agent-facing entry and stop conditions.
 |-------|--------|
 | Template | `.sealos/template/index.yaml` (Phase 1 official fetch or Phase 4) |
 | User overrides | `.sealos/config.json` when present (only **after** dry-run) |
-| Kube identity | Phase 0 (`local`: `KUBECONFIG=~/.sealos/kubeconfig`) |
+| Kube identity | Phase 0 (`local`: helper defaults to `KUBECONFIG=~/.sealos/kubeconfig` + `--insecure-skip-tls-verify`) |
 | Cloud domain / cert Secret | Workspace injection or Phase 0 resolution |
 
 ## Outputs

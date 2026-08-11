@@ -234,6 +234,8 @@ test('renders branches, skips Template, and checks one document at a time', () =
   assert.ok(records.every((item) => !item.has_expression))
   assert.ok(records.every((item) => item.args.includes('--dry-run=server')))
   assert.ok(records.every((item) => item.args.includes('--validate=strict')))
+  assert.ok(records.every((item) => item.args.includes('--insecure-skip-tls-verify')))
+  assert.ok(records.every((item) => item.args.includes('--kubeconfig')))
   assert.ok(!records.some((item) => item.kind === 'Template'))
 })
 

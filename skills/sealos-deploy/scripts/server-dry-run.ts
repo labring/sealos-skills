@@ -23,7 +23,7 @@ import {
   rmSync,
   writeSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
@@ -89,11 +89,14 @@ type CliArgs = {
   cloudDomain: string
   certSecretName: string
   kubectl: string
+  kubeconfig: string
   privateLog: string | null
   repairAuthorization: string | null
   maxScenarios: number
   timeout: number
 }
+
+const DEFAULT_KUBECONFIG = path.join(homedir(), '.sealos', 'kubeconfig')
 
 function isMapping(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -1532,6 +1535,7 @@ function classifyFailure(
 function runServerDryRun(
   documents: RuntimeDocument[],
   kubectl: string,
+  kubeconfig: string,
   context: string,
   namespace: string,
   privateLog: string | null,
@@ -1541,6 +1545,10 @@ function runServerDryRun(
   const failures: Record<string, unknown>[] = []
   const temporary = mkdtempSync(path.join(tmpdir(), 'sealos-server-dry-run-'))
   chmodSync(temporary, 0o700)
+  const kubectlEnv = {
+    ...process.env,
+    KUBECONFIG: kubeconfig,
+  }
   try {
     for (let index = 0; index < documents.length; index += 1) {
       const document = documents[index]
@@ -1553,6 +1561,9 @@ function runServerDryRun(
       privateWrite(filePath, document.content)
       const command = [
         kubectl,
+        '--kubeconfig',
+        kubeconfig,
+        '--insecure-skip-tls-verify',
         '--context',
         context,
         'apply',
@@ -1568,6 +1579,7 @@ function runServerDryRun(
       const result = spawnSync(command[0], command.slice(1), {
         encoding: 'utf8',
         timeout: timeout * 1000,
+        env: kubectlEnv,
       })
       if (result.error && (result.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
         appendPrivateLog(
@@ -1689,6 +1701,7 @@ function parseArgs(argv: string[]): CliArgs {
     cloudDomain: '',
     certSecretName: '',
     kubectl: 'kubectl',
+    kubeconfig: DEFAULT_KUBECONFIG,
     privateLog: null,
     repairAuthorization: null,
     maxScenarios: 64,
@@ -1740,6 +1753,9 @@ function parseArgs(argv: string[]): CliArgs {
         break
       case '--kubectl':
         args.kubectl = take()
+        break
+      case '--kubeconfig':
+        args.kubeconfig = take()
         break
       case '--private-log':
         args.privateLog = take()
@@ -1816,6 +1832,7 @@ function main(argv: string[] = process.argv.slice(2)): number {
     const [warnings, failures] = runServerDryRun(
       documents,
       kubectl,
+      args.kubeconfig,
       args.context,
       args.namespace,
       args.privateLog,
