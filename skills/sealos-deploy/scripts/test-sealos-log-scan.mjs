@@ -207,7 +207,7 @@ test("a post-recovery baseline absorbs fault-injection history after a full wind
   assert.equal(report.baseline.complete, true);
 });
 
-test("a comparison shorter than 60 seconds remains an incomplete observation", () => {
+test("a comparison shorter than 20 seconds remains an incomplete observation", () => {
   const event = warning();
   const baseline = agedBaseline(fixture({ events: [event] }), 5);
   const result = compare(fixture({ events: [event] }), baseline);

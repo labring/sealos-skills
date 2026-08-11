@@ -221,7 +221,7 @@ Keep the reply short. Include command evidence only when it helps the user.
 | `modules/phase-4.md` | Phase 4 template |
 | `modules/phase-5.md` | Phase 5 pre-deploy preparation |
 | `modules/phase-6.md` | Phase 6 deploy and deploy-result |
-| `modules/phase-7.md` | Phase 7 Runtime Truth, state.json, COMPLETE |
+| `modules/phase-7.md` | Phase 7 public URL hard accept, state.json, COMPLETE |
 | `modules/update.md` | UPDATE path |
 | `references/logging.md` | Full deploy log examples |
 | `references/scripts.md` | Full script catalog and Event rules |

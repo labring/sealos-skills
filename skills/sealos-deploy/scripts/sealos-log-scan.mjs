@@ -21,7 +21,7 @@ const SIGNALS = [
 const USAGE = [
   "Usage:",
   "  node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300]",
-  "    [--baseline <report.json|json>] [--min-window-seconds 60]",
+  "    [--baseline <report.json|json>] [--min-window-seconds 20]",
   "",
   "Run once without --baseline to capture a sample, then compare after the stability window.",
 ].join("\n");
@@ -41,7 +41,7 @@ function parseArgs(argv) {
     since: "10m",
     tail: "300",
     baseline: "",
-    minWindowSeconds: "60",
+    minWindowSeconds: "20",
     dryRun: false,
     help: false,
   };
@@ -785,8 +785,8 @@ function validateArgs(args, result) {
   if (!Number.isSafeInteger(result.tail) || result.tail <= 0) {
     throw new Error("--tail must be a positive integer");
   }
-  if (!Number.isSafeInteger(result.minWindowSeconds) || result.minWindowSeconds < 60) {
-    throw new Error("--min-window-seconds must be an integer of at least 60");
+  if (!Number.isSafeInteger(result.minWindowSeconds) || result.minWindowSeconds < 20) {
+    throw new Error("--min-window-seconds must be an integer of at least 20");
   }
 }
 
@@ -801,7 +801,7 @@ function main() {
       since: "10m",
       tail: "300",
       baseline: "",
-      minWindowSeconds: "60",
+      minWindowSeconds: "20",
       dryRun: false,
     });
     result.errors.push({ message: error.message, usage: USAGE });

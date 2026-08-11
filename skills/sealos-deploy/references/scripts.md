@@ -14,7 +14,7 @@ Scripts live in `<SKILL_DIR>/scripts/`. All scripts print JSON on stdout. Run ea
 | `sealos-launchpad-network.mjs` | `node sealos-launchpad-network.mjs --app <app> --app-url <url> [--expected-port <port>] [--region <url>] [--kubeconfig <path>]` | Read-only Launchpad public-network discovery check with App URL and Service port matching |
 | `sealos-footprint.mjs` | `node sealos-footprint.mjs --namespace <ns> --app <app>` | Read-only inventory of Instance/App/workloads/Jobs/KubeBlocks/PVCs/ObjectStorageBuckets for debug and cleanup planning |
 | `sealos-live-smoke.mjs` | `node sealos-live-smoke.mjs --url <url> [--captcha-path <path>] [--login-method json-token\|cookie-json] [--login-path <path>] [--username <user>] [--password <pass>] [--token-path <path>] [--auth-path <path>] [--missing-api-path <path>] [--missing-page-path <path>]` | Read-only or credentialed HTTP smoke test for the App URL, authenticated routes, and API/SPA negative probes |
-| `sealos-log-scan.mjs` | `node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300] [--baseline <report.json\|json>] [--min-window-seconds 60]` | Read-only JSON scan of Pod/init/main logs plus Warning Event convergence after readiness, login, and documented API or missing-static-asset checks |
+| `sealos-log-scan.mjs` | `node sealos-log-scan.mjs --namespace <ns> --app <app> [--since 10m] [--tail 300] [--baseline <report.json\|json>] [--min-window-seconds 20]` | Optional diagnostic: read-only JSON scan of Pod/init/main logs plus Warning Event comparison. Not a Phase 7 hard acceptance gate. |
 | `phase-0/check-running-environment.mjs` | `node phase-0/check-running-environment.mjs` | Phase 0 probe: `runtime_profile`, present/missing deps, GHCR-related warnings. Detect only. |
 | `validate-phase-0.mjs` | `node validate-phase-0.mjs --dir <work-dir>` | Phase 0 acceptance for the four-field `analysis.json` |
 | `validate-phase-1.mjs` | `node validate-phase-1.mjs --dir <work-dir>` | Phase 1 acceptance for `official_template` and preserved Phase 0 fields |
@@ -45,13 +45,18 @@ The script prints an allowlisted network summary. It does not print raw Launchpa
 
 ## Runtime Event acceptance
 
-Runtime Event acceptance uses two scans.
+Event comparison is an **optional diagnostic**, not a Phase 7 hard gate. Phase 7
+hard acceptance is: public App URL opens without browser failure text (or Ready
+when there is no public entry), after a **20-second** settle window.
+
+When using `sealos-log-scan.mjs` for debugging:
 
 1. After readiness, capture the first report with no baseline.
-2. Wait at least 60 seconds.
-3. Pass that report through `--baseline` for the final scan.
+2. Wait at least 20 seconds.
+3. Pass that report through `--baseline` for the comparison (`--min-window-seconds 20`).
 
-Extend `--min-window-seconds` so that the window covers one full known reconciliation, probe, or scheduled-work period.
+Extend `--min-window-seconds` only when debugging a longer known reconciliation,
+probe, or scheduled-work period.
 
 An initial Warning Event is an observation. A Warning that advances after the baseline is an active failure. An unresolved referenced Secret, a Ready transition, a Pod replacement, or a restart delta after the baseline is also an active failure.
 

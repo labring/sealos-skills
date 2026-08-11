@@ -1,6 +1,6 @@
 # Live Smoke Playbooks
 
-Use these playbooks after a Sealos Template API deployment reaches rollout success. A running Pod is a scheduling signal; the acceptance signal is the real Sealos App entry URL, app logs, and the first meaningful user workflow.
+Use these playbooks after a Sealos Template API deployment reaches rollout success. Phase 7 hard acceptance is only: the public App URL opens without browser failure text (or Ready when there is no public entry), after a 20-second settle window. The sections below are optional diagnostics and app-specific deep checks.
 
 ## Contents
 
@@ -64,16 +64,18 @@ When first boot exits on password policy, invalid root configuration, or reconci
 
 ## Event Convergence Gate
 
+Optional diagnostic only — not a Phase 7 hard acceptance gate.
+
 Capture an initial `sealos-log-scan.mjs` report after the workload reaches Ready. This no-baseline report records Warning Events as `observed` while log findings, Pod readiness failures, and kubectl errors retain failure status. A Pod in `Succeeded` phase with zero exit codes is a completed workload; failed or non-zero completion remains blocking. Init output from a container that completed before the baseline may be retained as `historicalCompletedInit: true` when completion time, exit code, Pod UID, restarts, and completion markers remain unchanged; the comparison uses the baseline timestamp as the log increment boundary. OOM, CrashLoop, traceback, active init/main failures, and changed completion signals remain blocking.
 
-After the user workflow and missing-path check, wait at least 60 seconds and compare against the initial report:
+After deeper debugging, wait at least 20 seconds and compare against the initial report:
 
 ```bash
 node scripts/sealos-log-scan.mjs \
   --namespace "$NAMESPACE" --app "$APP_NAME" \
   > /tmp/sealos-initial-baseline.json
 
-STABILITY_SECONDS=60
+STABILITY_SECONDS=20
 sleep "$STABILITY_SECONDS"
 node scripts/sealos-log-scan.mjs \
   --namespace "$NAMESPACE" --app "$APP_NAME" \
@@ -81,7 +83,7 @@ node scripts/sealos-log-scan.mjs \
   --min-window-seconds "$STABILITY_SECONDS"
 ```
 
-Set `STABILITY_SECONDS` long enough to cover one full documented reconciliation, probe, queue, or scheduled-work period. Stable startup-probe and asynchronous Secret warnings become `historical-transient` after the referenced Secret exists, the Pod remains Ready, the Warning count and last-seen time stay fixed, and restart count stays fixed. A Warning advance, unresolved Secret, Pod replacement, Ready transition, or restart delta becomes `active-failure`.
+Extend `STABILITY_SECONDS` only when debugging a longer documented reconciliation, probe, queue, or scheduled-work period. Stable startup-probe and asynchronous Secret warnings become `historical-transient` after the referenced Secret exists, the Pod remains Ready, the Warning count and last-seen time stay fixed, and restart count stays fixed. A Warning advance, unresolved Secret, Pod replacement, Ready transition, or restart delta becomes `active-failure`.
 
 For intentional fault injection, save a pre-injection report, perform the injection, recover to Ready, and capture a new recovery baseline. Run the final comparison against the recovery baseline after the full stability window. Keep the pre-injection report and injected symptoms as evidence of the controlled fault window.
 
@@ -219,4 +221,4 @@ Runtime acceptance:
 - Authenticated `/rest/system/status` and `/rest/system/connections` return HTTP 200.
 - One authenticated documented API negative route returns HTTP 404.
 - Logs stay clear after login and the missing-path request.
-- A 60-second stability check keeps the Pod `1/1 Running` with zero restarts.
+- A 20-second settle window keeps the Pod `1/1 Running` with zero restarts.
