@@ -22,6 +22,9 @@ import { spawnSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** Entry-required in Phase 0. All other probed tools are path-deferred. */
 const REQUIRED_IDS = new Set(['node'])
@@ -70,25 +73,18 @@ function checkBinary(id, command, args, { minMajor = null, minMinor = 0 } = {}) 
   return { id, ok: true, version }
 }
 
-function checkPython() {
-  const candidates = ['python3', 'python']
-  for (const command of candidates) {
-    if (!commandExists(command)) continue
-    const versionResult = run(command, ['--version'])
-    if (versionResult.status !== 0) continue
-    const version = firstLine(versionResult.stdout) || firstLine(versionResult.stderr)
-    const parsed = parseSemverMajorMinor(version)
-    if (!parsed || parsed.major < 3 || (parsed.major === 3 && parsed.minor < 8)) {
-      return { id: 'python', ok: false, reason: 'version_too_low', version, required: '3.8+', command }
+function checkSiblingYamlPackage(id, relativeSkillDir) {
+  const skillRoot = path.resolve(__dirname, '..', '..', '..', relativeSkillDir)
+  const yamlEntry = path.join(skillRoot, 'node_modules', 'yaml', 'package.json')
+  if (!fs.existsSync(yamlEntry)) {
+    return {
+      id,
+      ok: false,
+      reason: 'missing',
+      hint: `run npm install under skills/${relativeSkillDir}`,
     }
-
-    const yamlResult = run(command, ['-c', 'import yaml'])
-    if (yamlResult.status !== 0) {
-      return { id: 'python', ok: true, version, command, pyyaml: false }
-    }
-    return { id: 'python', ok: true, version, command, pyyaml: true }
   }
-  return { id: 'python', ok: false, reason: 'missing' }
+  return { id, ok: true, path: yamlEntry }
 }
 
 function checkDockerDaemon() {
@@ -160,8 +156,10 @@ function main() {
   const runtime_profile = resolveRuntimeProfile()
   const sharedChecks = [
     checkBinary('git', 'git', ['--version']),
-    checkBinary('node', 'node', ['--version'], { minMajor: 18 }),
-    checkPython(),
+    // Node 22+ required for --experimental-strip-types (Phase 4/5 TypeScript helpers).
+    checkBinary('node', 'node', ['--version'], { minMajor: 22 }),
+    checkSiblingYamlPackage('sealos_deploy_yaml', 'sealos-deploy'),
+    checkSiblingYamlPackage('docker_to_sealos_yaml', 'docker-to-sealos'),
     checkBinary('kompose', 'kompose', ['version']),
     checkBinary('helm', 'helm', ['version', '--short'], { minMajor: 3 }),
     checkKubectl(),
@@ -181,16 +179,8 @@ function main() {
     ? [...sharedChecks, ...localOnlyChecks]
     : sharedChecks
 
-  // PyYAML is tracked separately; both python and pyyaml are deferred (Phase 4).
-  // Phase 5 server-dry-run.ts uses Node + skills/sealos-deploy yaml package.
-  const python = checks.find((item) => item.id === 'python')
-  if (python?.ok && python.pyyaml === false) {
-    checks.push({ id: 'pyyaml', ok: false, reason: 'missing' })
-  } else if (python?.ok && python.pyyaml === true) {
-    checks.push({ id: 'pyyaml', ok: true })
-  } else {
-    checks.push({ id: 'pyyaml', ok: false, reason: python?.ok === false ? python.reason : 'python_missing' })
-  }
+  // Phase 4 compose/gate TS scripts need docker-to-sealos yaml; Phase 5 needs sealos-deploy yaml.
+  // Both are deferred (install via npm install in the skill directory when that phase runs).
 
   const details = {}
   const present = []

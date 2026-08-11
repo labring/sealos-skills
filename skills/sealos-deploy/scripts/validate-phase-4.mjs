@@ -78,15 +78,15 @@ function runDeployGate(templatePath) {
   }
 
   const skillRoot = path.resolve(__dirname, '..', '..', 'docker-to-sealos')
-  const script = path.join(skillRoot, 'scripts', 'check_consistency.py')
+  const script = path.join(skillRoot, 'scripts', 'check-consistency.ts')
   if (!fs.existsSync(script)) {
     fail('P4-V04', `deploy-gate script missing: ${script}`)
   }
 
-  const python = process.env.PYTHON_BIN || 'python3'
   const result = spawnSync(
-    python,
+    process.execPath,
     [
+      '--experimental-strip-types',
       script,
       '--skill', path.join(skillRoot, 'SKILL.md'),
       '--references', path.join(skillRoot, 'references'),

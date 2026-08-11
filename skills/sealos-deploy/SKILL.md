@@ -12,9 +12,11 @@ compatibility: >-
   Sealos auth/workspace are required for deploys. Docker, buildx, and gh CLI are
   required only when the selected path needs local build/push. git is required
   when cloning from a GitHub URL or when git metadata is needed. Node.js 22+
-  is required for Phase 5 (`server-dry-run.ts`; run `npm install` under
-  `skills/sealos-deploy`). Root Compose conversion also requires Python/PyYAML
-  and kompose. Floating image tags can also require crane.
+  is required for Phase 4/5 TypeScript helpers (`compose-to-template.ts`,
+  `check-consistency.ts`, `server-dry-run.ts`). Run `npm install` under
+  `skills/sealos-deploy` and `skills/docker-to-sealos` for the `yaml` package.
+  Root Compose conversion also requires kompose. Floating image tags can also
+  require crane.
 metadata:
   author: labring
 ---

@@ -34,7 +34,7 @@ Ask once to install deferred tools; refuse or recheck failure → **STOP**.
 
 | Need | Tools |
 |------|-------|
-| Always | Python 3.8+ with PyYAML |
+| Always | Node.js 22+; `npm install` in `skills/docker-to-sealos` (`yaml`) |
 | Compose → template | `kompose` |
 | Helm source | Helm 3+ |
 | Digest resolve | Registry inspect tool (`crane`, or equivalent) |
@@ -47,7 +47,7 @@ Ask once to install deferred tools; refuse or recheck failure → **STOP**.
 | P4-02 | Do not modify `deployment_source` |
 | P4-03 | Do not write digests into `build-result.json` |
 | P4-04 | Pin digest for every container image in the deployment source |
-| P4-05 | Deploy gate = `check_consistency.py` rule subset only (never full `quality_gate.py`) |
+| P4-05 | Deploy gate = `check-consistency.ts` rule subset only (never full `quality_gate.py`) |
 
 ## Procedure
 
@@ -115,26 +115,22 @@ overwrites every workload `image` / `originImageName` from `image-digests.json`*
 
 | Type | Conversion |
 |------|------------|
-| Compose | `compose_to_template.py` with `--kompose-mode always`, `--dry-run`, write stdout to `.sealos/template/index.yaml` |
+| Compose | `compose-to-template.ts` with `--kompose-mode always`, `--dry-run`, write stdout to `.sealos/template/index.yaml` |
 | Helm | Adapt from `rendered.yaml` |
 | Kubernetes | Adapt from the snapshot manifest |
 
 Compose example (use flat `repo_name` / `github_url` from `analysis.json`):
 
 ```bash
-PYTHON_BIN="$(command -v python3 || command -v python)"
 APP_NAME="$(
-  "$PYTHON_BIN" -c \
-    'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8"))["repo_name"].rsplit("/",1)[-1])' \
-    "$WORK_DIR/.sealos/analysis.json"
+  jq -r '.repo_name|split("/")|last' "$WORK_DIR/.sealos/analysis.json"
 )"
 GITHUB_URL="$(
-  "$PYTHON_BIN" -c \
-    'import json,sys; v=json.load(open(sys.argv[1],encoding="utf-8")).get("github_url"); print(v or "")' \
-    "$WORK_DIR/.sealos/analysis.json"
+  jq -r '.github_url // empty' "$WORK_DIR/.sealos/analysis.json"
 )"
 COMPOSE_FILE="$WORK_DIR/.sealos/phase-4/source/docker-compose.yml"
-GENERATED="$("$PYTHON_BIN" "<SKILL_DIR>/../docker-to-sealos/scripts/compose_to_template.py" \
+GENERATED="$(node --experimental-strip-types \
+  "<SKILL_DIR>/../docker-to-sealos/scripts/compose-to-template.ts" \
   --compose "$COMPOSE_FILE" \
   --app-name "$APP_NAME" \
   --git-repo "$GITHUB_URL" \
@@ -161,7 +157,7 @@ Invalid recipe / incomplete topology → **RETURN → Phase 2**.
 ```bash
 DOCKER_TO_SEALOS="<SKILL_DIR>/../docker-to-sealos"
 DEPLOY_GATE_ONLY="R001,R002,R003,R004,R005,R006,R008,R009,R010,R011,R012,R015,R017,R019,R020,R026,R028,R032,R033,R034,R035,R039,R045,R048,R051,R052"
-"$PYTHON_BIN" "$DOCKER_TO_SEALOS/scripts/check_consistency.py" \
+node --experimental-strip-types "$DOCKER_TO_SEALOS/scripts/check-consistency.ts" \
   --skill "$DOCKER_TO_SEALOS/SKILL.md" \
   --references "$DOCKER_TO_SEALOS/references" \
   --rules-file "$DOCKER_TO_SEALOS/references/rules-registry.yaml" \
@@ -226,4 +222,4 @@ dbprovider labels (R040); deploy gate does not enforce those two.
 
 | Path | Use |
 |------|-----|
-| `<SKILL_DIR>/../docker-to-sealos/` | Compose conversion + deploy-gate `check_consistency.py` |
+| `<SKILL_DIR>/../docker-to-sealos/` | Compose conversion + deploy-gate `check-consistency.ts` |
