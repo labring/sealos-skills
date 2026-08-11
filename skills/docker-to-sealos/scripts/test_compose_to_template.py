@@ -937,6 +937,47 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual(8080, startup.get("httpGet", {}).get("port"))
             self.assertEqual(1, startup.get("failureThreshold"))
 
+    def test_compose_healthcheck_without_start_period_still_emits_startup_probe(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compose = root / "docker-compose.yml"
+            write_file(
+                compose,
+                """
+                services:
+                  app:
+                    image: ghcr.io/example/demo:1.0.0
+                    ports:
+                      - "8080:8080"
+                    healthcheck:
+                      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+                      interval: 20s
+                      timeout: 5s
+                      retries: 3
+                """,
+            )
+            index_path, _ = convert_compose_to_template(
+                compose_path=compose,
+                output_root=root / "template",
+                meta=self._meta("demo"),
+            )
+            docs = parse_yaml_documents(index_path)
+            workload = next(doc for doc in docs if doc.get("kind") in {"Deployment", "StatefulSet"})
+            container = workload["spec"]["template"]["spec"]["containers"][0]
+
+            liveness = container.get("livenessProbe", {})
+            readiness = container.get("readinessProbe", {})
+            startup = container.get("startupProbe", {})
+            self.assertEqual("/healthz", liveness.get("httpGet", {}).get("path"))
+            self.assertEqual(8080, liveness.get("httpGet", {}).get("port"))
+            self.assertEqual(10, liveness.get("initialDelaySeconds"))
+            self.assertEqual("/healthz", readiness.get("httpGet", {}).get("path"))
+            self.assertEqual("/healthz", startup.get("httpGet", {}).get("path"))
+            self.assertEqual(8080, startup.get("httpGet", {}).get("port"))
+            self.assertEqual(10, startup.get("periodSeconds"))
+            self.assertEqual(3, startup.get("timeoutSeconds"))
+            self.assertEqual(12, startup.get("failureThreshold"))
+
     def test_skips_socket_mount_from_stateful_storage_conversion(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

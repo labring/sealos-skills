@@ -1267,6 +1267,18 @@ def build_probe_pair_from_compose_healthcheck(service: Mapping[str, Any], ports:
             }
         )
         result["startupProbe"] = startup
+    else:
+        # Always emit startupProbe with liveness/readiness so slow apps without
+        # compose start_period are not killed by the default 10s liveness delay.
+        startup = dict(action)
+        startup.update(
+            {
+                "periodSeconds": 10,
+                "timeoutSeconds": 3,
+                "failureThreshold": 12,
+            }
+        )
+        result["startupProbe"] = startup
     return result
 
 

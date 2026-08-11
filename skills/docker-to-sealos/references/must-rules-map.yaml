@@ -144,7 +144,7 @@ must_rules:
     enforcement:
       type: rule
       target: R036
-  - must: "When official application health checks are available, managed workloads must define `livenessProbe`, `readinessProbe`, and (for slow bootstrap apps) `startupProbe`, aligned with official endpoints/commands."
+  - must: "When official application health checks are available, managed workloads must define `livenessProbe`, `readinessProbe`, and `startupProbe`, aligned with official endpoints/commands. Compose `healthcheck` conversion always emits `startupProbe` (from `start_period` when set; otherwise a 120s default window)."
     enforcement:
       type: rule
       target: R024

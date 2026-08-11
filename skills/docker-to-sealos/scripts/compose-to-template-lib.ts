@@ -1273,13 +1273,21 @@ export function buildProbePairFromComposeHealthcheck(
   const startPeriod = parseComposeDurationSeconds(hc.start_period)
   if (startPeriod && startPeriod > 0) {
     const period = Number(timing.periodSeconds ?? 10)
-    const startup = {
+    result.startupProbe = {
       ...action,
       periodSeconds: Math.max(1, period),
       timeoutSeconds: Number(timing.timeoutSeconds ?? 5),
       failureThreshold: Math.max(1, Math.ceil(startPeriod / Math.max(1, period))),
     }
-    result.startupProbe = startup
+  } else {
+    // Always emit startupProbe with liveness/readiness so slow apps without
+    // compose start_period are not killed by the default 10s liveness delay.
+    result.startupProbe = {
+      ...action,
+      periodSeconds: 10,
+      timeoutSeconds: 3,
+      failureThreshold: 12,
+    }
   }
   return result
 }

@@ -730,9 +730,9 @@ spec:
 ## Health Check Mapping
 
 Conversion priority:
-1. When Docker Compose has a `healthcheck`, convert it to `livenessProbe` + `readinessProbe`
-2. When Compose does not provide one but the official documentation clearly specifies a health endpoint/command, `livenessProbe` + `readinessProbe` must still be generated
-3. For applications with slow initial startup (e.g., those that need to initialize a database), a `startupProbe` must also be generated to avoid premature failure during startup
+1. When Docker Compose has a `healthcheck`, convert it to `livenessProbe` + `readinessProbe` **and** a same path/port `startupProbe`
+2. When Compose does not provide one but the official documentation clearly specifies a health endpoint/command, `livenessProbe` + `readinessProbe` must still be generated (official profiles already include `startupProbe`)
+3. Compose `start_period` maps to `startupProbe.failureThreshold = ceil(start_period / periodSeconds)`. When `start_period` is absent, still emit a default `startupProbe` (`periodSeconds: 10`, `timeoutSeconds: 3`, `failureThreshold: 12` ≈ 120s) so slow apps are not killed by the default liveness `initialDelaySeconds: 10`
 
 Official runtime profiles override guessed root-path probes. For example, LibreChat RAG uses `/health` on port `8000`, and the LibreChat Admin API uses `/health` on port `3000`; probing `/` is not an acceptable substitute.
 
