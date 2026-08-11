@@ -186,6 +186,6 @@ On failure, do not **CONTINUE → Phase 7**.
 
 ## Notes for Phase 7
 
-- Runtime Truth, authenticated browser checks, and `.sealos/state.json` belong in
+- Runtime hard accept (public URL or Ready) and `.sealos/state.json` belong in
   `modules/phase-7.md`.
 - Do not report deploy success to the user until Phase 7 completes.

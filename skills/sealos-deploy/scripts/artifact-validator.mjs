@@ -284,13 +284,15 @@ function validateStateSemantics(data, errors) {
     pushError(errors, '$.last_deploy.last_updated_at', 'must not be earlier than deployed_at')
   }
 
-  try {
-    const url = new URL(lastDeploy.url)
-    if (url.protocol !== 'https:') {
+  if (lastDeploy.url !== undefined && lastDeploy.url !== null) {
+    try {
+      const url = new URL(lastDeploy.url)
+      if (url.protocol !== 'https:') {
+        pushError(errors, '$.last_deploy.url', 'must be a valid https URL')
+      }
+    } catch {
       pushError(errors, '$.last_deploy.url', 'must be a valid https URL')
     }
-  } catch {
-    pushError(errors, '$.last_deploy.url', 'must be a valid https URL')
   }
 
   let previousAt = null

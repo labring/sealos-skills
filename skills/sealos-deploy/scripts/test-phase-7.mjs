@@ -30,21 +30,24 @@ function withFixture(fn) {
   }
 }
 
-function validState(appName = 'demo-app-abc12345') {
+function validState(appName = 'demo-app-abc12345', { includeUrl = true } = {}) {
+  const lastDeploy = {
+    app_name: appName,
+    app_host: 'demo-public',
+    namespace: 'ns-demo',
+    region: 'usw-1.sealos.io',
+    image: 'ghcr.io/example/demo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    docker_hub_user: null,
+    repo_name: 'demo',
+    deployed_at: '2026-08-10T00:00:00Z',
+    last_updated_at: '2026-08-10T00:00:00Z',
+  }
+  if (includeUrl) {
+    lastDeploy.url = 'https://demo-public.usw-1.sealos.app'
+  }
   return {
     version: '1.0',
-    last_deploy: {
-      app_name: appName,
-      app_host: 'demo-public',
-      namespace: 'ns-demo',
-      region: 'usw-1.sealos.io',
-      image: 'ghcr.io/example/demo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      docker_hub_user: null,
-      repo_name: 'demo',
-      url: 'https://demo-public.usw-1.sealos.app',
-      deployed_at: '2026-08-10T00:00:00Z',
-      last_updated_at: '2026-08-10T00:00:00Z',
-    },
+    last_deploy: lastDeploy,
     history: [
       {
         at: '2026-08-10T00:00:00Z',
@@ -70,6 +73,7 @@ withFixture((tmp) => {
   const body = JSON.parse(result.stdout)
   assert.equal(body.ok, true)
   assert.equal(body.app_name, 'demo-app-abc12345')
+  assert.equal(body.deploy_result, true)
 })
 
 withFixture((tmp) => {
@@ -90,7 +94,7 @@ withFixture((tmp) => {
     app_name: 'demo-app-abc12345',
   })
   const bad = validState()
-  delete bad.last_deploy.url
+  bad.last_deploy.image = ''
   writeJson(path.join(tmp, '.sealos', 'state.json'), bad)
 
   const result = runValidate(tmp)
@@ -109,12 +113,23 @@ withFixture((tmp) => {
   assert.match(result.stderr, /P7-V01/)
 })
 
+// UPDATE path: no deploy-result — state identity alone is enough for P7-V02.
 withFixture((tmp) => {
   writeJson(path.join(tmp, '.sealos', 'state.json'), validState())
 
   const result = runValidate(tmp)
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /P7-V02/)
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  const body = JSON.parse(result.stdout)
+  assert.equal(body.ok, true)
+  assert.equal(body.deploy_result, false)
+})
+
+// Private-only: url may be omitted.
+withFixture((tmp) => {
+  writeJson(path.join(tmp, '.sealos', 'state.json'), validState('demo-app-abc12345', { includeUrl: false }))
+
+  const result = runValidate(tmp)
+  assert.equal(result.status, 0, result.stderr || result.stdout)
 })
 
 console.log('test-phase-7.mjs: ok')

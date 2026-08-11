@@ -111,21 +111,19 @@ KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
 
 ### On success:
 
-Update `.sealos/state.json`:
-- Set `last_deploy.image` to `NEW_IMAGE`
-- Set `last_deploy.last_updated_at` to current ISO timestamp
-- Append an entry to `history` (see Update History below)
+Do **not** write success into `.sealos/state.json`. Do **not** report COMPLETE.
 
-Present to user:
+Keep these values for Phase 7:
+
 ```
-✓ Updated: <APP_NAME>
-✓ Image: <CURRENT_IMAGE> → <NEW_IMAGE>
-✓ Rollout: complete
-
-App URL: <APP_URL>
-
-To update again later, run: /sealos-deploy
+UPDATE_ACTION = set-image   # Option 1
+UPDATE_ACTION = restart     # Option 2
+NEW_IMAGE      = <image after U1>
+PREVIOUS_IMAGE = CURRENT_IMAGE
 ```
+
+Then load `modules/phase-7.md`. Phase 7 runs the hard accept, writes `state.json`
+(including the success history entry), runs `validate-phase-7.mjs`, and reports COMPLETE.
 
 ### On failure:
 
@@ -147,6 +145,7 @@ Debug:
 ```
 
 Do NOT update `last_deploy.image` on failure — it stays at the old value.
+Do **not** load Phase 7 after a failed rollout.
 
 ---
 
@@ -216,6 +215,6 @@ Every update (successful or failed) appends an entry to `history` in `.sealos/st
 
 - **Always append, never rewrite** — history is append-only. Never delete or modify previous entries.
 - **Mask secrets** — API keys, passwords, tokens: show only first 3 chars + `***` (e.g., `sk-***`).
-- **Initial deploy counts** — the first entry should be `action: "deploy"` written by Phase 6 checkpoint.
+- **Initial deploy counts** — the first entry should be `action: "deploy"` written by Phase 7 after first deploy.
 - **Failed updates count** — record failures so the user can see what was attempted and why it didn't work.
 - **Keep it bounded** — if history exceeds 50 entries, trim the oldest entries (keep the first `deploy` entry and the most recent 49).

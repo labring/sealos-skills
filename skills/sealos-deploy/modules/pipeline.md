@@ -1,6 +1,6 @@
 # Deployment Pipeline
 
-After Phase 0 passes, run this chain. Load one file at a time.
+Run this chain from Phase 0. Load one file at a time.
 
 `SKILL_DIR` is the directory that contains this skill's `SKILL.md`. Sibling skills are at `<SKILL_DIR>/../`.
 
@@ -16,15 +16,16 @@ Phase 0 writes `.sealos/analysis.json` with only `runtime_profile`, `work_dir`, 
 6. `modules/phase-2.md` — agentlens scout, `deployment-plan`, image prep
 7. `modules/phase-3.md` — Build and push (no targets → pass through)
 8. `modules/phase-4.md` — Generate Sealos template
-9. `modules/phase-5.md` — Pre-deploy preparation (server dry-run → config → confirm)
+9. `modules/phase-5.md` — Pre-deploy preparation: server dry-run, then config, then confirm
 10. `modules/phase-6.md` — Deploy once, write deploy-result
-11. `modules/phase-7.md` — Public URL hard accept, state.json, COMPLETE
+11. `modules/phase-7.md` — Public URL hard accept (or Ready when there is no public URL), state.json, COMPLETE
 
 ## Update chain
 
-1. `modules/mode.md` — confirm UPDATE mode and context
-2. `modules/update.md` — build or restart, apply, verify rollout, history
-3. `modules/phase-7.md` — accept the running app
+1. `modules/phase-0.md` — Preflight (ends with `validate-phase-0.mjs`)
+2. `modules/mode.md` — Make sure that the mode is UPDATE and the context is set
+3. `modules/update.md` — build or restart, apply, verify rollout, history
+4. `modules/phase-7.md` — Public URL hard accept (or Ready when there is no public URL), state.json, COMPLETE
 
 ## Rules
 

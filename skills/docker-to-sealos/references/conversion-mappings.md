@@ -1189,7 +1189,5 @@ volumes:
       name: ${{ defaults.app_name }}
 ```
 
-Real-world examples: see `skills/sealos-deploy/knowledge/lessons-learned.md` (EverShop case study)
-
 ### Sensitive Information
 - Docker business env vars → `env[].value` (`defaults`/`inputs`)

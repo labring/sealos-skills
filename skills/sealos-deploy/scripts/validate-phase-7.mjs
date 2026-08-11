@@ -65,31 +65,35 @@ function main() {
     fail('P7-V01', `state.json schema validation failed: ${detail}`)
   }
 
-  const deploy = readJson(deployPath, 'P7-V02', '.sealos/phase-6/deploy-result.json')
-  if (!deploy || typeof deploy !== 'object' || Array.isArray(deploy)) {
-    fail('P7-V02', 'deploy-result.json must be a JSON object')
-  }
-  if (typeof deploy.app_name !== 'string' || deploy.app_name.trim() === '') {
-    fail('P7-V02', 'deploy-result app_name must be a non-empty string')
-  }
-
   const state = readJson(statePath, 'P7-V01', '.sealos/state.json')
   const stateAppName = state?.last_deploy?.app_name
   if (typeof stateAppName !== 'string' || stateAppName.trim() === '') {
     fail('P7-V02', 'state.json last_deploy.app_name must be a non-empty string')
   }
 
-  if (stateAppName !== deploy.app_name) {
-    fail(
-      'P7-V02',
-      `app_name mismatch: state.json has ${stateAppName}, deploy-result has ${deploy.app_name}`,
-    )
+  // DEPLOY path: deploy-result present → app_name must match.
+  // UPDATE path: no deploy-result → identity already lives in state.json.
+  if (fs.existsSync(deployPath)) {
+    const deploy = readJson(deployPath, 'P7-V02', '.sealos/phase-6/deploy-result.json')
+    if (!deploy || typeof deploy !== 'object' || Array.isArray(deploy)) {
+      fail('P7-V02', 'deploy-result.json must be a JSON object')
+    }
+    if (typeof deploy.app_name !== 'string' || deploy.app_name.trim() === '') {
+      fail('P7-V02', 'deploy-result app_name must be a non-empty string')
+    }
+    if (stateAppName !== deploy.app_name) {
+      fail(
+        'P7-V02',
+        `app_name mismatch: state.json has ${stateAppName}, deploy-result has ${deploy.app_name}`,
+      )
+    }
   }
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
     checks: ['P7-V01', 'P7-V02'],
     app_name: stateAppName,
+    deploy_result: fs.existsSync(deployPath),
   }, null, 2)}\n`)
 }
 

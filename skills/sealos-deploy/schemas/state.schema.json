@@ -24,7 +24,6 @@
         "image",
         "docker_hub_user",
         "repo_name",
-        "url",
         "deployed_at",
         "last_updated_at"
       ],

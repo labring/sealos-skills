@@ -76,7 +76,7 @@
 
 **When to Comment:**
 - Use short comments to mark major algorithm sections in dense detection scripts, as in `skills/sealos-deploy/scripts/score-model.mjs`.
-- Use comments for generated-template rules, production lessons, and operational constraints in Markdown knowledge files such as `skills/sealos-deploy/knowledge/lessons-learned.md`.
+- Use comments for generated-template rules and operational constraints in Markdown knowledge files such as `skills/dockerfile-skill/knowledge/error-patterns.md`.
 - Keep inline comments limited to decisions that affect rule behavior, fixture expectations, or platform compatibility.
 
 **JSDoc/TSDoc:**
