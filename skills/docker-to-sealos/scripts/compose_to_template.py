@@ -381,56 +381,63 @@ PLACEHOLDER_SECRET_VALUE_RE = re.compile(
 
 # --- database wait gates (initContainers) ---
 
-# command receives HOST/PORT via env; secret-backed when the db secret carries them
+# Gate env names are type-prefixed so the deploy gate's R017 exemptions
+# recognize them: secret-backed types pass via secretKeyRef, while
+# redis/mongodb literal FQDN envs must carry REDIS/MONGO in the name.
 DB_WAIT_GATE_BY_TYPE: Dict[str, Dict[str, Any]] = {
     "postgres": {
         "image": "postgres:16.4-alpine",
+        "env_prefix": "PG_GATE",
         "command": [
             "sh",
             "-c",
-            'for i in $(seq 1 150); do pg_isready -h "$DB_GATE_HOST" -p "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for postgresql" >&2; exit 1',
+            'for i in $(seq 1 150); do pg_isready -h "$PG_GATE_HOST" -p "$PG_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for postgresql" >&2; exit 1',
         ],
         "host_from_secret": True,
         "default_port": "5432",
     },
     "mysql": {
         "image": "busybox:1.36.1",
+        "env_prefix": "MYSQL_GATE",
         "command": [
             "sh",
             "-c",
-            'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mysql" >&2; exit 1',
+            'for i in $(seq 1 150); do nc -z -w 2 "$MYSQL_GATE_HOST" "$MYSQL_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mysql" >&2; exit 1',
         ],
         "host_from_secret": True,
         "default_port": "3306",
     },
     "redis": {
         "image": "redis:7.2.7-alpine",
+        "env_prefix": "REDIS_GATE",
         "command": [
             "sh",
             "-c",
-            'for i in $(seq 1 150); do OUT="$(redis-cli -h "$DB_GATE_HOST" -p "$DB_GATE_PORT" ping 2>&1)"; case "$OUT" in *PONG*|*NOAUTH*|*Authentication*) exit 0;; esac; sleep 2; done; echo "timed out waiting for redis" >&2; exit 1',
+            'for i in $(seq 1 150); do OUT="$(redis-cli -h "$REDIS_GATE_HOST" -p "$REDIS_GATE_PORT" ping 2>&1)"; case "$OUT" in *PONG*|*NOAUTH*|*Authentication*) exit 0;; esac; sleep 2; done; echo "timed out waiting for redis" >&2; exit 1',
         ],
         "host_from_secret": False,
         "default_port": "6379",
     },
     "mongodb": {
         "image": "busybox:1.36.1",
+        "env_prefix": "MONGODB_GATE",
         "command": [
             "sh",
             "-c",
-            'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mongodb" >&2; exit 1',
+            'for i in $(seq 1 150); do nc -z -w 2 "$MONGODB_GATE_HOST" "$MONGODB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mongodb" >&2; exit 1',
         ],
         "host_from_secret": False,
         "default_port": "27017",
     },
     "kafka": {
         "image": "busybox:1.36.1",
+        "env_prefix": "KAFKA_GATE",
         "command": [
             "sh",
             "-c",
-            'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for kafka" >&2; exit 1',
+            'for i in $(seq 1 150); do nc -z -w 2 "$KAFKA_GATE_HOST" "$KAFKA_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for kafka" >&2; exit 1',
         ],
-        "host_from_secret": False,
+        "host_from_secret": True,
         "default_port": "9092",
     },
 }
@@ -1059,6 +1066,10 @@ def build_zh_description(title: str, description: str) -> str:
     raw = re.sub(r"\s+", " ", description.strip())
     if raw and ZH_CHAR_RE.search(raw):
         return raw
+    # The auto-generated placeholder must not go through term replacement — it
+    # produces mixed-language garbage ("generated sealos template 用于 x ...").
+    if re.fullmatch(r"generated sealos template for .+ from docker compose\.?", raw, re.IGNORECASE):
+        return f"{title} 的 Sealos 模板。"
     rewritten = rewrite_english_description_to_zh(raw)
     if rewritten:
         return rewritten
@@ -3091,15 +3102,16 @@ def build_db_wait_init_containers(
             )
             continue
 
+        env_prefix = gate["env_prefix"]
         if gate["host_from_secret"]:
             env = [
-                build_secret_ref_env_entry("DB_GATE_HOST", secret_name, "host"),
-                build_secret_ref_env_entry("DB_GATE_PORT", secret_name, "port"),
+                build_secret_ref_env_entry(f"{env_prefix}_HOST", secret_name, "host"),
+                build_secret_ref_env_entry(f"{env_prefix}_PORT", secret_name, "port"),
             ]
         else:
             env = [
-                {"name": "DB_GATE_HOST", "value": DB_FQDN_BY_TYPE[db_type]},
-                {"name": "DB_GATE_PORT", "value": gate["default_port"]},
+                {"name": f"{env_prefix}_HOST", "value": DB_FQDN_BY_TYPE[db_type]},
+                {"name": f"{env_prefix}_PORT", "value": gate["default_port"]},
             ]
         containers.append(
             {
@@ -3452,7 +3464,13 @@ def build_ingress(primary_workload_name: str, port: int, protocol: str = "HTTP")
     }
 
 
-def build_app_resource(meta: MetadataOptions) -> Dict[str, Any]:
+def build_app_resource(meta: MetadataOptions, profile: str = "template-repo") -> Dict[str, Any]:
+    doc_links = deploy_profile_doc_links(meta) if profile == "deploy" else None
+    icon = (
+        doc_links["icon"]
+        if doc_links
+        else f"{meta.repo_raw_base}/template/{meta.app_name}/logo.{meta.logo_ext}"
+    )
     return {
         "apiVersion": "app.sealos.io/v1",
         "kind": "App",
@@ -3467,7 +3485,7 @@ def build_app_resource(meta: MetadataOptions) -> Dict[str, Any]:
                 "url": "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}",
             },
             "displayType": "normal",
-            "icon": f"{meta.repo_raw_base}/template/{meta.app_name}/logo.{meta.logo_ext}",
+            "icon": icon,
             "name": meta.title,
             "type": "link",
         },
@@ -3490,6 +3508,12 @@ def validate_images(compose_data: Mapping[str, Any]) -> Dict[str, str]:
             raise ValueError(f"service {service_name!r} must define image")
         normalized = normalize_image_reference(image, service_name)
         normalized_images[service_name] = normalized
+        # KubeBlocks-replaced database services never reach the template;
+        # their engine version is hardcoded by the Cluster templates, so a
+        # bare or floating upstream tag (`image: postgres`) is not an error.
+        db_type = detect_db_type(normalized)
+        if db_type and db_type in SPECIAL_DB_RESOURCE_TYPES:
+            continue
         if not has_pinned_image(normalized):
             raise ValueError(
                 f"service {service_name!r} uses unpinned image {normalized!r}; provide a fixed tag or digest"
@@ -3886,7 +3910,7 @@ def build_documents(
     docs.extend(service_docs)
     if primary_port is not None:
         docs.append(build_ingress(primary_workload_name, primary_port, primary_ingress_protocol))
-    docs.append(build_app_resource(meta))
+    docs.append(build_app_resource(meta, profile))
     validate_generated_database_contract(docs, db_services)
     return docs
 

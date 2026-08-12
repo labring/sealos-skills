@@ -844,6 +844,11 @@ export function inferMetadata(
 export function buildZhDescription(title: string, description: string): string {
   const raw = description.trim().replace(/\s+/g, ' ')
   if (raw && ZH_CHAR_RE.test(raw)) return raw
+  // The auto-generated placeholder must not go through term replacement — it
+  // produces mixed-language garbage ("generated sealos template 用于 x ...").
+  if (/^generated sealos template for .+ from docker compose\.?$/i.test(raw)) {
+    return `${title} 的 Sealos 模板。`
+  }
   const rewritten = rewriteEnglishDescriptionToZh(raw)
   if (rewritten) return rewritten
   if (raw) return `${title} 的 Sealos 模板，提供 ${title} 应用的部署能力。`
@@ -2420,12 +2425,12 @@ export function buildDbWaitInitContainers(
 
     const env: Record<string, unknown>[] = gate.hostFromSecret
       ? [
-          buildSecretRefEnvEntry('DB_GATE_HOST', secretName, 'host'),
-          buildSecretRefEnvEntry('DB_GATE_PORT', secretName, 'port'),
+          buildSecretRefEnvEntry(`${gate.envPrefix}_HOST`, secretName, 'host'),
+          buildSecretRefEnvEntry(`${gate.envPrefix}_PORT`, secretName, 'port'),
         ]
       : [
-          { name: 'DB_GATE_HOST', value: DB_FQDN_BY_TYPE[dbType] },
-          { name: 'DB_GATE_PORT', value: gate.defaultPort },
+          { name: `${gate.envPrefix}_HOST`, value: DB_FQDN_BY_TYPE[dbType] },
+          { name: `${gate.envPrefix}_PORT`, value: gate.defaultPort },
         ]
     containers.push({
       name: `wait-for-${dbType}`,
@@ -2811,7 +2816,14 @@ export function buildIngress(
   }
 }
 
-export function buildAppResource(meta: MetadataOptions): Record<string, unknown> {
+export function buildAppResource(
+  meta: MetadataOptions,
+  extras: { profile?: 'deploy' | 'template-repo' } = {},
+): Record<string, unknown> {
+  const docLinks = (extras.profile ?? 'template-repo') === 'deploy' ? deployProfileDocLinks(meta) : null
+  const icon = docLinks
+    ? docLinks.icon
+    : `${meta.repoRawBase}/template/${meta.appName}/logo.${meta.logoExt}`
   return {
     apiVersion: 'app.sealos.io/v1',
     kind: 'App',
@@ -2826,7 +2838,7 @@ export function buildAppResource(meta: MetadataOptions): Record<string, unknown>
         url: 'https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}',
       },
       displayType: 'normal',
-      icon: `${meta.repoRawBase}/template/${meta.appName}/logo.${meta.logoExt}`,
+      icon,
       name: meta.title,
       type: 'link',
     },
@@ -2856,6 +2868,11 @@ export function validateImages(composeData: Record<string, unknown>): Record<str
     }
     const normalized = normalizeImageReference(image, serviceName)
     normalizedImages[serviceName] = normalized
+    // KubeBlocks-replaced database services never reach the template; their
+    // engine version is hardcoded by the Cluster templates, so a bare or
+    // floating upstream tag (`image: postgres`) is not an error.
+    const dbType = detectDbType(normalized)
+    if (dbType && SPECIAL_DB_RESOURCE_TYPES.has(dbType)) continue
     if (!hasPinnedImage(normalized)) {
       throw new Error(
         `service ${JSON.stringify(serviceName)} uses unpinned image ${JSON.stringify(normalized)}; provide a fixed tag or digest`,
@@ -3290,7 +3307,7 @@ export function buildDocuments(
   if (primaryPort !== null) {
     docs.push(buildIngress(primaryWorkloadName, primaryPort, primaryIngressProtocol))
   }
-  docs.push(buildAppResource(meta))
+  docs.push(buildAppResource(meta, { profile }))
   validateGeneratedDatabaseContract(docs, dbServices)
   return docs
 }

@@ -406,7 +406,10 @@ export const PLACEHOLDER_SECRET_VALUE_RE =
 
 export type DbWaitGateSpec = {
   image: string
-  // command receives HOST/PORT via env; secret-backed when the db secret carries them
+  // Gate env names are type-prefixed so the deploy gate's R017 exemptions
+  // recognize them: secret-backed types pass via secretKeyRef, while
+  // redis/mongodb literal FQDN envs must carry REDIS/MONGO in the name.
+  envPrefix: string
   command: readonly string[]
   hostFromSecret: boolean
   defaultPort: string
@@ -415,52 +418,57 @@ export type DbWaitGateSpec = {
 export const DB_WAIT_GATE_BY_TYPE: Record<string, DbWaitGateSpec> = {
   postgres: {
     image: 'postgres:16.4-alpine',
+    envPrefix: 'PG_GATE',
     command: [
       'sh',
       '-c',
-      'for i in $(seq 1 150); do pg_isready -h "$DB_GATE_HOST" -p "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for postgresql" >&2; exit 1',
+      'for i in $(seq 1 150); do pg_isready -h "$PG_GATE_HOST" -p "$PG_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for postgresql" >&2; exit 1',
     ],
     hostFromSecret: true,
     defaultPort: '5432',
   },
   mysql: {
     image: 'busybox:1.36.1',
+    envPrefix: 'MYSQL_GATE',
     command: [
       'sh',
       '-c',
-      'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mysql" >&2; exit 1',
+      'for i in $(seq 1 150); do nc -z -w 2 "$MYSQL_GATE_HOST" "$MYSQL_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mysql" >&2; exit 1',
     ],
     hostFromSecret: true,
     defaultPort: '3306',
   },
   redis: {
     image: 'redis:7.2.7-alpine',
+    envPrefix: 'REDIS_GATE',
     command: [
       'sh',
       '-c',
-      'for i in $(seq 1 150); do OUT="$(redis-cli -h "$DB_GATE_HOST" -p "$DB_GATE_PORT" ping 2>&1)"; case "$OUT" in *PONG*|*NOAUTH*|*Authentication*) exit 0;; esac; sleep 2; done; echo "timed out waiting for redis" >&2; exit 1',
+      'for i in $(seq 1 150); do OUT="$(redis-cli -h "$REDIS_GATE_HOST" -p "$REDIS_GATE_PORT" ping 2>&1)"; case "$OUT" in *PONG*|*NOAUTH*|*Authentication*) exit 0;; esac; sleep 2; done; echo "timed out waiting for redis" >&2; exit 1',
     ],
     hostFromSecret: false,
     defaultPort: '6379',
   },
   mongodb: {
     image: 'busybox:1.36.1',
+    envPrefix: 'MONGODB_GATE',
     command: [
       'sh',
       '-c',
-      'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mongodb" >&2; exit 1',
+      'for i in $(seq 1 150); do nc -z -w 2 "$MONGODB_GATE_HOST" "$MONGODB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mongodb" >&2; exit 1',
     ],
     hostFromSecret: false,
     defaultPort: '27017',
   },
   kafka: {
     image: 'busybox:1.36.1',
+    envPrefix: 'KAFKA_GATE',
     command: [
       'sh',
       '-c',
-      'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for kafka" >&2; exit 1',
+      'for i in $(seq 1 150); do nc -z -w 2 "$KAFKA_GATE_HOST" "$KAFKA_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for kafka" >&2; exit 1',
     ],
-    hostFromSecret: false,
+    hostFromSecret: true,
     defaultPort: '9092',
   },
 }

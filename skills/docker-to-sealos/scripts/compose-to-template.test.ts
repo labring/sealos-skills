@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  buildAppResource,
   buildDbWaitInitContainers,
   buildDocuments,
   buildEnvEntries,
@@ -16,6 +17,7 @@ import {
   buildPodSecurityContext,
   buildProbePair,
   buildProbePairFromComposeHealthcheck,
+  buildZhDescription,
   deployProfileDocLinks,
   deriveRequestsFromLimits,
   envKeyForbidsHostRewrite,
@@ -23,6 +25,7 @@ import {
   mapComposeEnvValue,
   normalizeCpuToLadder,
   normalizeMemoryToLadder,
+  validateImages,
   type ConversionReport,
   type MetadataOptions,
 } from './compose-to-template-lib.ts'
@@ -219,6 +222,50 @@ test('deploy profile rewrites readme and icon to live URLs', () => {
   assert.ok(links)
   assert.equal(links?.readme, 'https://raw.githubusercontent.com/acme/demo/HEAD/README.md')
   assert.equal(links?.icon, 'https://github.com/acme.png')
+})
+
+test('bare tags on KubeBlocks-replaced database services are tolerated', () => {
+  const normalized = validateImages({
+    services: {
+      app: { image: 'acme/demo:1.2.3' },
+      db: { image: 'postgres' },
+      cache: { image: 'redis' },
+    },
+  })
+  assert.equal(normalized.db, 'postgres')
+  assert.equal(normalized.cache, 'redis')
+  assert.throws(() => validateImages({ services: { app: { image: 'acme/demo' } } }))
+})
+
+test('wait gates use type-prefixed env names for R017 exemptions', () => {
+  const redis = buildDbWaitInitContainers(['redis'], {})[0]
+  const redisEnvNames = (redis.env as Array<{ name: string }>).map((e) => e.name)
+  assert.deepEqual(redisEnvNames, ['REDIS_GATE_HOST', 'REDIS_GATE_PORT'])
+  assert.match(String((redis.command as string[])[2]), /\$REDIS_GATE_HOST/)
+
+  const mongo = buildDbWaitInitContainers(['mongodb'], {})[0]
+  const mongoEnvNames = (mongo.env as Array<{ name: string }>).map((e) => e.name)
+  assert.deepEqual(mongoEnvNames, ['MONGODB_GATE_HOST', 'MONGODB_GATE_PORT'])
+
+  // Kafka secret carries host/port keys, so its gate uses secretKeyRef.
+  const kafka = buildDbWaitInitContainers(['kafka'], {})[0]
+  const kafkaEnv = kafka.env as Array<Record<string, any>>
+  assert.equal(kafkaEnv[0].name, 'KAFKA_GATE_HOST')
+  assert.ok(kafkaEnv[0].valueFrom?.secretKeyRef)
+})
+
+test('App CR icon follows the deploy profile', () => {
+  const deployApp = buildAppResource(META, { profile: 'deploy' }) as Record<string, any>
+  assert.equal(deployApp.spec.icon, 'https://github.com/acme.png')
+  const repoApp = buildAppResource(META) as Record<string, any>
+  assert.match(String(repoApp.spec.icon), /labring-actions\/templates/)
+})
+
+test('zh description placeholder never half-translates', () => {
+  assert.equal(
+    buildZhDescription('Demo', 'Generated Sealos template for Demo from Docker Compose.'),
+    'Demo 的 Sealos 模板。',
+  )
 })
 
 test('buildDocuments end-to-end: gates, init job, inputs, resolution map', () => {

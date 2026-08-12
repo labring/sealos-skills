@@ -15,6 +15,7 @@ from check_consistency_runner import run_checks
 from compose_to_template import (
     MetadataOptions,
     ServiceShape,
+    build_app_resource,
     build_db_wait_init_containers,
     build_documents,
     build_env_entries,
@@ -36,6 +37,7 @@ from compose_to_template import (
     parse_args,
     resolve_image_reference,
     resolve_kompose_shapes,
+    validate_images,
 )
 
 
@@ -1934,6 +1936,52 @@ class DeployHardeningParityTests(unittest.TestCase):
         self.assertIsNotNone(links)
         self.assertEqual("https://raw.githubusercontent.com/acme/demo/HEAD/README.md", links["readme"])
         self.assertEqual("https://github.com/acme.png", links["icon"])
+
+    def test_bare_tags_on_kubeblocks_replaced_database_services_are_tolerated(self):
+        normalized = validate_images(
+            {
+                "services": {
+                    "app": {"image": "acme/demo:1.2.3"},
+                    "db": {"image": "postgres"},
+                    "cache": {"image": "redis"},
+                }
+            }
+        )
+        self.assertEqual("postgres", normalized["db"])
+        self.assertEqual("redis", normalized["cache"])
+        with self.assertRaises(ValueError):
+            validate_images({"services": {"app": {"image": "acme/demo"}}})
+
+    def test_wait_gates_use_type_prefixed_env_names_for_r017_exemptions(self):
+        redis_gate = build_db_wait_init_containers(["redis"], {})[0]
+        self.assertEqual(
+            ["REDIS_GATE_HOST", "REDIS_GATE_PORT"],
+            [entry["name"] for entry in redis_gate["env"]],
+        )
+        self.assertIn("$REDIS_GATE_HOST", redis_gate["command"][2])
+
+        mongo_gate = build_db_wait_init_containers(["mongodb"], {})[0]
+        self.assertEqual(
+            ["MONGODB_GATE_HOST", "MONGODB_GATE_PORT"],
+            [entry["name"] for entry in mongo_gate["env"]],
+        )
+
+        # Kafka secret carries host/port keys, so its gate uses secretKeyRef.
+        kafka_gate = build_db_wait_init_containers(["kafka"], {})[0]
+        self.assertEqual("KAFKA_GATE_HOST", kafka_gate["env"][0]["name"])
+        self.assertIn("secretKeyRef", kafka_gate["env"][0].get("valueFrom", {}))
+
+    def test_app_cr_icon_follows_the_deploy_profile(self):
+        deploy_app = build_app_resource(self.META, "deploy")
+        self.assertEqual("https://github.com/acme.png", deploy_app["spec"]["icon"])
+        repo_app = build_app_resource(self.META)
+        self.assertIn("labring-actions/templates", repo_app["spec"]["icon"])
+
+    def test_zh_description_placeholder_never_half_translates(self):
+        self.assertEqual(
+            "Demo 的 Sealos 模板。",
+            build_zh_description("Demo", "Generated Sealos template for Demo from Docker Compose."),
+        )
 
     def test_build_documents_end_to_end_gates_init_job_inputs_resolution_map(self):
         compose_data = {
