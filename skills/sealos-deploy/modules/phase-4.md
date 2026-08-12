@@ -217,7 +217,12 @@ in-app; otherwise keep source workload with `docker-to-sealos.kubeblocks-fallbac
 - Init containers need explicit resources
 - `imagePullPolicy: IfNotPresent`, `revisionHistoryLimit: 1`, `automountServiceAccountToken: false`
 - Template defaults/inputs string-typed (R052)
+- First document is the Template CR with no conditional rendering (R060); `defaults` values use built-in variables/functions only (R061)
 - App CRD: only `spec.data.url`, `displayType=normal`, `type=link`, plus `icon`/`name` as required
+
+**Runtime contract (apply during overlay):**
+- Probes follow the health-check mapping in `conversion-mappings.md` (Compose `healthcheck` / official endpoints, R024). When no `start_period` evidence exists, emit the default `startupProbe` window (~120s) so slow cold starts are not killed.
+- When a non-root image writes to a mounted volume (PVC or `volumeClaimTemplates`), set pod `securityContext` (`runAsNonRoot`, image UID `runAsUser`/`runAsGroup`, `fsGroup`, `fsGroupChangePolicy: OnRootMismatch`) per `runtime-log-hygiene.md`; move first-run permission or config bootstrap into initContainers.
 
 Prefer platform resource ladder + requests-from-limits (R038) and KubeBlocks
 dbprovider labels (R040); deploy gate does not enforce those two.

@@ -231,6 +231,10 @@ const TEMPLATE_IF_RE = new RegExp("\\$\\{\\{\\s*if\\s*\\((.*?)\\)\\s*\\}\\}")
 const TEMPLATE_ELSE_RE = new RegExp("\\$\\{\\{\\s*else\\(\\)\\s*\\}\\}")
 const TEMPLATE_ENDIF_RE = new RegExp("\\$\\{\\{\\s*endif\\(\\)\\s*\\}\\}")
 const TEMPLATE_INPUT_REF_RE = new RegExp("\\binputs\\.([A-Za-z_][A-Za-z0-9_]*)\\b")
+const TEMPLATE_EXPRESSION_RE = new RegExp("\\$\\{\\{(.*?)\\}\\}")
+const TEMPLATE_CONTROL_DIRECTIVE_RE = new RegExp("\\$\\{\\{\\s*(?:if\\s*\\(|elif\\s*\\(|else\\s*\\(\\s*\\)|endif\\s*\\(\\s*\\))")
+const TEMPLATE_SCOPED_REF_RE = new RegExp("\\b(defaults|inputs)\\s*[.\\[]")
+const TEMPLATE_KIND_LINE_RE = new RegExp("^\\s*kind\\s*:\\s*['\"]?Template['\"]?\\s*$", "m")
 const RUNTIME_BUNDLE_EVIDENCE_KIND = "RuntimeBundleEvidence"
 const RUNTIME_SECRET_CONTRACT_ANNOTATION = "docker-to-sealos.runtime-secret-contract"
 const DATABASE_MODE_ANNOTATION = "docker-to-sealos.database-mode"
@@ -2774,63 +2778,74 @@ export function checkTemplateInputReferencesDeclared(context: ScanContext): Viol
 }
 
 function _yamlMappingKeyMatch(line: string, key: string): unknown | null {
-  let escaped = escapeRegExp(key)
-  return new RegExp('^(?:' + (`^(?P<indent>\\s*)(?:${escaped}|'${escaped}'|\\"${escaped}\\")\\s*:`) + ')', "").exec(String(line))
+  const escaped = escapeRegExp(key)
+  const match = new RegExp(`^(?<indent>\\s*)(?:${escaped}|'${escaped}'|"${escaped}")\\s*:`).exec(String(line))
+  if (match === null) {
+    return null
+  }
+  // Call sites read match["indent"] (Python-style); mirror the named group there.
+  ;(match as any)["indent"] = match.groups?.["indent"] ?? ""
+  return match
+}
+
+function _matchIndentLength(match: unknown): number {
+  const indent = (match as any)?.["indent"]
+  return typeof indent === "string" ? indent.length : 0
 }
 
 function _templateMappingFieldLine(doc: YamlDocument, collectionName: string, entryName: string, fieldName: string): number {
-  let lines = splitLines(String(doc.source))
+  const lines = splitLines(String(doc.source))
   let collectionIndex: number | null = null
-  let collectionIndent = (-1)
-  for (const [index, line] of asIterable(Array.from(lines as any, (v: any, i: number) => [i + (0), v] as const))) {
-    let match = _yamlMappingKeyMatch(line, collectionName)
-    if ((match === null)) {
+  let collectionIndent = -1
+  for (let index = 0; index < lines.length; index++) {
+    const match = _yamlMappingKeyMatch(lines[index], collectionName)
+    if (match === null) {
       continue
     }
     collectionIndex = index
-    collectionIndent = ((() => { const __v = (match as RegExpMatchArray)["indent"] as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })())
+    collectionIndent = _matchIndentLength(match)
     break
   }
-  if ((collectionIndex === null)) {
+  if (collectionIndex === null) {
     return doc.startLine
   }
   let entryIndex: number | null = null
-  let entryIndent = (-1)
-  for (const index of asIterable(Array.from({ length: Math.max(0, (((() => { const __v = lines as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })())) - ((collectionIndex + 1))) }, (_, i) => i + ((collectionIndex + 1))))) {
-    line = lines[index]
-    if (((!String(line).trim()) || String(String(line).trimStart()).startsWith("#"))) {
+  let entryIndent = -1
+  for (let index = collectionIndex + 1; index < lines.length; index++) {
+    const line = lines[index]
+    if (!line.trim() || line.trimStart().startsWith("#")) {
       continue
     }
-    let indent = (((() => { const __v = line as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })()) - ((() => { const __v = String(line).trimStart() as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })()))
-    if ((indent <= collectionIndent)) {
+    const indent = line.length - line.trimStart().length
+    if (indent <= collectionIndent) {
       break
     }
-    match = _yamlMappingKeyMatch(line, entryName)
-    if (((match === null) || (((() => { const __v = (match as RegExpMatchArray)["indent"] as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })()) <= collectionIndent))) {
+    const match = _yamlMappingKeyMatch(line, entryName)
+    if (match === null || _matchIndentLength(match) <= collectionIndent) {
       continue
     }
     entryIndex = index
-    entryIndent = ((() => { const __v = (match as RegExpMatchArray)["indent"] as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })())
+    entryIndent = _matchIndentLength(match)
     break
   }
-  if ((entryIndex === null)) {
-    return (doc.startLine + collectionIndex)
+  if (entryIndex === null) {
+    return doc.startLine + collectionIndex
   }
-  for (const index of asIterable(Array.from({ length: Math.max(0, (((() => { const __v = lines as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })())) - ((entryIndex + 1))) }, (_, i) => i + ((entryIndex + 1))))) {
-    line = lines[index]
-    if (((!String(line).trim()) || String(String(line).trimStart()).startsWith("#"))) {
+  for (let index = entryIndex + 1; index < lines.length; index++) {
+    const line = lines[index]
+    if (!line.trim() || line.trimStart().startsWith("#")) {
       continue
     }
-    indent = (((() => { const __v = line as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })()) - ((() => { const __v = String(line).trimStart() as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })()))
-    if ((indent <= entryIndent)) {
+    const indent = line.length - line.trimStart().length
+    if (indent <= entryIndent) {
       break
     }
-    match = _yamlMappingKeyMatch(line, fieldName)
-    if (((match !== null) && (((() => { const __v = (match as RegExpMatchArray)["indent"] as any; if (__v == null) return 0; if (typeof __v.length === "number") return __v.length; if (__v instanceof Set || __v instanceof Map) return __v.size; if (typeof __v === "object") return Object.keys(__v).length; return 0 })()) > entryIndent))) {
-      return (doc.startLine + index)
+    const match = _yamlMappingKeyMatch(line, fieldName)
+    if (match !== null && _matchIndentLength(match) > entryIndent) {
+      return doc.startLine + index
     }
   }
-  return (doc.startLine + entryIndex)
+  return doc.startLine + entryIndex
 }
 
 function _yamlValueTypeName(value: unknown): string {
@@ -2879,6 +2894,103 @@ export function checkTemplateDefaultScalarTypes(context: ScanContext): Violation
         }
         violations.push({ ruleId: "R052", path: doc.path, line: _templateMappingFieldLine(doc, collectionName, entryName, fieldName), message: `spec.${collectionName}.${entryName}.${fieldName} must be a YAML string, got ${_yamlValueTypeName(entrySpec[fieldName])}; encode this field as a string and quote numeric-, boolean-, and null-like scalars` })
       }
+    }
+  }
+  return violations
+}
+
+function _firstDocumentSegment(text: string): [number, string] {
+  let startLine = 1
+  let collected: string[] = []
+  const lines = String(text).split("\n")
+  for (let index = 1; index <= lines.length; index++) {
+    const line = lines[index - 1]
+    if (/^\s*---\s*$/.test(line)) {
+      if (collected.some((item) => item.trim().length > 0)) {
+        break
+      }
+      startLine = index + 1
+      collected = []
+      continue
+    }
+    collected.push(line)
+  }
+  return [startLine, collected.join("\n")]
+}
+
+export function checkTemplateFirstDocumentContract(context: ScanContext): Violation[] {
+  const violations: Violation[] = []
+  for (const path of asIterable(_iterTemplateArtifactPaths(context))) {
+    const text = String(((context.fileTexts as any)?.[path] ?? ""))
+    if (!text.trim()) {
+      continue
+    }
+    const [startLine, firstDoc] = _firstDocumentSegment(text)
+    if (!firstDoc.trim()) {
+      continue
+    }
+    if (!TEMPLATE_KIND_LINE_RE.test(firstDoc)) {
+      violations.push({
+        ruleId: "R060",
+        path: path,
+        line: startLine,
+        message:
+          "the first YAML document in a template artifact must be the Template CR (apiVersion: app.sealos.io/v1, kind: Template)",
+      })
+    }
+    const controlRe = new RegExp(TEMPLATE_CONTROL_DIRECTIVE_RE.source, "g")
+    for (const match of firstDoc.matchAll(controlRe)) {
+      violations.push({
+        ruleId: "R060",
+        path: path,
+        line: startLine + firstDoc.slice(0, match.index ?? 0).split("\n").length - 1,
+        message:
+          "the first YAML document (Template CR) must not use conditional rendering; move ${{ if }}/${{ elif }}/${{ else }}/${{ endif }} blocks into later resource documents",
+      })
+    }
+  }
+  return violations
+}
+
+export function checkTemplateDefaultsExpressionScope(context: ScanContext): Violation[] {
+  const violations: Violation[] = []
+  for (const doc of asIterable(_iterTemplateArtifactDocuments(context))) {
+    if (!isRecord(doc.data)) {
+      continue
+    }
+    const spec = (doc.data as any)?.["spec"]
+    if (!isRecord(spec)) {
+      continue
+    }
+    const defaults = (spec as any)?.["defaults"]
+    if (!isRecord(defaults)) {
+      continue
+    }
+    for (const [entryName, entrySpec] of Object.entries(defaults)) {
+      if (typeof entryName !== "string" || !isRecord(entrySpec)) {
+        continue
+      }
+      const value = (entrySpec as any)?.["value"]
+      if (typeof value !== "string") {
+        continue
+      }
+      const forbidden = new Set<string>()
+      const expressionRe = new RegExp(TEMPLATE_EXPRESSION_RE.source, "g")
+      for (const expressionMatch of value.matchAll(expressionRe)) {
+        const scopedRe = new RegExp(TEMPLATE_SCOPED_REF_RE.source, "g")
+        for (const refMatch of expressionMatch[1].matchAll(scopedRe)) {
+          forbidden.add(refMatch[1])
+        }
+      }
+      if (forbidden.size === 0) {
+        continue
+      }
+      violations.push({
+        ruleId: "R061",
+        path: doc.path,
+        line: _templateMappingFieldLine(doc, "defaults", entryName, "value"),
+        message: `spec.defaults.${entryName}.value renders before defaults/inputs exist and may only use built-in platform variables and functions (SEALOS_*, random, base64); it cannot reference ${Array.from(forbidden).sort().join(", ")}`,
+      })
     }
   }
   return violations
@@ -4189,4 +4301,4 @@ export function checkOptionalDatabaseBranchContract(context: ScanContext): Viola
   return violations
 }
 
-export const APP_RULES: Record<string, Rule> = { R001: { ruleId: "R001", check: checkNoLatestTags }, R016: { ruleId: "R016", check: checkNoFloatingImageTags }, R018: { ruleId: "R018", check: checkNoComposeImageVariables }, R002: { ruleId: "R002", check: checkAppNoSpecTemplate }, R003: { ruleId: "R003", check: checkAppHasSpecDataUrl }, R032: { ruleId: "R032", check: checkAppDisplayTypeNormal }, R033: { ruleId: "R033", check: checkAppTypeLink }, R004: { ruleId: "R004", check: checkTemplateNameIsHardcodedLowercase }, R012: { ruleId: "R012", check: checkTemplateRequiredMetadataFields }, R013: { ruleId: "R013", check: checkTemplateFolderMatchesName }, R014: { ruleId: "R014", check: checkTemplateIconPaths }, R025: { ruleId: "R025", check: checkTemplateReadmePaths }, R021: { ruleId: "R021", check: checkTemplateI18nZhDescriptionChinese }, R022: { ruleId: "R022", check: checkTemplateI18nZhTitleAbsent }, R023: { ruleId: "R023", check: checkTemplateCategoriesAllowed }, R024: { ruleId: "R024", check: checkOfficialHealthProbes }, R053: { ruleId: "R053", check: checkRuntimeEnvValueConstraints }, R054: { ruleId: "R054", check: checkRuntimeProviderCredentials }, R055: { ruleId: "R055", check: checkRuntimeStartupGates }, R058: { ruleId: "R058", check: checkPersistedRuntimeSecretContract }, R059: { ruleId: "R059", check: checkOptionalDatabaseBranchContract }, R046: { ruleId: "R046", check: checkRuntimeBundleConsistency }, R050: { ruleId: "R050", check: checkTopologyEvidenceConsistency }, R036: { ruleId: "R036", check: checkCronjobRequiredLabels }, R015: { ruleId: "R015", check: checkOriginImageNameMatchesContainer }, R020: { ruleId: "R020", check: checkServicePortsHaveNames }, R029: { ruleId: "R029", check: checkServiceLabelsMatchSelectorApp }, R030: { ruleId: "R030", check: checkConfigmapLabelsMatchName }, R043: { ruleId: "R043", check: checkConfigmapFileMountContract }, R044: { ruleId: "R044", check: checkObjectStorageInputContract }, R045: { ruleId: "R045", check: checkTemplateInputReferencesDeclared }, R052: { ruleId: "R052", check: checkTemplateDefaultScalarTypes }, R047: { ruleId: "R047", check: checkExternalObjectStorageInputs }, R049: { ruleId: "R049", check: checkLicenseGatedObjectStorageOptions }, R031: { ruleId: "R031", check: checkIngressNameMatchesBackends }, R051: { ruleId: "R051", check: checkRootIngressBackendPortNumbers }, R026: { ruleId: "R026", check: checkHttpIngressAnnotations }, R048: { ruleId: "R048", check: checkWebsocketIngressAnnotations }, R027: { ruleId: "R027", check: checkPostgresCustomDbInitJob }, R037: { ruleId: "R037", check: checkPostgresSecretRefsMatchClusterName }, R039: { ruleId: "R039", check: checkDatabaseServicesUseClusters }, R042: { ruleId: "R042", check: checkMainContainerStartupContract }, R008: { ruleId: "R008", check: checkDeployManagerLabelMatchName }, R034: { ruleId: "R034", check: checkAppLabelMatchName }, R028: { ruleId: "R028", check: checkContainerNamesMatchWorkloadName }, R009: { ruleId: "R009", check: checkRevisionHistoryLimit }, R010: { ruleId: "R010", check: checkAutomountServiceAccountToken }, R035: { ruleId: "R035", check: checkImagePullSecretRefs } }
+export const APP_RULES: Record<string, Rule> = { R001: { ruleId: "R001", check: checkNoLatestTags }, R016: { ruleId: "R016", check: checkNoFloatingImageTags }, R018: { ruleId: "R018", check: checkNoComposeImageVariables }, R002: { ruleId: "R002", check: checkAppNoSpecTemplate }, R003: { ruleId: "R003", check: checkAppHasSpecDataUrl }, R032: { ruleId: "R032", check: checkAppDisplayTypeNormal }, R033: { ruleId: "R033", check: checkAppTypeLink }, R004: { ruleId: "R004", check: checkTemplateNameIsHardcodedLowercase }, R012: { ruleId: "R012", check: checkTemplateRequiredMetadataFields }, R013: { ruleId: "R013", check: checkTemplateFolderMatchesName }, R014: { ruleId: "R014", check: checkTemplateIconPaths }, R025: { ruleId: "R025", check: checkTemplateReadmePaths }, R021: { ruleId: "R021", check: checkTemplateI18nZhDescriptionChinese }, R022: { ruleId: "R022", check: checkTemplateI18nZhTitleAbsent }, R023: { ruleId: "R023", check: checkTemplateCategoriesAllowed }, R024: { ruleId: "R024", check: checkOfficialHealthProbes }, R053: { ruleId: "R053", check: checkRuntimeEnvValueConstraints }, R054: { ruleId: "R054", check: checkRuntimeProviderCredentials }, R055: { ruleId: "R055", check: checkRuntimeStartupGates }, R058: { ruleId: "R058", check: checkPersistedRuntimeSecretContract }, R059: { ruleId: "R059", check: checkOptionalDatabaseBranchContract }, R046: { ruleId: "R046", check: checkRuntimeBundleConsistency }, R050: { ruleId: "R050", check: checkTopologyEvidenceConsistency }, R036: { ruleId: "R036", check: checkCronjobRequiredLabels }, R015: { ruleId: "R015", check: checkOriginImageNameMatchesContainer }, R020: { ruleId: "R020", check: checkServicePortsHaveNames }, R029: { ruleId: "R029", check: checkServiceLabelsMatchSelectorApp }, R030: { ruleId: "R030", check: checkConfigmapLabelsMatchName }, R043: { ruleId: "R043", check: checkConfigmapFileMountContract }, R044: { ruleId: "R044", check: checkObjectStorageInputContract }, R045: { ruleId: "R045", check: checkTemplateInputReferencesDeclared }, R052: { ruleId: "R052", check: checkTemplateDefaultScalarTypes }, R060: { ruleId: "R060", check: checkTemplateFirstDocumentContract }, R061: { ruleId: "R061", check: checkTemplateDefaultsExpressionScope }, R047: { ruleId: "R047", check: checkExternalObjectStorageInputs }, R049: { ruleId: "R049", check: checkLicenseGatedObjectStorageOptions }, R031: { ruleId: "R031", check: checkIngressNameMatchesBackends }, R051: { ruleId: "R051", check: checkRootIngressBackendPortNumbers }, R026: { ruleId: "R026", check: checkHttpIngressAnnotations }, R048: { ruleId: "R048", check: checkWebsocketIngressAnnotations }, R027: { ruleId: "R027", check: checkPostgresCustomDbInitJob }, R037: { ruleId: "R037", check: checkPostgresSecretRefsMatchClusterName }, R039: { ruleId: "R039", check: checkDatabaseServicesUseClusters }, R042: { ruleId: "R042", check: checkMainContainerStartupContract }, R008: { ruleId: "R008", check: checkDeployManagerLabelMatchName }, R034: { ruleId: "R034", check: checkAppLabelMatchName }, R028: { ruleId: "R028", check: checkContainerNamesMatchWorkloadName }, R009: { ruleId: "R009", check: checkRevisionHistoryLimit }, R010: { ruleId: "R010", check: checkAutomountServiceAccountToken }, R035: { ruleId: "R035", check: checkImagePullSecretRefs } }

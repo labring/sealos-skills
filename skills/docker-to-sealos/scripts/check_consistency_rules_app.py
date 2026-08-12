@@ -329,6 +329,10 @@ TEMPLATE_IF_RE = re.compile(r"\$\{\{\s*if\s*\((.*?)\)\s*\}\}")
 TEMPLATE_ELSE_RE = re.compile(r"\$\{\{\s*else\(\)\s*\}\}")
 TEMPLATE_ENDIF_RE = re.compile(r"\$\{\{\s*endif\(\)\s*\}\}")
 TEMPLATE_INPUT_REF_RE = re.compile(r"\binputs\.([A-Za-z_][A-Za-z0-9_]*)\b")
+TEMPLATE_EXPRESSION_RE = re.compile(r"\$\{\{(.*?)\}\}")
+TEMPLATE_CONTROL_DIRECTIVE_RE = re.compile(r"\$\{\{\s*(?:if\s*\(|elif\s*\(|else\s*\(\s*\)|endif\s*\(\s*\))")
+TEMPLATE_SCOPED_REF_RE = re.compile(r"\b(defaults|inputs)\s*[.\[]")
+TEMPLATE_KIND_LINE_RE = re.compile(r"^\s*kind\s*:\s*['\"]?Template['\"]?\s*$", re.MULTILINE)
 RUNTIME_BUNDLE_EVIDENCE_KIND = "RuntimeBundleEvidence"
 RUNTIME_SECRET_CONTRACT_ANNOTATION = "docker-to-sealos.runtime-secret-contract"
 DATABASE_MODE_ANNOTATION = "docker-to-sealos.database-mode"
@@ -3409,6 +3413,104 @@ def check_template_default_scalar_types(context: ScanContext) -> List[Violation]
     return violations
 
 
+def _first_document_segment(text: str) -> Tuple[int, str]:
+    """Return (start_line, text) of the first non-empty YAML document in a multi-doc file."""
+    start_line = 1
+    collected: List[str] = []
+    for index, line in enumerate(text.splitlines(), start=1):
+        if re.match(r"^\s*---\s*$", line):
+            if any(item.strip() for item in collected):
+                break
+            start_line = index + 1
+            collected = []
+            continue
+        collected.append(line)
+    return start_line, "\n".join(collected)
+
+
+def check_template_first_document_contract(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+
+    for path in _iter_template_artifact_paths(context):
+        text = context.file_texts.get(path, "")
+        if not text.strip():
+            continue
+        start_line, first_doc = _first_document_segment(text)
+        if not first_doc.strip():
+            continue
+
+        if TEMPLATE_KIND_LINE_RE.search(first_doc) is None:
+            violations.append(
+                Violation(
+                    rule_id="R060",
+                    path=path,
+                    line=start_line,
+                    message=(
+                        "the first YAML document in a template artifact must be the Template CR "
+                        "(apiVersion: app.sealos.io/v1, kind: Template)"
+                    ),
+                )
+            )
+
+        for match in TEMPLATE_CONTROL_DIRECTIVE_RE.finditer(first_doc):
+            violations.append(
+                Violation(
+                    rule_id="R060",
+                    path=path,
+                    line=start_line + first_doc.count("\n", 0, match.start()),
+                    message=(
+                        "the first YAML document (Template CR) must not use conditional rendering; "
+                        "move ${{ if }}/${{ elif }}/${{ else }}/${{ endif }} blocks into later resource documents"
+                    ),
+                )
+            )
+
+    return violations
+
+
+def check_template_defaults_expression_scope(context: ScanContext) -> List[Violation]:
+    violations: List[Violation] = []
+
+    for doc in _iter_template_artifact_documents(context):
+        if not isinstance(doc.data, dict):
+            continue
+        spec = doc.data.get("spec")
+        if not isinstance(spec, dict):
+            continue
+        defaults = spec.get("defaults")
+        if not isinstance(defaults, dict):
+            continue
+
+        for entry_name, entry_spec in defaults.items():
+            if not isinstance(entry_name, str) or not isinstance(entry_spec, dict):
+                continue
+            value = entry_spec.get("value")
+            if not isinstance(value, str):
+                continue
+
+            forbidden: set[str] = set()
+            for expression_match in TEMPLATE_EXPRESSION_RE.finditer(value):
+                for ref_match in TEMPLATE_SCOPED_REF_RE.finditer(expression_match.group(1)):
+                    forbidden.add(ref_match.group(1))
+            if not forbidden:
+                continue
+
+            violations.append(
+                Violation(
+                    rule_id="R061",
+                    path=doc.path,
+                    line=_template_mapping_field_line(doc, "defaults", entry_name, "value"),
+                    message=(
+                        f"spec.defaults.{entry_name}.value renders before defaults/inputs exist and may only use "
+                        "built-in platform variables and functions (SEALOS_*, random, base64); it cannot reference "
+                        + ", ".join(sorted(forbidden))
+                    ),
+                )
+            )
+
+    return violations
+
+
 def _find_branch_sections(lines: List[str], start_index: int) -> Tuple[int, Optional[int]]:
     depth = 0
     else_index: Optional[int] = None
@@ -5172,6 +5274,8 @@ APP_RULES: Dict[str, Rule] = {
     "R044": Rule("R044", check_object_storage_input_contract),
     "R045": Rule("R045", check_template_input_references_declared),
     "R052": Rule("R052", check_template_default_scalar_types),
+    "R060": Rule("R060", check_template_first_document_contract),
+    "R061": Rule("R061", check_template_defaults_expression_scope),
     "R047": Rule("R047", check_external_object_storage_inputs),
     "R049": Rule("R049", check_license_gated_object_storage_options),
     "R031": Rule("R031", check_ingress_name_matches_backends),

@@ -8,6 +8,14 @@ must_rules:
     enforcement:
       type: rule
       target: R013
+  - must: "The first YAML document in a template artifact must be the Template CR (`apiVersion: app.sealos.io/v1`, `kind: Template`) and must not contain conditional rendering directives; conditional blocks belong in later resource documents."
+    enforcement:
+      type: rule
+      target: R060
+  - must: "Template `spec.defaults.<name>.value` expressions may reference only built-in platform variables and functions (`SEALOS_*`, `random`, `base64`); they must not reference `defaults` or `inputs`."
+    enforcement:
+      type: rule
+      target: R061
   - must: "Template CR must include required metadata fields (`title`, `url`, `gitRepo`, `author`, `description`, `icon`, `templateType`, `locale`, `i18n`, `categories`)."
     enforcement:
       type: rule

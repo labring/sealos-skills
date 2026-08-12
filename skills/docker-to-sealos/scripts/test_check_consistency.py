@@ -6641,6 +6641,148 @@ __MOUNTS__
 
         self.assertFalse(any(item.rule_id == "R052" for item in violations))
 
+    def test_detects_first_document_not_template(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: demo
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: demo
+                      image: nginx:1.27.2
+            ---
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+            """
+        )
+
+        r060 = [item for item in violations if item.rule_id == "R060"]
+        self.assertEqual(1, len(r060))
+        self.assertEqual(1, r060[0].line)
+        self.assertIn("must be the Template CR", r060[0].message)
+
+    def test_detects_conditional_rendering_in_first_document(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+              inputs:
+                enable_db:
+                  description: Deploy a managed database
+                  type: boolean
+                  default: 'false'
+                  required: false
+                ${{ if(inputs.enable_db === 'true') }}
+                db_note:
+                  description: Database note
+                  type: string
+                  default: ''
+                  required: false
+                ${{ endif() }}
+            """
+        )
+
+        r060 = [item for item in violations if item.rule_id == "R060"]
+        self.assertEqual(2, len(r060))
+        self.assertEqual(13, r060[0].line)
+        self.assertEqual(19, r060[1].line)
+        self.assertTrue(all("must not use conditional rendering" in item.message for item in r060))
+
+    def test_allows_template_first_document_with_later_conditionals(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+              inputs:
+                enable_signup:
+                  description: Enable signup page
+                  type: boolean
+                  default: 'false'
+                  required: false
+            ---
+            ${{ if(inputs.enable_signup === 'true') }}
+            apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: demo-signup
+            data:
+              enabled: "true"
+            ---
+            ${{ endif() }}
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R060" for item in violations))
+
+    def test_detects_defaults_value_referencing_defaults_or_inputs(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+              defaults:
+                app_name:
+                  type: string
+                  value: demo-${{ random(8) }}
+                app_host:
+                  type: string
+                  value: ${{ defaults.app_name }}
+                admin_token:
+                  type: string
+                  value: ${{ inputs.admin_secret }}
+            """
+        )
+
+        r061 = [item for item in violations if item.rule_id == "R061"]
+        self.assertEqual(2, len(r061))
+        self.assertIn("spec.defaults.app_host.value", r061[0].message)
+        self.assertIn("defaults", r061[0].message)
+        self.assertIn("spec.defaults.admin_token.value", r061[1].message)
+        self.assertIn("inputs", r061[1].message)
+
+    def test_allows_defaults_value_with_builtin_variables_and_functions(self):
+        violations = self.run_artifact_checker(
+            """
+            apiVersion: app.sealos.io/v1
+            kind: Template
+            metadata:
+              name: demo
+            spec:
+              title: Demo
+              defaults:
+                app_name:
+                  type: string
+                  value: demo-${{ random(8) }}
+                app_namespace:
+                  type: string
+                  value: ${{ SEALOS_NAMESPACE }}
+                seed:
+                  type: string
+                  value: ${{ base64(random(16)) }}
+            """
+        )
+
+        self.assertFalse(any(item.rule_id == "R061" for item in violations))
+
     def test_registry_rule_scope_filters_violations(self):
         rules_yaml = render_registry(
             overrides={

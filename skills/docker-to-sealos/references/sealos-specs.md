@@ -299,13 +299,18 @@ spec:
 
 ### Supported Fields
 
-The i18n configuration supports translation of the following fields:
+The template provider can override the following fields per language under `i18n.<locale>`:
+- `title` - Display name
+- `url` - Application website
+- `gitRepo` - Source repository
 - `description` - Application description
+- `readme` - README URL
+- `icon` - Icon URL
 
 ### Notes
 
 1. `locale` specifies the default language, typically set to `en`
-2. Currently only `zh` (Chinese) translation is supported
+2. Templates generated in this repository emit `zh` (Chinese) translations; the platform accepts other locales as well
 3. `i18n.zh.description` should use Simplified Chinese
 4. Technical field names and default values do not need translation
 5. If the Chinese title is the same as `spec.title`, it is recommended to omit `i18n.zh.title`

@@ -125,6 +125,8 @@ For managed or private object storage, live validation must upload known bytes t
 
 - Template `metadata.name` must be hardcoded lowercase; do not use `${{ defaults.app_name }}`.
 - Template CR folder name must match `metadata.name`.
+- The first YAML document in a template artifact must be the Template CR (`apiVersion: app.sealos.io/v1`, `kind: Template`) and must not contain conditional rendering directives; conditional blocks belong in later resource documents.
+- Template `spec.defaults.<name>.value` expressions may reference only built-in platform variables and functions (`SEALOS_*`, `random`, `base64`); they must not reference `defaults` or `inputs`.
 - Template CR must include required metadata fields (`title`, `url`, `gitRepo`, `author`, `description`, `icon`, `templateType`, `locale`, `i18n`, `categories`).
 - Template `spec.readme` must point to `https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/<app-name>/README.md`.
 - Template `spec.i18n.zh.readme` must point to `https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/<app-name>/README_zh.md`.

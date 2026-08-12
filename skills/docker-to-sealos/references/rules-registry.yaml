@@ -154,6 +154,12 @@ rules:
   - id: R052
     description: Template spec.defaults.<name>.value and every present spec.inputs.<name>.default must deserialize as YAML strings.
     severity: error
+  - id: R060
+    description: The first YAML document in a template artifact must be the Template CR and must not contain conditional rendering directives.
+    severity: error
+  - id: R061
+    description: Template spec.defaults values may reference only built-in platform variables and functions; defaults/inputs references are forbidden.
+    severity: error
   - id: R047
     description: External S3/object-storage credential inputs require a credential-free HTTPS source URL or user-request reference and cannot coexist with managed ObjectStorageBucket.
     severity: error

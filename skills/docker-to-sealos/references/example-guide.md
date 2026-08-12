@@ -58,6 +58,19 @@ As shown in the code, the Metadata CR is a standard Kubernetes custom resource t
 | `defaults`      | Defines default values to be populated into the resource files, such as the application name (app_name), domain (app_host), etc. |
 | `inputs`        | Defines some parameters that users need when deploying the application, such as email, API-KEY, etc. If there are none, this can be omitted. |
 
+### Hard Template-Engine Rules
+
+These constraints come from the template provider implementation (`frontend/providers/template`) and the Template/Instance CRDs (`controllers/app`). Violating any of them causes deploy-time rejection:
+
+1. **The first YAML document must be the Template CR** (`apiVersion: app.sealos.io/v1`, `kind: Template`); otherwise the server rejects with `The first YAML type is not Template`.
+2. **The first document must not use conditional rendering**; the server rejects with `The first YAML must be a Template and cannot use conditional rendering`. Conditional blocks belong in later resource documents.
+3. Conditional blocks may span document boundaries (`---`), support nesting, and every `${{ if(...) }}` must have a matching `${{ endif() }}`.
+4. `spec.templateType` currently supports only `inline`.
+5. `spec.defaults` must contain the `app_name` key (CRD validation: `'app_name' in self.defaults`).
+6. Field names containing `-` must use bracket access in expressions, for example `${{ inputs['smtp-host'] }}`; dot access fails to evaluate.
+7. `readme` / `icon` accept absolute http(s) URLs or `./`-relative paths resolved against the template file's directory. Templates generated in this repository must keep the pinned raw URLs required by the naming and metadata MUST rules.
+8. Rendering order: conditional rendering is resolved first (whole control lines kept or removed), then `${{ }}` placeholders are substituted.
+
 ### Explanation: `Variables`
 
 Any characters surrounded by `${{ }}` are variables. Variables are divided into the following types:
