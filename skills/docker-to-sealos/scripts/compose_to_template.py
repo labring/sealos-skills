@@ -2763,32 +2763,27 @@ def build_db_url_composed_env_entries(
             build_secret_ref_env_entry(port_var, secret_name, "port"),
         ]
 
-    auth_prefix = ""
-    has_auth = "@" in parsed.netloc
-    has_username = parsed.username not in (None, "")
-    has_password = parsed.password is not None
-
-    if has_username:
-        helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
-    if has_password:
-        helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
-
-    if has_auth:
-        if has_username and has_password:
-            auth_prefix = f"$({user_var}):$({password_var})@"
-        elif has_username:
-            auth_prefix = f"$({user_var})@"
-        elif has_password:
-            auth_prefix = f":$({password_var})@"
+    # KubeBlocks-managed databases always enforce authentication. A
+    # credential-less source URL (mongodb://db:27017/app, common in upstream
+    # compose files with auth-less containers) would crash-loop against the
+    # managed cluster, so credentials are injected unconditionally.
+    helper_entries.append(build_secret_ref_env_entry(user_var, secret_name, "username"))
+    helper_entries.append(build_secret_ref_env_entry(password_var, secret_name, "password"))
+    auth_prefix = f"$({user_var}):$({password_var})@"
 
     # Always compose host:port — R017 accepts a $(VAR)-composed endpoint only
     # when it references the secret's endpoint or both host and port, and
     # engines behind KubeBlocks always publish a port key.
     host_port = f"$({host_var}):$({port_var})"
 
+    query = parsed.query
+    if db_type == "mongodb" and not re.search(r"(?:^|&)authSource=", query):
+        # The KubeBlocks root account lives in the admin database.
+        query = f"{query}&authSource=admin" if query else "authSource=admin"
+
     suffix = parsed.path or ""
-    if parsed.query:
-        suffix = f"{suffix}?{parsed.query}"
+    if query:
+        suffix = f"{suffix}?{query}"
     if parsed.fragment:
         suffix = f"{suffix}#{parsed.fragment}"
 

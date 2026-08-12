@@ -1325,8 +1325,11 @@ class ComposeToTemplateTests(unittest.TestCase):
                 },
                 env_by_name["SEALOS_REDIS_REDIS_PASSWORD"]["valueFrom"]["secretKeyRef"],
             )
+            # Credentials are injected unconditionally (KubeBlocks enforces
+            # auth); the explicit username:password form replaced the legacy
+            # password-only form and stays valid for Redis 6+ ACL accounts.
             self.assertEqual(
-                "redis://:$(SEALOS_REDIS_REDIS_PASSWORD)@$(SEALOS_REDIS_REDIS_HOST):$(SEALOS_REDIS_REDIS_PORT)/0",
+                "redis://$(SEALOS_REDIS_REDIS_USERNAME):$(SEALOS_REDIS_REDIS_PASSWORD)@$(SEALOS_REDIS_REDIS_HOST):$(SEALOS_REDIS_REDIS_PORT)/0",
                 env_by_name["REDIS_URL"].get("value"),
             )
 
@@ -1982,6 +1985,26 @@ class DeployHardeningParityTests(unittest.TestCase):
             "Demo 的 Sealos 模板。",
             build_zh_description("Demo", "Generated Sealos template for Demo from Docker Compose."),
         )
+
+    def test_credential_less_db_urls_get_credentials_injected(self):
+        """KubeBlocks enforces auth; a credential-less source URL must not survive."""
+        mongo_services = {"wekandb": "mongodb"}
+        mongo_hosts = {
+            "wekandb": "${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+        }
+        service = {"environment": ["MONGO_URL=mongodb://wekandb:27017/wekan"]}
+        result = build_env_entries(service, mongo_hosts, mongo_services, service_name="wekan")
+        url = next(entry for entry in result.entries if entry["name"] == "MONGO_URL")
+        self.assertTrue(
+            str(url["value"]).startswith(
+                "mongodb://$(SEALOS_MONGO_MONGODB_USERNAME):$(SEALOS_MONGO_MONGODB_PASSWORD)@"
+            )
+        )
+        self.assertIn("authSource=admin", str(url["value"]))
+        user_entry = next(
+            entry for entry in result.entries if entry["name"] == "SEALOS_MONGO_MONGODB_USERNAME"
+        )
+        self.assertIn("secretKeyRef", user_entry.get("valueFrom", {}))
 
     def test_build_documents_end_to_end_gates_init_job_inputs_resolution_map(self):
         compose_data = {

@@ -2056,15 +2056,6 @@ export function buildDbUrlComposedEnvEntries(
   const host = (parsed.hostname || '').trim().toLowerCase()
   if (!parsed.scheme || !host || !(host in dbServices)) return null
 
-  // Match Python: "@" in parsed.netloc
-  let hasAuth = false
-  try {
-    const u = new URL(text)
-    hasAuth = text.slice(u.protocol.length + 2).includes('@')
-  } catch {
-    hasAuth = text.includes('@')
-  }
-
   const envToken = normalizeEndpointHelperToken(envName) || 'DB_CONNECTION'
   const dbToken = normalizeEnvToken(dbType) || 'DB'
 
@@ -2091,46 +2082,27 @@ export function buildDbUrlComposedEnvEntries(
     ]
   }
 
-  const hasUsername = parsed.username !== null && parsed.username !== ''
-  // Python: parsed.password is not None — empty string password still counts
-  let hasPassword = false
-  try {
-    const u = new URL(text)
-    const afterScheme = text.slice(u.protocol.length + 2)
-    const atIdx = afterScheme.lastIndexOf('@')
-    if (atIdx >= 0) {
-      const userinfo = afterScheme.slice(0, atIdx)
-      hasPassword = userinfo.includes(':')
-    }
-  } catch {
-    hasPassword = parsed.password !== null
-  }
-
-  if (hasUsername) {
-    helperEntries.push(buildSecretRefEnvEntry(userVar, secretName, 'username'))
-  }
-  if (hasPassword) {
-    helperEntries.push(buildSecretRefEnvEntry(passwordVar, secretName, 'password'))
-  }
-
-  let authPrefix = ''
-  if (hasAuth) {
-    if (hasUsername && hasPassword) {
-      authPrefix = `$(${userVar}):$(${passwordVar})@`
-    } else if (hasUsername) {
-      authPrefix = `$(${userVar})@`
-    } else if (hasPassword) {
-      authPrefix = `:$(${passwordVar})@`
-    }
-  }
+  // KubeBlocks-managed databases always enforce authentication. A
+  // credential-less source URL (mongodb://db:27017/app, common in upstream
+  // compose files with auth-less containers) would crash-loop against the
+  // managed cluster, so credentials are injected unconditionally.
+  helperEntries.push(buildSecretRefEnvEntry(userVar, secretName, 'username'))
+  helperEntries.push(buildSecretRefEnvEntry(passwordVar, secretName, 'password'))
+  const authPrefix = `$(${userVar}):$(${passwordVar})@`
 
   // Always compose host:port — R017 accepts a $(VAR)-composed endpoint only
   // when it references the secret's endpoint or both host and port, and
   // engines behind KubeBlocks always publish a port key.
   const hostPort = `$(${hostVar}):$(${portVar})`
 
+  let search = parsed.search
+  if (dbType === 'mongodb' && !/(?:^|&)authSource=/.test(search)) {
+    // The KubeBlocks root account lives in the admin database.
+    search = search ? `${search}&authSource=admin` : 'authSource=admin'
+  }
+
   let suffix = parsed.pathname || ''
-  if (parsed.search) suffix = `${suffix}?${parsed.search}`
+  if (search) suffix = `${suffix}?${search}`
   if (parsed.hash) suffix = `${suffix}#${parsed.hash}`
 
   const composedUrl = `${parsed.scheme}://${authPrefix}${hostPort}${suffix}`

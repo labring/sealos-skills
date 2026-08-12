@@ -143,6 +143,20 @@ test('composed database URL always carries host and port refs', () => {
   assert.equal(result.dbDatabases.postgres, 'appdb')
 })
 
+test('credential-less DB URLs get credentials injected (KubeBlocks enforces auth)', () => {
+  const mongoServices = { wekandb: 'mongodb' }
+  const mongoHosts = {
+    wekandb: '${{ defaults.app_name }}-mongo-mongodb.${{ SEALOS_NAMESPACE }}.svc.cluster.local',
+  }
+  const service = { environment: ['MONGO_URL=mongodb://wekandb:27017/wekan'] }
+  const result = buildEnvEntries(service, mongoHosts, mongoServices, { serviceName: 'wekan' })
+  const url = result.entries.find((e) => e.name === 'MONGO_URL') as Record<string, any>
+  assert.match(String(url.value), /^mongodb:\/\/\$\(SEALOS_MONGO_MONGODB_USERNAME\):\$\(SEALOS_MONGO_MONGODB_PASSWORD\)@/)
+  assert.ok(String(url.value).includes('authSource=admin'))
+  const userEntry = result.entries.find((e) => e.name === 'SEALOS_MONGO_MONGODB_USERNAME') as Record<string, any>
+  assert.ok(userEntry?.valueFrom?.secretKeyRef)
+})
+
 test('custom postgres database upgrades the wait gate to db existence', () => {
   const generic = buildDbWaitInitContainers(['postgres'], {})
   assert.equal(generic.length, 1)
