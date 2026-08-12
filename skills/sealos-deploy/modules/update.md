@@ -101,13 +101,18 @@ node "<SKILL_DIR>/scripts/ensure-image-pull-secret.mjs" "$NAMESPACE" "$APP_NAME"
 
 Single-service (container name equals the workload name in generated templates
 — confirm with `kubectl get deploy/$APP_NAME -o jsonpath='{.spec.template.spec.containers[*].name}'`
-when unsure):
+when unsure). Volume-backed apps are StatefulSets — check which kind exists
+first and use it in the `set image` / `rollout` commands:
 
 ```bash
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  get deploy,statefulset -n $NAMESPACE -o name | grep -E "/${APP_NAME}$"
+
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   set image deployment/$APP_NAME \
   $APP_NAME=$NEW_IMAGE \
   -n $NAMESPACE
+# or: set image statefulset/$APP_NAME $APP_NAME=$NEW_IMAGE -n $NAMESPACE
 ```
 
 Multi-service: repeat per selected service with that service's workload and

@@ -65,36 +65,25 @@ TEMPLATE_SHA256="$(shasum -a 256 "$TEMPLATE" | awk '{print $1}')"
 
 ### 2. Target-cluster server-side dry-run
 
-Resolve the target identity with these commands (never guess values):
+Resolve the target identity with the helper (never guess values, never derive
+the app domain from the console region — split-domain regions such as usw-1
+serve apps on a different domain than the console):
 
 ```bash
-SEALOS_KUBECTL="KUBECONFIG=$HOME/.sealos/kubeconfig kubectl --insecure-skip-tls-verify"
-
-# Context and namespace come from the Sealos kubeconfig
-TARGET_CONTEXT=$(eval "$SEALOS_KUBECTL config current-context")
-TARGET_NAMESPACE=$(eval "$SEALOS_KUBECTL config view --minify -o jsonpath='{.contexts[0].context.namespace}'")
-
-# Service account: from the authenticated identity when it is a serviceaccount,
-# otherwise "default"
-WHOAMI=$(eval "$SEALOS_KUBECTL auth whoami -o jsonpath='{.status.userInfo.username}'" 2>/dev/null)
-case "$WHOAMI" in
-  system:serviceaccount:*) TARGET_SERVICE_ACCOUNT="${WHOAMI##*:}" ;;
-  *) TARGET_SERVICE_ACCOUNT="default" ;;
-esac
-
-# Cloud domain: the region domain from the current login (App URLs are
-# <host>.<region-domain>, for example evershop-xxxx.gzg.sealos.run)
-SEALOS_CLOUD_DOMAIN=$(jq -r '.region' ~/.sealos/auth.json | sed -E 's#^https?://##; s#/$##')
-
-# Cert secret name: reuse what an existing Ingress in this namespace uses
-SEALOS_CERT_SECRET_NAME=$(eval "$SEALOS_KUBECTL get ingress -n '$TARGET_NAMESPACE' \
-  -o jsonpath='{.items[0].spec.tls[0].secretName}'" 2>/dev/null)
+IDENTITY_JSON="$(node "<SKILL_DIR>/scripts/resolve-target-identity.mjs")" || exit 1
+TARGET_CONTEXT=$(jq -r '.context' <<<"$IDENTITY_JSON")
+TARGET_NAMESPACE=$(jq -r '.namespace' <<<"$IDENTITY_JSON")
+TARGET_SERVICE_ACCOUNT=$(jq -r '.service_account' <<<"$IDENTITY_JSON")
+SEALOS_CLOUD_DOMAIN=$(jq -r '.cloud_domain' <<<"$IDENTITY_JSON")
+SEALOS_CERT_SECRET_NAME=$(jq -r '.cert_secret_name' <<<"$IDENTITY_JSON")
 ```
 
-If `SEALOS_CERT_SECRET_NAME` comes back empty (no Ingress in the namespace
-yet), ask the user or check another workload namespace in the same region.
-Any of the five values still missing after these steps → **STOP** (do not
-guess, do not switch region or workspace).
+The helper resolves the app cloud domain from existing Ingress hosts in the
+namespace, then the `app_domains` map in `<SKILL_DIR>/config.json`, then the
+console region domain (flagged in `warnings` — a wrong fallback surfaces as an
+Ingress admission failure in this dry-run, not in Phase 6). Report any helper
+`warnings` to the user. Helper failure → **STOP** (do not guess, do not switch
+region or workspace).
 
 ```bash
 # From skills/sealos-deploy (once): npm install
@@ -115,7 +104,7 @@ Interpret the JSON on stdout:
 | `status` | Action |
 |----------|--------|
 | `passed` | Continue to step 3. Report any `warnings` to the user. |
-| `failed` | Schema failures with `repairable: true` may authorize YAML fixes via the repair file, then rerun the Phase 4 deploy-gate subset and this helper for **every** scenario. Other failures → **STOP**. |
+| `failed` | Read each failure's `server_message` (sanitized server rejection text) to identify the exact cause. Schema failures with `repairable: true` may authorize YAML fixes via the repair file, then rerun the Phase 4 deploy-gate subset and this helper for **every** scenario. Admission failures on the Ingress host usually mean a wrong cloud domain — re-run the identity helper and check its `sources`. Other failures → **STOP**. |
 | `setup-error` | **STOP** |
 
 Do **not** collect configuration. Do **not** write `dry_run: "passed"` unless

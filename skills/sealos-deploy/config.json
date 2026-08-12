@@ -5,5 +5,8 @@
     "https://gzg.sealos.run",
     "https://bja.sealos.run",
     "https://hzh.sealos.run"
-  ]
+  ],
+  "app_domains": {
+    "https://usw-1.sealos.io": "usw-1.sealos.app"
+  }
 }

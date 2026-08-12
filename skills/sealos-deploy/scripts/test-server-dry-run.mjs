@@ -239,7 +239,7 @@ test('renders branches, skips Template, and checks one document at a time', () =
   assert.ok(!records.some((item) => item.kind === 'Template'))
 })
 
-test('reports target schema failure without raw admission output', () => {
+test('reports target schema failure with a sanitized server message', () => {
   const cluster =
     TEMPLATE +
     `---
@@ -264,8 +264,13 @@ spec:
   assert.equal(failure.category, 'schema')
   assert.equal(failure.repairable, true)
   assert.deepEqual(failure.field_paths, ['spec.componentSpecs[0].noCreatePDB'])
-  assert.ok(!result.stdout.includes('Error from server'))
-  assert.ok(!privateLog.includes('Error from server'))
+  // The sanitized server message must be present (agents debug from it), but
+  // it must not leak local manifest paths or long token-like values.
+  assert.equal(typeof failure.server_message, 'string')
+  assert.ok(failure.server_message.length > 0)
+  assert.ok(!failure.server_message.includes('sealos-server-dry-run-'))
+  assert.ok(!/[A-Za-z0-9+/=_-]{32,}/.test(failure.server_message))
+  assert.ok(privateLog.includes('server_message='))
   assert.deepEqual(
     new Set(records.map((item) => item.kind)),
     new Set(['Deployment', 'Service', 'Cluster']),

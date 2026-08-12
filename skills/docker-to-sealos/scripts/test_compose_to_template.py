@@ -15,10 +15,24 @@ from check_consistency_runner import run_checks
 from compose_to_template import (
     MetadataOptions,
     ServiceShape,
+    build_db_wait_init_containers,
+    build_documents,
+    build_env_entries,
+    build_env_family_db_types,
+    build_pod_security_context,
+    build_probe_pair,
+    build_probe_pair_from_compose_healthcheck,
     build_zh_description,
     convert_compose_to_template,
+    deploy_profile_doc_links,
+    derive_requests_from_limits,
+    env_key_forbids_host_rewrite,
     find_svgl_logo_url,
     infer_metadata,
+    infer_resource_tier,
+    map_compose_env_value,
+    normalize_cpu_to_ladder,
+    normalize_memory_to_ladder,
     parse_args,
     resolve_image_reference,
     resolve_kompose_shapes,
@@ -92,7 +106,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       - NODE_ENV=production
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=output_dir,
                 meta=self._meta("demo"),
@@ -196,7 +210,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 """,
             )
 
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -254,7 +268,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                             "url": "https://nginx.org/",
                         }
                     ]
-                    index_path, _ = convert_compose_to_template(
+                    index_path, _, _ = convert_compose_to_template(
                         compose_path=compose,
                         output_root=root / "template",
                         meta=self._meta("nginx"),
@@ -293,7 +307,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                             "url": "https://nginx.org/",
                         }
                     ]
-                    index_path, _ = convert_compose_to_template(
+                    index_path, _, _ = convert_compose_to_template(
                         compose_path=compose,
                         output_root=root / "template",
                         meta=self._meta("nginx"),
@@ -320,7 +334,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
 
             with mock.patch("compose_to_template._read_json_url") as read_json:
-                index_path, _ = convert_compose_to_template(
+                index_path, _, _ = convert_compose_to_template(
                     compose_path=compose,
                     output_root=root / "template",
                     meta=self._meta("nginx"),
@@ -349,7 +363,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
 
             with mock.patch("compose_to_template._read_json_url", return_value=[]):
-                index_path, _ = convert_compose_to_template(
+                index_path, _, _ = convert_compose_to_template(
                     compose_path=compose,
                     output_root=root / "template",
                     meta=self._meta("demo"),
@@ -380,7 +394,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             write_file(output_dir / "demo" / "logo.webp", "webp")
 
             with mock.patch("compose_to_template._read_json_url", return_value=[]):
-                index_path, _ = convert_compose_to_template(
+                index_path, _, _ = convert_compose_to_template(
                     compose_path=compose,
                     output_root=output_dir,
                     meta=self._meta("demo"),
@@ -438,7 +452,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       - "9443:9443"
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -468,7 +482,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                         name: websocket
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -510,7 +524,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       PUBLIC_WEBSOCKET_URL: wss://demo.example.com
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -541,7 +555,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       - "443:443"
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -573,7 +587,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                   data: {}
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -604,7 +618,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     file: ./config/app-config.yaml
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -662,7 +676,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: ghcr.io/example/demo:1.0.0
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -687,7 +701,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: ghcr.io/example/demo:1.0.0
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -720,7 +734,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       - "3000:3000"
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -750,7 +764,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       - "443:443"
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -779,7 +793,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     command: worker --log-level info
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -811,7 +825,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       - "9000:9000"
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("authentik"),
@@ -845,7 +859,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       - worker
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("authentik"),
@@ -880,7 +894,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                           - "{port}:{port}"
                     """,
                 )
-                index_path, _ = convert_compose_to_template(
+                index_path, _, _ = convert_compose_to_template(
                     compose_path=compose,
                     output_root=root / "template",
                     meta=self._meta("librechat-component"),
@@ -894,6 +908,12 @@ class ComposeToTemplateTests(unittest.TestCase):
                     self.assertEqual(port, http_get["port"])
 
     def test_maps_compose_healthcheck_to_liveness_and_readiness(self):
+        """Compose healthcheck maps to probes.
+
+        Originally asserted startup failureThreshold == ceil(start_period/period) == 1;
+        the deploy-hardening port floors the startup window at 120s with a minimum
+        failureThreshold of 4, so 15s/20s now yields max(4, ceil(120/20)) == 6.
+        """
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             compose = root / "docker-compose.yml"
@@ -913,7 +933,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       start_period: 15s
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -935,7 +955,11 @@ class ComposeToTemplateTests(unittest.TestCase):
             self.assertEqual(8080, readiness.get("httpGet", {}).get("port"))
             self.assertEqual("/healthz", startup.get("httpGet", {}).get("path"))
             self.assertEqual(8080, startup.get("httpGet", {}).get("port"))
-            self.assertEqual(1, startup.get("failureThreshold"))
+            self.assertEqual(6, startup.get("failureThreshold"))
+            self.assertGreaterEqual(
+                startup["failureThreshold"] * startup["periodSeconds"],
+                120,
+            )
 
     def test_compose_healthcheck_without_start_period_still_emits_startup_probe(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -956,7 +980,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                       retries: 3
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -995,7 +1019,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                   data: {}
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1042,7 +1066,7 @@ class ComposeToTemplateTests(unittest.TestCase):
             )
             with mock.patch("compose_to_template.shutil.which", return_value="/usr/local/bin/crane"):
                 with mock.patch("compose_to_template.subprocess.run", side_effect=fake_run):
-                    index_path, _ = convert_compose_to_template(
+                    index_path, _, _ = convert_compose_to_template(
                         compose_path=compose,
                         output_root=root / "template",
                         meta=self._meta("demo"),
@@ -1066,7 +1090,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 """,
             )
             with mock.patch.dict("os.environ", {}, clear=False):
-                index_path, _ = convert_compose_to_template(
+                index_path, _, _ = convert_compose_to_template(
                     compose_path=compose,
                     output_root=root / "template",
                     meta=self._meta("demo"),
@@ -1118,7 +1142,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: postgres:16.4
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1198,7 +1222,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                   data: {}
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1237,7 +1261,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: redis:7.2.7
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1321,7 +1345,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: mysql:8.0.35
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1367,7 +1391,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: mongo:8.0.4
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1419,7 +1443,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                 """,
             )
 
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("librechat"),
@@ -1511,7 +1535,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: mongo:8.0.4
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1553,7 +1577,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: bitnami/kafka:3.3.2
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1590,7 +1614,7 @@ class ComposeToTemplateTests(unittest.TestCase):
                     image: ghcr.io/example/demo:1.0.0
                 """,
             )
-            index_path, _ = convert_compose_to_template(
+            index_path, _, _ = convert_compose_to_template(
                 compose_path=compose,
                 output_root=root / "template",
                 meta=self._meta("demo"),
@@ -1718,6 +1742,270 @@ class ComposeToTemplateTests(unittest.TestCase):
                 resolved = resolve_image_reference(image)
 
         self.assertEqual("ghcr.io/example/demo@sha256:abc", resolved)
+
+
+class DeployHardeningParityTests(unittest.TestCase):
+    """Python mirror of compose-to-template.test.ts (deploy-hardening behaviors)."""
+
+    META = MetadataOptions(
+        app_name="demo",
+        title="Demo",
+        description="Demo app.",
+        url="https://demo.example.dev",
+        git_repo="https://github.com/acme/demo",
+        author="Sealos",
+        categories=("tool",),
+        repo_raw_base="https://raw.githubusercontent.com/labring-actions/templates/kb-0.9",
+    )
+    DB_SERVICES = {"db": "postgres", "cache": "redis"}
+    DB_HOSTS = {
+        "db": "${{ defaults.app_name }}-pg-postgresql.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+        "cache": "${{ defaults.app_name }}-redis-redis-redis.${{ SEALOS_NAMESPACE }}.svc.cluster.local",
+    }
+
+    @staticmethod
+    def _empty_report() -> Dict[str, Any]:
+        return {
+            "generated_at": "test",
+            "profile": "deploy",
+            "items": [],
+            "inputs_added": [],
+            "defaults_added": [],
+        }
+
+    def test_driver_name_env_keys_are_never_host_rewritten(self):
+        self.assertTrue(env_key_forbids_host_rewrite("NODEBB_DB"))
+        self.assertTrue(env_key_forbids_host_rewrite("DB_NAME"))
+        self.assertTrue(env_key_forbids_host_rewrite("DB_DIALECT"))
+        self.assertFalse(env_key_forbids_host_rewrite("DB_HOST"))
+        self.assertFalse(env_key_forbids_host_rewrite("DATABASE_HOSTNAME"))
+
+        # NODEBB_DB=postgres must stay literal even when a service is named postgres.
+        hosts = {"postgres": self.DB_HOSTS["db"]}
+        self.assertEqual("postgres", map_compose_env_value("postgres", hosts, "NODEBB_DB"))
+        self.assertEqual("postgres", map_compose_env_value("postgres", hosts, "DB_NAME"))
+        self.assertEqual(self.DB_HOSTS["db"], map_compose_env_value("postgres", hosts, "DB_HOST"))
+
+    def test_generic_db_family_binds_to_one_db_via_its_host_member(self):
+        env_pairs = [
+            ("DB_HOST", "db"),
+            ("DB_PORT", "5432"),
+            ("DB_PASSWORD", "secret"),
+            ("REDIS_HOST", "cache"),
+        ]
+        families = build_env_family_db_types(env_pairs, self.DB_SERVICES)
+        self.assertEqual("postgres", families["DB"])
+
+        service = {
+            "environment": [
+                "DB_HOST=db",
+                "DB_PORT=5432",
+                "DB_PASSWORD=secret",
+            ]
+        }
+        result = build_env_entries(service, self.DB_HOSTS, self.DB_SERVICES, service_name="app")
+        by_name = {entry["name"]: entry for entry in result.entries}
+        password = by_name["DB_PASSWORD"]
+        self.assertIn("valueFrom", password, "DB_PASSWORD must use secretKeyRef with two db types present")
+        self.assertEqual(
+            "${{ defaults.app_name }}-pg-conn-credential",
+            password["valueFrom"]["secretKeyRef"]["name"],
+        )
+        self.assertIn("valueFrom", by_name["DB_PORT"], "DB_PORT must use secretKeyRef")
+
+    def test_bootstrap_admin_credentials_become_required_inputs(self):
+        service = {"environment": ["ADMIN_USERNAME=admin", "ADMIN_PASSWORD=test123"]}
+        result = build_env_entries(service, {}, {}, service_name="app")
+        self.assertEqual(["admin_password", "admin_username"], sorted(result.inputs.keys()))
+        self.assertTrue(result.inputs["admin_username"]["required"])
+        self.assertIsNone(result.inputs["admin_username"].get("default"))
+        by_name = {entry["name"]: entry for entry in result.entries}
+        self.assertEqual("${{ inputs.admin_username }}", by_name["ADMIN_USERNAME"]["value"])
+        self.assertEqual("${{ inputs.admin_password }}", by_name["ADMIN_PASSWORD"]["value"])
+
+    def test_placeholder_secrets_become_random_defaults(self):
+        service = {"environment": ["JWT_SECRET=changeme", "APP_KEY="]}
+        result = build_env_entries(service, {}, {}, service_name="app")
+        self.assertEqual(["app_key", "jwt_secret"], sorted(result.defaults.keys()))
+        self.assertEqual("${{ random(32) }}", result.defaults["jwt_secret"]["value"])
+        by_name = {entry["name"]: entry for entry in result.entries}
+        self.assertEqual("${{ defaults.jwt_secret }}", by_name["JWT_SECRET"]["value"])
+
+    def test_public_url_and_host_only_envs_derive_from_the_app_ingress(self):
+        service = {
+            "environment": ["BASE_URL=http://localhost:3000", "DEFAULT_DOMAIN=localhost:3000"],
+        }
+        result = build_env_entries(service, {}, {}, service_name="app")
+        by_name = {entry["name"]: entry for entry in result.entries}
+        self.assertEqual(
+            "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}",
+            by_name["BASE_URL"]["value"],
+        )
+        self.assertEqual(
+            "${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}",
+            by_name["DEFAULT_DOMAIN"]["value"],
+        )
+
+    def test_composed_database_url_always_carries_host_and_port_refs(self):
+        service = {
+            "environment": ["DATABASE_URL=postgres://app:pw@db/appdb?sslmode=disable"],
+        }
+        result = build_env_entries(service, self.DB_HOSTS, self.DB_SERVICES, service_name="app")
+        url = next(entry for entry in result.entries if entry["name"] == "DATABASE_URL")
+        self.assertIn(":$(SEALOS_DATABASE_POSTGRES_PORT)", str(url["value"]))
+        self.assertEqual("appdb", result.db_databases["postgres"])
+
+    def test_custom_postgres_database_upgrades_the_wait_gate_to_db_existence(self):
+        generic = build_db_wait_init_containers(["postgres"], {})
+        self.assertEqual(1, len(generic))
+        self.assertIn("pg_isready", str(generic[0]["command"][2]))
+
+        custom = build_db_wait_init_containers(["postgres"], {"postgres": "appdb"})
+        self.assertEqual(1, len(custom))
+        self.assertIn("pg_database WHERE datname", str(custom[0]["command"][2]))
+
+    def test_compose_start_period_keeps_a_120s_startup_floor(self):
+        service = {
+            "healthcheck": {
+                "test": ["CMD", "true"],
+                "interval": "30s",
+                "start_period": "30s",
+            }
+        }
+        probes = build_probe_pair_from_compose_healthcheck(service, [8080])
+        startup = probes["startupProbe"]
+        self.assertGreaterEqual(
+            startup["failureThreshold"] * startup["periodSeconds"],
+            120,
+            f"startup window {startup['failureThreshold'] * startup['periodSeconds']}s must be >= 120s",
+        )
+
+    def test_no_healthcheck_evidence_falls_back_to_tcp_readiness_startup_probes(self):
+        probes = build_probe_pair({}, "acme/demo:1.2.3", [8080], [])
+        self.assertIn("readinessProbe", probes)
+        self.assertIn("startupProbe", probes)
+        self.assertNotIn("livenessProbe", probes)
+        self.assertEqual({"port": 8080}, probes["readinessProbe"]["tcpSocket"])
+
+    def test_pod_security_context_follows_image_user_and_volume_presence(self):
+        self.assertIsNone(build_pod_security_context("1000", False).context)
+        self.assertIsNone(build_pod_security_context("", True).context)
+        self.assertIsNone(build_pod_security_context("root", True).context)
+        numeric = build_pod_security_context("1000", True)
+        self.assertEqual(
+            {
+                "runAsNonRoot": True,
+                "runAsUser": 1000,
+                "runAsGroup": 1000,
+                "fsGroup": 1000,
+                "fsGroupChangePolicy": "OnRootMismatch",
+            },
+            numeric.context,
+        )
+        symbolic = build_pod_security_context("nodebb", True)
+        self.assertIsNone(symbolic.context)
+        self.assertEqual("nodebb", symbolic.unresolved_user)
+
+    def test_resource_tiers_compose_limits_fingerprints_hints_requests_derivation(self):
+        self.assertEqual("1024Mi", normalize_memory_to_ladder("1G"))
+        self.assertEqual("1024Mi", normalize_memory_to_ladder("900m"))
+        self.assertIsNone(normalize_memory_to_ladder("not-a-size"))
+        self.assertEqual("1", normalize_cpu_to_ladder("0.75"))
+
+        from_compose = infer_resource_tier(
+            "acme/demo:1",
+            {"deploy": {"resources": {"limits": {"cpus": "1", "memory": "1G"}}}},
+        )
+        self.assertEqual({"cpu": "1", "memory": "1024Mi"}, from_compose["limits"])
+
+        heavy = infer_resource_tier("nodebb/docker:4.0.0", {})
+        self.assertEqual({"cpu": "1", "memory": "2048Mi"}, heavy["limits"])
+
+        hinted = infer_resource_tier("acme/demo:1", {}, {"cpu": "2", "memory": "4096Mi"})
+        self.assertEqual({"cpu": "2", "memory": "4096Mi"}, hinted["limits"])
+
+        self.assertEqual(
+            {"cpu": "100m", "memory": "204Mi"},
+            derive_requests_from_limits({"cpu": "1", "memory": "2048Mi"}),
+        )
+
+    def test_deploy_profile_rewrites_readme_and_icon_to_live_urls(self):
+        links = deploy_profile_doc_links(self.META)
+        self.assertIsNotNone(links)
+        self.assertEqual("https://raw.githubusercontent.com/acme/demo/HEAD/README.md", links["readme"])
+        self.assertEqual("https://github.com/acme.png", links["icon"])
+
+    def test_build_documents_end_to_end_gates_init_job_inputs_resolution_map(self):
+        compose_data = {
+            "services": {
+                "app": {
+                    "image": "acme/demo:latest",
+                    "ports": ["8080:8080"],
+                    "depends_on": ["db"],
+                    "environment": [
+                        "DATABASE_URL=postgres://app:pw@db/appdb",
+                        "ADMIN_PASSWORD=test123",
+                    ],
+                    "volumes": ["data:/srv/data"],
+                },
+                "db": {
+                    "image": "postgres:16",
+                    "environment": ["POSTGRES_PASSWORD=pw"],
+                },
+            },
+            "volumes": {"data": {}},
+        }
+        report = self._empty_report()
+        docs = build_documents(
+            compose_data,
+            self.META,
+            None,
+            None,
+            profile="deploy",
+            report=report,
+            image_resolution={
+                "acme/demo:latest": {
+                    "resolved": "acme/demo@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+                    "version_tag": None,
+                    "platforms": ["linux/amd64"],
+                    "config": {"user": "1000", "exposed_ports": [8080]},
+                },
+            },
+        )
+
+        kinds = [
+            f"{doc['kind']}/{doc['metadata']['name']}" if doc.get("metadata", {}).get("name") else str(doc["kind"])
+            for doc in docs
+        ]
+        self.assertTrue(
+            any(kind.startswith("Job/") for kind in kinds),
+            f"pg-init job expected in {', '.join(kinds)}",
+        )
+
+        workload = next((doc for doc in docs if doc["kind"] == "StatefulSet"), None)
+        self.assertIsNotNone(workload, "volume-backed app must be a StatefulSet")
+        pod_spec = workload["spec"]["template"]["spec"]
+        self.assertEqual(1000, pod_spec["securityContext"]["fsGroup"])
+        self.assertEqual(1, len(pod_spec["initContainers"]))
+        self.assertIn("wait-for-postgres", pod_spec["initContainers"][0]["name"])
+        self.assertIn("pg_database WHERE datname", str(pod_spec["initContainers"][0]["command"][2]))
+        self.assertEqual(
+            "acme/demo@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            pod_spec["containers"][0]["image"],
+        )
+
+        template = docs[0]
+        self.assertEqual("Template", template["kind"])
+        self.assertIn("admin_password", template["spec"]["inputs"])
+        self.assertEqual(
+            "https://raw.githubusercontent.com/acme/demo/HEAD/README.md",
+            template["spec"]["readme"],
+        )
+
+        self.assertTrue(any(item["code"] == "pg-init-job" for item in report["items"]))
+        self.assertTrue(any(item["code"] == "db-wait-gate" for item in report["items"]))
+        self.assertEqual(["admin_password"], report["inputs_added"])
 
 
 if __name__ == "__main__":

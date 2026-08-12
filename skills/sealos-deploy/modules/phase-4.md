@@ -23,10 +23,14 @@ Official-template fast path (Phase 1) skips this phase.
 | Output | Path |
 |--------|------|
 | Sealos template | `.sealos/template/index.yaml` |
-| Digest table | `.sealos/phase-4/image-digests.json` |
+| Image resolution (digests + image configs) | `.sealos/phase-4/image-resolution.json` |
+| Conversion report | `.sealos/phase-4/conversion-report.json` |
 | Source snapshot | `.sealos/phase-4/source/` |
 | Helm render | `.sealos/phase-4/rendered.yaml` (Helm only) |
 | Resource map | `.sealos/phase-4/resource-map.json` |
+
+`image-digests.json` remains accepted as a legacy alternative to
+`image-resolution.json` for resumed runs.
 
 ## Path dependency gate
 
@@ -37,7 +41,9 @@ Ask once to install deferred tools; refuse or recheck failure → **STOP**.
 | Always | Node.js 22+; `npm install` in `skills/docker-to-sealos` (`yaml`) |
 | Compose → template | `kompose` |
 | Helm source | Helm 3+ |
-| Digest resolve | Registry inspect tool (`crane`, or equivalent) |
+
+Digest and image-config resolution uses `resolve-images.ts` (plain registry
+HTTPS with a `docker buildx imagetools` fallback) — `crane` is not required.
 
 ## Phase constraints
 
@@ -46,7 +52,7 @@ Ask once to install deferred tools; refuse or recheck failure → **STOP**.
 | P4-01 | Do not create cloud resources or push images |
 | P4-02 | Do not modify `deployment_source` |
 | P4-03 | Do not write digests into `build-result.json` |
-| P4-04 | Pin digest for every container image in the deployment source |
+| P4-04 | Every container image in the final template is digest-pinned via `image-resolution.json` (KubeBlocks-replaced database images are exempt; converter gate/init images use fixed version tags) |
 | P4-05 | Deploy gate = `check-consistency.ts` rule subset only (never full `quality_gate.py`) |
 
 ## Procedure
@@ -84,53 +90,40 @@ Do not re-scout the repo. Copy only the deployment source:
 | Helm | Copy chart into `source/`; `helm template` → `.sealos/phase-4/rendered.yaml` |
 | Kubernetes | Copy manifest into `source/` |
 
-### 4. Pin digests → `image-digests.json`
+### 4. Resolve images → `image-resolution.json`
 
-Enumerate every container image from the deployment source / snapshot. Keys match
-workload / service names in the source.
-
-| Image source | Resolve from |
-|--------------|--------------|
-| Built in-repo | `build-result.json` → `pushed` tag refs |
-| Upstream `image:` | Tag refs in the deployment source |
-
-Resolve each to `repository@sha256:...` for `linux/amd64`. Preferred commands:
+One command resolves every non-database compose image to a digest-pinned
+reference for `linux/amd64` **and** captures the image runtime config (user,
+exposed ports) that drives securityContext emission:
 
 ```bash
-# With a local Docker daemon (uses existing registry logins):
-docker buildx imagetools inspect "<ref>" --format '{{json .Manifest}}' | jq -r '.digest'
-# Without Docker (fast path / sandbox):
-crane digest --platform linux/amd64 "<ref>"
+node --experimental-strip-types \
+  "<SKILL_DIR>/../docker-to-sealos/scripts/resolve-images.ts" \
+  --compose "$WORK_DIR/.sealos/phase-4/source/docker-compose.yml" \
+  --output "$WORK_DIR/.sealos/phase-4/image-resolution.json"
 ```
 
-For a multi-arch index, take the index digest (`repository@<index-digest>`)
-only if the index contains a `linux/amd64` manifest; otherwise resolution
-fails. Write:
+- Database services replaced by KubeBlocks are excluded automatically.
+- Images built in-repo (Phase 3): pass the pushed tag refs with
+  `--extra "<ref1>,<ref2>"` so they are pinned from `build-result.json` →
+  `pushed` values.
+- Explicit version tags resolve to `repository:tag@sha256:...` (tag kept for
+  readability, digest decides the pull); floating tags resolve to
+  `repository@sha256:...`.
+- An image with no `linux/amd64` manifest is an error → **STOP**.
+- Do not write digests back to `build-result.json`. Resolution failure → **STOP**.
 
-```json
-{
-  "generated_at": "<ISO timestamp>",
-  "digests": {
-    "<workload-key>": "ghcr.io/user/app@sha256:..."
-  }
-}
-```
-
-Do not write digests back to `build-result.json`. Resolution failure → **STOP**.
-
-### 5. Convert, then agent overlay digests
-
-Convert by source type. Converter may emit provisional images; **the main agent then
-overwrites every workload `image` / `originImageName` from `image-digests.json`**
-(no `--image-override` flag required).
+### 5. Convert (converter consumes the resolution file)
 
 | Type | Conversion |
 |------|------------|
-| Compose | `compose-to-template.ts` with `--kompose-mode always`, `--dry-run`, write stdout to `.sealos/template/index.yaml` |
+| Compose | `compose-to-template.ts` below |
 | Helm | Adapt from `rendered.yaml` |
 | Kubernetes | Adapt from the snapshot manifest |
 
-Compose example (use flat `repo_name` / `github_url` from `analysis.json`):
+Compose invocation (use flat `repo_name` / `github_url` from `analysis.json`;
+pass `--url` / `--description` from repo evidence and any
+`resource_hints` recorded in the Phase 2 plan):
 
 ```bash
 APP_NAME="$(
@@ -145,21 +138,37 @@ GENERATED="$(node --experimental-strip-types \
   --compose "$COMPOSE_FILE" \
   --app-name "$APP_NAME" \
   --git-repo "$GITHUB_URL" \
+  --url "<official app URL from repo/README>" \
+  --description "<one-line app description>" \
+  --profile deploy \
+  --image-resolution "$WORK_DIR/.sealos/phase-4/image-resolution.json" \
+  --report "$WORK_DIR/.sealos/phase-4/conversion-report.json" \
   --kompose-mode always \
   --no-fetch-logo \
   --dry-run)" || { echo "Compose conversion failed; STOP." >&2; exit 1; }
 printf '%s\n' "$GENERATED" > "$WORK_DIR/.sealos/template/index.yaml"
 ```
 
-After conversion, main agent:
+The converter now emits digest-pinned images, database readiness
+initContainers, custom-database init Jobs, bootstrap-credential inputs,
+generated-secret defaults, public-URL envs, probes (with startup floors),
+securityContext for non-root images writing volumes, and evidence-based
+resource tiers. **Read `conversion-report.json` before anything else:**
 
-1. Replace each workload container `image` and matching `originImageName` with the
-   digest from `image-digests.json` for that key.
-2. Add `imagePullSecrets: [{ name: ${{ defaults.app_name }} }]` only when
-   `build-result.json` → `pull_access.<key>` is `ghcr_secret_required`.
-3. Apply conversion constraints below (network, DB, public URL, MUST rules).
-4. Write `.sealos/phase-4/resource-map.json` mapping source workloads → template resources.
-5. Do not drop services. Treat converter DB classification as immutable.
+1. Resolve every `required_action` item (for example a symbolic image user
+   that needs a numeric uid, or an unsafe database name).
+2. Review `decision` items against the repo evidence — especially derived
+   public-URL envs (host-only vs scheme format) and generated-secret defaults
+   with upstream format constraints.
+3. Then apply the remaining agent overlay:
+   - Add `imagePullSecrets: [{ name: ${{ defaults.app_name }} }]` only when
+     `build-result.json` → `pull_access.<key>` is `ghcr_secret_required`.
+   - Apply conversion constraints below that need repo judgment (public
+     service selection among multiple candidates, file-based config
+     ConfigMaps, official Kubernetes doc alignment).
+   - Write `.sealos/phase-4/resource-map.json` mapping source workloads →
+     template resources.
+4. Do not drop services. Treat converter DB classification as immutable.
 
 Invalid recipe / incomplete topology → **RETURN → Phase 2**.
 
@@ -189,8 +198,8 @@ node "<SKILL_DIR>/scripts/validate-phase-4.mjs" --dir "$WORK_DIR"
 
 | ID | Check |
 |----|-------|
-| P4-V01 | Each `image-digests.json` entry is `repository@sha256:...` |
-| P4-V02 | Every template container `image` matches the digest table |
+| P4-V01 | Each `image-resolution.json` entry (or legacy `image-digests.json` entry) is `repository[:tag]@sha256:...` |
+| P4-V02 | Every template container `image` is in the resolution table (converter gate/init images exempt; table may hold extra entries for KubeBlocks-replaced database images) |
 | P4-V03 | `build-result.json` `pushed` values contain no `@sha256:` (when present) |
 | P4-V04 | Deploy gate subset passes |
 

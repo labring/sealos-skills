@@ -1484,6 +1484,26 @@ function warningCategories(stderr: string): string[] {
   return [...categories].sort()
 }
 
+/**
+ * Compact, redacted excerpt of the server's rejection message. Without it the
+ * agent only sees the category ("admission policy rejected the document") and
+ * has to re-run kubectl by hand to learn the actual reason.
+ */
+export function sanitizeServerMessage(stderr: string): string {
+  const lines = splitLines(stderr)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.toLowerCase().startsWith('warning'))
+  let message = lines.join(' ')
+  // Strip local temp file paths and redact long token-like sequences.
+  message = message.replace(/\/[^\s"']*sealos-server-dry-run-[^\s"':]*/g, '<manifest>')
+  message = message.replace(/[A-Za-z0-9+/=_-]{32,}/g, '<redacted>')
+  message = message.replace(/\s+/g, ' ').trim()
+  if (message.length > 600) {
+    message = `${message.slice(0, 600)}…`
+  }
+  return message
+}
+
 function classifyFailure(
   stderr: string,
 ): [string, string[], string] {
@@ -1624,9 +1644,10 @@ function runServerDryRun(
           )
           continue
         }
+        const serverMessage = sanitizeServerMessage(stderr)
         appendPrivateLog(
           privateLog,
-          `[server-dry-run] scenario=${document.scenario} ${document.kind}/${document.name} status=failed category=${category} field_paths=${paths.join(',') || 'none'} warnings=${documentWarnings.join(',') || 'none'}`,
+          `[server-dry-run] scenario=${document.scenario} ${document.kind}/${document.name} status=failed category=${category} field_paths=${paths.join(',') || 'none'} warnings=${documentWarnings.join(',') || 'none'} server_message=${serverMessage || 'none'}`,
         )
         failures.push({
           scenario: document.scenario,
@@ -1635,6 +1656,7 @@ function runServerDryRun(
           category,
           field_paths: paths,
           detail,
+          server_message: serverMessage,
           repairable: category === 'schema',
         })
       } else {

@@ -182,6 +182,15 @@ def build_commands(root: Path, artifacts: str) -> List[Tuple[str, Sequence[str]]
             (python, str(scripts_dir / "test_compose_to_template.py")),
         ),
         (
+            "typescript converter tests",
+            (
+                "node",
+                "--experimental-strip-types",
+                "--test",
+                str(scripts_dir / "compose-to-template.test.ts"),
+            ),
+        ),
+        (
             "must coverage validator tests",
             (python, str(scripts_dir / "test_check_must_coverage.py")),
         ),

@@ -322,3 +322,178 @@ export const OFFICIAL_HEALTH_WORKER_PROFILES: Record<string, HealthWorkerProfile
     startupFailureThreshold: 90,
   },
 }
+
+// --- env semantics guards (host rewrite must never touch these) ---
+
+// Env keys whose value is a database/driver NAME, never a network host.
+export const ENV_KEY_HOST_REWRITE_FORBIDDEN_RE =
+  /(?:^|_)(?:NAME|DB|DATABASE|DRIVER|DIALECT|ENGINE|VENDOR|ADAPTER|CLIENT|SCHEME|PROTOCOL|TYPE)$/
+
+// Values that are database driver/engine identifiers, never hosts.
+export const DB_DRIVER_NAME_VALUES = new Set([
+  'postgres',
+  'postgresql',
+  'pgsql',
+  'pg',
+  'mysql',
+  'mysql2',
+  'mariadb',
+  'redis',
+  'valkey',
+  'mongo',
+  'mongodb',
+  'sqlite',
+  'sqlite3',
+  'better-sqlite3',
+  'kafka',
+  'mssql',
+])
+
+// --- public URL / host derivation ---
+
+// Env keys that carry the app's public browser URL (scheme + host).
+export const PUBLIC_URL_ENV_KEYS = new Set([
+  'BASE_URL',
+  'APP_URL',
+  'SITE_URL',
+  'PUBLIC_URL',
+  'EXTERNAL_URL',
+  'WEB_URL',
+  'ROOT_URL',
+  'SERVER_URL',
+  'APPLICATION_URL',
+  'NEXTAUTH_URL',
+  'NEXT_PUBLIC_APP_URL',
+  'PUBLIC_BASE_URL',
+  'WEBUI_URL',
+])
+
+// Env keys that carry the public host only (no scheme).
+export const PUBLIC_HOST_ENV_KEYS = new Set([
+  'DOMAIN',
+  'DEFAULT_DOMAIN',
+  'APP_DOMAIN',
+  'PUBLIC_DOMAIN',
+  'SERVER_NAME',
+  'VIRTUAL_HOST',
+  'HOSTNAME_PUBLIC',
+])
+
+// Existing values that clearly need replacement by the real public location.
+export const PUBLIC_URL_PLACEHOLDER_RE =
+  /^$|^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0|example\.(?:com|org|net)|.*\.example\.(?:com|org|net))(?::\d+)?\/?$/i
+
+export const PUBLIC_URL_TEMPLATE = 'https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}'
+export const PUBLIC_HOST_TEMPLATE = '${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}'
+
+// --- bootstrap credentials and generated secrets ---
+
+// App-level deployer-selected bootstrap identity/credential envs.
+export const BOOTSTRAP_CRED_ENV_RE =
+  /^(?:[A-Z0-9]+_)*(?:ADMIN|ROOT|INITIAL_ADMIN|SUPERUSER|SUPER_ADMIN)_?(?:USER|USERNAME|EMAIL|MAIL|PASSWORD|PASS|PWD)$/
+
+export const BOOTSTRAP_CRED_IDENTITY_RE = /(?:USER|USERNAME|EMAIL|MAIL)$/
+
+// Keys whose literal compose value is a to-be-generated app secret.
+export const GENERATED_SECRET_ENV_RE =
+  /(?:^|_)(?:SECRET|SECRET_KEY|SECRETKEY|JWT_SECRET|SESSION_SECRET|COOKIE_SECRET|ENCRYPTION_KEY|APP_KEY|API_SECRET|SIGNING_KEY|AUTH_SECRET|SALT|MASTER_KEY)$/
+
+// Placeholder-looking literal values that must never ship in a template.
+export const PLACEHOLDER_SECRET_VALUE_RE =
+  /^(?:|x+|\*+|change ?me.*|replace.*|your.*|example.*|sample.*|dummy.*|test\d*|secret\d*|password\d*|admin\d*|1234\d*|abc\d*|token\d*|key\d*|placeholder.*|insecure.*|please.*|todo.*)$/i
+
+// --- database wait gates (initContainers) ---
+
+export type DbWaitGateSpec = {
+  image: string
+  // command receives HOST/PORT via env; secret-backed when the db secret carries them
+  command: readonly string[]
+  hostFromSecret: boolean
+  defaultPort: string
+}
+
+export const DB_WAIT_GATE_BY_TYPE: Record<string, DbWaitGateSpec> = {
+  postgres: {
+    image: 'postgres:16.4-alpine',
+    command: [
+      'sh',
+      '-c',
+      'for i in $(seq 1 150); do pg_isready -h "$DB_GATE_HOST" -p "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for postgresql" >&2; exit 1',
+    ],
+    hostFromSecret: true,
+    defaultPort: '5432',
+  },
+  mysql: {
+    image: 'busybox:1.36.1',
+    command: [
+      'sh',
+      '-c',
+      'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mysql" >&2; exit 1',
+    ],
+    hostFromSecret: true,
+    defaultPort: '3306',
+  },
+  redis: {
+    image: 'redis:7.2.7-alpine',
+    command: [
+      'sh',
+      '-c',
+      'for i in $(seq 1 150); do OUT="$(redis-cli -h "$DB_GATE_HOST" -p "$DB_GATE_PORT" ping 2>&1)"; case "$OUT" in *PONG*|*NOAUTH*|*Authentication*) exit 0;; esac; sleep 2; done; echo "timed out waiting for redis" >&2; exit 1',
+    ],
+    hostFromSecret: false,
+    defaultPort: '6379',
+  },
+  mongodb: {
+    image: 'busybox:1.36.1',
+    command: [
+      'sh',
+      '-c',
+      'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mongodb" >&2; exit 1',
+    ],
+    hostFromSecret: false,
+    defaultPort: '27017',
+  },
+  kafka: {
+    image: 'busybox:1.36.1',
+    command: [
+      'sh',
+      '-c',
+      'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for kafka" >&2; exit 1',
+    ],
+    hostFromSecret: false,
+    defaultPort: '9092',
+  },
+}
+
+export const DB_WAIT_GATE_RESOURCES = {
+  limits: { cpu: '100m', memory: '128Mi' },
+  requests: { cpu: '10m', memory: '12Mi' },
+}
+
+// --- resource sizing hints ---
+
+// Image/basename fingerprints that need a larger boot-time tier than the
+// 200m/256Mi personal low-load default (JVM heap, boot-time asset builds).
+export const HEAVY_RUNTIME_IMAGE_HINTS: Array<[RegExp, { cpu: string; memory: string }]> = [
+  [/(?:^|[/-])(?:jenkins|sonarqube|keycloak|kestra|zulip|gitlab)(?:[/:@-]|$)/i, { cpu: '1', memory: '2048Mi' }],
+  [/(?:java|jdk|jre|tomcat|spring)/i, { cpu: '1', memory: '1024Mi' }],
+  [/(?:^|[/-])(?:nodebb|discourse|mastodon|openproject)(?:[/:@-]|$)/i, { cpu: '1', memory: '2048Mi' }],
+]
+
+// --- probes without healthcheck evidence ---
+
+export const DEFAULT_TCP_READINESS = {
+  periodSeconds: 10,
+  timeoutSeconds: 3,
+  failureThreshold: 3,
+}
+
+export const DEFAULT_TCP_STARTUP = {
+  periodSeconds: 10,
+  timeoutSeconds: 3,
+  failureThreshold: 30,
+}
+
+// Floor for compose start_period-derived startup windows (seconds).
+export const STARTUP_WINDOW_FLOOR_SECONDS = 120
+export const STARTUP_FAILURE_THRESHOLD_FLOOR = 4

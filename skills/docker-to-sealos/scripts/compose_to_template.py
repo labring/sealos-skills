@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 from urllib.error import HTTPError, URLError
@@ -292,6 +293,194 @@ OFFICIAL_HEALTH_WORKER_PROFILES: Dict[str, Dict[str, Any]] = {
     }
 }
 
+# --- env semantics guards (host rewrite must never touch these) ---
+
+# Env keys whose value is a database/driver NAME, never a network host.
+ENV_KEY_HOST_REWRITE_FORBIDDEN_RE = re.compile(
+    r"(?:^|_)(?:NAME|DB|DATABASE|DRIVER|DIALECT|ENGINE|VENDOR|ADAPTER|CLIENT|SCHEME|PROTOCOL|TYPE)$"
+)
+
+# Values that are database driver/engine identifiers, never hosts.
+DB_DRIVER_NAME_VALUES = {
+    "postgres",
+    "postgresql",
+    "pgsql",
+    "pg",
+    "mysql",
+    "mysql2",
+    "mariadb",
+    "redis",
+    "valkey",
+    "mongo",
+    "mongodb",
+    "sqlite",
+    "sqlite3",
+    "better-sqlite3",
+    "kafka",
+    "mssql",
+}
+
+# --- public URL / host derivation ---
+
+# Env keys that carry the app's public browser URL (scheme + host).
+PUBLIC_URL_ENV_KEYS = {
+    "BASE_URL",
+    "APP_URL",
+    "SITE_URL",
+    "PUBLIC_URL",
+    "EXTERNAL_URL",
+    "WEB_URL",
+    "ROOT_URL",
+    "SERVER_URL",
+    "APPLICATION_URL",
+    "NEXTAUTH_URL",
+    "NEXT_PUBLIC_APP_URL",
+    "PUBLIC_BASE_URL",
+    "WEBUI_URL",
+}
+
+# Env keys that carry the public host only (no scheme).
+PUBLIC_HOST_ENV_KEYS = {
+    "DOMAIN",
+    "DEFAULT_DOMAIN",
+    "APP_DOMAIN",
+    "PUBLIC_DOMAIN",
+    "SERVER_NAME",
+    "VIRTUAL_HOST",
+    "HOSTNAME_PUBLIC",
+}
+
+# Existing values that clearly need replacement by the real public location.
+PUBLIC_URL_PLACEHOLDER_RE = re.compile(
+    r"^$|^(?:https?://)?(?:localhost|127\.0\.0\.1|0\.0\.0\.0|example\.(?:com|org|net)|.*\.example\.(?:com|org|net))(?::\d+)?/?$",
+    re.IGNORECASE,
+)
+
+PUBLIC_URL_TEMPLATE = "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+PUBLIC_HOST_TEMPLATE = "${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
+
+# --- bootstrap credentials and generated secrets ---
+
+# App-level deployer-selected bootstrap identity/credential envs.
+BOOTSTRAP_CRED_ENV_RE = re.compile(
+    r"^(?:[A-Z0-9]+_)*(?:ADMIN|ROOT|INITIAL_ADMIN|SUPERUSER|SUPER_ADMIN)_?(?:USER|USERNAME|EMAIL|MAIL|PASSWORD|PASS|PWD)$"
+)
+
+BOOTSTRAP_CRED_IDENTITY_RE = re.compile(r"(?:USER|USERNAME|EMAIL|MAIL)$")
+
+# Keys whose literal compose value is a to-be-generated app secret.
+GENERATED_SECRET_ENV_RE = re.compile(
+    r"(?:^|_)(?:SECRET|SECRET_KEY|SECRETKEY|JWT_SECRET|SESSION_SECRET|COOKIE_SECRET|ENCRYPTION_KEY|APP_KEY|API_SECRET|SIGNING_KEY|AUTH_SECRET|SALT|MASTER_KEY)$"
+)
+
+# Placeholder-looking literal values that must never ship in a template.
+PLACEHOLDER_SECRET_VALUE_RE = re.compile(
+    r"^(?:|x+|\*+|change ?me.*|replace.*|your.*|example.*|sample.*|dummy.*|test\d*|secret\d*|password\d*|admin\d*|1234\d*|abc\d*|token\d*|key\d*|placeholder.*|insecure.*|please.*|todo.*)$",
+    re.IGNORECASE,
+)
+
+# --- database wait gates (initContainers) ---
+
+# command receives HOST/PORT via env; secret-backed when the db secret carries them
+DB_WAIT_GATE_BY_TYPE: Dict[str, Dict[str, Any]] = {
+    "postgres": {
+        "image": "postgres:16.4-alpine",
+        "command": [
+            "sh",
+            "-c",
+            'for i in $(seq 1 150); do pg_isready -h "$DB_GATE_HOST" -p "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for postgresql" >&2; exit 1',
+        ],
+        "host_from_secret": True,
+        "default_port": "5432",
+    },
+    "mysql": {
+        "image": "busybox:1.36.1",
+        "command": [
+            "sh",
+            "-c",
+            'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mysql" >&2; exit 1',
+        ],
+        "host_from_secret": True,
+        "default_port": "3306",
+    },
+    "redis": {
+        "image": "redis:7.2.7-alpine",
+        "command": [
+            "sh",
+            "-c",
+            'for i in $(seq 1 150); do OUT="$(redis-cli -h "$DB_GATE_HOST" -p "$DB_GATE_PORT" ping 2>&1)"; case "$OUT" in *PONG*|*NOAUTH*|*Authentication*) exit 0;; esac; sleep 2; done; echo "timed out waiting for redis" >&2; exit 1',
+        ],
+        "host_from_secret": False,
+        "default_port": "6379",
+    },
+    "mongodb": {
+        "image": "busybox:1.36.1",
+        "command": [
+            "sh",
+            "-c",
+            'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for mongodb" >&2; exit 1',
+        ],
+        "host_from_secret": False,
+        "default_port": "27017",
+    },
+    "kafka": {
+        "image": "busybox:1.36.1",
+        "command": [
+            "sh",
+            "-c",
+            'for i in $(seq 1 150); do nc -z -w 2 "$DB_GATE_HOST" "$DB_GATE_PORT" >/dev/null 2>&1 && exit 0; sleep 2; done; echo "timed out waiting for kafka" >&2; exit 1',
+        ],
+        "host_from_secret": False,
+        "default_port": "9092",
+    },
+}
+
+DB_WAIT_GATE_RESOURCES = {
+    "limits": {"cpu": "100m", "memory": "128Mi"},
+    "requests": {"cpu": "10m", "memory": "12Mi"},
+}
+
+# --- resource sizing hints ---
+
+# Image/basename fingerprints that need a larger boot-time tier than the
+# 200m/256Mi personal low-load default (JVM heap, boot-time asset builds).
+HEAVY_RUNTIME_IMAGE_HINTS: Tuple[Tuple[re.Pattern[str], Dict[str, str]], ...] = (
+    (
+        re.compile(r"(?:^|[/-])(?:jenkins|sonarqube|keycloak|kestra|zulip|gitlab)(?:[/:@-]|$)", re.IGNORECASE),
+        {"cpu": "1", "memory": "2048Mi"},
+    ),
+    (
+        re.compile(r"(?:java|jdk|jre|tomcat|spring)", re.IGNORECASE),
+        {"cpu": "1", "memory": "1024Mi"},
+    ),
+    (
+        re.compile(r"(?:^|[/-])(?:nodebb|discourse|mastodon|openproject)(?:[/:@-]|$)", re.IGNORECASE),
+        {"cpu": "1", "memory": "2048Mi"},
+    ),
+)
+
+# --- probes without healthcheck evidence ---
+
+DEFAULT_TCP_READINESS = {
+    "periodSeconds": 10,
+    "timeoutSeconds": 3,
+    "failureThreshold": 3,
+}
+
+DEFAULT_TCP_STARTUP = {
+    "periodSeconds": 10,
+    "timeoutSeconds": 3,
+    "failureThreshold": 30,
+}
+
+# Floor for compose start_period-derived startup windows (seconds).
+STARTUP_WINDOW_FLOOR_SECONDS = 120
+STARTUP_FAILURE_THRESHOLD_FLOOR = 4
+
+SAFE_DB_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+DEPLOY_GITHUB_REPO_RE = re.compile(r"^https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", re.IGNORECASE)
+RESOURCE_HINT_RE = re.compile(r"^([^=]+)=([^,]+),(.+)$")
+
 
 @dataclass(frozen=True)
 class MetadataOptions:
@@ -317,6 +506,37 @@ class ConfigMount:
     target: str
     key: str
     content: str
+
+
+# One image entry per reference from resolve-images.ts output.
+ImageResolutionMap = Dict[str, Dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class EnvBuildResult:
+    entries: List[Dict[str, Any]]
+    inputs: Dict[str, Dict[str, Any]]
+    defaults: Dict[str, Dict[str, str]]
+    # db_type -> database name referenced by the app (from URL path or *_NAME family member).
+    db_databases: Dict[str, str]
+    report_items: List[Dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class PodSecurityContextResult:
+    context: Optional[Dict[str, Any]]
+    unresolved_user: Optional[str]
+
+
+def new_conversion_report(profile: str) -> Dict[str, Any]:
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return {
+        "generated_at": generated_at,
+        "profile": profile,
+        "items": [],
+        "inputs_added": [],
+        "defaults_added": [],
+    }
 
 
 def db_component_resources() -> Dict[str, Dict[str, str]]:
@@ -550,16 +770,23 @@ def resolve_image_reference(
     *,
     digest_cache: Optional[Dict[str, str]] = None,
     tag_cache: Optional[Dict[str, List[str]]] = None,
+    image_resolution: Optional[ImageResolutionMap] = None,
 ) -> str:
+    trimmed = image.strip()
+    resolution_entry = (image_resolution or {}).get(trimmed)
+    if isinstance(resolution_entry, dict):
+        resolved = resolution_entry.get("resolved")
+        if isinstance(resolved, str) and resolved:
+            return resolved.strip()
     repository, tag, digest = split_image_reference(image)
     if digest:
-        return image.strip()
+        return trimmed
     if not repository or not tag:
-        return image.strip()
+        return trimmed
     if is_explicit_version_tag(tag):
-        return image.strip()
+        return trimmed
     if not is_floating_tag(tag):
-        return image.strip()
+        return trimmed
 
     digest_cache = digest_cache if digest_cache is not None else {}
     tag_cache = tag_cache if tag_cache is not None else {}
@@ -596,6 +823,58 @@ def resolve_image_reference(
         return f"{repository}:{best_tag}"
 
     return f"{repository}@{source_digest}"
+
+
+def _coerce_exposed_ports(raw_ports: Any) -> Optional[List[int]]:
+    if not isinstance(raw_ports, list):
+        return None
+    ports: List[int] = []
+    for item in raw_ports:
+        if isinstance(item, bool):
+            continue
+        if isinstance(item, int):
+            ports.append(item)
+        elif isinstance(item, float) and item.is_integer():
+            ports.append(int(item))
+        elif isinstance(item, str) and re.fullmatch(r"-?\d+", item.strip()):
+            ports.append(int(item.strip()))
+    return ports
+
+
+def load_image_resolution_file(path: Path) -> ImageResolutionMap:
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("image resolution file must be a JSON object")
+    images = raw.get("images")
+    if images is None:
+        images = raw
+    if not isinstance(images, dict):
+        raise ValueError("image resolution images section must be a JSON object")
+    resolution: ImageResolutionMap = {}
+    for ref, entry in images.items():
+        if not isinstance(entry, dict):
+            continue
+        resolved = entry.get("resolved")
+        if not isinstance(resolved, str) or not resolved.strip():
+            continue
+        normalized: Dict[str, Any] = {
+            "resolved": resolved.strip(),
+            "digest": entry.get("digest") if isinstance(entry.get("digest"), str) else None,
+            "version_tag": entry.get("version_tag") if isinstance(entry.get("version_tag"), str) else None,
+            "platforms": (
+                [item for item in entry.get("platforms") if isinstance(item, str)]
+                if isinstance(entry.get("platforms"), list)
+                else None
+            ),
+        }
+        config = entry.get("config")
+        if isinstance(config, dict):
+            normalized["config"] = {
+                "user": config.get("user") if isinstance(config.get("user"), str) else None,
+                "exposed_ports": _coerce_exposed_ports(config.get("exposed_ports")),
+            }
+        resolution[str(ref)] = normalized
+    return resolution
 
 
 def image_repository_basename(image: str) -> str:
@@ -1258,12 +1537,20 @@ def build_probe_pair_from_compose_healthcheck(service: Mapping[str, Any], ports:
     start_period = parse_compose_duration_seconds(healthcheck.get("start_period"))
     if start_period and start_period > 0:
         period = int(timing.get("periodSeconds", 10))
+        # Give the window a hard floor: compose start_period describes the happy
+        # path, while first boots run migrations and wait for databases. A
+        # threshold of ceil(start_period/period) alone (often 1) kills slow cold
+        # starts one probe into the run.
+        window_seconds = max(start_period, STARTUP_WINDOW_FLOOR_SECONDS)
         startup = dict(action)
         startup.update(
             {
                 "periodSeconds": max(1, period),
                 "timeoutSeconds": int(timing.get("timeoutSeconds", 5)),
-                "failureThreshold": max(1, int(math.ceil(start_period / max(1, period)))),
+                "failureThreshold": max(
+                    STARTUP_FAILURE_THRESHOLD_FLOOR,
+                    int(math.ceil(window_seconds / max(1, period))),
+                ),
             }
         )
         result["startupProbe"] = startup
@@ -1394,7 +1681,24 @@ def build_probe_pair(
     from_compose = build_probe_pair_from_compose_healthcheck(service, ports)
     if from_compose:
         return from_compose
-    return build_probe_pair_from_official_profile(image, ports, command_args)
+    from_profile = build_probe_pair_from_official_profile(image, ports, command_args)
+    if from_profile:
+        return from_profile
+    # No healthcheck evidence at all: emit conservative TCP readiness/startup
+    # probes on the primary port so rollout status reflects real listening
+    # state instead of container-started state. No liveness probe — killing a
+    # container without health evidence does more harm than good.
+    if ports:
+        tcp_action = {"tcpSocket": {"port": ports[0]}}
+        readiness = dict(tcp_action)
+        readiness.update(DEFAULT_TCP_READINESS)
+        startup = dict(tcp_action)
+        startup.update(DEFAULT_TCP_STARTUP)
+        return {
+            "readinessProbe": readiness,
+            "startupProbe": startup,
+        }
+    return {}
 
 
 def _extract_shape_from_kompose_doc(doc: Mapping[str, Any]) -> Optional[Tuple[str, ServiceShape]]:
@@ -1487,42 +1791,93 @@ def resolve_kompose_shapes(compose_path: Path, mode: str) -> Optional[Dict[str, 
     raise ValueError(f"unsupported kompose mode: {mode}")
 
 
-def build_template_resource(meta: MetadataOptions) -> Dict[str, Any]:
+def deploy_profile_doc_links(meta: MetadataOptions) -> Optional[Dict[str, str]]:
+    """Readme/icon targets for the deploy profile point at real, existing URLs."""
+    match = DEPLOY_GITHUB_REPO_RE.match(meta.git_repo.strip())
+    if match is None:
+        return None
+    owner = match.group(1)
+    repo = match.group(2)
+    readme = f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md"
+    return {
+        "readme": readme,
+        "readme_zh": readme,
+        "icon": f"https://github.com/{owner}.png",
+    }
+
+
+def build_template_resource(
+    meta: MetadataOptions,
+    *,
+    inputs: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    defaults: Optional[Mapping[str, Mapping[str, str]]] = None,
+    profile: str = "template-repo",
+) -> Dict[str, Any]:
     readme_base = f"{TEMPLATE_README_BASE}/{meta.app_name}"
+    doc_links = deploy_profile_doc_links(meta) if profile == "deploy" else None
+    readme = doc_links["readme"] if doc_links else f"{readme_base}/README.md"
+    readme_zh = doc_links["readme_zh"] if doc_links else f"{readme_base}/README_zh.md"
+    icon = (
+        doc_links["icon"]
+        if doc_links
+        else f"{meta.repo_raw_base}/template/{meta.app_name}/logo.{meta.logo_ext}"
+    )
+
+    merged_defaults: Dict[str, Any] = {
+        "app_host": {
+            "type": "string",
+            "value": f"{meta.app_name}-${{{{ random(8) }}}}",
+        },
+        "app_name": {
+            "type": "string",
+            "value": f"{meta.app_name}-${{{{ random(8) }}}}",
+        },
+    }
+    for name, default_spec in (defaults or {}).items():
+        if name in {"app_host", "app_name"}:
+            continue
+        merged_defaults[name] = {"type": default_spec["type"], "value": default_spec["value"]}
+
+    spec: Dict[str, Any] = {
+        "title": meta.title,
+        "url": meta.url,
+        "gitRepo": meta.git_repo,
+        "author": meta.author,
+        "description": meta.description,
+        "readme": readme,
+        "icon": icon,
+        "templateType": "inline",
+        "locale": "en",
+        "i18n": {
+            "zh": {
+                "description": build_zh_description(meta.title, meta.description),
+                "readme": readme_zh,
+            }
+        },
+        "categories": list(meta.categories),
+        "defaults": merged_defaults,
+    }
+    input_items = sorted((inputs or {}).items())
+    if input_items:
+        inputs_spec: Dict[str, Any] = {}
+        for name, input_spec in input_items:
+            entry: Dict[str, Any] = {
+                "description": input_spec["description"],
+                "type": input_spec["type"],
+                "required": input_spec["required"],
+            }
+            if input_spec.get("default") is not None:
+                entry["default"] = input_spec["default"]
+            inputs_spec[name] = entry
+        spec["inputs"] = inputs_spec
+
     return {
         "apiVersion": "app.sealos.io/v1",
         "kind": "Template",
         "metadata": {
             "name": meta.app_name,
         },
-        "spec": {
-            "title": meta.title,
-            "url": meta.url,
-            "gitRepo": meta.git_repo,
-            "author": meta.author,
-            "description": meta.description,
-            "readme": f"{readme_base}/README.md",
-            "icon": f"{meta.repo_raw_base}/template/{meta.app_name}/logo.{meta.logo_ext}",
-            "templateType": "inline",
-            "locale": "en",
-            "i18n": {
-                "zh": {
-                    "description": build_zh_description(meta.title, meta.description),
-                    "readme": f"{readme_base}/README_zh.md",
-                }
-            },
-            "categories": list(meta.categories),
-            "defaults": {
-                "app_host": {
-                    "type": "string",
-                    "value": f"{meta.app_name}-${{{{ random(8) }}}}",
-                },
-                "app_name": {
-                    "type": "string",
-                    "value": f"{meta.app_name}-${{{{ random(8) }}}}",
-                },
-            },
-        },
+        "spec": spec,
     }
 
 
@@ -2101,17 +2456,146 @@ def build_object_storage_bucket() -> Dict[str, Any]:
     }
 
 
-def map_compose_env_value(value: str, db_hosts: Mapping[str, str]) -> str:
+def build_pg_init_job(database_name: str) -> Dict[str, Any]:
+    """Idempotent create-database Job for custom PostgreSQL database names."""
+    if SAFE_DB_NAME_RE.fullmatch(database_name) is None:
+        raise ValueError(f"unsafe postgresql database name: {json.dumps(database_name)}")
+    secret_name = DB_SECRET_NAME_BY_TYPE["postgres"]
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": "${{ defaults.app_name }}-pg-init",
+        },
+        "spec": {
+            "backoffLimit": 6,
+            "ttlSecondsAfterFinished": 300,
+            "template": {
+                "spec": {
+                    "restartPolicy": "OnFailure",
+                    "automountServiceAccountToken": False,
+                    "containers": [
+                        {
+                            "name": "pg-init",
+                            "image": DB_WAIT_GATE_BY_TYPE["postgres"]["image"],
+                            "imagePullPolicy": "IfNotPresent",
+                            "env": [
+                                build_secret_ref_env_entry("PGHOST", secret_name, "host"),
+                                build_secret_ref_env_entry("PGPORT", secret_name, "port"),
+                                build_secret_ref_env_entry("PGUSER", secret_name, "username"),
+                                build_secret_ref_env_entry("PGPASSWORD", secret_name, "password"),
+                                {"name": "PG_TARGET_DB", "value": database_name},
+                            ],
+                            "command": [
+                                "sh",
+                                "-c",
+                                "set -eu\n"
+                                "for i in $(seq 1 150); do pg_isready >/dev/null 2>&1 && break; sleep 2; done\n"
+                                "pg_isready >/dev/null 2>&1\n"
+                                "if ! psql -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='$PG_TARGET_DB'\" | grep -q 1; then\n"
+                                '  psql -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \\"$PG_TARGET_DB\\";"\n'
+                                "fi",
+                            ],
+                            "resources": {
+                                "limits": dict(DB_WAIT_GATE_RESOURCES["limits"]),
+                                "requests": dict(DB_WAIT_GATE_RESOURCES["requests"]),
+                            },
+                        }
+                    ],
+                }
+            },
+        },
+    }
+
+
+def build_mysql_init_job(database_name: str) -> Dict[str, Any]:
+    """Idempotent create-database Job for custom MySQL database names."""
+    if SAFE_DB_NAME_RE.fullmatch(database_name) is None:
+        raise ValueError(f"unsafe mysql database name: {json.dumps(database_name)}")
+    secret_name = DB_SECRET_NAME_BY_TYPE["mysql"]
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": "${{ defaults.app_name }}-mysql-init",
+        },
+        "spec": {
+            "backoffLimit": 6,
+            "ttlSecondsAfterFinished": 300,
+            "template": {
+                "spec": {
+                    "restartPolicy": "OnFailure",
+                    "automountServiceAccountToken": False,
+                    "containers": [
+                        {
+                            "name": "mysql-init",
+                            "image": "mysql:8.0.40",
+                            "imagePullPolicy": "IfNotPresent",
+                            "env": [
+                                build_secret_ref_env_entry("MYSQL_GATE_HOST", secret_name, "host"),
+                                build_secret_ref_env_entry("MYSQL_GATE_PORT", secret_name, "port"),
+                                build_secret_ref_env_entry("MYSQL_GATE_USER", secret_name, "username"),
+                                build_secret_ref_env_entry("MYSQL_PWD", secret_name, "password"),
+                                {"name": "MYSQL_TARGET_DB", "value": database_name},
+                            ],
+                            "command": [
+                                "sh",
+                                "-c",
+                                "set -eu\n"
+                                'for i in $(seq 1 150); do mysqladmin ping -h "$MYSQL_GATE_HOST" -P "$MYSQL_GATE_PORT" --silent >/dev/null 2>&1 && break; sleep 2; done\n'
+                                'mysqladmin ping -h "$MYSQL_GATE_HOST" -P "$MYSQL_GATE_PORT" --silent >/dev/null 2>&1\n'
+                                'mysql -h "$MYSQL_GATE_HOST" -P "$MYSQL_GATE_PORT" -u "$MYSQL_GATE_USER" -e "CREATE DATABASE IF NOT EXISTS \\`$MYSQL_TARGET_DB\\`;"',
+                            ],
+                            "resources": {
+                                "limits": {"cpu": "200m", "memory": "256Mi"},
+                                "requests": {"cpu": "20m", "memory": "25Mi"},
+                            },
+                        }
+                    ],
+                }
+            },
+        },
+    }
+
+
+def env_key_forbids_host_rewrite(env_name: str) -> bool:
+    """
+    True when the env key's semantics forbid rewriting its bare value into a
+    network host (driver / database / dialect names such as NODEBB_DB=postgres
+    or DB_NAME=postgres must stay literal).
+    """
+    upper = re.sub(r"[^A-Z0-9]+", "_", env_name.upper())
+    return ENV_KEY_HOST_REWRITE_FORBIDDEN_RE.search(upper) is not None
+
+
+def map_compose_env_value(value: str, db_hosts: Mapping[str, str], env_name: str = "") -> str:
     if not isinstance(value, str):
         return str(value)
     if COMPOSE_REFERENCE_RE.search(value):
         return value
     if value in db_hosts:
-        return db_hosts[value]
+        # Replace a bare service-name value with the DB FQDN only when the key
+        # has host semantics. Driver/database-name keys keep the literal value,
+        # and driver-name values (postgres, mysql, redis, ...) are never hosts
+        # unless the key itself says host/endpoint.
+        connection_key = detect_db_connection_key(env_name) if env_name else "host"
+        host_semantics = connection_key in {"host", "endpoint"}
+        forbidden = env_name != "" and (
+            env_key_forbids_host_rewrite(env_name)
+            or (value.strip().lower() in DB_DRIVER_NAME_VALUES and not host_semantics)
+        )
+        if not forbidden and (env_name == "" or host_semantics):
+            return db_hosts[value]
+        if not forbidden and connection_key is None:
+            # Unclassified key with an exact service-name value: keep the literal.
+            return value
+        if forbidden:
+            return value
     mapped = value
     for service_name, fqdn in db_hosts.items():
         mapped = mapped.replace(f"@{service_name}:", f"@{fqdn}:")
         mapped = mapped.replace(f"//{service_name}:", f"//{fqdn}:")
+        mapped = mapped.replace(f"@{service_name}/", f"@{fqdn}/")
     return mapped
 
 
@@ -2190,9 +2674,18 @@ def infer_db_type_from_env_name(env_name: str, available_db_types: Sequence[str]
     return None
 
 
-def infer_db_secret_ref(env_name: str, value: str, db_services: Mapping[str, str]) -> Optional[Dict[str, str]]:
+def infer_db_secret_ref(
+    env_name: str,
+    value: str,
+    db_services: Mapping[str, str],
+    family_db_types: Optional[Mapping[str, str]] = None,
+) -> Optional[Dict[str, str]]:
     connection_key = detect_db_connection_key(env_name)
     if connection_key is None:
+        return None
+    # Driver/database-name keys (DB_NAME, NODEBB_DB, DB_DIALECT, ...) are not
+    # connection fields even when their token matches HOST/NAME heuristics.
+    if env_key_forbids_host_rewrite(env_name):
         return None
 
     available_db_types = list(db_services.values())
@@ -2201,7 +2694,8 @@ def infer_db_secret_ref(env_name: str, value: str, db_services: Mapping[str, str
 
     from_value = infer_db_type_from_value(value, db_services)
     from_name = infer_db_type_from_env_name(env_name, available_db_types)
-    db_type = from_value or from_name
+    from_family = (family_db_types or {}).get(env_family_name(env_name))
+    db_type = from_value or from_name or from_family
     if db_type is None:
         return None
 
@@ -2276,9 +2770,10 @@ def build_db_url_composed_env_entries(
         elif has_password:
             auth_prefix = f":$({password_var})@"
 
-    host_port = f"$({host_var})"
-    if parsed.port is not None or db_type in {"redis", "mongodb"}:
-        host_port = f"{host_port}:$({port_var})"
+    # Always compose host:port — R017 accepts a $(VAR)-composed endpoint only
+    # when it references the secret's endpoint or both host and port, and
+    # engines behind KubeBlocks always publish a port key.
+    host_port = f"$({host_var}):$({port_var})"
 
     suffix = parsed.path or ""
     if parsed.query:
@@ -2291,14 +2786,147 @@ def build_db_url_composed_env_entries(
     return helper_entries
 
 
+def build_env_family_db_types(
+    env_pairs: Sequence[Tuple[str, str]],
+    db_services: Mapping[str, str],
+) -> Dict[str, str]:
+    """
+    Family binding: group env keys by their prefix before the connection token
+    (DB_HOST/DB_PORT/DB_PASSWORD share family "DB"), then bind each family to a
+    database type using the members whose value provably references a db
+    service (bare service name or URL host). This disambiguates generic
+    families (DB_*) when the compose file has more than one database type.
+    """
+    family_types: Dict[str, Set[str]] = {}
+    for key, value in env_pairs:
+        connection_key = detect_db_connection_key(key)
+        if connection_key is None:
+            continue
+        family = env_family_name(key)
+        if not family:
+            continue
+        db_type: Optional[str] = None
+        if connection_key in {"host", "endpoint"}:
+            db_type = infer_db_type_from_value(value, db_services)
+        if db_type is None:
+            continue
+        family_types.setdefault(family, set()).add(db_type)
+    return {family: next(iter(types)) for family, types in family_types.items() if len(types) == 1}
+
+
+def env_family_name(env_name: str) -> str:
+    """Family name is the key prefix before its trailing connection token."""
+    upper = re.sub(r"[^A-Z0-9]+", "_", env_name.upper())
+    match = re.match(
+        r"^(.*?)_?(?:PASSWORD|PASS|PWD|USERNAME|USER|ENDPOINT|URI|URL|DSN|HOST|SERVER|PORT|NAME|DATABASE|DB)$",
+        upper,
+    )
+    if match is None:
+        return ""
+    return match.group(1) or ""
+
+
+def _is_compose_reference(value: str) -> bool:
+    return COMPOSE_REFERENCE_RE.search(value) is not None
+
+
+def _input_name_for_env_key(env_key: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", env_key.lower()).strip("_")
+
+
 def build_env_entries(
     service: Mapping[str, Any],
     db_hosts: Mapping[str, str],
     db_services: Mapping[str, str],
-) -> List[Dict[str, Any]]:
+    *,
+    service_name: str = "",
+    profile: str = "template-repo",
+) -> EnvBuildResult:
     entries: List[Dict[str, Any]] = []
-    for key, value in parse_env(service):
-        secret_ref = infer_db_secret_ref(key, value, db_services)
+    inputs: Dict[str, Dict[str, Any]] = {}
+    defaults: Dict[str, Dict[str, str]] = {}
+    db_databases: Dict[str, str] = {}
+    report_items: List[Dict[str, Any]] = []
+    env_pairs = parse_env(service)
+    family_db_types = build_env_family_db_types(env_pairs, db_services)
+
+    for key, value in env_pairs:
+        upper_key = key.upper()
+
+        # 1. Deployer-selected bootstrap credentials become required inputs.
+        if BOOTSTRAP_CRED_ENV_RE.search(upper_key) and not _is_compose_reference(value):
+            input_name = _input_name_for_env_key(key)
+            identity = BOOTSTRAP_CRED_IDENTITY_RE.search(upper_key) is not None
+            if identity:
+                noun = "email" if "MAIL" in upper_key else "username"
+                description = f"Initial administrator {noun} (created on first start)."
+            else:
+                description = (
+                    "Initial administrator password (created on first start; "
+                    "follow the upstream password rules)."
+                )
+            inputs[input_name] = {"description": description, "type": "string", "required": True}
+            entries.append({"name": key, "value": f"${{{{ inputs.{input_name} }}}}"})
+            report_items.append(
+                {
+                    "kind": "decision",
+                    "code": "bootstrap-credential-input",
+                    "service": service_name,
+                    "detail": f'{key} converted to required template input "{input_name}" (was a compose literal).',
+                }
+            )
+            continue
+
+        # 2. Generated app secrets: replace placeholder literals with random defaults.
+        normalized_key = re.sub(r"[^A-Z0-9]+", "_", upper_key)
+        if (
+            GENERATED_SECRET_ENV_RE.search(normalized_key)
+            and not _is_compose_reference(value)
+            and (PLACEHOLDER_SECRET_VALUE_RE.search(value.strip()) or len(value.strip()) < 24)
+        ):
+            default_name = _input_name_for_env_key(key)
+            defaults[default_name] = {"type": "string", "value": "${{ random(32) }}"}
+            entries.append({"name": key, "value": f"${{{{ defaults.{default_name} }}}}"})
+            report_items.append(
+                {
+                    "kind": "decision",
+                    "code": "generated-secret-default",
+                    "service": service_name,
+                    "detail": (
+                        f"{key} generated via defaults.{default_name} = random(32); verify the app accepts "
+                        "an opaque alphanumeric value (use a required input instead when the format is "
+                        "constrained)."
+                    ),
+                }
+            )
+            continue
+
+        # 3. Public URL / public host envs point at the app's own ingress.
+        if upper_key in PUBLIC_URL_ENV_KEYS and PUBLIC_URL_PLACEHOLDER_RE.search(value.strip()):
+            entries.append({"name": key, "value": PUBLIC_URL_TEMPLATE})
+            report_items.append(
+                {
+                    "kind": "decision",
+                    "code": "public-url-derived",
+                    "service": service_name,
+                    "detail": f"{key} set to the public app URL (was {json.dumps(value)}).",
+                }
+            )
+            continue
+        if upper_key in PUBLIC_HOST_ENV_KEYS and PUBLIC_URL_PLACEHOLDER_RE.search(value.strip()):
+            entries.append({"name": key, "value": PUBLIC_HOST_TEMPLATE})
+            report_items.append(
+                {
+                    "kind": "decision",
+                    "code": "public-host-derived",
+                    "service": service_name,
+                    "detail": f"{key} set to the public app host (was {json.dumps(value)}).",
+                }
+            )
+            continue
+
+        # 4. Database connection wiring (secret refs / composed URLs).
+        secret_ref = infer_db_secret_ref(key, value, db_services, family_db_types)
         if secret_ref is not None:
             if secret_ref["key"] == "endpoint":
                 composed_entries = build_db_url_composed_env_entries(
@@ -2310,17 +2938,279 @@ def build_env_entries(
                 )
                 if composed_entries is not None:
                     entries.extend(composed_entries)
+                    db_name = re.sub(r"^/", "", urlparse(value.strip()).path or "")
+                    if db_name:
+                        db_databases[secret_ref["db_type"]] = db_name
                     continue
 
             entries.append(build_secret_ref_env_entry(key, secret_ref["name"], secret_ref["key"]))
             continue
+
+        # 5. Database-name members of a bound family: keep literal, record for init.
+        family_type = family_db_types.get(env_family_name(key))
+        if (
+            family_type
+            and re.search(r"(?:^|_)(?:NAME|DATABASE)$", normalized_key)
+            and not _is_compose_reference(value)
+            and value.strip() != ""
+        ):
+            db_databases[family_type] = value.strip()
+            entries.append({"name": key, "value": value})
+            continue
+
         entries.append(
             {
                 "name": key,
-                "value": map_compose_env_value(value, db_hosts),
+                "value": map_compose_env_value(value, db_hosts, key),
             }
         )
-    return entries
+    return EnvBuildResult(
+        entries=entries,
+        inputs=inputs,
+        defaults=defaults,
+        db_databases=db_databases,
+        report_items=report_items,
+    )
+
+
+def build_pod_security_context(image_user: Optional[str], has_volumes: bool) -> PodSecurityContextResult:
+    """
+    Pod securityContext for non-root images that write persistent volumes.
+    Context is None when the image runs as root (or user is unknown) or when
+    the workload has no volumes to own.
+    """
+    if not has_volumes:
+        return PodSecurityContextResult(context=None, unresolved_user=None)
+    raw = (image_user or "").strip()
+    if not raw or raw in {"root", "0", "0:0"}:
+        return PodSecurityContextResult(context=None, unresolved_user=None)
+    parts = raw.split(":")
+    user_part = parts[0]
+    group_part = parts[1] if len(parts) > 1 else ""
+    if re.fullmatch(r"\d+", user_part) is None:
+        # Symbolic user (e.g. "nodebb"): fsGroup needs a numeric id. Surface it
+        # instead of guessing.
+        return PodSecurityContextResult(context=None, unresolved_user=raw)
+    uid = int(user_part)
+    gid = int(group_part) if re.fullmatch(r"\d+", group_part) else uid
+    return PodSecurityContextResult(
+        context={
+            "runAsNonRoot": True,
+            "runAsUser": uid,
+            "runAsGroup": gid,
+            "fsGroup": gid,
+            "fsGroupChangePolicy": "OnRootMismatch",
+        },
+        unresolved_user=None,
+    )
+
+
+def build_db_wait_init_containers(
+    depends_on_db_types: Sequence[str],
+    db_databases: Optional[Mapping[str, str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    initContainers that gate app start on database readiness. One gate per
+    database type the service depends on; kills the crash-loop-while-db-boots
+    race that dominates first-deploy latency.
+
+    When the app uses a custom database name (created by the emitted init
+    Job), the gate waits for that database to exist — server readiness alone
+    still races the init Job.
+    """
+    db_databases = db_databases or {}
+    containers: List[Dict[str, Any]] = []
+    for db_type in sorted(set(depends_on_db_types)):
+        gate = DB_WAIT_GATE_BY_TYPE.get(db_type)
+        if gate is None:
+            continue
+        secret_name = DB_SECRET_NAME_BY_TYPE[db_type]
+        custom_db = db_databases.get(db_type)
+
+        if (
+            db_type == "postgres"
+            and custom_db
+            and custom_db != "postgres"
+            and SAFE_DB_NAME_RE.fullmatch(custom_db)
+        ):
+            containers.append(
+                {
+                    "name": "wait-for-postgres",
+                    "image": gate["image"],
+                    "imagePullPolicy": "IfNotPresent",
+                    "env": [
+                        build_secret_ref_env_entry("PGHOST", secret_name, "host"),
+                        build_secret_ref_env_entry("PGPORT", secret_name, "port"),
+                        build_secret_ref_env_entry("PGUSER", secret_name, "username"),
+                        build_secret_ref_env_entry("PGPASSWORD", secret_name, "password"),
+                        {"name": "PG_TARGET_DB", "value": custom_db},
+                    ],
+                    "command": [
+                        "sh",
+                        "-c",
+                        "for i in $(seq 1 150); do if psql -d postgres -tAc \"SELECT 1 FROM pg_database WHERE datname='$PG_TARGET_DB'\" 2>/dev/null | grep -q 1; then exit 0; fi; sleep 2; done; "
+                        'echo "timed out waiting for database $PG_TARGET_DB" >&2; exit 1',
+                    ],
+                    "resources": {
+                        "limits": dict(DB_WAIT_GATE_RESOURCES["limits"]),
+                        "requests": dict(DB_WAIT_GATE_RESOURCES["requests"]),
+                    },
+                }
+            )
+            continue
+
+        if (
+            db_type == "mysql"
+            and custom_db
+            and custom_db != "mysql"
+            and SAFE_DB_NAME_RE.fullmatch(custom_db)
+        ):
+            containers.append(
+                {
+                    "name": "wait-for-mysql",
+                    "image": "mysql:8.0.40",
+                    "imagePullPolicy": "IfNotPresent",
+                    "env": [
+                        build_secret_ref_env_entry("MYSQL_GATE_HOST", secret_name, "host"),
+                        build_secret_ref_env_entry("MYSQL_GATE_PORT", secret_name, "port"),
+                        build_secret_ref_env_entry("MYSQL_GATE_USER", secret_name, "username"),
+                        build_secret_ref_env_entry("MYSQL_PWD", secret_name, "password"),
+                        {"name": "MYSQL_TARGET_DB", "value": custom_db},
+                    ],
+                    "command": [
+                        "sh",
+                        "-c",
+                        'for i in $(seq 1 150); do if mysql -h "$MYSQL_GATE_HOST" -P "$MYSQL_GATE_PORT" -u "$MYSQL_GATE_USER" -e "USE \\`$MYSQL_TARGET_DB\\`;" >/dev/null 2>&1; then exit 0; fi; sleep 2; done; '
+                        'echo "timed out waiting for database $MYSQL_TARGET_DB" >&2; exit 1',
+                    ],
+                    "resources": {
+                        "limits": {"cpu": "200m", "memory": "256Mi"},
+                        "requests": {"cpu": "20m", "memory": "25Mi"},
+                    },
+                }
+            )
+            continue
+
+        if gate["host_from_secret"]:
+            env = [
+                build_secret_ref_env_entry("DB_GATE_HOST", secret_name, "host"),
+                build_secret_ref_env_entry("DB_GATE_PORT", secret_name, "port"),
+            ]
+        else:
+            env = [
+                {"name": "DB_GATE_HOST", "value": DB_FQDN_BY_TYPE[db_type]},
+                {"name": "DB_GATE_PORT", "value": gate["default_port"]},
+            ]
+        containers.append(
+            {
+                "name": f"wait-for-{db_type}",
+                "image": gate["image"],
+                "imagePullPolicy": "IfNotPresent",
+                "env": env,
+                "command": list(gate["command"]),
+                "resources": {
+                    "limits": dict(DB_WAIT_GATE_RESOURCES["limits"]),
+                    "requests": dict(DB_WAIT_GATE_RESOURCES["requests"]),
+                },
+            }
+        )
+    return containers
+
+
+def normalize_memory_to_ladder(raw_bytesish: str) -> Optional[str]:
+    """Normalize a compose memory string to the Sealos ladder (Mi values)."""
+    match = re.fullmatch(
+        r"(\d+(?:\.\d+)?)\s*(b|k|kb|ki|kib|m|mb|mi|mib|g|gb|gi|gib)?",
+        raw_bytesish.strip(),
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    value = float(match.group(1))
+    unit = (match.group(2) or "b").lower()
+    multipliers = {
+        "b": 1,
+        "k": 1024,
+        "kb": 1000,
+        "ki": 1024,
+        "kib": 1024,
+        "m": 1024**2,
+        "mb": 1000**2,
+        "mi": 1024**2,
+        "mib": 1024**2,
+        "g": 1024**3,
+        "gb": 1000**3,
+        "gi": 1024**3,
+        "gib": 1024**3,
+    }
+    mi = value * multipliers[unit] / 1024**2
+    for step in (128, 256, 512, 1024, 2048, 4096, 8192, 16384):
+        if mi <= step:
+            return f"{step}Mi"
+    return "16384Mi"
+
+
+def normalize_cpu_to_ladder(raw_cpus: str) -> Optional[str]:
+    """Normalize a compose cpus value to the Sealos ladder."""
+    try:
+        value = float(raw_cpus.strip())
+    except ValueError:
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    milli = value * 1000
+    for step in (100, 200, 500, 1000, 2000, 3000, 4000, 8000):
+        if milli <= step:
+            return str(step // 1000) if step >= 1000 else f"{step}m"
+    return "8"
+
+
+def infer_resource_tier(
+    image: str,
+    service: Mapping[str, Any],
+    hint: Optional[Mapping[str, str]] = None,
+) -> Dict[str, Any]:
+    """
+    Resource tier for an app container: explicit hint > compose deploy limits >
+    heavy-runtime fingerprint > personal low-load default.
+    """
+    if hint:
+        return {"limits": dict(hint), "source": "resource-hint"}
+
+    deploy = service.get("deploy")
+    if isinstance(deploy, dict):
+        resources = deploy.get("resources")
+        limits_raw = resources.get("limits") if isinstance(resources, dict) else None
+        if isinstance(limits_raw, dict):
+            raw_cpu = limits_raw.get("cpus")
+            raw_memory = limits_raw.get("memory")
+            cpu = (
+                normalize_cpu_to_ladder(str(raw_cpu))
+                if isinstance(raw_cpu, (str, int, float)) and not isinstance(raw_cpu, bool)
+                else None
+            )
+            memory = normalize_memory_to_ladder(raw_memory) if isinstance(raw_memory, str) else None
+            if cpu or memory:
+                return {
+                    "limits": {
+                        "cpu": cpu or DEFAULT_RESOURCE_LIMITS["cpu"],
+                        "memory": memory or DEFAULT_RESOURCE_LIMITS["memory"],
+                    },
+                    "source": "compose-deploy-limits",
+                }
+
+    for pattern, limits in HEAVY_RUNTIME_IMAGE_HINTS:
+        if pattern.search(image):
+            return {"limits": dict(limits), "source": "heavy-runtime-fingerprint"}
+    return {"limits": dict(DEFAULT_RESOURCE_LIMITS), "source": "default"}
+
+
+def derive_requests_from_limits(limits: Mapping[str, str]) -> Dict[str, str]:
+    """Requests derived from limits by the Sealos drop-last-digit rule."""
+    return {
+        "cpu": SEALOS_CPU_REQUEST_BY_LIMIT.get(limits["cpu"], DEFAULT_RESOURCE_REQUESTS["cpu"]),
+        "memory": SEALOS_MEMORY_REQUEST_BY_LIMIT.get(limits["memory"], DEFAULT_RESOURCE_REQUESTS["memory"]),
+    }
 
 
 def parse_service_replicas(service: Mapping[str, Any]) -> int:
@@ -2348,6 +3238,9 @@ def build_workload(
     mount_paths: Sequence[str],
     config_mounts: Sequence[ConfigMount],
     probes: Mapping[str, Any],
+    init_containers: Sequence[Dict[str, Any]] = (),
+    security_context: Optional[Mapping[str, Any]] = None,
+    resource_limits: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Any]:
     db_type = detect_db_type(image)
     if db_type in SPECIAL_DB_RESOURCE_TYPES:
@@ -2356,6 +3249,8 @@ def build_workload(
             "database services must use KubeBlocks Cluster resources"
         )
 
+    limits = dict(resource_limits) if resource_limits else dict(DEFAULT_RESOURCE_LIMITS)
+    requests = derive_requests_from_limits(limits)
     is_stateful = bool(mount_paths)
     kind = "StatefulSet" if is_stateful else "Deployment"
     template_spec: Dict[str, Any] = {
@@ -2366,12 +3261,16 @@ def build_workload(
                 "image": image,
                 "imagePullPolicy": "IfNotPresent",
                 "resources": {
-                    "limits": dict(DEFAULT_RESOURCE_LIMITS),
-                    "requests": dict(DEFAULT_RESOURCE_REQUESTS),
+                    "limits": dict(limits),
+                    "requests": dict(requests),
                 },
             }
         ],
     }
+    if security_context:
+        template_spec["securityContext"] = dict(security_context)
+    if init_containers:
+        template_spec["initContainers"] = [dict(item) for item in init_containers]
     container = template_spec["containers"][0]
     if ports:
         container["ports"] = [
@@ -2655,17 +3554,16 @@ def validate_generated_database_contract(
         )
 
     for document in documents:
-        if document.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
+        # Long-running app workloads must not embed database engine images.
+        # Jobs / CronJobs / initContainers may use database *client* images for
+        # readiness and bootstrap gates (explicitly allowed by the MUST rules;
+        # the pg-init reference Job itself runs a postgres client image).
+        if document.get("kind") not in {"Deployment", "StatefulSet", "DaemonSet"}:
             continue
         spec = document.get("spec")
         if not isinstance(spec, dict):
             continue
-        if document.get("kind") == "CronJob":
-            job_template = spec.get("jobTemplate")
-            job_spec = job_template.get("spec") if isinstance(job_template, dict) else None
-            template = job_spec.get("template") if isinstance(job_spec, dict) else None
-        else:
-            template = spec.get("template")
+        template = spec.get("template")
         template_spec = template.get("spec") if isinstance(template, dict) else None
         containers = template_spec.get("containers") if isinstance(template_spec, dict) else None
         if not isinstance(containers, list):
@@ -2680,12 +3578,46 @@ def validate_generated_database_contract(
                 )
 
 
+def parse_depends_on(service: Mapping[str, Any]) -> List[str]:
+    """Parse compose depends_on into a service-name list."""
+    depends_on = service.get("depends_on")
+    if isinstance(depends_on, list):
+        return [str(item) for item in depends_on if isinstance(item, str)]
+    if isinstance(depends_on, dict):
+        return [str(key) for key in depends_on.keys()]
+    return []
+
+
+def db_types_wired_in_env(env_entries: Sequence[Mapping[str, Any]], db_types: Sequence[str]) -> List[str]:
+    """Database types actually wired into a service's generated env entries."""
+    rendered = json.dumps(list(env_entries))
+    wired: List[str] = []
+    for db_type in dict.fromkeys(db_types):
+        secret_name = DB_SECRET_NAME_BY_TYPE.get(db_type)
+        fqdn = DB_FQDN_BY_TYPE.get(db_type)
+        if (isinstance(secret_name, str) and secret_name in rendered) or (
+            isinstance(fqdn, str) and fqdn in rendered
+        ):
+            wired.append(db_type)
+    return wired
+
+
 def build_documents(
     compose_data: Mapping[str, Any],
     meta: MetadataOptions,
     kompose_shapes: Optional[Mapping[str, ServiceShape]] = None,
     compose_path: Optional[Path] = None,
+    *,
+    image_resolution: Optional[ImageResolutionMap] = None,
+    profile: str = "template-repo",
+    resource_hints: Optional[Mapping[str, Mapping[str, str]]] = None,
+    report: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
+    image_resolution = image_resolution or {}
+    resource_hints = resource_hints or {}
+    if report is None:
+        report = new_conversion_report(profile)
+
     normalized_images = validate_images(compose_data)
     service_items = list(iter_services(compose_data))
     if not service_items:
@@ -2705,6 +3637,7 @@ def build_documents(
             source_image,
             digest_cache=digest_cache,
             tag_cache=tag_cache,
+            image_resolution=image_resolution,
         )
 
     db_services: Dict[str, str] = {}
@@ -2734,15 +3667,10 @@ def build_documents(
 
     db_hosts = {name: DB_FQDN_BY_TYPE[db_type] for name, db_type in db_services.items() if db_type in DB_FQDN_BY_TYPE}
 
-    docs: List[Dict[str, Any]] = []
-    docs.append(build_template_resource(meta))
-
     all_env_keys = set()
     for _, service in app_services:
         for key, _ in parse_env(service):
             all_env_keys.add(key)
-    if OBJECT_STORAGE_BUCKET_ENV_NAME in all_env_keys or OBJECT_STORAGE_BASE_ENV_NAMES.intersection(all_env_keys):
-        docs.append(build_object_storage_bucket())
 
     ordered_db_types: List[str] = []
     for service_name, _ in service_items:
@@ -2753,11 +3681,11 @@ def build_documents(
             continue
         ordered_db_types.append(db_type)
 
-    for db_type in ordered_db_types:
-        docs.extend(build_database_resources(db_type))
-
     workload_docs: List[Dict[str, Any]] = []
     service_docs: List[Dict[str, Any]] = []
+    merged_inputs: Dict[str, Dict[str, Any]] = {}
+    merged_defaults: Dict[str, Dict[str, str]] = {}
+    merged_db_databases: Dict[str, str] = {}
     primary_port: Optional[int] = None
     primary_ingress_protocol = "HTTP"
     primary_workload_name = "${{ defaults.app_name }}"
@@ -2770,7 +3698,18 @@ def build_documents(
         )
         image = resolved_images.get(service_name, str(service["image"]).strip())
         ports = parse_ports(service)
-        env_entries = build_env_entries(service, db_hosts, db_services)
+        env_result = build_env_entries(
+            service,
+            db_hosts,
+            db_services,
+            service_name=service_name,
+            profile=profile,
+        )
+        merged_inputs.update(env_result.inputs)
+        merged_defaults.update(env_result.defaults)
+        merged_db_databases.update(env_result.db_databases)
+        report["items"].extend(env_result.report_items)
+
         command_args = parse_command_args(service)
         mount_paths = parse_mount_paths(service)
         config_mounts = parse_config_mounts(service, compose_data, compose_dir)
@@ -2784,17 +3723,82 @@ def build_documents(
         ports = normalize_ports_for_gateway_tls_termination(ports)
         websocket_ports = infer_websocket_ports(service)
         probes = build_probe_pair(service, image, ports, command_args)
+
+        # Database readiness gates: union of declared depends_on database
+        # services and databases actually wired into the env.
+        depends_on_db_types = [db_services[dep] for dep in parse_depends_on(service) if dep in db_services]
+        wired_db_types = db_types_wired_in_env(env_result.entries, list(db_services.values()))
+        gate_db_types = list(dict.fromkeys([*depends_on_db_types, *wired_db_types]))
+        init_containers = build_db_wait_init_containers(gate_db_types, dict(merged_db_databases))
+        if init_containers:
+            report["items"].append(
+                {
+                    "kind": "decision",
+                    "code": "db-wait-gate",
+                    "service": service_name,
+                    "detail": f"added initContainer readiness gate(s) for: {', '.join(sorted(gate_db_types))}.",
+                }
+            )
+
+        # Non-root images writing volumes need volume ownership context.
+        original_ref = normalized_images.get(service_name, str(service.get("image", ""))).strip()
+        resolution_entry = image_resolution.get(original_ref) or image_resolution.get(image) or {}
+        resolution_config = resolution_entry.get("config") or {}
+        security = build_pod_security_context(resolution_config.get("user"), bool(mount_paths))
+        if security.context:
+            report["items"].append(
+                {
+                    "kind": "decision",
+                    "code": "security-context",
+                    "service": service_name,
+                    "detail": (
+                        f"image runs as uid {resolution_config.get('user')} and writes volumes; "
+                        "emitted pod securityContext with fsGroup."
+                    ),
+                }
+            )
+        elif security.unresolved_user:
+            report["items"].append(
+                {
+                    "kind": "required_action",
+                    "code": "security-context-unresolved-user",
+                    "service": service_name,
+                    "detail": (
+                        f"image user {json.dumps(security.unresolved_user)} is symbolic and writes volumes; "
+                        "resolve the numeric uid (docker run --rm <image> id -u) and add "
+                        "runAsUser/runAsGroup/fsGroup to the pod securityContext."
+                    ),
+                }
+            )
+
+        tier = infer_resource_tier(image, service, resource_hints.get(service_name))
+        if tier["source"] != "default":
+            report["items"].append(
+                {
+                    "kind": "decision",
+                    "code": "resource-tier",
+                    "service": service_name,
+                    "detail": (
+                        f"container limits {tier['limits']['cpu']}/{tier['limits']['memory']} "
+                        f"from {tier['source']}."
+                    ),
+                }
+            )
+
         workload = build_workload(
             workload_name=workload_name,
             image=image,
             replicas=parse_service_replicas(service),
             ports=ports,
             websocket_ports=websocket_ports,
-            env_entries=env_entries,
+            env_entries=env_result.entries,
             command_args=command_args,
             mount_paths=mount_paths,
             config_mounts=config_mounts,
             probes=probes,
+            init_containers=init_containers,
+            security_context=security.context,
+            resource_limits=tier["limits"],
         )
         if config_mounts:
             workload_docs.append(build_configmap(workload_name, config_mounts))
@@ -2806,6 +3810,77 @@ def build_documents(
                 primary_port = ports[0]
                 if service_requires_websocket_ingress(service_name, service, primary_port):
                     primary_ingress_protocol = "WS"
+
+    docs: List[Dict[str, Any]] = []
+    docs.append(
+        build_template_resource(
+            meta,
+            inputs=merged_inputs,
+            defaults=merged_defaults,
+            profile=profile,
+        )
+    )
+    report["inputs_added"] = sorted(merged_inputs.keys())
+    report["defaults_added"] = sorted(merged_defaults.keys())
+
+    if OBJECT_STORAGE_BUCKET_ENV_NAME in all_env_keys or OBJECT_STORAGE_BASE_ENV_NAMES.intersection(all_env_keys):
+        docs.append(build_object_storage_bucket())
+
+    for db_type in ordered_db_types:
+        docs.extend(build_database_resources(db_type))
+
+    # Custom database names need an idempotent create Job — KubeBlocks only
+    # provisions the engine default database.
+    pg_database = merged_db_databases.get("postgres")
+    if "postgres" in ordered_db_types and pg_database and pg_database != "postgres":
+        if SAFE_DB_NAME_RE.fullmatch(pg_database):
+            docs.append(build_pg_init_job(pg_database))
+            report["items"].append(
+                {
+                    "kind": "decision",
+                    "code": "pg-init-job",
+                    "detail": (
+                        f"app references postgresql database {json.dumps(pg_database)}; "
+                        "emitted ${{ defaults.app_name }}-pg-init Job (idempotent create)."
+                    ),
+                }
+            )
+        else:
+            report["items"].append(
+                {
+                    "kind": "required_action",
+                    "code": "pg-init-unsafe-name",
+                    "detail": (
+                        f"postgresql database name {json.dumps(pg_database)} contains characters outside "
+                        "[A-Za-z0-9_-]; add a pg-init Job manually or rename the database."
+                    ),
+                }
+            )
+    mysql_database = merged_db_databases.get("mysql")
+    if "mysql" in ordered_db_types and mysql_database and mysql_database != "mysql":
+        if SAFE_DB_NAME_RE.fullmatch(mysql_database):
+            docs.append(build_mysql_init_job(mysql_database))
+            report["items"].append(
+                {
+                    "kind": "decision",
+                    "code": "mysql-init-job",
+                    "detail": (
+                        f"app references mysql database {json.dumps(mysql_database)}; "
+                        "emitted ${{ defaults.app_name }}-mysql-init Job (idempotent create)."
+                    ),
+                }
+            )
+        else:
+            report["items"].append(
+                {
+                    "kind": "required_action",
+                    "code": "mysql-init-unsafe-name",
+                    "detail": (
+                        f"mysql database name {json.dumps(mysql_database)} contains characters outside "
+                        "[A-Za-z0-9_-]; add a mysql-init Job manually or rename the database."
+                    ),
+                }
+            )
 
     docs.extend(workload_docs)
     docs.extend(service_docs)
@@ -2824,18 +3899,39 @@ def convert_compose_to_template(
     kompose_shapes: Optional[Mapping[str, ServiceShape]] = None,
     write_files: bool = True,
     fetch_logo: bool = True,
-) -> Tuple[Path, str]:
+    image_resolution: Optional[ImageResolutionMap] = None,
+    profile: str = "template-repo",
+    resource_hints: Optional[Mapping[str, Mapping[str, str]]] = None,
+    report_path: str = "",
+) -> Tuple[Path, str, Dict[str, Any]]:
     compose_data = parse_compose(compose_path)
     app_dir = output_root / meta.app_name
     if write_files:
         meta = prepare_logo_asset(meta, app_dir, fetch_logo)
-    documents = build_documents(compose_data, meta, kompose_shapes=kompose_shapes, compose_path=compose_path)
+    report = new_conversion_report(profile)
+    documents = build_documents(
+        compose_data,
+        meta,
+        kompose_shapes=kompose_shapes,
+        compose_path=compose_path,
+        image_resolution=image_resolution,
+        profile=profile,
+        resource_hints=resource_hints,
+        report=report,
+    )
     index_path = app_dir / "index.yaml"
     rendered = render_index_yaml(documents)
     if write_files:
         app_dir.mkdir(parents=True, exist_ok=True)
         index_path.write_text(rendered, encoding="utf-8")
-    return index_path, rendered
+    if report_path:
+        report_target = Path(report_path).resolve()
+        report_target.parent.mkdir(parents=True, exist_ok=True)
+        report_target.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    return index_path, rendered, report
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -2865,8 +3961,42 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Disable default svgl.app SVG logo search and keep the fallback logo path",
     )
+    parser.add_argument(
+        "--image-resolution",
+        default="",
+        help="resolve-images.ts output (digests + image configs); replaces crane resolution and feeds securityContext",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("deploy", "template-repo"),
+        default="template-repo",
+        help=(
+            "deploy: sealos-deploy pipeline artifact (readme/icon point at the source repo); "
+            "template-repo: labring templates contribution layout (default)"
+        ),
+    )
+    parser.add_argument("--report", default="", help="Write the machine-readable conversion report JSON")
+    parser.add_argument(
+        "--resource-hint",
+        action="append",
+        default=[],
+        metavar="SVC=CPU,MEMORY",
+        help="Per-service resource limits override using Sealos ladder values (repeatable), e.g. web=1,2048Mi",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print index.yaml content without writing files")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+
+    resource_hints: Dict[str, Dict[str, str]] = {}
+    for raw_hint in args.resource_hint:
+        match = RESOURCE_HINT_RE.match(raw_hint.strip())
+        if match is None:
+            parser.error(f"argument --resource-hint: expected SVC=CPU,MEMORY got '{raw_hint}'")
+        resource_hints[match.group(1).strip()] = {
+            "cpu": match.group(2).strip(),
+            "memory": match.group(3).strip(),
+        }
+    args.resource_hints = resource_hints
+    return args
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -2879,15 +4009,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     meta = infer_metadata(args, compose_data, compose_path)
     output_root = Path(args.output_dir).resolve()
 
+    image_resolution: ImageResolutionMap = {}
+    if args.image_resolution:
+        resolution_path = Path(args.image_resolution).resolve()
+        if not resolution_path.exists():
+            raise SystemExit(f"ERROR: image resolution file not found: {resolution_path}")
+        try:
+            image_resolution = load_image_resolution_file(resolution_path)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"ERROR: failed to read image resolution file: {exc}") from exc
+
     try:
         kompose_shapes = resolve_kompose_shapes(compose_path, args.kompose_mode)
-        index_path, rendered = convert_compose_to_template(
+        index_path, rendered, _report = convert_compose_to_template(
             compose_path=compose_path,
             output_root=output_root,
             meta=meta,
             kompose_shapes=kompose_shapes,
             write_files=not args.dry_run,
             fetch_logo=not args.no_fetch_logo,
+            image_resolution=image_resolution,
+            profile=args.profile,
+            resource_hints=args.resource_hints,
+            report_path=args.report,
         )
     except ValueError as exc:
         raise SystemExit(f"ERROR: {exc}") from exc

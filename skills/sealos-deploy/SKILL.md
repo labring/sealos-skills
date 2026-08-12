@@ -121,7 +121,9 @@ node "<SKILL_DIR>/scripts/validate-phase-2.mjs" --dir "$WORK_DIR"
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode build
 node "<SKILL_DIR>/scripts/build-push.mjs" "$WORK_DIR" "$REPO" --mode push --registry ghcr
 node "<SKILL_DIR>/scripts/validate-phase-3.mjs" --dir "$WORK_DIR"
+node --experimental-strip-types "<SKILL_DIR>/../docker-to-sealos/scripts/resolve-images.ts" --compose "$WORK_DIR/.sealos/phase-4/source/docker-compose.yml" --output "$WORK_DIR/.sealos/phase-4/image-resolution.json"
 node "<SKILL_DIR>/scripts/validate-phase-4.mjs" --dir "$WORK_DIR"
+node "<SKILL_DIR>/scripts/resolve-target-identity.mjs"
 node "<SKILL_DIR>/scripts/validate-phase-5.mjs" --dir "$WORK_DIR"
 # Phase 5 precheck (requires TARGET_* and cloud domain / cert secret; npm install in skills/sealos-deploy):
 # node --experimental-strip-types "<SKILL_DIR>/scripts/server-dry-run.ts" --template ... --context ... --namespace ...

@@ -116,7 +116,14 @@ Write `.sealos/phase-2/deployment-plan.json` per
      (paths relative to `work_dir`). Phase 3 and UPDATE consume this directly.
    - `public_service`: the service key intended as the public entry, when known.
    - `db_services`: service keys classified as databases, when any.
-4. Do not guess published images from org or repo name. Upstream `image:` refs that do not need local build stay as-is.
+   - `resource_hints`: per-service `{ "cpu", "memory" }` (Sealos ladder values)
+     when the repo documents system requirements (README minimums, upstream
+     compose limits) or the stack builds assets at boot. Phase 4 passes each
+     entry to the converter — the flat 200m/256Mi default crash-loops
+     boot-time-build apps.
+   - `bootstrap_mode`: the account bootstrap classification when the evidence
+     is already clear (first-user signup / deployer-supplied / runtime-generated).
+4. Do not guess published images from org or repo name. Upstream `image:` refs that do not need local build stay as-is. When choosing between multiple published image sources (Docker Hub vs GHCR vs stale mirrors), verify freshness: prefer the registry the repo's release docs reference and check that the tag list carries the latest release.
 
 ### 4. Write `analysis.json`
 

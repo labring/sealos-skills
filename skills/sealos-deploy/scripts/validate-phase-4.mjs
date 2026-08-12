@@ -121,10 +121,55 @@ function runDeployGate(templatePath) {
   return { skipped: false }
 }
 
+// Fixed refs that the converter itself emits for readiness gates and init
+// Jobs. They are deterministic (explicit version tags) and are not part of
+// the compose image set, so the digest table does not cover them.
+const CONVERTER_GATE_IMAGE_RE = /^(?:postgres:16\.4-alpine|mysql:8\.0\.40|redis:7\.2\.7-alpine|busybox:1\.36\.1)$/
+
+function loadPinnedImageSet(sealosDir) {
+  const resolutionPath = path.join(sealosDir, 'phase-4', 'image-resolution.json')
+  const digestsPath = path.join(sealosDir, 'phase-4', 'image-digests.json')
+
+  if (fs.existsSync(resolutionPath)) {
+    const doc = readJson(resolutionPath, 'P4-V00', 'image-resolution.json')
+    const images = doc.images && typeof doc.images === 'object' && !Array.isArray(doc.images)
+      ? doc.images
+      : null
+    if (!images || Object.keys(images).length === 0) {
+      fail('P4-V00', 'image-resolution.json images must be a non-empty object')
+    }
+    const values = new Set()
+    for (const [key, entry] of Object.entries(images)) {
+      const resolved = entry && typeof entry === 'object' ? entry.resolved : null
+      if (typeof resolved !== 'string' || !DIGEST_RE.test(resolved)) {
+        fail('P4-V01', `image-resolution images[${key}].resolved must be repository[:tag]@sha256:<64-hex>`)
+      }
+      values.add(resolved)
+    }
+    return { values, source: 'image-resolution.json' }
+  }
+
+  const digestsDoc = readJson(digestsPath, 'P4-V00', 'image-digests.json or image-resolution.json')
+  if (!digestsDoc.digests || typeof digestsDoc.digests !== 'object' || Array.isArray(digestsDoc.digests)) {
+    fail('P4-V00', 'digests must be an object')
+  }
+  const digestEntries = Object.entries(digestsDoc.digests)
+  if (digestEntries.length === 0) {
+    fail('P4-V00', 'digests must contain at least one entry')
+  }
+  const values = new Set()
+  for (const [key, value] of digestEntries) {
+    if (typeof value !== 'string' || !DIGEST_RE.test(value)) {
+      fail('P4-V01', `digests.${key} must be repository[:tag]@sha256:<64-hex>`)
+    }
+    values.add(value)
+  }
+  return { values, source: 'image-digests.json' }
+}
+
 function main() {
   const { dir } = parseArgs(process.argv.slice(2))
   const sealosDir = path.join(dir, '.sealos')
-  const digestsPath = path.join(sealosDir, 'phase-4', 'image-digests.json')
   const templatePath = path.join(sealosDir, 'template', 'index.yaml')
   const resourceMapPath = path.join(sealosDir, 'phase-4', 'resource-map.json')
   const buildResultPath = path.join(sealosDir, 'phase-3', 'build-result.json')
@@ -136,23 +181,7 @@ function main() {
     fail('P4-V00', `.sealos/phase-4/resource-map.json is missing`)
   }
 
-  const digestsDoc = readJson(digestsPath, 'P4-V00', 'image-digests.json')
-  if (!digestsDoc.digests || typeof digestsDoc.digests !== 'object' || Array.isArray(digestsDoc.digests)) {
-    fail('P4-V00', 'digests must be an object')
-  }
-
-  const digestEntries = Object.entries(digestsDoc.digests)
-  if (digestEntries.length === 0) {
-    fail('P4-V00', 'digests must contain at least one entry')
-  }
-
-  const digestValues = new Set()
-  for (const [key, value] of digestEntries) {
-    if (typeof value !== 'string' || !DIGEST_RE.test(value)) {
-      fail('P4-V01', `digests.${key} must be repository@sha256:<64-hex>`)
-    }
-    digestValues.add(value)
-  }
+  const pinned = loadPinnedImageSet(sealosDir)
 
   const templateText = fs.readFileSync(templatePath, 'utf8')
   const templateImages = collectTemplateImages(templateText)
@@ -160,16 +189,14 @@ function main() {
     fail('P4-V02', 'template has no container image fields to check')
   }
 
+  // Every template image must be digest-pinned via the resolution table.
+  // Converter-emitted gate/init images use fixed explicit version tags.
+  // Extra table entries are expected: KubeBlocks replaces database service
+  // images, so the table (from the compose) is a superset of the template.
   for (const image of templateImages) {
-    if (!digestValues.has(image)) {
-      fail('P4-V02', `template image ${image} is not in image-digests.json`)
-    }
-  }
-
-  for (const digest of digestValues) {
-    if (!templateText.includes(digest)) {
-      fail('P4-V02', `digest ${digest} from image-digests.json is missing from template`)
-    }
+    if (pinned.values.has(image)) continue
+    if (CONVERTER_GATE_IMAGE_RE.test(image)) continue
+    fail('P4-V02', `template image ${image} is not in ${pinned.source}`)
   }
 
   if (fs.existsSync(buildResultPath)) {
@@ -189,7 +216,8 @@ function main() {
   process.stdout.write(`${JSON.stringify({
     ok: true,
     checks: ['P4-V01', 'P4-V02', 'P4-V03', 'P4-V04'],
-    digests: Object.keys(digestsDoc.digests),
+    pinned_source: pinned.source,
+    pinned_count: pinned.values.size,
     deploy_gate_skipped: gate.skipped,
   }, null, 2)}\n`)
 }

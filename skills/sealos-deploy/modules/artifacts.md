@@ -14,7 +14,9 @@ All pipeline outputs are written under `.sealos/` in `WORK_DIR`:
 ├── phase-3/
 │   └── build-result.json         ← when Phase 3 builds/pushes
 ├── phase-4/
-│   ├── image-digests.json
+│   ├── image-resolution.json     ← digests + image configs (resolve-images.ts)
+│   ├── conversion-report.json    ← converter decisions / required actions
+│   ├── image-digests.json        ← legacy alternative to image-resolution.json
 │   ├── source/
 │   ├── rendered.yaml
 │   └── resource-map.json

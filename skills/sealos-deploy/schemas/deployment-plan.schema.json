@@ -45,6 +45,24 @@
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true,
       "description": "Service keys classified as databases."
+    },
+    "resource_hints": {
+      "type": "object",
+      "description": "Per-service container resource limits from repo evidence (README system requirements, upstream compose). Sealos ladder values. Phase 4 passes each entry to the converter via --resource-hint.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cpu", "memory"],
+        "properties": {
+          "cpu": { "type": "string", "minLength": 1 },
+          "memory": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "bootstrap_mode": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Account bootstrap classification evidence gathered during discovery (first-user signup, deployer-supplied bootstrap, runtime-generated bootstrap, or optional root reconciliation)."
     }
   }
 }

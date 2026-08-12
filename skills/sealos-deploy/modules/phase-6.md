@@ -140,25 +140,38 @@ Secret creation failure → **STOP**.
 
 ### 5. Wait for rollout and public endpoints (bounded)
 
-Wait with explicit timeouts — never open-ended:
+Wait **in dependency order** with explicit timeouts — never open-ended.
+Databases start slowest (KubeBlocks PostgreSQL needs ~2-3 minutes cold);
+waiting on the app rollout first produces false timeouts while everything is
+actually healthy.
 
 ```bash
-# Per workload (repeat for each Deployment/StatefulSet in the template)
+# 1. KubeBlocks database clusters first (when the template has any)
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  rollout status deployment/<name> -n "$NAMESPACE" --timeout=300s
+  wait --for=jsonpath='{.status.phase}'=Running \
+  clusters.apps.kubeblocks.io/<name> -n "$NAMESPACE" --timeout=600s
 
-# Template Jobs (migrations / init)
+# 2. Template Jobs (database init / migrations)
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
   wait --for=condition=complete job/<name> -n "$NAMESPACE" --timeout=600s
 
-# KubeBlocks database clusters: poll status.phase until Running, up to 600s
+# 3. App workloads last — repeat per Deployment AND StatefulSet in the
+# template (kompose emits StatefulSets for volume-backed services)
 KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
-  get clusters.apps.kubeblocks.io -n "$NAMESPACE" -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}'
+  rollout status deployment/<name> -n "$NAMESPACE" --timeout=300s
+KUBECONFIG=~/.sealos/kubeconfig kubectl --insecure-skip-tls-verify \
+  rollout status statefulset/<name> -n "$NAMESPACE" --timeout=300s
 ```
 
+Generated templates gate app start on database readiness with
+initContainers, so app pods should reach Ready with **zero restarts** shortly
+after their databases run; a handful of early restarts only appears on
+templates without gates.
+
 On a rollout timeout, inspect Pod state before treating it as failure — a slow
-image pull is not a crash (same table as UPDATE U3). Before Ingress / App URL
-probes, require non-empty public Service Endpoints.
+image pull or a still-running init gate is not a crash (same table as UPDATE
+U3). Before Ingress / App URL probes, require non-empty public Service
+Endpoints.
 
 On not-ready workloads, read Pod status, events, and logs (init/previous as needed).
 Common signatures: OOM/`137`, permission denied on mounts, bootstrap/password
