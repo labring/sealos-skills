@@ -79,6 +79,25 @@ npx plugins add https://github.com/labring/sealos-skills
 /sealos create private S3 object storage for uploads and wire env vars
 ```
 
+### 在 DeepSeek Harness 中安装
+
+本仓库同时是一个 dsh profile bundle，技能源仍是根目录 `skills/**`。在 `npx @deepseek-ai/dsh web` 可用之后，把它装进同一个 `web` profile（`pnpm` 需要在 `PATH` 上）：
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add github:labring/sealos-skills
+npx @deepseek-ai/dsh web
+```
+
+本地检出：
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add /path/to/sealos-skills
+```
+
+八个根技能会出现在会话 skill 目录中。让智能体部署到 Sealos Cloud；它会通过 `skill` 工具加载 `sealos-deploy`（以及需要的配套技能），再通过 bash 运行 `kubectl` / `sealos-cli`。
+
+默认 bash 沙箱禁止写入工作区以外的路径。登录会写入 `~/.sealos/kubeconfig`，这些命令需要 `sandbox_permissions: danger-full-access`。
+
 ### 其他受支持的 AI 工具
 
 | 工具 | 安装 | 用法 |
@@ -86,6 +105,7 @@ npx plugins add https://github.com/labring/sealos-skills
 | Codex CLI / Codex App | 先运行 `codex plugin marketplace add labring/sealos-skills`，再运行 `codex plugin add sealos@sealos` | 在 Codex CLI 中使用 `$sealos`，或在 Codex App 中依次选择 **+** → **Plugins** → **Sealos** |
 | Claude Code | 先运行 `claude plugin marketplace add labring/sealos-skills`，再运行 `claude plugin install sealos@sealos` | `/sealos` |
 | Claude Code 兼容路径 | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
+| DeepSeek Harness | `npx @deepseek-ai/dsh plugin --profile web add github:labring/sealos-skills` | 让智能体使用 Sealos 技能；没有 `/sealos` 斜杠命令 |
 | OpenClaw / ClawHub | `clawhub install labring/sealos-skills` | 主机命令的暴露方式取决于 ClawHub 运行时 |
 | CodeBuddy | `/plugin marketplace add labring/sealos-skills` | 主机命令的暴露方式取决于 CodeBuddy 运行时 |
 | Gemini CLI | `gemini extensions install https://github.com/labring/sealos-skills` | 仅提供上下文的扩展；让 Gemini 使用 Sealos Skills |
@@ -136,6 +156,7 @@ Codex 集成遵循 [OpenAI Codex 插件构建指南](https://developers.openai.c
 - `marketplaces/README.md` 维护 marketplace 规则，避免夸大命令支持范围。
 - `scripts/validate-codex-plugin.py` 验证 Codex 清单、Claude Code 元数据、仓库 marketplace、平台注册表和资源路径。
 - `skills/**/SKILL.md` 始终是唯一的技能源；不要添加第二份打包副本。
+- `package.json`、`cordis.patch.yml` 和 `index.js` 把同一份根技能树注册为 DeepSeek Harness profile bundle。
 
 发布或推送清单变更前，请验证插件元数据：
 
@@ -235,6 +256,7 @@ python3 -m json.tool distribution/platforms.json >/dev/null
 - [`gemini-extension.json`](../gemini-extension.json) — Gemini CLI 上下文扩展
 - [`qwen-extension.json`](../qwen-extension.json) — Qwen Code 上下文扩展
 - [`openclaw.plugin.json`](../openclaw.plugin.json) — OpenClaw / ClawHub 包指针
+- [`package.json`](../package.json)、[`cordis.patch.yml`](../cordis.patch.yml) 和 [`index.js`](../index.js) — DeepSeek Harness profile bundle；把根目录 `skills/**` 注册到 `ctx.skills`
 - [`commands/sealos.md`](../commands/sealos.md) — 兼容主机的 `/sealos` 插件命令入口
 - [`distribution/platforms.json`](../distribution/platforms.json) — 平台支持注册表
 - [`marketplaces/README.md`](../marketplaces/README.md) — marketplace 规则和支持声明归属

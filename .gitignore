@@ -10,6 +10,9 @@ docs
 # Local plugin packages
 dist/
 
+# npm install residue from the DeepSeek Harness bundle
+node_modules/
+
 # Local agent install artifacts; keep repo marketplace metadata tracked
 .agents/*
 !.agents/plugins/

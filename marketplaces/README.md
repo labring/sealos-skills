@@ -14,6 +14,7 @@ This directory documents the Sealos skill pack distribution surfaces.
 - `gemini-extension.json` — Gemini CLI extension manifest using `CLAUDE.md` as context.
 - `qwen-extension.json` — Qwen Code extension manifest using `CLAUDE.md` as context.
 - `openclaw.plugin.json` — OpenClaw / ClawHub-style bundle pointer.
+- `package.json`, `cordis.patch.yml`, `index.js` — DeepSeek Harness profile bundle over root `skills/**`.
 - `distribution/platforms.json` — platform support registry.
 - `commands/sealos.md` — plugin slash-command entry for hosts that support command directories.
 - `qoder.md` — Qoder plugin-level routing and safety instructions.

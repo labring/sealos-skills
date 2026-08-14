@@ -98,6 +98,25 @@ Qoder examples:
 /sealos show the resources created by the last deployment
 ```
 
+### Install in DeepSeek Harness
+
+This repository is a dsh profile bundle over the same root `skills/**` source. After `npx @deepseek-ai/dsh web` works, install it into the same `web` profile (`pnpm` must be on `PATH`):
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add github:labring/sealos-skills
+npx @deepseek-ai/dsh web
+```
+
+A local checkout:
+
+```sh
+npx @deepseek-ai/dsh plugin --profile web add /path/to/sealos-skills
+```
+
+The eight root skills appear in the session skill catalog. Ask the agent to deploy to Sealos Cloud; it loads `sealos-deploy` (and sibling skills as needed) through the `skill` tool, then runs `kubectl` / `sealos-cli` through bash.
+
+The default bash sandbox blocks writes outside the workspace. Login writes `~/.sealos/kubeconfig`, so those commands need `sandbox_permissions: danger-full-access`.
+
 ### Other supported AI tools
 
 | Tool | Install | Usage |
@@ -106,6 +125,7 @@ Qoder examples:
 | Claude Code | `claude plugin marketplace add labring/sealos-skills` then `claude plugin install sealos@sealos` | `/sealos` |
 | Claude Code compatibility path | `npx plugins add https://github.com/labring/sealos-skills --target claude-code` | `/sealos` |
 | Qoder | Build with `python3 scripts/package-qoder-plugin.py`, then import the ZIP | `/sealos` or automatic skill selection |
+| DeepSeek Harness | `npx @deepseek-ai/dsh plugin --profile web add github:labring/sealos-skills` | Ask the agent to use Sealos skills; there is no `/sealos` slash command |
 | OpenClaw / ClawHub | `clawhub install labring/sealos-skills` | Host command exposure depends on the ClawHub runtime |
 | CodeBuddy | `/plugin marketplace add labring/sealos-skills` | Host command exposure depends on the CodeBuddy runtime |
 | Gemini CLI | `gemini extensions install https://github.com/labring/sealos-skills` | Context-only extension; ask Gemini to use Sealos Skills |
@@ -159,6 +179,7 @@ The Codex integration follows [OpenAI's Codex plugin build guide](https://develo
 - `scripts/validate-codex-plugin.py` validates the Codex manifest, Claude Code metadata, repo marketplaces, platform registry, and asset paths.
 - `scripts/package-qoder-plugin.py` builds a Qoder-compatible ZIP with the plugin manifest at the archive root.
 - `skills/**/SKILL.md` remains the only skill source; do not add a second packaged copy of the skills.
+- `package.json`, `cordis.patch.yml`, and `index.js` register that same root skill tree as a DeepSeek Harness profile bundle.
 
 Validate plugin metadata before publishing or pushing manifest changes:
 
@@ -261,6 +282,7 @@ Important distribution files:
 - [`gemini-extension.json`](./gemini-extension.json) — Gemini CLI context extension
 - [`qwen-extension.json`](./qwen-extension.json) — Qwen Code context extension
 - [`openclaw.plugin.json`](./openclaw.plugin.json) — OpenClaw / ClawHub bundle pointer
+- [`package.json`](./package.json), [`cordis.patch.yml`](./cordis.patch.yml), and [`index.js`](./index.js) — DeepSeek Harness profile bundle; registers root `skills/**` on `ctx.skills`
 - [`commands/sealos.md`](./commands/sealos.md) — `/sealos` plugin command entry for compatible hosts
 - [`distribution/platforms.json`](./distribution/platforms.json) — platform support registry
 - [`marketplaces/README.md`](./marketplaces/README.md) — marketplace rules and support-claim ownership

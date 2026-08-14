@@ -29,7 +29,7 @@ class DesignValidatorTests(unittest.TestCase):
                 shutil.copytree(source, root / directory, symlinks=True)
         (root / "plugins").mkdir()
         (root / "plugins/sealos").symlink_to("..")
-        for file_name in ("plugin.json", "marketplace.json", "gemini-extension.json", "qwen-extension.json", "openclaw.plugin.json", "README.md", "AGENTS.md", "qoder.md"):
+        for file_name in ("plugin.json", "marketplace.json", "gemini-extension.json", "qwen-extension.json", "openclaw.plugin.json", "package.json", "README.md", "AGENTS.md", "qoder.md"):
             shutil.copy(ROOT / file_name, root / file_name)
         (root / "CLAUDE.md").symlink_to("AGENTS.md")
         return temp, root
