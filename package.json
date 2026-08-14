@@ -1,5 +1,5 @@
 {
-  "name": "dsh-plugin-sealos",
+  "name": "sealos",
   "version": "1.2.5",
   "description": "DeepSeek Harness bundle that registers the Sealos skill pack on ctx.skills.",
   "type": "module",
