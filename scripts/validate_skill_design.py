@@ -327,6 +327,7 @@ def _version_checks(root: Path) -> list[DesignDiagnostic]:
         ("gemini-extension.json", ("version",)),
         ("qwen-extension.json", ("version",)),
         ("openclaw.plugin.json", ("version",)),
+        ("package.json", ("version",)),
         ("distribution/platforms.json", ("version",)),
     )
     for relative, field_path in fields:

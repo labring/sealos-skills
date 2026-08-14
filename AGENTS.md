@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents when working with code in this r
 
 ## What This Project Is
 
-Sealos Skills is a plugin-first skills repository for Sealos Cloud. It supports the `skills.sh` ecosystem, Codex plugins, Claude Code-compatible plugins, Gemini/Qwen context extensions, and other AI-tool distribution surfaces.
+Sealos Skills is a plugin-first skills repository for Sealos Cloud. It supports the `skills.sh` ecosystem, Codex plugins, Claude Code-compatible plugins, DeepSeek Harness profile bundles, Gemini/Qwen context extensions, and other AI-tool distribution surfaces.
 
 The repository contains one root-level skills pack plus supporting helper scripts, manifests, and eval fixtures. The landing site lives in a separate site repository.
 
@@ -17,6 +17,7 @@ This repo does not have a single top-level app build.
 - Keep `skills/sealos-deploy/evals/` in sync when skill behavior changes.
 - Validate distribution metadata when adding or renaming skills, commands, or manifests.
 - Run `python3 scripts/validate-codex-plugin.py` when Codex plugin metadata changes.
+- Run `npm test` when the DeepSeek Harness bundle (`package.json`, `index.js`, `cordis.patch.yml`) changes.
 
 ## Branch Merge Policy: `main` → `brain-deploy-preview`
 
@@ -44,7 +45,7 @@ Apply this policy whenever changes from `main` are merged into the branch named 
 - Keep the target branch's `README.md` and `CLAUDE.md`. They describe the `skills.sh` prepare-only product and must not be replaced by `main` plugin-first documentation or by the `main` `CLAUDE.md` symlink.
 - Merge `.gitignore` manually. Adopt generic ignore patterns when useful, preserve preview-specific generated-document rules, and do not add exceptions that exist only to track main's plugin metadata.
 - Review `.agents/sealos-deploy-containerize.mmd` manually and keep it accurate for the preview prepare flow. Do not overwrite it automatically with a diagram for the full deploy/runtime pipeline.
-- Do not merge main's plugin and marketplace surfaces: `.codex-plugin/`, `.claude-plugin/`, `.codebuddy-plugin/`, `.agents/plugins/`, `commands/`, `distribution/`, `marketplaces/`, `plugins/`, `plugin.json`, `marketplace.json`, `gemini-extension.json`, `qwen-extension.json`, or `openclaw.plugin.json`.
+- Do not merge main's plugin and marketplace surfaces: `.codex-plugin/`, `.claude-plugin/`, `.codebuddy-plugin/`, `.agents/plugins/`, `commands/`, `distribution/`, `marketplaces/`, `plugins/`, `plugin.json`, `marketplace.json`, `gemini-extension.json`, `qwen-extension.json`, `openclaw.plugin.json`, `package.json`, `cordis.patch.yml`, or `index.js`.
 - Do not merge main's current `assets/`; they contain plugin branding and Codex usage media. Evaluate future non-plugin assets separately.
 - Do not merge main's `.planning/` history. If the preview branch has planning artifacts of its own, preserve the target branch's versions.
 - Evaluate root `scripts/` files manually. Merge a script only when it validates behavior intentionally shared with the preview branch. Do not merge `scripts/validate-codex-plugin.py` or `scripts/test-sealos-deploy-template-fast-path.mjs`, because they validate main-only plugin or full-deploy behavior.

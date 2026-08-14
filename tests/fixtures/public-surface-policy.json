@@ -30,7 +30,8 @@
     {"path": "plugin.json", "field": ["version"]},
     {"path": "gemini-extension.json", "field": ["version"]},
     {"path": "qwen-extension.json", "field": ["version"]},
-    {"path": "openclaw.plugin.json", "field": ["version"]}
+    {"path": "openclaw.plugin.json", "field": ["version"]},
+    {"path": "package.json", "field": ["version"]}
   ],
   "inventoryManifests": [
     {"path": ".claude-plugin/plugin.json", "field": ["skills"]},

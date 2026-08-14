@@ -2,7 +2,7 @@
   "name": "sealos",
   "version": "1.2.5",
   "repository": "https://github.com/labring/sealos-skills",
-  "lastUpdated": "2026-08-07",
+  "lastUpdated": "2026-08-14",
   "platforms": [
     {
       "id": "codex",
@@ -103,6 +103,18 @@
       "commands": "host_dependent",
       "evidence": "root skills/** + CLAUDE.md",
       "lastVerified": "2026-05-20"
+    },
+    {
+      "id": "deepseek-harness",
+      "name": "DeepSeek Harness",
+      "claim": "install-target",
+      "runtime": "plugin",
+      "install": "npx @deepseek-ai/dsh plugin --profile web add github:labring/sealos-skills",
+      "alternateInstall": "npx @deepseek-ai/dsh plugin --profile web add /path/to/sealos-skills",
+      "invoke": "Ask the agent to load Sealos skills through the skill tool; slash-command /sealos is not claimed",
+      "commands": "not_claimed",
+      "evidence": "package.json dsh.bundle + cordis.patch.yml + index.js provider over root skills/**",
+      "lastVerified": "2026-08-14"
     }
   ]
 }
