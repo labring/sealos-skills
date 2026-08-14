@@ -3,4 +3,4 @@
 # mounts the skill registry and the model-facing skill loader.
 - insert:
     - id: sealos-skills
-      name: dsh-plugin-sealos
+      name: sealos

@@ -21,7 +21,7 @@ export const inject = ['skills']
 export function apply(ctx) {
   const skills = loadSkillsSync()
   if (skills.length === 0) {
-    throw new Error(`dsh-plugin-sealos: no SKILL.md bundles found under ${SKILLS_ROOT}`)
+    throw new Error(`sealos: no SKILL.md bundles found under ${SKILLS_ROOT}`)
   }
   ctx.skills.registerProvider(() => ({
     name: PROVIDER_NAME,
@@ -72,15 +72,15 @@ function parseSkillFile(raw, directory) {
   const skillFile = join(directory, 'SKILL.md')
   const parsed = parseFrontmatter(raw)
   if (parsed === undefined) {
-    throw new Error(`dsh-plugin-sealos: ${skillFile} is missing YAML frontmatter`)
+    throw new Error(`sealos: ${skillFile} is missing YAML frontmatter`)
   }
   const skillName = stringField(parsed.data, 'name')
   const description = stringField(parsed.data, 'description')
   if (skillName === undefined || description === undefined) {
-    throw new Error(`dsh-plugin-sealos: ${skillFile} frontmatter requires name and description`)
+    throw new Error(`sealos: ${skillFile} frontmatter requires name and description`)
   }
   if (!SKILL_NAME.test(skillName)) {
-    throw new Error(`dsh-plugin-sealos: invalid skill name "${skillName}"`)
+    throw new Error(`sealos: invalid skill name "${skillName}"`)
   }
   return {
     name: skillName,
@@ -100,7 +100,7 @@ function sortSkills(skills) {
   const names = new Set()
   for (const skill of skills) {
     if (names.has(skill.name)) {
-      throw new Error(`dsh-plugin-sealos: duplicate skill name "${skill.name}"`)
+      throw new Error(`sealos: duplicate skill name "${skill.name}"`)
     }
     names.add(skill.name)
   }

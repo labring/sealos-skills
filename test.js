@@ -15,7 +15,7 @@ const expectedNames = [
   'sealos-s3',
 ]
 
-describe('dsh-plugin-sealos', () => {
+describe('sealos', () => {
   it('registers every root skill bundle from skills/*/SKILL.md', async () => {
     const providers = []
     apply({
